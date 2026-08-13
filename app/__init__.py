@@ -42,6 +42,8 @@ def create_app():
         return {"current_year": datetime.now().year}
 
     with app.app_context():
-        db.create_all()
+        from .database import ensure_database
+
+        app.config["DATABASE_MIGRATION_REPORT"] = ensure_database(str(db.engine.url))
 
     return app

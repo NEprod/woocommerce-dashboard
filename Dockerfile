@@ -12,6 +12,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir --requirement requirements.txt
 
 COPY --chown=app:app app ./app
+COPY --chown=app:app migrations ./migrations
 COPY --chown=app:app config.py run.py ./
 
 RUN mkdir -p /app/instance /catalogue /output && \

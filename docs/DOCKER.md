@@ -13,6 +13,8 @@ docker tag neprod/woocommerce-dashboard:phase-0 neprod/woocommerce-dashboard:0.1
 
 The image runs as a non-root user with Gunicorn, one worker, four threads, and port `7485`. One worker is required because scan progress and background threads are process-local.
 
+Gunicorn imports the application before accepting requests. That startup applies Alembic migrations to `/app/instance/site.db`. A matching unversioned Phase 0 database is backed up under `/app/instance/backups` before adoption; a failed or unknown migration prevents the worker from starting. Keep the instance mount writable by the container user and preserve its backup files until the upgraded application has been validated.
+
 ## Compose
 
 Copy `.env.example` to the ignored `.env` and set:
@@ -32,6 +34,8 @@ Application settings stored through the UI must use container paths (`/catalogue
 Back up the instance/database and filesystem catalogue together with an understood consistency point. Back up authored JSON, `.scanned`, SKU indexes, and source assets. Never rely on the disposable container layer for application data.
 
 Never bake `.env`, SQLite, product folders, markers, generated images, exports, logs, or backups into the image.
+
+For recovery, stop the container and use a one-off container with the same instance mount to run `python -m app.database restore`, as documented in [Database Migrations](MIGRATIONS.md). Do not restore while Gunicorn is accessing SQLite.
 
 ## Later Unraid deployment
 
