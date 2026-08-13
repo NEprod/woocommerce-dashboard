@@ -1,0 +1,184 @@
+{% extends "layouts/base-fullscreen.html" %}
+{% block title %}Initial Scan{% endblock %}
+
+{% block content %}
+<main class="vh-100 d-flex align-items-center justify-content-center">
+  <div class="container">
+    <div class="row justify-content-center align-items-center">
+      <div class="col-lg-10">
+
+        <div class="row g-0 rounded overflow-hidden shadow-lg" style="min-height: 500px;">
+          <!-- LEFT PANEL -->
+          <div class="col-md-5 d-none d-md-flex flex-column justify-content-center align-items-center text-dark bg-warning p-4">
+            <img src="{{ url_for('static', filename='assets/img/logo-placeholder.png') }}"
+                 class="rounded-circle mb-3" style="width: 100px; height: 100px;" alt="Logo">
+            <h5 class="fw-bold mb-0">Let’s Get Started</h5>
+            <h3 class="fw-bold text-uppercase">Initial Scan</h3>
+          </div>
+
+          <!-- RIGHT PANEL -->
+          <div class="col-md-7 bg-dark text-light p-5">
+
+            <!-- Jinja → data-* so JS stays clean -->
+            <div id="scanCfg"
+                 data-start-url="{{ url_for('main.initial_scan_start') }}"
+                 data-stream-url-template="{{ url_for('main.initial_scan_stream', run_id='__RUN__') }}"
+                 data-progress-url-template="{{ url_for('main.initial_scan_progress', run_id='__RUN__') }}"
+                 data-have-settings="{{ 1 if (settings and settings.product_folder and settings.output_folder and settings.url_prefix) else 0 }}">
+            </div>
+
+            <h2 class="tlc-heading mb-3">Initial Scan</h2>
+            <p class="text-muted small mb-4">We’ll scan your product folders and prepare everything locally.</p>
+
+            <!-- Settings summary -->
+            <div class="card p-3 mb-3 bg-white">
+              <div class="row">
+                <div class="col-md-4">
+                  <div><strong>Product folder:</strong> <span class="text-burnt-clay">{{ settings.product_folder or "-" }}</span></div>
+                </div>
+                <div class="col-md-4">
+                  <div><strong>Image output folder:</strong> <span class="text-burnt-clay">{{ settings.output_folder or "-" }}</span></div>
+                </div>
+                <div class="col-md-4">
+                  <div><strong>URL prefix:</strong> <span class="text-burnt-clay">{{ settings.url_prefix or "-" }}</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="d-flex flex-wrap gap-2 mb-3">
+              <select id="scanMode" class="form-select form-select-sm" style="max-width: 220px;">
+                <option value="append" selected>Append (initial scan)</option>
+                <option value="update" disabled>Update (keep SKUs)</option>
+                <option value="full" disabled>Force (reset SKUs)</option>
+              </select>
+              <button id="startBtn" class="btn btn-tlc btn-sm">Start Scan</button>
+              <a id="continueBtn" class="btn btn-outline-secondary btn-sm d-none d-flex align-items-center justify-content-center" href="{{ url_for('main.dashboard') }}">Continue to Dashboard</a>
+            </div>
+
+            <!-- Progress -->
+            <div class="progress mb-2" style="height: 10px;">
+              <div id="scanProgress" class="progress-bar bg-warning" role="progressbar" style="width: 0%" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+            </div>
+            <div class="text-muted mb-3" id="progressLabel">0/0 scanned — Elapsed: 00:00</div>
+
+            <!-- Log -->
+            <div class="logbox" id="logBox" style="max-height: 300px;"></div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</main>
+{% endblock %}
+
+{% block javascripts %}
+<script>
+  // Pure JS: no Jinja inside this block
+  let runId = null;
+  let startTime = null;
+  let sse = null;
+  let pollTimer = null;
+
+  function pad(n){ return n < 10 ? '0' + n : '' + n; }
+  function formatElapsed(ms){
+    const s = Math.floor(ms/1000);
+    const m = Math.floor(s/60);
+    const r = s % 60;
+    return pad(m) + ':' + pad(r);
+  }
+  function setProgress(done, total){
+    const pct = total ? Math.round((done/total)*100) : 0;
+    const bar = document.getElementById('scanProgress');
+    bar.style.width = pct + '%';
+    bar.setAttribute('aria-valuenow', pct);
+  }
+  function appendLogLine(text){
+    const box = document.getElementById('logBox');
+    const p = document.createElement('div');
+    p.textContent = timeStamp() + ' ' + text;
+    box.appendChild(p);
+    box.scrollTop = box.scrollHeight;
+  }
+  function timeStamp(){
+    const d = new Date();
+    return d.toTimeString().slice(0,8);
+  }
+
+  function startScan(){
+    const cfg = document.getElementById('scanCfg');
+    const startUrl = cfg.dataset.startUrl;
+    const mode = document.getElementById('scanMode').value;
+
+    fetch(startUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({mode})
+    })
+    .then(r => {
+      if(!r.ok) throw new Error('Failed to start scan');
+      return r.json();
+    })
+    .then(data => {
+      runId = data.run_id;
+      startTime = Date.now();
+      streamLogs();
+      startProgressPoll();
+      document.getElementById('startBtn').disabled = true;
+    })
+    .catch(err => appendLogLine(`[❌] ${err.message || 'Error starting scan'}`));
+  }
+
+  function streamLogs(){
+    const cfg = document.getElementById('scanCfg');
+    const template = cfg.dataset.streamUrlTemplate; // contains "__RUN__"
+    const url = template.replace('__RUN__', runId);
+
+    sse = new EventSource(url);
+    sse.onmessage = (e) => appendLogLine(e.data);
+    sse.onerror = () => { sse.close(); };
+  }
+
+  function startProgressPoll(){
+    const cfg = document.getElementById('scanCfg');
+    const template = cfg.dataset.progressUrlTemplate;
+    const label = document.getElementById('progressLabel');
+
+    pollTimer = setInterval(() => {
+      const url = template.replace('__RUN__', runId);
+      fetch(url)
+        .then(r => r.json())
+        .then(j => {
+          const done = j.done || 0;
+          const total = j.total || 0;
+          setProgress(done, total);
+          const elapsed = formatElapsed(Date.now() - startTime);
+          label.textContent = `${done}/${total} scanned — Elapsed: ${elapsed}`;
+
+          if (j.status === 'done' || j.status === 'error') {
+            clearInterval(pollTimer);
+            if (sse) sse.close();
+            document.getElementById('continueBtn').classList.remove('d-none');
+            document.getElementById('startBtn').disabled = false;
+          }
+        })
+        .catch(() => { /* ignore transient polling errors */ });
+    }, 800);
+  }
+
+  // init
+  (function init(){
+    const cfg = document.getElementById('scanCfg');
+    const haveSettings = cfg.dataset.haveSettings === '1';
+    const startBtn = document.getElementById('startBtn');
+    if (!haveSettings) {
+      startBtn.disabled = true;
+      startBtn.title = 'Please complete Initial Settings first';
+    }
+    document.getElementById('startBtn').addEventListener('click', startScan);
+    window.addEventListener('beforeunload', () => { if (sse) sse.close(); });
+  })();
+</script>
+{% endblock %}

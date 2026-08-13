@@ -1,0 +1,27 @@
+services:
+  app:
+    image: neprod/woocommerce-dashboard:${IMAGE_TAG:-latest}
+    build:
+      context: .
+    container_name: woocommerce-dashboard
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-7485}:7485"
+    env_file:
+      - .env
+    environment:
+      FLASK_ENV: production
+    volumes:
+      - "${INSTANCE_FOLDER_HOST}:/app/instance"
+      - "${PRODUCT_FOLDER_HOST}:/catalogue"
+      - "${OUTPUT_FOLDER_HOST}:/output"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7485/', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

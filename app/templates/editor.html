@@ -1,0 +1,413 @@
+{% extends "layouts/base.html" %}
+{% block content %}
+<h2 class="mb-3">Edit {{ kind|title }} JSON — {{ product.sku }}</h2>
+
+<div class="mb-2 small text-muted">
+  Path: <code id="jsonPath">{{ json_path or 'Not created yet' }}</code>
+</div>
+
+{% if json_path == "" %}
+<div class="alert alert-warning" role="alert">
+  There is no {{ kind }} <code>product_info.json</code> for this product yet.
+  Create an override from the Products page to generate one.
+</div>
+{% endif %}
+
+<div class="alert alert-info" role="alert">
+  Only non‑empty fields are saved. A <code>.update</code> file will be dropped and an update scan will run automatically.
+</div>
+
+<form id="editorForm" class="mb-4">
+  <!-- Collection type -->
+  <div class="mb-3">
+    <label class="form-label">Collection Type</label>
+    <select class="form-select" name="collection_type" id="collection_type" {% if kind != 'shared' %}disabled{% endif %}>
+      <option value="">— select —</option>
+      <option value="Simple">Simple</option>
+      <option value="Variable Collection">Variable Collection</option>
+      <option value="Single Variable">Single Variable</option>
+    </select>
+    {% if kind != 'shared' %}
+    <div class="form-text">Collection type is defined on the shared JSON.</div>
+    {% endif %}
+  </div>
+
+  <!-- Title -->
+  <div class="mb-3">
+    <label class="form-label">Title</label>
+    <input class="form-control" name="title">
+  </div>
+
+  <!-- SKU Prefix (shared only) -->
+  <div class="mb-3">
+    <label class="form-label">SKU Prefix (shared only)</label>
+    <input class="form-control" name="sku_prefix" {% if kind != 'shared' %}disabled{% endif %}>
+  </div>
+
+  <!-- Price + Sale Price -->
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label">Price</label>
+      <input class="form-control" name="price">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Sale Price</label>
+      <input class="form-control" name="sale_price">
+    </div>
+  </div>
+
+  <!-- Sale start/end -->
+  <div class="row g-3 mt-1">
+    <div class="col-md-6">
+      <label class="form-label">Sale Start Date</label>
+      <input type="date" class="form-control" name="sale_start_date">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Sale End Date</label>
+      <input type="date" class="form-control" name="sale_end_date">
+    </div>
+  </div>
+
+  <!-- Weight -->
+  <div class="mt-3">
+    <label class="form-label">Weight (g)</label>
+    <input class="form-control" name="weight">
+  </div>
+
+  <!-- Dimensions -->
+  <div class="row g-3 mt-1">
+    <div class="col-md-4">
+      <label class="form-label">Length (mm)</label>
+      <input class="form-control" name="length">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Width (mm)</label>
+      <input class="form-control" name="width">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Height (mm)</label>
+      <input class="form-control" name="height">
+    </div>
+  </div>
+
+  <!-- Categories / Tags -->
+  <div class="row g-3 mt-1">
+    <div class="col-md-6">
+      <label class="form-label">Categories (comma‑separated)</label>
+      <input class="form-control" name="categories">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Tags (comma‑separated)</label>
+      <input class="form-control" name="tags">
+    </div>
+  </div>
+
+  <!-- Shipping class -->
+  <div class="mt-3">
+    <label class="form-label">Shipping Class</label>
+    <input class="form-control" name="shipping_class">
+  </div>
+
+  <!-- Grouped / Upsell / Cross-sell -->
+  <div class="row g-3 mt-1">
+    <div class="col-md-4">
+      <label class="form-label">Grouped IDs (comma‑separated)</label>
+      <input class="form-control" name="grouped_ids">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Upsell IDs (comma‑separated)</label>
+      <input class="form-control" name="upsell_ids">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Cross Sell IDs (comma‑separated)</label>
+      <input class="form-control" name="cross_sell_ids">
+    </div>
+  </div>
+
+  <!-- Short Description -->
+  <div class="mt-3">
+    <label class="form-label">Short Description</label>
+    <textarea class="form-control" name="short_description" rows="3"></textarea>
+  </div>
+
+  <!-- Description -->
+  <div class="mt-3">
+    <label class="form-label">Description</label>
+    <textarea class="form-control" name="description" rows="5"></textarea>
+  </div>
+
+  <!-- Attributes JSON -->
+  <div class="mt-3">
+    <label class="form-label">Attributes (JSON)</label>
+    <textarea class="form-control" name="attributes" rows="5" placeholder='{"Size":["A4","A3"]}'></textarea>
+  </div>
+
+  <!-- Image Attributes JSON -->
+  <div class="mt-3">
+    <label class="form-label">Image Attributes (JSON)</label>
+    <textarea class="form-control" name="image_attributes" rows="3" placeholder='["Style","Size"]'></textarea>
+  </div>
+
+  <!-- Variation Modifiers JSON -->
+  <div class="mt-3">
+    <label class="form-label">Variation Modifiers (JSON)</label>
+    <textarea class="form-control" name="variation_modifiers" rows="5" placeholder='{"Size=A3":{"price":"12.99"}}'></textarea>
+  </div>
+
+  <!-- Meta -->
+  <div class="mt-3">
+    <label class="form-label">Meta Title</label>
+    <input class="form-control" name="meta_title">
+  </div>
+  <div class="mt-3">
+    <label class="form-label">Meta Description</label>
+    <textarea class="form-control" name="meta_description" rows="3"></textarea>
+  </div>
+
+  <div class="mt-4">
+    <button type="button" id="saveBtn" class="btn btn-primary" {% if json_path == "" %}disabled{% endif %}>Save</button>
+    <a href="{{ url_for('main.edit_products') }}" class="btn btn-secondary">Back</a>
+  </div>
+</form>
+
+{% include 'includes/_scan_modal.html' %}
+
+<!-- JSON bootstrap: no Jinja inside JS code below -->
+<script id="editor-bootstrap" type="application/json">
+{{ {
+  "product_id": product.id,
+  "sku": product.sku,
+  "kind": kind,
+  "json_path": json_path or "",
+  "has_file": json_path|length > 0,
+  "open_asset_url": (url_for('main.open_info_asset', product_id=product.id, label=kind) if json_path else None),
+  "save_url": url_for('main.product_save_json', sku=product.sku),
+  "stream_url_tpl": url_for('main.initial_scan_stream',   run_id='__RUNID__'),
+  "progress_url_tpl": url_for('main.initial_scan_progress', run_id='__RUNID__'),
+  "done_url_tpl": url_for('main.initial_scan_done',     run_id='__RUNID__')
+} | tojson }}
+</script>
+{% endblock %}
+
+{% block javascripts %}
+<script>
+(function(){
+  const BOOT = JSON.parse(document.getElementById('editor-bootstrap').textContent || "{}");
+  const KIND = BOOT.kind || "shared";
+  const HAS_FILE = !!BOOT.has_file;
+
+  // -------- helpers --------
+  const pick = (o, k, d="") => (o && o[k] != null ? o[k] : d);
+  const fmtDate = (s) => (typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "");
+
+  function toCSV(a) {
+    if (!Array.isArray(a)) return "";
+    return a.join(", ");
+  }
+  function fromCSV(s) {
+    if (!s) return [];
+    return s.split(",").map(x => x.trim()).filter(Boolean);
+  }
+  function safeJSON(str, fallback) {
+    try { return JSON.parse(str); } catch { return fallback; }
+  }
+
+  // Remove empty strings, empty arrays/objects, and nulls
+  function prune(o) {
+    if (Array.isArray(o)) {
+      const arr = o.map(prune).filter(v =>
+        v !== "" && v !== null &&
+        !(Array.isArray(v) && v.length === 0) &&
+        !(typeof v === "object" && v && Object.keys(v).length === 0)
+      );
+      return arr;
+    } else if (o && typeof o === "object") {
+      const out = {};
+      Object.keys(o).forEach(k => {
+        const v = prune(o[k]);
+        const isEmptyObj = (typeof v === "object" && v && Object.keys(v).length === 0);
+        const isEmptyArr = (Array.isArray(v) && v.length === 0);
+        if (v !== "" && v !== null && !isEmptyObj && !isEmptyArr) out[k] = v;
+      });
+      return out;
+    }
+    return o;
+  }
+
+  // -------- load existing JSON into form --------
+  async function loadExisting() {
+    if (!HAS_FILE || !BOOT.open_asset_url) return {};
+    try {
+      const res = await fetch(BOOT.open_asset_url);
+      if (!res.ok) return {};
+      return await res.json();
+    } catch { return {}; }
+  }
+
+  function setForm(data) {
+    const f = document.getElementById("editorForm");
+
+    // collection_type (shared only)
+    if (f.elements.collection_type) {
+      f.elements.collection_type.value = pick(data, "collection_type", "");
+    }
+
+    f.elements.title.value = pick(data, "title");
+    if (f.elements.sku_prefix && !f.elements.sku_prefix.disabled) {
+      f.elements.sku_prefix.value = pick(data, "sku_prefix");
+    }
+    f.elements.price.value = pick(data, "price");
+    f.elements.sale_price.value = pick(data, "sale_price");
+    f.elements.sale_start_date.value = fmtDate(pick(data, "sale_start_date", ""));
+    f.elements.sale_end_date.value   = fmtDate(pick(data, "sale_end_date", ""));
+    f.elements.weight.value = pick(data, "weight");
+
+    // dimensions (only set if element exists)
+    const dims = pick(data, "dimensions", {});
+    const lenEl = f.elements.namedItem("length");
+    const widEl = f.elements.namedItem("width");
+    const heiEl = f.elements.namedItem("height");
+    if (lenEl) lenEl.value = pick(dims, "length");
+    if (widEl) widEl.value = pick(dims, "width");
+    if (heiEl) heiEl.value = pick(dims, "height");
+
+    f.elements.categories.value = toCSV(pick(data, "categories", []));
+    f.elements.tags.value       = toCSV(pick(data, "tags", []));
+
+    f.elements.shipping_class.value = pick(data, "shipping_class");
+
+    f.elements.grouped_ids.value    = toCSV(pick(data, "grouped_ids", []));
+    f.elements.upsell_ids.value     = toCSV(pick(data, "upsell_ids", []));
+    f.elements.cross_sell_ids.value = toCSV(pick(data, "cross_sell_ids", []));
+
+    f.elements.short_description.value = pick(data, "short_description");
+    f.elements.description.value       = pick(data, "description");
+
+    // --- IMPORTANT: leave JSON textareas BLANK if keys are missing ---
+    const attrEl = f.elements.namedItem("attributes");
+    if (attrEl) {
+      if (data && Object.prototype.hasOwnProperty.call(data, "attributes") && typeof data.attributes === "object") {
+        try { attrEl.value = JSON.stringify(data.attributes, null, 2); }
+        catch { attrEl.value = ""; }
+      } else {
+        attrEl.value = "";
+      }
+    }
+
+    const imgAttrEl = f.elements.namedItem("image_attributes");
+    if (imgAttrEl) {
+      if (data && Object.prototype.hasOwnProperty.call(data, "image_attributes") && Array.isArray(data.image_attributes)) {
+        try { imgAttrEl.value = JSON.stringify(data.image_attributes, null, 2); }
+        catch { imgAttrEl.value = ""; }
+      } else {
+        imgAttrEl.value = "";
+      }
+    }
+
+    const varModEl = f.elements.namedItem("variation_modifiers");
+    if (varModEl) {
+      if (data && Object.prototype.hasOwnProperty.call(data, "variation_modifiers") && typeof data.variation_modifiers === "object") {
+        try { varModEl.value = JSON.stringify(data.variation_modifiers, null, 2); }
+        catch { varModEl.value = ""; }
+      } else {
+        varModEl.value = "";
+      }
+    }
+
+    f.elements.meta_title.value       = pick(data, "meta_title");
+    f.elements.meta_description.value = pick(data, "meta_description");
+  }
+
+  function getFormData() {
+    const f = document.getElementById("editorForm");
+    const v = Object.fromEntries(new FormData(f).entries());
+
+    const out = {
+      collection_type: v.collection_type || "",
+      title: v.title || "",
+      sku_prefix: v.sku_prefix || "",
+      price: v.price || "",
+      sale_price: v.sale_price || "",
+      sale_start_date: v.sale_start_date || "",
+      sale_end_date: v.sale_end_date || "",
+      weight: v.weight || "",
+      dimensions: { length: v.length || "", width: v.width || "", height: v.height || "" },
+      categories: fromCSV(v.categories || ""),
+      tags: fromCSV(v.tags || ""),
+      shipping_class: v.shipping_class || "",
+      grouped_ids: fromCSV(v.grouped_ids || ""),
+      upsell_ids: fromCSV(v.upsell_ids || ""),
+      cross_sell_ids: fromCSV(v.cross_sell_ids || ""),
+      short_description: v.short_description || "",
+      description: v.description || "",
+      // If textarea blank -> safeJSON("", fallback) returns fallback ({} / []),
+      // but prune() will drop empty objects/arrays so nothing gets written.
+      attributes: safeJSON(v.attributes || "", {}),
+      image_attributes: safeJSON(v.image_attributes || "", []),
+      variation_modifiers: safeJSON(v.variation_modifiers || "", {}),
+      meta_title: v.meta_title || "",
+      meta_description: v.meta_description || "",
+    };
+
+    // If this is an override, strip shared-only fields so we don't overwrite them on disk
+    if (KIND !== "shared") {
+      delete out.collection_type;
+      delete out.sku_prefix;
+    }
+
+    return prune(out);
+  }
+
+  // Prefill
+  loadExisting().then(setForm);
+
+  // -------- Save + scan modal --------
+  const saveBtn = document.getElementById("saveBtn");
+  if (HAS_FILE) {
+    saveBtn.addEventListener("click", async () => {
+      const payload = { kind: KIND, data: getFormData() };
+      const res = await fetch(BOOT.save_url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+      const out = await res.json();
+      if (out.error) { alert(out.error); return; }
+
+      const runId = out.run_id;
+      const modalEl = document.getElementById("scanModal");
+      const logEl = modalEl.querySelector(".scan-log");
+      const progEl = modalEl.querySelector(".scan-progress");
+      logEl.textContent = "";
+      progEl.textContent = "Starting...";
+      const modal = new bootstrap.Modal(modalEl);
+      modal.show();
+
+      const streamUrl   = BOOT.stream_url_tpl.replace("__RUNID__", String(runId));
+      const progressUrl = BOOT.progress_url_tpl.replace("__RUNID__", String(runId));
+      const doneUrl     = BOOT.done_url_tpl.replace("__RUNID__", String(runId));
+
+      const evtSrc = new EventSource(streamUrl);
+      evtSrc.onmessage = (ev) => {
+        logEl.textContent += ev.data + "\n";
+        logEl.scrollTop = logEl.scrollHeight;
+      };
+
+      const intv = setInterval(async () => {
+        const r = await fetch(progressUrl);
+        const js = await r.json();
+        if (js.status === "done" || js.status === "error") {
+          clearInterval(intv);
+          evtSrc.close();
+          progEl.textContent = js.status.toUpperCase();
+          // optional "done" callback
+          fetch(doneUrl).catch(()=>{});
+        } else {
+          progEl.textContent = `${js.done}/${js.total} (${js.status})`;
+        }
+      }, 1000);
+    });
+  }
+})();
+</script>
+{% endblock %}

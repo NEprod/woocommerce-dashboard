@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+
+  <title>
+    {% block title %}Tender Loving Creations Admin{% endblock %} | TLC Dashboard
+  </title>
+
+  <meta name="description" content="Manage your TLC products, orders, and settings with ease." />
+  <link rel="canonical" href="{{ url_for('main.dashboard') }}" />
+  <meta name="theme-color" content="#A97155" />
+
+  <!-- Favicons -->
+  <link rel="apple-touch-icon" sizes="120x120" href="{{ url_for('static', filename='assets/img/favicon/tlc-icon-120.png') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='assets/img/favicon/tlc-icon-32.png') }}">
+
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- Font Awesome for icons -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+
+  <!-- Custom TLC Styles -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='assets/css/custom.css') }}" />
+
+  <!-- JQuery 3 js and Bootstrap js -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  {% block stylesheets %}{% endblock stylesheets %}
+</head>
+
+<body>
+
+  {% block content %}{% endblock content %}
+
+  {% block javascripts %}{% endblock javascripts %}
+</body>
+</html>

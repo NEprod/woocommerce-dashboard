@@ -1,0 +1,11 @@
+{
+  "sku": "FIC-V-0042",
+  "title": "Fictional Badge",
+  "images_used": ["fixture.png"],
+  "variation_count": 2,
+  "variations": [
+    {"attributes": {"Colour": "Amber"}, "sku": "FIC-V-0042-1"},
+    {"attributes": {"Colour": "Teal"}, "sku": "FIC-V-0042-2"}
+  ],
+  "scan_date": "2000-01-01T00:00:00"
+}

@@ -1,0 +1,148 @@
+{% extends "layouts/base-fullscreen.html" %}
+{% block title %}Initial Folder Setup{% endblock %}
+
+{% block content %}
+<main class="vh-100 d-flex align-items-center justify-content-center">
+  <div class="container">
+    <div class="row justify-content-center align-items-center">
+      <div class="col-lg-10">
+
+        <div class="row g-0 rounded overflow-hidden shadow-lg" style="min-height: 500px;">
+          
+          <!-- LEFT PANEL -->
+          <div class="col-md-5 d-none d-md-flex flex-column justify-content-center align-items-center text-dark bg-warning p-4">
+            <img src="{{ url_for('static', filename='assets/img/logo-placeholder.png') }}" class="rounded-circle mb-3" style="width: 100px; height: 100px;" alt="Logo">
+            <h5 class="fw-bold mb-0">Let’s Get Started</h5>
+            <h3 class="fw-bold text-uppercase">Folder Setup</h3>
+          </div>
+
+          <!-- RIGHT PANEL -->
+          <div class="col-md-7 bg-dark text-light p-5">
+            <h2 class="tlc-heading mb-3">Initial Folder Setup</h2>
+            <p class="text-muted small mb-4">Set the folders and image URL used for your product manager.</p>
+
+            <form method="POST">
+              {{ form.hidden_tag() }}
+
+              <div class="form-group mb-3">
+                <label for="product_folder">Main Product Folder</label>
+                <div class="input-group">
+                  {{ form.product_folder(class="form-control", id="product_folder", placeholder="e.g. /products") }}
+                  <button type="button" class="btn-tlc" onclick="openFolderPicker('product_folder')">
+                    <i class="fas fa-folder-open"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-group mb-3">
+                <label for="output_folder">Output Folder for Images</label>
+                <div class="input-group">
+                  {{ form.output_folder(class="form-control", id="output_folder", placeholder="e.g. /web_images") }}
+                  <button type="button" class="btn-tlc" onclick="openFolderPicker('output_folder')">
+                    <i class="fas fa-folder-open"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-group mb-4">
+                <label for="url_prefix">Image URL Prefix</label>
+                {{ form.url_prefix(class="form-control", id="url_prefix", placeholder="e.g. https://yourdomain.com/images/") }}
+              </div>
+
+              <div class="d-grid">
+                {{ form.submit(class="btn btn-tlc") }}
+              </div>
+            </form>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Folder Picker Modal -->
+<div class="modal fade" id="folderPickerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header border-bottom-0">
+        <h5 class="modal-title">Select Folder</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <div class="modal-body">
+        <nav id="breadcrumbNav" class="mb-3 small text-muted"></nav>
+
+        <div id="folderList" class="list-group" style="max-height: 300px; overflow-y: auto;">
+          <!-- Folder items will be loaded here -->
+        </div>
+      </div>
+
+      <div class="modal-footer border-top-0">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button id="selectFolderBtn" type="button" class="btn btn-tlc" disabled>Select This Folder</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentFolderPath = "/";
+  let selectedFolderPath = "";
+
+  function openFolderPicker(targetInputId) {
+    $("#folderPickerModal").data("targetInput", targetInputId);
+    selectedFolderPath = "";
+    loadFolderList("/");
+    $("#folderPickerModal").modal("show");
+    $("#selectFolderBtn").prop("disabled", true);
+  }
+
+  function loadFolderList(path) {
+    currentFolderPath = path;
+    $("#folderList").empty();
+
+    $.getJSON(`/folder-picker?path=${encodeURIComponent(path)}`, (data) => {
+      const parts = data.current_path.split("/").filter(Boolean);
+      let breadcrumbHTML = `<span class="me-2 text-warning">📁</span><a href="#" onclick="loadFolderList('/')">root</a>`;
+      let accumulatedPath = "";
+      parts.forEach((part) => {
+        accumulatedPath += "/" + part;
+        breadcrumbHTML += ` / <a href="#" onclick="loadFolderList('${accumulatedPath}')">${part}</a>`;
+      });
+      $("#breadcrumbNav").html(breadcrumbHTML);
+
+      data.folders.forEach((folderPath) => {
+        const folderName = folderPath.split("/").pop();
+        const item = $(`
+          <a href="#" class="list-group-item list-group-item-action bg-dark text-light">
+            <i class="fas fa-folder me-2 text-warning"></i>${folderName}
+          </a>
+        `);
+        item.on("click", (e) => {
+          e.preventDefault();
+          loadFolderList(folderPath);
+        });
+        $("#folderList").append(item);
+      });
+
+      selectedFolderPath = data.current_path;
+      $("#selectFolderBtn").prop("disabled", false);
+    }).fail(() => {
+      $("#folderList").append(`<div class="text-danger">Failed to load folders.</div>`);
+      $("#selectFolderBtn").prop("disabled", true);
+    });
+  }
+
+  $(document).ready(() => {
+    $("#selectFolderBtn").on("click", () => {
+      const inputId = $("#folderPickerModal").data("targetInput");
+      if (inputId && selectedFolderPath) {
+        $(`#${inputId}`).val(selectedFolderPath);
+        $("#folderPickerModal").modal("hide");
+      }
+    });
+  });
+</script>
+{% endblock %}

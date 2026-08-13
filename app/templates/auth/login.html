@@ -1,0 +1,81 @@
+{% extends "layouts/base-fullscreen.html" %}
+{% block title %} Sign In {% endblock %}
+
+{% block content %}
+<main class="vh-100 d-flex align-items-center justify-content-center">
+  <div class="container">
+    <div class="row justify-content-center align-items-center">
+      <div class="col-lg-10">
+
+        <div class="row g-0 rounded overflow-hidden shadow-lg" style="min-height: 500px;">
+
+          <!-- LEFT PANEL: Welcome -->
+          <div class="col-md-5 d-none d-md-flex flex-column justify-content-center align-items-center text-dark bg-warning p-4">
+            <img src="{{ url_for('static', filename='assets/img/logo-placeholder.png') }}" class="rounded-circle mb-3" style="width: 100px; height: 100px;" alt="Logo">
+            <h5 class="fw-bold mb-0">Welcome Back</h5>
+            <h3 class="fw-bold text-uppercase">Tender Loving Creations</h3>
+          </div>
+
+          <!-- RIGHT PANEL: Login Form -->
+          <div class="col-md-7 bg-dark text-light p-5">
+            <h2 class="tlc-heading mb-3">Sign In to your dashboard</h2>
+            <p class="text-muted small mb-4">Please enter your credentials to continue.</p>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+              {% if messages %}
+                {% for category, message in messages %}
+                  <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                  </div>
+                {% endfor %}
+              {% endif %}
+            {% endwith %}
+
+            <form method="POST" class="mt-4">
+              {{ form.hidden_tag() }}
+
+              <div class="form-group mb-4">
+                <label for="username">Username</label>
+                <div class="input-group">
+                  <span class="input-group-text"><i class="fas fa-user"></i></span>
+                  {{ form.username(class="form-control", id="username", placeholder="Enter username") }}
+                </div>
+              </div>
+
+              <div class="form-group mb-4">
+                <label for="password">Password</label>
+                <div class="input-group">
+                  <span class="input-group-text"><i class="fas fa-lock"></i></span>
+                  {{ form.password(class="form-control", id="password", placeholder="Password") }}
+                </div>
+              </div>
+
+              <div class="d-flex justify-content-between align-items-top mb-4">
+                <div class="form-check">
+                  {{ form.remember(class="form-check-input", id="remember") }}
+                  <label class="form-check-label mb-0" for="remember">Remember me</label>
+                </div>
+                <div>
+                  <a href="{{ url_for('main.forgot_password') }}" class="text-muted small">Forgot password?</a>
+                </div>
+              </div>
+
+              <div class="d-grid">
+                {{ form.submit(class="btn btn-tlc") }}
+              </div>
+            </form>
+
+            <div class="d-flex justify-content-center align-items-center mt-4">
+              <span class="fw-normal small">
+                First-time user? <strong>Create an admin account first.</strong>
+              </span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+{% endblock %}
