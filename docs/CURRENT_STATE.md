@@ -35,6 +35,8 @@ Authentication, initial settings, the initial scan screen, `/edit_products`, raw
 - Parent and variation ingestion use separate commits.
 - `.scanned` is written before database ingestion succeeds.
 
+Scanner characterization also confirms that variation modifier sale prices are not emitted by the variation row builder, authored shipping class is emitted as blank, list ordering is not stable, unknown collection types yield no rows, editor relationship-key names differ from the row builder, and Woo rows are limited to five attribute slots. These remain protected discrepancies pending separate contract decisions.
+
 ## Integrations
 
 WooCommerce-compatible rows and future Woo ID columns exist, but there is no live WooCommerce or WordPress API client. Discord webhooks can receive scan start/completion/failure and per-product ingestion notifications. Delivery failures are not persisted or retried.

@@ -41,3 +41,31 @@ When a product is selected for update, the parent and every currently resolved v
 ## Preserved discrepancy
 
 Saving shared JSON writes `.update` beside the collection JSON. This selects Single Variable roots correctly, but Simple and Variable Collection scans check `.update` in product child folders. Phase 0 characterises and documents this discrepancy without changing it.
+
+## Filesystem side effects and current ordering
+
+The scanner is not a read-only resolver. For each selected product, the current Phase 0 implementation performs these filesystem effects before database ingestion begins:
+
+1. SKU allocation updates `sku_index.json` when a new parent or variation identity is needed.
+2. Source images are processed into the configured output folder.
+3. `.scanned` is written with the parent SKU, resolved title, source image filenames, scan timestamp, and variation mappings where applicable.
+4. Writing `.scanned` removes the product-level `.update` marker when present.
+5. After all selected collections have been scanned, the accumulated Woo-style rows are passed to SQLite ingestion.
+
+For variable products, variation counter updates occur while variations are being built, between image processing and the final `.scanned` write. `sku_index.json` and `.scanned` are currently written directly rather than by atomic replacement. SQLite and filesystem state do not share a transaction: filesystem changes can survive a database failure, and the database currently commits parents before variations.
+
+Phase 1 may make marker/index writes atomic and add recoverable orchestration, but must preserve marker payloads, SKU allocation, SKU reuse, row resolution, and the distinction between filesystem and SQLite consistency.
+
+## Characterised discrepancies awaiting separate decisions
+
+The following behavior is deliberately protected as the current contract and is not corrected as part of database parity:
+
+- A variation modifier can resolve `sale_price` internally, but the variation row builder retains the base sale price instead of emitting the modifier value.
+- Authored `shipping_class` reaches the row builder input, but the Woo row currently emits an empty Shipping class.
+- Shared and override lists are deduplicated with a set, so membership is preserved but ordering is not deterministic.
+- An unknown `collection_type` passes the current minimal validation and produces no rows because no scanner branch matches it.
+- The editor uses `upsell_ids` and `cross_sell_ids`, while the row builder consumes `upsells` and `crosssells`.
+- Woo parent and variation rows expose at most five attribute slots.
+- `.scanned.images_used` records source image filenames; emitted row URLs can refer to converted output filenames.
+
+These discrepancies require explicit future scanner-contract decisions. Phase 1 persists only values that reach the approved emitted projection.
