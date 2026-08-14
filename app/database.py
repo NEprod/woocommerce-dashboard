@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sqlite3
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -145,14 +147,31 @@ def _integrity_check(path: Path) -> None:
         raise MigrationFailure(f"SQLite integrity check failed for {path}: {result}")
 
 
-def backup_database(database_path: Path, backup_root: Path | None = None) -> Path:
+def _revision_label(value: str | None) -> str:
+    label = value or "unknown"
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", label).strip("-.") or "unknown"
+
+
+def backup_database(
+    database_path: Path,
+    backup_root: Path | None = None,
+    *,
+    source_revision: str | None = None,
+    target_revision: str | None = None,
+) -> Path:
     """Create a consistent SQLite backup using the SQLite backup API."""
 
     database_path = database_path.resolve()
     root = (backup_root or database_path.parent / "backups").resolve()
-    root.mkdir(parents=True, exist_ok=True)
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
-    destination = root / f"{database_path.stem}.pre-migration-{timestamp}.sqlite3"
+    unique = uuid.uuid4().hex[:12]
+    transition = (
+        f"{_revision_label(source_revision)}-to-{_revision_label(target_revision)}"
+    )
+    destination = root / (
+        f"{database_path.stem}.migration-{transition}.{timestamp}.{unique}.sqlite3"
+    )
     temporary = destination.with_suffix(destination.suffix + ".tmp")
     temporary.unlink(missing_ok=True)
 
@@ -165,6 +184,7 @@ def backup_database(database_path: Path, backup_root: Path | None = None) -> Pat
         source_connection.close()
     _integrity_check(temporary)
     os.replace(temporary, destination)
+    destination.chmod(0o600)
     return destination
 
 
@@ -225,10 +245,20 @@ def ensure_database(
 
     try:
         if action == "adopted":
-            backup_path = backup_database(database_path, backup_root)
+            backup_path = backup_database(
+                database_path,
+                backup_root,
+                source_revision="unversioned",
+                target_revision=head,
+            )
             command.stamp(config, BASELINE_REVISION)
         elif action == "upgraded":
-            backup_path = backup_database(database_path, backup_root)
+            backup_path = backup_database(
+                database_path,
+                backup_root,
+                source_revision=current,
+                target_revision=head,
+            )
         upgrade_command(config, "head")
     except Exception as error:
         raise MigrationFailure(str(error), backup_path) from error

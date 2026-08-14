@@ -1,4 +1,5 @@
 import sqlite3
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from app.database import (
     BASELINE_REVISION,
     MigrationFailure,
     Phase0SchemaMismatch,
+    backup_database,
     ensure_database,
     restore_database,
 )
@@ -209,16 +211,20 @@ def test_unknown_unversioned_schema_is_rejected_without_stamping(tmp_path):
 
 
 def test_unversioned_phase0_upgrade_preserves_data_ids_and_placeholders(tmp_path):
-    database = tmp_path / "phase0.db"
+    database = tmp_path / "instance" / "phase0.db"
+    database.parent.mkdir()
     _create_phase0_database(database)
     before = _all_phase0_data(database)
 
-    report = ensure_database(_url(database), backup_root=tmp_path / "backups")
+    report = ensure_database(_url(database))
     snapshot = _snapshot(database)
 
     assert report.action == "adopted"
     assert report.revision == BASELINE_REVISION
     assert report.backup_path and report.backup_path.exists()
+    assert report.backup_path.parent == database.parent / "backups"
+    assert report.backup_path.parent != Path(tempfile.gettempdir())
+    assert "unversioned-to-0001_phase0" in report.backup_path.name
     assert _all_phase0_data(report.backup_path) == before
     assert snapshot["user"]["id"] == 7
     assert snapshot["settings"]["id"] == 3
@@ -250,11 +256,29 @@ def test_repeated_upgrade_is_safe_and_does_not_create_another_backup(tmp_path):
     assert len(list(backup_root.glob("*.sqlite3"))) == 1
 
 
+def test_default_backup_names_are_unique_and_do_not_overwrite(tmp_path):
+    database = tmp_path / "instance" / "phase0.db"
+    database.parent.mkdir()
+    _create_phase0_database(database)
+
+    first = backup_database(
+        database, source_revision="unversioned", target_revision=BASELINE_REVISION
+    )
+    second = backup_database(
+        database, source_revision="unversioned", target_revision=BASELINE_REVISION
+    )
+
+    assert first != second
+    assert first.exists() and second.exists()
+    assert first.parent == second.parent == database.parent / "backups"
+    assert _all_phase0_data(first) == _all_phase0_data(second)
+
+
 def test_failed_adoption_leaves_backup_that_can_be_restored_and_used(
     tmp_path, monkeypatch
 ):
-    database = tmp_path / "phase0.db"
-    backup_root = tmp_path / "backups"
+    database = tmp_path / "instance" / "phase0.db"
+    database.parent.mkdir()
     _create_phase0_database(database)
 
     def fail_upgrade(*args, **kwargs):
@@ -262,10 +286,12 @@ def test_failed_adoption_leaves_backup_that_can_be_restored_and_used(
 
     monkeypatch.setattr("app.database.command.upgrade", fail_upgrade)
     with pytest.raises(MigrationFailure, match="injected migration failure") as error:
-        ensure_database(_url(database), backup_root=backup_root)
+        ensure_database(_url(database))
 
     backup = error.value.backup_path
     assert backup and backup.exists()
+    assert backup.parent == database.parent / "backups"
+    assert "unversioned-to-0001_phase0" in backup.name
     restore_database(backup, database)
     monkeypatch.undo()
 

@@ -27,8 +27,10 @@ An unknown or partial unversioned schema is rejected rather than guessed. Phase 
 Before adoption or a versioned upgrade, a backup is written under `instance/backups` by default using a name like:
 
 ```text
-site.pre-migration-20260813T120000.000000Z.sqlite3
+site.migration-unversioned-to-0001_phase0.20260814T120000.000000Z.UNIQUE.sqlite3
 ```
+
+The default backup directory is derived from the active database path: a database at `/app/instance/site.db` is backed up under `/app/instance/backups`. It never defaults to `/tmp` or another disposable location. Filenames include the source and target revisions where known, a UTC timestamp, and a unique suffix so an existing backup is never overwritten. The directory is created if needed, and migration does not proceed until the backup passes SQLite integrity checking.
 
 Already-current and fresh databases do not create migration backups. Backups are runtime data and must not be committed or baked into the image.
 
