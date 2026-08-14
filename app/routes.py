@@ -36,8 +36,30 @@ from app.models import (
 )
 from app.utils.token_utils import generate_reset_token, verify_reset_token
 from app.utils.scan_runner import start_scan, stream_lines, get_progress, _runs
+from app.utils.operation_control import (
+    CatalogueOperationActive,
+    acquire_catalogue_operation,
+    finish_catalogue_operation,
+)
 
 main = Blueprint("main", __name__)
+
+
+def _operation_conflict(error):
+    active = error.active
+    return (
+        jsonify(
+            {
+                "error": "catalogue_operation_active",
+                "message": (
+                    f"Another catalogue operation ({active['operation_type']}) "
+                    "is already active."
+                ),
+                "active_operation": active,
+            }
+        ),
+        409,
+    )
 
 # ---------- Dashboard ----------
 
@@ -221,7 +243,6 @@ def product_save_json(sku):
 
     target = asset.path
     folder = os.path.dirname(target)
-    os.makedirs(folder, exist_ok=True)
 
     # Load existing JSON (if any)
     existing = {}
@@ -243,31 +264,52 @@ def product_save_json(sku):
         else:
             return jsonify({"error": "collection_type is required on shared JSON"}), 400
 
-    # Backup
-    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     try:
-        if os.path.exists(target):
-            with open(target, "rb") as rf, open(f"{target}.bak.{ts}", "wb") as wf:
-                wf.write(rf.read())
-    except Exception:
-        pass
+        operation = acquire_catalogue_operation(
+            "shared_collection_update" if kind == "shared" else "product_update",
+            {"sku": p.sku, "kind": kind},
+        )
+    except CatalogueOperationActive as error:
+        return _operation_conflict(error)
 
-    # Atomic write
-    tmp = f"{target}.tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(merged, f, ensure_ascii=False, indent=4)
-    os.replace(tmp, target)
-
-    # Touch .update so scanner reprocesses
     try:
-        with open(os.path.join(folder, ".update"), "w") as f:
-            f.write("1")
-    except Exception:
-        pass
+        os.makedirs(folder, exist_ok=True)
 
-    # Kick update scan
-    run_id = uuid.uuid4().hex
-    start_scan(current_app._get_current_object(), run_id, scan_mode="update")
+        # Backup
+        ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        try:
+            if os.path.exists(target):
+                with open(target, "rb") as rf, open(
+                    f"{target}.bak.{ts}", "wb"
+                ) as wf:
+                    wf.write(rf.read())
+        except Exception:
+            pass
+
+        # Atomic write
+        tmp = f"{target}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(merged, f, ensure_ascii=False, indent=4)
+        os.replace(tmp, target)
+
+        # Touch .update so scanner reprocesses
+        try:
+            with open(os.path.join(folder, ".update"), "w") as f:
+                f.write("1")
+        except Exception:
+            pass
+
+        # Kick update scan
+        run_id = uuid.uuid4().hex
+        start_scan(
+            current_app._get_current_object(),
+            run_id,
+            scan_mode="update",
+            operation_id=operation.id,
+        )
+    except Exception as error:
+        finish_catalogue_operation(operation.id, status="failed", error=error)
+        return jsonify({"error": "failed to save product metadata"}), 500
 
     return jsonify({"ok": True, "run_id": run_id})
 
@@ -300,24 +342,38 @@ def api_delete_override(product_id):
     folder = os.path.dirname(real_path)
 
     try:
-        if os.path.exists(real_path):
-            os.remove(real_path)
-    except Exception as e:
-        return jsonify({"error": f"failed to delete file: {e}"}), 500
-
-    ProductAsset.query.filter_by(
-        product_id=p.id, kind="info", label="override"
-    ).delete()
-    db.session.commit()
+        operation = acquire_catalogue_operation(
+            "product_update", {"sku": p.sku, "kind": "override_delete"}
+        )
+    except CatalogueOperationActive as error:
+        return _operation_conflict(error)
 
     try:
-        with open(os.path.join(folder, ".update"), "w") as f:
-            f.write("1")
-    except Exception:
-        pass
+        if os.path.exists(real_path):
+            os.remove(real_path)
 
-    run_id = uuid.uuid4().hex
-    start_scan(current_app._get_current_object(), run_id, scan_mode="update")
+        ProductAsset.query.filter_by(
+            product_id=p.id, kind="info", label="override"
+        ).delete()
+        db.session.commit()
+
+        try:
+            with open(os.path.join(folder, ".update"), "w") as f:
+                f.write("1")
+        except Exception:
+            pass
+
+        run_id = uuid.uuid4().hex
+        start_scan(
+            current_app._get_current_object(),
+            run_id,
+            scan_mode="update",
+            operation_id=operation.id,
+        )
+    except Exception as error:
+        db.session.rollback()
+        finish_catalogue_operation(operation.id, status="failed", error=error)
+        return jsonify({"error": "failed to delete override"}), 500
 
     return jsonify({"ok": True, "run_id": run_id})
 
@@ -415,41 +471,55 @@ def api_override_create(product_id):
     if not os.path.isdir(abs_path):
         return jsonify({"error": "folder does not exist"}), 400
 
+    try:
+        operation = acquire_catalogue_operation(
+            "product_update", {"sku": p.sku, "kind": "override_create"}
+        )
+    except CatalogueOperationActive as error:
+        return _operation_conflict(error)
+
     json_path = os.path.join(abs_path, "product_info.json")
     try:
         if not os.path.exists(json_path):
             os.makedirs(abs_path, exist_ok=True)
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump({}, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return jsonify({"error": f"failed to create JSON: {e}"}), 500
 
-    ProductAsset.query.filter_by(
-        product_id=p.id, kind="info", label="override"
-    ).delete()
-    db.session.add(
-        ProductAsset(
-            product_id=p.id,
-            variation_id=None,
-            path=json_path,
-            kind="info",
-            label="override",
-            is_primary=False,
+        ProductAsset.query.filter_by(
+            product_id=p.id, kind="info", label="override"
+        ).delete()
+        db.session.add(
+            ProductAsset(
+                product_id=p.id,
+                variation_id=None,
+                path=json_path,
+                kind="info",
+                label="override",
+                is_primary=False,
+            )
         )
-    )
-    db.session.commit()
+        db.session.commit()
 
-    # Touch .update
-    try:
-        with open(os.path.join(abs_path, ".update"), "w") as f:
-            f.write("1")
-    except Exception:
-        pass
+        # Touch .update
+        try:
+            with open(os.path.join(abs_path, ".update"), "w") as f:
+                f.write("1")
+        except Exception:
+            pass
 
-    # Kick update scan
-    run_id = uuid.uuid4().hex
-    start_scan(current_app._get_current_object(), run_id, scan_mode="update")
-    edit_url = url_for("main.product_edit", product_id=p.id, label="override")
+        # Kick update scan
+        run_id = uuid.uuid4().hex
+        start_scan(
+            current_app._get_current_object(),
+            run_id,
+            scan_mode="update",
+            operation_id=operation.id,
+        )
+        edit_url = url_for("main.product_edit", product_id=p.id, label="override")
+    except Exception as error:
+        db.session.rollback()
+        finish_catalogue_operation(operation.id, status="failed", error=error)
+        return jsonify({"error": "failed to create override"}), 500
 
     return jsonify({"ok": True, "run_id": run_id, "edit_url": edit_url})
 
@@ -509,7 +579,10 @@ def initial_scan_start():
     """
     run_id = uuid.uuid4().hex
     scan_mode = request.json.get("mode", "append")
-    start_scan(current_app._get_current_object(), run_id, scan_mode=scan_mode)
+    try:
+        start_scan(current_app._get_current_object(), run_id, scan_mode=scan_mode)
+    except CatalogueOperationActive as error:
+        return _operation_conflict(error)
     return jsonify({"run_id": run_id})
 
 

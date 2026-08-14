@@ -21,6 +21,53 @@ class Settings(db.Model):
     url_prefix = db.Column(db.String(512))
 
 
+# -------------------- Catalogue operations --------------------
+
+
+class CatalogueOperation(db.Model):
+    __tablename__ = "catalogue_operation"
+
+    id = db.Column(db.String(32), primary_key=True)
+    operation_type = db.Column(db.String(32), nullable=False, index=True)
+    status = db.Column(db.String(32), nullable=False, default="running", index=True)
+    scope = db.Column(db.Text, nullable=False, default="{}")
+    started_at = db.Column(db.DateTime, nullable=False, server_default=func.now(), index=True)
+    finished_at = db.Column(db.DateTime)
+    products_attempted = db.Column(db.Integer, nullable=False, default=0)
+    products_succeeded = db.Column(db.Integer, nullable=False, default=0)
+    products_failed = db.Column(db.Integer, nullable=False, default=0)
+    error = db.Column(db.Text)
+    marker_state = db.Column(db.String(32), nullable=False, default="not_started")
+    recovery_state = db.Column(db.String(32), nullable=False, default="none")
+
+    items = db.relationship(
+        "CatalogueOperationItem",
+        backref="operation",
+        cascade="all, delete-orphan",
+        lazy=True,
+    )
+
+
+class CatalogueOperationItem(db.Model):
+    __tablename__ = "catalogue_operation_item"
+
+    id = db.Column(db.Integer, primary_key=True)
+    operation_id = db.Column(
+        db.String(32),
+        db.ForeignKey("catalogue_operation.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_path = db.Column(db.String(1024))
+    sku = db.Column(db.String(64), index=True)
+    status = db.Column(db.String(32), nullable=False, default="pending", index=True)
+    database_state = db.Column(db.String(32), nullable=False, default="not_started")
+    marker_state = db.Column(db.String(32), nullable=False, default="not_started")
+    error = db.Column(db.Text)
+    started_at = db.Column(db.DateTime, server_default=func.now())
+    finished_at = db.Column(db.DateTime)
+
+
 # -------------------- Associations --------------------
 
 product_categories = db.Table(

@@ -117,9 +117,10 @@
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({mode})
     })
-    .then(r => {
-      if(!r.ok) throw new Error('Failed to start scan');
-      return r.json();
+    .then(async r => {
+      const data = await r.json();
+      if(!r.ok) throw new Error(data.message || data.error || 'Failed to start scan');
+      return data;
     })
     .then(data => {
       runId = data.run_id;

@@ -11,6 +11,7 @@ from app.database import (
     Phase0SchemaMismatch,
     backup_database,
     ensure_database,
+    migration_head,
     restore_database,
 )
 from config import Config
@@ -18,6 +19,13 @@ from app.models import Product, User, Variation
 
 
 PHASE0_SCHEMA = Path(__file__).parent / "fixtures" / "db" / "phase0_schema.sql"
+MIGRATION_HEAD = migration_head()
+PHASE0_TABLES = {
+    "category", "collection", "product", "product_asset",
+    "product_categories", "product_image", "product_tags", "service",
+    "settings", "tag", "user", "variation", "variation_attribute",
+    "variation_image",
+}
 
 
 def _url(path):
@@ -108,12 +116,7 @@ def _all_phase0_data(path):
     connection.row_factory = sqlite3.Row
     try:
         data = {}
-        for table in (
-            "category", "collection", "product", "product_asset",
-            "product_categories", "product_image", "product_tags", "service",
-            "settings", "tag", "user", "variation", "variation_attribute",
-            "variation_image",
-        ):
+        for table in sorted(PHASE0_TABLES):
             rows = connection.execute(f'SELECT * FROM "{table}" ORDER BY rowid').fetchall()
             data[table] = [dict(row) for row in rows]
         return data
@@ -121,7 +124,7 @@ def _all_phase0_data(path):
         connection.close()
 
 
-def _schema_signature(path):
+def _schema_signature(path, tables_to_include=None):
     connection = sqlite3.connect(path)
     try:
         signature = {}
@@ -133,6 +136,8 @@ def _schema_signature(path):
                 "AND name != 'alembic_version'"
             )
         }
+        if tables_to_include is not None:
+            tables &= set(tables_to_include)
         for table in sorted(tables):
             columns = [tuple(row[1:6]) for row in connection.execute(
                 f'PRAGMA table_info("{table}")'
@@ -159,9 +164,20 @@ def test_fresh_database_initializes_at_migration_head(tmp_path):
     report = ensure_database(_url(database), backup_root=tmp_path / "backups")
 
     assert report.action == "initialized"
-    assert report.revision == BASELINE_REVISION
+    assert report.revision == MIGRATION_HEAD
     assert report.backup_path is None
-    assert _snapshot(database)["revision"] == BASELINE_REVISION
+    assert _snapshot(database)["revision"] == MIGRATION_HEAD
+    connection = sqlite3.connect(database)
+    try:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+    finally:
+        connection.close()
+    assert {"catalogue_operation", "catalogue_operation_item"} <= tables
 
 
 def test_fresh_migration_schema_matches_frozen_phase0_fixture(tmp_path):
@@ -170,7 +186,7 @@ def test_fresh_migration_schema_matches_frozen_phase0_fixture(tmp_path):
     ensure_database(_url(fresh), backup_root=tmp_path / "backups")
     _create_phase0_database(phase0)
 
-    assert _schema_signature(fresh) == _schema_signature(phase0)
+    assert _schema_signature(fresh, PHASE0_TABLES) == _schema_signature(phase0)
 
 
 def test_application_factory_uses_migrations_for_fresh_database(tmp_path):
@@ -179,7 +195,7 @@ def test_application_factory_uses_migrations_for_fresh_database(tmp_path):
     Config.SQLALCHEMY_DATABASE_URI = _url(database)
     try:
         app = create_app()
-        assert app.config["DATABASE_MIGRATION_REPORT"].revision == BASELINE_REVISION
+        assert app.config["DATABASE_MIGRATION_REPORT"].revision == MIGRATION_HEAD
     finally:
         Config.SQLALCHEMY_DATABASE_URI = original_uri
 
@@ -220,11 +236,11 @@ def test_unversioned_phase0_upgrade_preserves_data_ids_and_placeholders(tmp_path
     snapshot = _snapshot(database)
 
     assert report.action == "adopted"
-    assert report.revision == BASELINE_REVISION
+    assert report.revision == MIGRATION_HEAD
     assert report.backup_path and report.backup_path.exists()
     assert report.backup_path.parent == database.parent / "backups"
     assert report.backup_path.parent != Path(tempfile.gettempdir())
-    assert "unversioned-to-0001_phase0" in report.backup_path.name
+    assert f"unversioned-to-{MIGRATION_HEAD}" in report.backup_path.name
     assert _all_phase0_data(report.backup_path) == before
     assert snapshot["user"]["id"] == 7
     assert snapshot["settings"]["id"] == 3
@@ -291,7 +307,7 @@ def test_failed_adoption_leaves_backup_that_can_be_restored_and_used(
     backup = error.value.backup_path
     assert backup and backup.exists()
     assert backup.parent == database.parent / "backups"
-    assert "unversioned-to-0001_phase0" in backup.name
+    assert f"unversioned-to-{MIGRATION_HEAD}" in backup.name
     restore_database(backup, database)
     monkeypatch.undo()
 
@@ -308,7 +324,7 @@ def test_failed_adoption_leaves_backup_that_can_be_restored_and_used(
 
     report = ensure_database(_url(database), backup_root=tmp_path / "retry-backups")
     snapshot = _snapshot(database)
-    assert report.revision == BASELINE_REVISION
+    assert report.revision == MIGRATION_HEAD
     assert snapshot["user"]["id"] == 7
     assert snapshot["product"]["id"] == 11
     assert snapshot["variation"]["id"] == 21

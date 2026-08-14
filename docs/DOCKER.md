@@ -11,7 +11,7 @@ docker build -t neprod/woocommerce-dashboard:phase-0 .
 docker tag neprod/woocommerce-dashboard:phase-0 neprod/woocommerce-dashboard:0.1.0
 ```
 
-The image runs as a non-root user with Gunicorn, one worker, four threads, and port `7485`. One worker is required because scan progress and background threads are process-local.
+The image runs as a non-root user with Gunicorn, one worker, four threads, and port `7485`. One worker and one application replica are required because scan progress, background threads, and the catalogue mutation lock are process-local. Persistent operation rows support diagnosis but are not a distributed mutex.
 
 Gunicorn imports the application before accepting requests. That startup applies Alembic migrations to `/app/instance/site.db`. A matching unversioned Phase 0 database is backed up under `/app/instance/backups` before adoption; backups never default to disposable container storage such as `/tmp`. A failed or unknown migration prevents the worker from starting. Keep the instance mount writable by the container user and preserve its backup files until the upgraded application has been validated.
 

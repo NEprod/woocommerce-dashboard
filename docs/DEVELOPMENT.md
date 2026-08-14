@@ -22,6 +22,8 @@ docker build -t neprod/woocommerce-dashboard:phase-0 .
 
 Migration tests construct a frozen, synthetic Phase 0 database in a temporary directory. They must cover fresh initialization, adoption, repeated upgrade, backup, injected failure, restore, and post-restore use. Never substitute a local or archived database. Operational procedures are in [Database Migrations](MIGRATIONS.md).
 
+Operation-control tests use temporary databases and fictional paths. They must prove conflict rejection before mutation, success and exception cleanup, sanitized persistent errors, notification-failure cleanup, and startup interruption recovery. Resetting the process-local test lock is allowed only in isolated tests. See [Catalogue Operation Control](CATALOGUE_OPERATIONS.md).
+
 Tests must create temporary directories and SQLite databases. Fixtures under `tests/fixtures` must be fictional and contain no copied commercial catalogue text, customer information, live SKU, local personal path, credential, or webhook. Tests must never use the live `.env`, `instance/site.db`, catalogue, output folder, Discord, WooCommerce, WordPress, or internet.
 
 ## Git workflow

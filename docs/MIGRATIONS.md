@@ -4,9 +4,10 @@ SQLite schema changes are managed by Alembic. Application startup resolves the c
 
 ## Fresh database
 
-For a missing or empty database, startup applies every revision from the beginning. The Phase 1 migration foundation has one revision:
+For a missing or empty database, startup applies every revision from the beginning. The current revisions are:
 
 - `0001_phase0`: the frozen Phase 0 schema.
+- `0002_operations`: persistent catalogue operation and per-parent recovery history.
 
 The baseline revision contains its own schema declarations. It does not import the current ORM model to create tables, so later model changes cannot rewrite the historical baseline.
 
@@ -27,7 +28,7 @@ An unknown or partial unversioned schema is rejected rather than guessed. Phase 
 Before adoption or a versioned upgrade, a backup is written under `instance/backups` by default using a name like:
 
 ```text
-site.migration-unversioned-to-0001_phase0.20260814T120000.000000Z.UNIQUE.sqlite3
+site.migration-unversioned-to-0002_operations.20260814T120000.000000Z.UNIQUE.sqlite3
 ```
 
 The default backup directory is derived from the active database path: a database at `/app/instance/site.db` is backed up under `/app/instance/backups`. It never defaults to `/tmp` or another disposable location. Filenames include the source and target revisions where known, a UTC timestamp, and a unique suffix so an existing backup is never overwritten. The directory is created if needed, and migration does not proceed until the backup passes SQLite integrity checking.

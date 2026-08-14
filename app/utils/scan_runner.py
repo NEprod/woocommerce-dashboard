@@ -14,6 +14,10 @@ from app.utils.discord import (  # UPDATED import
     notify_scan_failed,
 )
 from app.utils.ingest import ingest_rows_to_db
+from app.utils.operation_control import (
+    acquire_catalogue_operation,
+    finish_catalogue_operation,
+)
 
 # In-memory progress store
 _runs = {}
@@ -32,7 +36,31 @@ def make_logger(run_id):
     return log
 
 
-def start_scan(app, run_id, scan_mode="append"):
+def _operation_type_for_scan(scan_mode):
+    if scan_mode == "full":
+        return "full"
+    if scan_mode == "update":
+        return "product_update"
+    return "append"
+
+
+def start_scan(
+    app,
+    run_id,
+    scan_mode="append",
+    *,
+    operation_id=None,
+    operation_type=None,
+    scope=None,
+):
+    if operation_id is None:
+        with app.app_context():
+            lease = acquire_catalogue_operation(
+                operation_type or _operation_type_for_scan(scan_mode),
+                scope or {"scan_mode": scan_mode},
+            )
+        operation_id = lease.id
+
     _runs[run_id] = {
         "total": 0,
         "done": 0,
@@ -44,23 +72,38 @@ def start_scan(app, run_id, scan_mode="append"):
             "started_at": datetime.utcnow().isoformat(),
             "finished_at": None,
         },
+        "operation_id": operation_id,
     }
     thread = threading.Thread(
-        target=_scan_thread, args=(app, run_id, scan_mode), daemon=True
+        target=_scan_thread,
+        args=(app, run_id, scan_mode, operation_id),
+        daemon=True,
     )
-    thread.start()
+    try:
+        thread.start()
+    except Exception as error:
+        with app.app_context():
+            finish_catalogue_operation(operation_id, status="failed", error=error)
+        raise
+    return operation_id
 
 
-def _scan_thread(app, run_id, scan_mode):
+def _scan_thread(app, run_id, scan_mode, operation_id):
     with app.app_context():
         start_ts = datetime.utcnow()
+        operation_status = "failed"
+        operation_error = None
+        products_attempted = 0
+        products_succeeded = 0
+        products_failed = 0
         try:
             log = make_logger(run_id)
 
             settings = Settings.query.first()
             if not settings:
                 _runs[run_id]["status"] = "error"
-                log("No settings found. Please complete setup first.", level="ERROR")
+                operation_error = "No settings found. Please complete setup first."
+                log(operation_error, level="ERROR")
                 return
 
             scan_folder = settings.product_folder or ""
@@ -69,7 +112,8 @@ def _scan_thread(app, run_id, scan_mode):
 
             if not (scan_folder and image_folder and url_prefix):
                 _runs[run_id]["status"] = "error"
-                log("Missing scan settings (folders or URL prefix).", level="ERROR")
+                operation_error = "Missing scan settings (folders or URL prefix)."
+                log(operation_error, level="ERROR")
                 return
 
             force = scan_mode == "full"
@@ -121,6 +165,10 @@ def _scan_thread(app, run_id, scan_mode):
             # Ingest → DB
             summary = ingest_rows_to_db(all_rows, log=log)
             _runs[run_id]["summary"].update(summary)
+            products_succeeded = summary.get("products_created", 0) + summary.get(
+                "products_updated", 0
+            )
+            products_attempted = products_succeeded
             log(f"🗄️ DB summary: {summary}")
             log(f"📦 Total rows prepared: {len(all_rows)}")
             log("✅ Scan complete.")
@@ -135,8 +183,12 @@ def _scan_thread(app, run_id, scan_mode):
                 log(f"⚠️ Discord complete notify failed: {e}", level="WARN")
 
             _runs[run_id]["status"] = "done"
+            operation_status = "succeeded"
 
         except Exception as e:
+            operation_error = e
+            products_attempted = max(products_attempted, products_succeeded + 1)
+            products_failed = products_attempted - products_succeeded
             make_logger(run_id)(f"❌ Critical error: {e}", level="ERROR")
             _runs[run_id]["status"] = "error"
             # 🔔 Discord: failed
@@ -144,6 +196,21 @@ def _scan_thread(app, run_id, scan_mode):
                 notify_scan_failed(scan_mode, str(e))
             except Exception:
                 pass
+        finally:
+            try:
+                finish_catalogue_operation(
+                    operation_id,
+                    status=operation_status,
+                    products_attempted=products_attempted,
+                    products_succeeded=products_succeeded,
+                    products_failed=products_failed,
+                    error=operation_error,
+                )
+            except Exception as finish_error:
+                make_logger(run_id)(
+                    f"Operation history finalisation failed: {finish_error}",
+                    level="ERROR",
+                )
 
 
 def stream_lines(run_id, timeout=15):

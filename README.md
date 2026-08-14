@@ -11,6 +11,7 @@ Phase 0 (`0.1.0`) establishes a secure, documented, tested, and containerised ba
 - Shared collection metadata with optional per-product overrides.
 - Stable local SKU markers and variation generation.
 - Image preparation and SQLite ingestion.
+- Single-process catalogue operation locking and persistent operation history.
 - A limited product JSON editor and Discord scan/ingest notifications.
 
 Known incomplete areas include database field parity, active Collection-to-Product links, several missing routed templates, and live WooCommerce integration. See [Current State](docs/CURRENT_STATE.md).
@@ -53,6 +54,7 @@ The container listens on port `7485`, runs Gunicorn with one worker and four thr
 - [Scanner Contract](docs/SCANNER_CONTRACT.md)
 - [Data Model](docs/DATA_MODEL.md)
 - [Database Migrations](docs/MIGRATIONS.md)
+- [Catalogue Operation Control](docs/CATALOGUE_OPERATIONS.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Decisions](docs/DECISIONS.md)
 - [Development](docs/DEVELOPMENT.md)

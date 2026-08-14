@@ -14,5 +14,6 @@ This is a personal project baseline. Report suspected vulnerabilities privately 
 - Use a long random `SECRET_KEY` outside isolated development.
 - Review staged files and Docker build context before every push.
 - Keep persistent mounts and backups access-controlled.
+- Keep catalogue operation scopes concise. Operation history must redact credential-like keys and errors and must not store full metadata payloads.
 
 If a credential may have entered Git history or an image layer, rotate it first; removing the text afterward is not sufficient.

@@ -372,7 +372,7 @@
         body: JSON.stringify(payload)
       });
       const out = await res.json();
-      if (out.error) { alert(out.error); return; }
+      if (out.error) { alert(out.message || out.error); return; }
 
       const runId = out.run_id;
       const modalEl = document.getElementById("scanModal");

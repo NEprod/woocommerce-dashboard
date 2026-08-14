@@ -26,12 +26,14 @@ SQLite is not independently authoritative for authored product metadata.
 
 ## Schema versioning
 
-Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the Phase 0 tables and is also the adoption point for structurally matching unversioned Phase 0 databases. Application models do not create or alter tables directly at startup. See [Database Migrations](MIGRATIONS.md).
+Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the Phase 0 tables and is also the adoption point for structurally matching unversioned Phase 0 databases. Revision `0002_operations` adds catalogue operation history. Application models do not create or alter tables directly at startup. See [Database Migrations](MIGRATIONS.md).
 
 ## Models
 
 - `User`: local authentication and administrator flag.
 - `Settings`: catalogue root, processed-image output root, and public URL prefix.
+- `CatalogueOperation`: bounded scan/update/reconstruction history, product counts, and recovery state.
+- `CatalogueOperationItem`: reserved per-parent database/marker recovery detail for later Phase 1 milestones.
 - `Product`: resolved parent identity, commercial/content fields, state defaults, paths, and future Woo sync fields.
 - `Variation`: child of Product with SKU, price/inventory/dimension fields, state defaults, and future Woo fields.
 - `ProductImage` / `VariationImage`: ordered image URL galleries.

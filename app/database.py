@@ -103,6 +103,12 @@ def _head_revision(config: Config) -> str:
     return head
 
 
+def migration_head() -> str:
+    """Return the single current migration head used by application startup."""
+
+    return _head_revision(_alembic_config("sqlite:///migration-head-placeholder.db"))
+
+
 def _tables(connection: sqlite3.Connection) -> set[str]:
     return {
         row[0]

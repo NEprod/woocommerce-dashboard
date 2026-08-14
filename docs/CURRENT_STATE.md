@@ -16,6 +16,10 @@ A new installation follows `/` → `/setup` → `/initial-settings` → `/initia
 
 The scanner supports exact collection types `Simple`, `Variable Collection`, and `Single Variable`.
 
+## Operation control
+
+Append, product update, shared collection update, full, and reconstruction operation types share a non-blocking process-local lock. A conflicting request receives HTTP `409` with the active operation type and identifier before it changes catalogue files. Operation history is persistent and records bounded diagnostic fields; startup marks unfinished rows interrupted and requiring review. This control is intentionally limited to the documented single-worker, single-replica runtime.
+
 ## Verified catalogue/database consistency
 
 At the audit baseline, the live local catalogue and SQLite database agreed for 11 parent SKUs and 49 variation SKUs. Database integrity passed. Titles, types, mapped prices, dates, dimensions, descriptions, images, variation attributes, and supported modifier results agreed for the currently ingested subset.
@@ -45,7 +49,7 @@ WooCommerce-compatible rows and future Woo ID columns exist, but there is no liv
 
 - Shared collection edits place `.update` at collection root, but Simple and Variable Collection products check child product folders.
 - The initial UI exposes append, not full, mode.
-- Concurrent in-process scans are not locked.
+- Multi-worker or multi-replica catalogue mutation is not supported; the lock is process-local.
 - Scan progress is process-local and non-durable.
 - Several routes are incomplete because templates are absent.
 
