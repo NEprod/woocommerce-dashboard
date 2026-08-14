@@ -11,6 +11,7 @@ from app.utils.csv_writer import (
 )
 from app.utils.json_utils import apply_variation_modifiers, merge_product_json
 from app.utils import scanner as scanner_module
+from app.utils import file_markers as marker_module
 from app.utils.scanner import scan_collection
 
 
@@ -109,6 +110,67 @@ def test_scanner_filesystem_side_effect_order_is_sku_images_then_marker(
 
     scan_collection(collection, "https://invalid.example/assets/", output, log=quiet_log)
     assert events == ["sku_index", "images", "scanned"]
+
+
+def test_phase0_pipeline_order_removes_update_before_database_ingestion(
+    tmp_path, quiet_log, monkeypatch
+):
+    collection, product, output = _simple_collection(tmp_path)
+    (product / ".update").write_text("fixture", encoding="utf-8")
+    events = []
+    original_generate = scanner_module.generate_sku
+    original_process = scanner_module.process_images
+    original_write = scanner_module.write_scanned
+    original_remove = marker_module.os.remove
+
+    def generate(*args, **kwargs):
+        events.append("sku_index")
+        return original_generate(*args, **kwargs)
+
+    def process(*args, **kwargs):
+        events.append("images")
+        return original_process(*args, **kwargs)
+
+    def write(*args, **kwargs):
+        events.append("scanned")
+        return original_write(*args, **kwargs)
+
+    def remove(path):
+        if str(path).endswith(".update"):
+            events.append("update_removed")
+        return original_remove(path)
+
+    monkeypatch.setattr(scanner_module, "generate_sku", generate)
+    monkeypatch.setattr(scanner_module, "process_images", process)
+    monkeypatch.setattr(scanner_module, "write_scanned", write)
+    monkeypatch.setattr(marker_module.os, "remove", remove)
+
+    scan_collection(collection, "https://invalid.example/assets/", output, log=quiet_log)
+    events.append("database_ingestion")
+
+    assert events == [
+        "sku_index",
+        "images",
+        "scanned",
+        "update_removed",
+        "database_ingestion",
+    ]
+
+
+def test_phase0_database_failure_leaves_retry_skipped_after_marker_was_written(
+    tmp_path, quiet_log
+):
+    collection, product, output = _simple_collection(tmp_path)
+
+    rows = scan_collection(
+        collection, "https://invalid.example/assets/", output, log=quiet_log
+    )
+    assert [row["SKU"] for row in rows] == ["FIC-S-0001"]
+    # Characterize the old ordering: pretend DB ingestion failed after scanning.
+    assert (product / ".scanned").exists()
+    assert scan_collection(
+        collection, "https://invalid.example/assets/", output, log=quiet_log
+    ) == []
 
 
 def test_unknown_collection_type_is_accepted_by_validation_but_emits_no_rows(

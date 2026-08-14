@@ -23,6 +23,7 @@ from app.models import (
     CatalogueOperationItem,
 )
 from app.utils.discord import notify_ingest_product  # NEW
+from app.utils.file_markers import PENDING_FILE, load_pending_scanned
 from app.utils.operation_control import sanitize_operation_error
 
 # CSV-style keys
@@ -155,7 +156,12 @@ def _scan_sku_folder_index(root: str, log=print) -> Dict[str, str]:
         log(f"⚠️ Invalid product root for .scanned indexing: {root}", "WARN")
         return sku_to_folder
     for dirpath, dirnames, filenames in os.walk(root):
-        if ".scanned" in filenames:
+        if PENDING_FILE in filenames:
+            pending = load_pending_scanned(dirpath, log=log)
+            sku = pending.get("marker", {}).get("sku")
+            if sku:
+                sku_to_folder[sku] = dirpath
+        elif ".scanned" in filenames:
             scanned_path = os.path.join(dirpath, ".scanned")
             try:
                 with open(scanned_path, "r", encoding="utf-8") as f:

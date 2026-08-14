@@ -12,6 +12,9 @@ authored catalogue metadata and generation rules
 .scanned:
 processed-state and durable local SKU mapping
 
+.scanned.pending:
+recovery-only intended marker payload and operation/state reference
+
 sku_index.json:
 new SKU allocation counters
 
@@ -50,4 +53,4 @@ Collection → Product → Variation is active and populated by normal ingestion
 
 Ordinary append/update ingestion commits the complete emitted parent graph and its successful operation item in one transaction. Existing matching rows are updated in place so Product, Variation, gallery, asset, attribute, taxonomy and Woo-placeholder identities are retained. A parent-stage failure rolls back that graph and is recorded separately as `database_state=rolled_back`; unrelated committed parents remain intact.
 
-Removed products and stale variations are not yet reconciled. Marker state remains `not_started` until the recoverable marker orchestration milestone.
+Removed products and stale variations are not yet reconciled. Marker state now records finalization or the exact recovery class. No schema revision was needed because Milestone 3 reserved the operation/item marker and recovery columns.

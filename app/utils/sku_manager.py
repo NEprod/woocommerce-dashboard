@@ -1,6 +1,8 @@
 import os
 import json
 
+from .atomic_files import atomic_write_json
+
 """
 sku_manager.py
 
@@ -53,11 +55,11 @@ def save_sku_index(index, base_path, log=default_log):
     path = os.path.join(base_path, "sku_index.json")
 
     try:
-        with open(path, "w") as f:
-            json.dump(index, f, indent=2)
+        atomic_write_json(path, index)
         log(f"💾 Saved SKU index to: {path}", level="INFO")
     except Exception as e:
         log(f"❌ Failed to write SKU index: {e}", level="ERROR")
+        raise
 
 def generate_sku(prefix, base_path, reset_index=False, log=default_log):
     """

@@ -27,6 +27,7 @@ Product metadata starts with the shared collection object. Override scalar/objec
 ## Local state
 
 - `.scanned` records processed state, parent SKU, title, used images, timestamp, and variation SKU mappings.
+- `.scanned.pending` is a recovery-only envelope containing the intended unchanged `.scanned` payload, operation identifier, format version, and pending state.
 - `.update` forces reprocessing without globally forcing a collection.
 - `sku_index.json` stores counters for new parent and variation SKU allocation.
 
@@ -42,9 +43,9 @@ When a product is selected for update, the parent and every currently resolved v
 
 Saving shared JSON writes `.update` beside the collection JSON. This selects Single Variable roots correctly, but Simple and Variable Collection scans check `.update` in product child folders. Phase 0 characterises and documents this discrepancy without changing it.
 
-## Filesystem side effects and current ordering
+## Filesystem and database ordering
 
-The scanner is not a read-only resolver. For each selected product, the current Phase 0 implementation performs these filesystem effects before database ingestion begins:
+The protected Phase 0 ordering was:
 
 1. SKU allocation updates `sku_index.json` when a new parent or variation identity is needed.
 2. Source images are processed into the configured output folder.
@@ -52,9 +53,19 @@ The scanner is not a read-only resolver. For each selected product, the current 
 4. Writing `.scanned` removes the product-level `.update` marker when present.
 5. After all selected collections have been scanned, the accumulated Woo-style rows are passed to SQLite ingestion.
 
-For variable products, variation counter updates occur while variations are being built, between image processing and the final `.scanned` write. `sku_index.json` and `.scanned` are currently written directly rather than by atomic replacement. SQLite and filesystem state do not share a transaction, so filesystem changes can survive a database failure. Within SQLite, ordinary ingestion now commits each emitted parent and its emitted variations as one complete-parent transaction.
+Milestone 6 changes only durability and finalization ordering:
 
-Phase 1 may make marker/index writes atomic and add recoverable orchestration, but must preserve marker payloads, SKU allocation, SKU reuse, row resolution, and the distinction between filesystem and SQLite consistency.
+1. `sku_index.json` counter writes use a same-directory temporary file, file flush, `fsync`, and atomic `os.replace()`.
+2. Images are processed with existing behavior.
+3. The unchanged intended `.scanned` payload is atomically staged inside `.scanned.pending`; an existing valid `.scanned` and `.update` remain untouched.
+4. SQLite ingests each complete parent transaction and its operation item.
+5. For a committed parent, `.scanned.pending` is marked for finalization, its marker payload atomically replaces `.scanned`, `.update` is removed, history is marked finalized, and the pending envelope is removed.
+
+If SQLite does not commit, the pending envelope and previous `.scanned` remain, and `.update` is retained or recreated. If marker replacement or `.update` removal fails after commit, the pending envelope remains for the next operation to finalize without rescanning that committed product. At operation start, committed pending intents are finalized before normal selection; unresolved database intents are selected for retry and reuse their parent and matching variation SKUs.
+
+For variable products, variation counter updates still occur while variations are built. SQLite and filesystem state still cannot share one transaction. Counters may advance and processed images may remain after a failure; recovery deliberately reuses the pending identity instead of attempting destructive rollback.
+
+The final `.scanned` payload and matching rules remain unchanged. Clean append/update/full selection and SKU behavior remain unchanged; only a recovery retry may reuse `.scanned.pending` so an interrupted product does not receive a second identity.
 
 ## Characterised discrepancies awaiting separate decisions
 
@@ -75,3 +86,5 @@ These discrepancies require explicit future scanner-contract decisions. Phase 1 
 Milestone 4 does not change scanner selection, resolution, row building, markers, or SKU behavior. Ingestion stores each emitted parent and variation row losslessly as JSON, so blank and discrepant emitted values remain visible rather than being reconstructed from pre-row metadata. Exact collection type and portable source/JSON provenance are derived from the selected product's `.scanned` identity and its physical location beneath the configured catalogue root; this adds database context without adding keys to scanner rows.
 
 Milestone 5 changes only the SQLite ingestion boundary and history reporting. It does not change scanner selection, resolution, emitted rows, SKU generation/reuse, JSON inheritance, append/update/full behavior, or marker/index writes.
+
+Milestone 6 adds atomic marker/index replacement and recoverable finalization. It does not change resolved metadata, emitted row values, JSON inheritance, variation matching rules, or intentional clean full-scan regeneration.

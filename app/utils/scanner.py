@@ -11,7 +11,12 @@ from .sku_manager import (
     get_next_variation_counter,
     set_variation_counter,
 )
-from .file_markers import should_rescan, write_scanned, load_scanned
+from .file_markers import (
+    load_pending_scanned,
+    load_scanned,
+    should_rescan,
+    write_scanned,
+)
 from .image_tools import process_images, get_image_csv_urls
 from .csv_writer import build_simple_product, build_variable_parent, build_variation_row
 
@@ -35,6 +40,8 @@ def scan_collection(
     force_update=False,
     update_csv=False,
     log=default_log,
+    defer_markers=False,
+    operation_id=None,
 ):
     """
     Main entry point to scan a collection folder.
@@ -99,6 +106,8 @@ def scan_collection(
                 update_csv,
                 log,
                 reset_flag=reset_flag,
+                defer_markers=defer_markers,
+                operation_id=operation_id,
             )
             reset_flag = False  # Only reset SKU index once
             all_rows.extend(rows)
@@ -115,6 +124,8 @@ def scan_collection(
                 update_csv,
                 log,
                 reset_flag=reset_flag,
+                defer_markers=defer_markers,
+                operation_id=operation_id,
             )
             reset_flag = False  # Only reset SKU index once
             all_rows.extend(rows)
@@ -131,6 +142,8 @@ def scan_collection(
                 update_csv,
                 log,
                 reset_flag=reset_flag,
+                defer_markers=defer_markers,
+                operation_id=operation_id,
             )
             reset_flag = False  # Only reset SKU index once
             all_rows.extend(rows)
@@ -148,6 +161,8 @@ def scan_simple_product(
     update_csv,
     log,
     reset_flag,
+    defer_markers=False,
+    operation_id=None,
 ):
     """
     Scans a single simple product folder and generates a CSV-ready row.
@@ -202,17 +217,21 @@ def scan_simple_product(
     merged["source_folder"] = folder
 
     # Load existing .scanned file if update mode is active
-    scanned = {} if not update_csv else load_scanned(folder, log=log)
+    pending = load_pending_scanned(folder, log=log)
+    scanned = pending.get("marker", {}) if pending else {}
+    if not scanned and update_csv:
+        scanned = load_scanned(folder, log=log)
+    reuse_identity = bool(pending) or update_csv
 
     # Reuse existing SKU if found, else generate a new one
-    if update_csv:
+    if reuse_identity:
         log(
             f"🔁 Update mode is ON — using scanned SKU: {scanned.get('sku')}",
             level="INFO",
         )
     sku = (
         scanned.get("sku")
-        if scanned.get("sku") and update_csv
+        if scanned.get("sku") and reuse_identity
         else generate_sku(
             shared_data["sku_prefix"],
             os.path.dirname(folder),
@@ -237,6 +256,8 @@ def scan_simple_product(
             "images_used": image_names,
         },
         log=log,
+        defer=defer_markers,
+        operation_id=operation_id,
     )
 
     log(
@@ -257,6 +278,8 @@ def scan_variable_product(
     update_csv,
     log,
     reset_flag,
+    defer_markers=False,
+    operation_id=None,
 ):
     """
     Scans a single variable product folder (e.g., 'Pug', 'Beagle') and builds all variation rows.
@@ -311,19 +334,23 @@ def scan_variable_product(
     merged["source_folder"] = folder
 
     # Load existing .scanned file if updating
-    scanned = {} if not update_csv else load_scanned(folder, log=log)
+    pending = load_pending_scanned(folder, log=log)
+    scanned = pending.get("marker", {}) if pending else {}
+    if not scanned and update_csv:
+        scanned = load_scanned(folder, log=log)
+    reuse_identity = bool(pending) or update_csv
 
     matcher = ScannedVariationMatcher(scanned, log=log)
 
     # Either reuse existing SKU or generate a new one
-    if update_csv:
+    if reuse_identity:
         log(
             f"🔁 Update mode is ON — using scanned SKU: {scanned.get('sku')}",
             level="INFO",
         )
     sku = (
         scanned.get("sku")
-        if scanned.get("sku") and update_csv
+        if scanned.get("sku") and reuse_identity
         else generate_sku(
             shared_data["sku_prefix"],
             os.path.dirname(folder),
@@ -331,7 +358,7 @@ def scan_variable_product(
             log=log,
         )
     )
-    if not update_csv:
+    if not reuse_identity:
         set_variation_counter(folder, 0, log=log)  # Start counter at 1 for variations
         log("🔢 Manually set initial variation counter to 1", level="INFO")
 
@@ -360,7 +387,7 @@ def scan_variable_product(
     # Create a CSV-ready row for each variation
     for i, v_attrs in enumerate(variations):
         mod = apply_variation_modifiers(merged, v_attrs, log=log)
-        v_sku = matcher.match(v_attrs) if update_csv else None
+        v_sku = matcher.match(v_attrs) if reuse_identity else None
         if not v_sku:
             next_num = get_next_variation_counter(folder, log=log)
             v_sku = f"{sku}-{next_num}"
@@ -390,6 +417,8 @@ def scan_variable_product(
             "variations": resolved_variations,
         },
         log=log,
+        defer=defer_markers,
+        operation_id=operation_id,
     )
 
     log(
@@ -409,6 +438,8 @@ def scan_single_variable(
     update_csv,
     log,
     reset_flag,
+    defer_markers=False,
+    operation_id=None,
 ):
     """
     Scans a single folder that represents a variable product with all its variations inside.
@@ -439,24 +470,28 @@ def scan_single_variable(
     merged["source_folder"] = base_folder
 
     # Load existing scan data if in update mode
-    scanned = {} if not update_csv else load_scanned(base_folder, log=log)
+    pending = load_pending_scanned(base_folder, log=log)
+    scanned = pending.get("marker", {}) if pending else {}
+    if not scanned and update_csv:
+        scanned = load_scanned(base_folder, log=log)
+    reuse_identity = bool(pending) or update_csv
 
     matcher = ScannedVariationMatcher(scanned, log=log)
 
     # Either reuse scanned SKU or generate a new one
-    if update_csv:
+    if reuse_identity:
         log(
             f"🔁 Update mode is ON — using scanned SKU: {scanned.get('sku')}",
             level="INFO",
         )
     sku = (
         scanned.get("sku")
-        if scanned.get("sku") and update_csv
+        if scanned.get("sku") and reuse_identity
         else generate_sku(
             shared_data["sku_prefix"], base_folder, reset_index=reset_flag, log=log
         )
     )
-    if not update_csv:
+    if not reuse_identity:
         set_variation_counter(
             base_folder, 0, log=log
         )  # Start counter at 1 for variations
@@ -527,7 +562,7 @@ def scan_single_variable(
 
         image_urls = get_image_csv_urls(style_images, url_prefix)
         mod = apply_variation_modifiers(merged, v_attrs, log=log)
-        v_sku = matcher.match(v_attrs) if update_csv else None
+        v_sku = matcher.match(v_attrs) if reuse_identity else None
         if not v_sku:
             next_num = get_next_variation_counter(base_folder, log=log)
             v_sku = f"{sku}-{next_num}"
@@ -557,6 +592,8 @@ def scan_single_variable(
             "variations": resolved_variations,
         },
         log=log,
+        defer=defer_markers,
+        operation_id=operation_id,
     )
 
     log(

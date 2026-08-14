@@ -22,6 +22,8 @@ Append, product update, shared collection update, full, and reconstruction opera
 
 Ordinary scan ingestion adds one operation item per emitted parent. Successful items are committed with their parent transaction. A failed parent is rolled back and receives a separate sanitized failed item; the operation becomes `partial` when other parents succeeded or `failed` when none did.
 
+Production scans stage `.scanned.pending` before database ingestion and finalize `.scanned` only after the corresponding parent commits. Database failures retain/recreate `.update`; marker-finalization failures retain pending identity. The next operation finalizes already committed intents before scanning and retries only unresolved products with preserved parent/variation SKUs. Marker and index JSON replacements are atomic.
+
 ## Verified catalogue/database consistency
 
 At the audit baseline, the live local catalogue and SQLite database agreed for 11 parent SKUs and 49 variation SKUs. Database integrity passed. Titles, types, mapped prices, dates, dimensions, descriptions, images, variation attributes, and supported modifier results agreed for the currently ingested subset.
@@ -42,7 +44,6 @@ Authentication, initial settings, the initial scan screen, `/edit_products`, raw
 Remaining ingestion limitations are:
 
 - Removed products and variations are not reconciled.
-- `.scanned` is written before database ingestion succeeds.
 
 Scanner characterization also confirms that variation modifier sale prices are not emitted by the variation row builder, authored shipping class is emitted as blank, list ordering is not stable, unknown collection types yield no rows, editor relationship-key names differ from the row builder, and Woo rows are limited to five attribute slots. These remain protected discrepancies pending separate contract decisions.
 
@@ -58,4 +59,4 @@ WooCommerce-compatible rows and future Woo ID columns exist, but there is no liv
 - Scan progress is process-local and non-durable.
 - Several routes are incomplete because templates are absent.
 
-The protected scanner discrepancies remain unchanged; later Phase 1 milestones address marker recovery, reconciliation, and reconstruction concerns.
+The protected scanner discrepancies remain unchanged; later Phase 1 milestones address reconciliation and reconstruction concerns.

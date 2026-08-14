@@ -16,6 +16,9 @@ until every milestone is complete and its focused commit history remains intact.
   committed parents and existing internal/Woo identities, and records affected
   parents with sanitized outcomes. Reconciliation, missing/restored state, shared
   updates, and reconstruction meet their approved identity and recovery criteria.
+- Marker and SKU-index JSON writes are atomic; pending marker intent preserves
+  parent/variation identity across database, finalization, `.update`, and process
+  failures without claiming cross-store rollback or deleting processed images.
 - Metadata documentation, separate schemas, fictional examples, and in-app
   reference resources accurately describe active, alias, ignored, editor-only,
   Woo-only, legacy, and planned fields.
@@ -30,8 +33,9 @@ until every milestone is complete and its focused commit history remains intact.
 - Production images contain runtime migrations, schemas, templates, and in-app
   reference resources.
 - Production images exclude tests, test fixtures, development dependencies,
-  `.env`, databases, backups, catalogue data, output, `.scanned`, `.update`,
-  `sku_index.json`, caches, Git data, credentials, and secrets.
+  `.env`, databases, backups, catalogue data, output, `.scanned`,
+  `.scanned.pending`, `.update`, `sku_index.json`, caches, Git data,
+  credentials, and secrets.
 
 ## Multi-platform publication gate
 

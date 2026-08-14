@@ -28,6 +28,8 @@ Projection tests must use emitted fictional rows and temporary catalogue mounts.
 
 Transactional-ingestion tests inject failures after collection, parent, product-gallery, asset, taxonomy, parent-attribute, variation, variation-attribute, variation-gallery, and operation-item stages. Every case must prove complete rollback of that parent, a sanitized failed history item, and survival of unrelated committed parents. They also cover missing variation-parent rows and update-in-place preservation of internal and Woo-placeholder identities.
 
+Marker-recovery tests use only temporary fictional catalogues/databases and disable Discord. They must cover the protected old ordering, the new pending/DB/finalization ordering, atomic `.scanned` and `sku_index.json` replacement, pre-DB and parent-transaction failures, post-commit marker and `.update` failures, interruption recovery, retry identity reuse for parents and variations, valid-marker retention, and unrelated-product isolation.
+
 Tests must create temporary directories and SQLite databases. Fixtures under `tests/fixtures` must be fictional and contain no copied commercial catalogue text, customer information, live SKU, local personal path, credential, or webhook. Tests must never use the live `.env`, `instance/site.db`, catalogue, output folder, Discord, WooCommerce, WordPress, or internet.
 
 ## Git workflow

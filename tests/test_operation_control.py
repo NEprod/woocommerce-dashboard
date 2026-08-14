@@ -308,3 +308,61 @@ def test_scan_history_records_partial_parent_projection_counts(
         assert row.products_failed == 1
         assert "1 parent projection(s) failed" in row.error
         assert get_active_operation() is None
+
+
+def test_scan_history_does_not_claim_success_when_marker_recovery_is_required(
+    operation_app, tmp_path, monkeypatch
+):
+    from app.models import Settings
+
+    catalogue = tmp_path / "catalogue"
+    output = tmp_path / "output"
+    catalogue.mkdir()
+    output.mkdir()
+    with operation_app.app_context():
+        db.session.add(
+            Settings(
+                product_folder=str(catalogue),
+                output_folder=str(output),
+                url_prefix="https://invalid.example/",
+            )
+        )
+        db.session.commit()
+
+    monkeypatch.setattr(
+        "app.utils.scan_runner.ingest_rows_to_db",
+        lambda *args, **kwargs: {
+            "products_created": 1,
+            "products_updated": 0,
+            "products_failed": 0,
+            "variations_created": 0,
+            "variations_updated": 0,
+        },
+    )
+    monkeypatch.setattr(
+        "app.utils.scan_runner.finalize_ingested_markers",
+        lambda *args, **kwargs: {
+            "finalized": 0,
+            "database_recovery_required": 0,
+            "marker_recovery_required": 1,
+            "errors": ["fixture marker failure"],
+        },
+    )
+    run_id = "marker-recovery-run"
+    operation_id = start_scan(operation_app, run_id, scan_mode="append")
+
+    deadline = time.monotonic() + 5
+    while get_progress(run_id)["status"] == "running" and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert get_progress(run_id)["status"] == "done"
+    with operation_app.app_context():
+        row = db.session.get(CatalogueOperation, operation_id)
+        assert row.status == "failed"
+        assert row.products_attempted == 1
+        assert row.products_succeeded == 0
+        assert row.products_failed == 1
+        assert row.marker_state == "marker_recovery_required"
+        assert row.recovery_state == "marker_recovery_required"
+        assert "require recovery" in row.error
+        assert get_active_operation() is None

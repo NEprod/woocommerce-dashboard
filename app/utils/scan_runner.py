@@ -14,6 +14,11 @@ from app.utils.discord import (  # UPDATED import
     notify_scan_failed,
 )
 from app.utils.ingest import ingest_rows_to_db
+from app.utils.marker_recovery import (
+    finalize_ingested_markers,
+    mark_pending_database_recovery,
+    recover_committed_markers,
+)
 from app.utils.operation_control import (
     acquire_catalogue_operation,
     finish_catalogue_operation,
@@ -96,6 +101,8 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
         products_attempted = 0
         products_succeeded = 0
         products_failed = 0
+        operation_marker_state = None
+        operation_recovery_state = None
         try:
             log = make_logger(run_id)
 
@@ -118,6 +125,13 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
 
             force = scan_mode == "full"
             update = scan_mode == "update"
+
+            recovered = recover_committed_markers(scan_folder, log=log)
+            if recovered["recovered"]:
+                log(
+                    f"🩹 Recovered {recovered['recovered']} committed marker(s)",
+                    level="INFO",
+                )
 
             folders = [
                 f
@@ -152,6 +166,8 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
                         force_update=force,
                         update_csv=update,
                         log=log,
+                        defer_markers=True,
+                        operation_id=operation_id,
                     )
                     all_rows.extend(rows)
                     log(f"✅ {name} → {len(rows)} rows processed.")
@@ -163,15 +179,45 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
             _runs[run_id]["summary"]["finished_at"] = datetime.utcnow().isoformat()
 
             # Ingest → DB
-            summary = ingest_rows_to_db(
-                all_rows, log=log, operation_id=operation_id
-            )
+            try:
+                summary = ingest_rows_to_db(
+                    all_rows, log=log, operation_id=operation_id
+                )
+            except Exception as database_error:
+                recovery = mark_pending_database_recovery(
+                    scan_folder,
+                    operation_id,
+                    database_error,
+                    log=log,
+                )
+                products_failed = recovery["database_recovery_required"]
+                products_attempted = products_failed
+                operation_marker_state = "database_recovery_required"
+                operation_recovery_state = "database_recovery_required"
+                raise
             _runs[run_id]["summary"].update(summary)
-            products_succeeded = summary.get("products_created", 0) + summary.get(
+            database_succeeded = summary.get("products_created", 0) + summary.get(
                 "products_updated", 0
             )
-            products_failed = summary.get("products_failed", 0)
+            marker_outcome = finalize_ingested_markers(
+                scan_folder, operation_id, log=log
+            )
+            marker_failed = marker_outcome["marker_recovery_required"]
+            products_succeeded = max(0, database_succeeded - marker_failed)
+            products_failed = summary.get("products_failed", 0) + marker_failed
             products_attempted = products_succeeded + products_failed
+            if marker_outcome["database_recovery_required"] and marker_failed:
+                operation_marker_state = "partial"
+                operation_recovery_state = "multiple_recovery_required"
+            elif marker_outcome["database_recovery_required"]:
+                operation_marker_state = "database_recovery_required"
+                operation_recovery_state = "database_recovery_required"
+            elif marker_failed:
+                operation_marker_state = "marker_recovery_required"
+                operation_recovery_state = "marker_recovery_required"
+            else:
+                operation_marker_state = "finalized"
+                operation_recovery_state = "none"
             log(f"🗄️ DB summary: {summary}")
             log(f"📦 Total rows prepared: {len(all_rows)}")
             log("✅ Scan complete.")
@@ -193,9 +239,14 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
             else:
                 operation_status = "succeeded"
             if products_failed:
-                operation_error = (
-                    f"{products_failed} parent projection(s) failed and rolled back"
-                )
+                if operation_recovery_state not in (None, "none"):
+                    operation_error = (
+                        f"{products_failed} catalogue product(s) require recovery"
+                    )
+                else:
+                    operation_error = (
+                        f"{products_failed} parent projection(s) failed and rolled back"
+                    )
 
         except Exception as e:
             operation_error = e
@@ -217,6 +268,8 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
                     products_succeeded=products_succeeded,
                     products_failed=products_failed,
                     error=operation_error,
+                    marker_state=operation_marker_state,
+                    recovery_state=operation_recovery_state,
                 )
             except Exception as finish_error:
                 make_logger(run_id)(

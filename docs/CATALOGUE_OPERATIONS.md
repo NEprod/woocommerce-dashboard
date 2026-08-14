@@ -21,8 +21,15 @@ its complete parent projection share a transaction and use
 back and a separate item records `status=failed`,
 `database_state=rolled_back`, the affected SKU and portable source path, and a
 bounded sanitized error. Missing variation-parent rows are failed items rather
-than silently skipped. Marker state remains `not_started`; Milestone 5 does not
-stage or alter scanner markers.
+than silently skipped.
+
+Marker states now distinguish `pending_finalization`, `finalized`,
+`database_recovery_required`, and `marker_recovery_required`. A database failure
+retains pending identity and `.update`; a post-commit marker failure retains the
+pending envelope. Per-item state identifies the affected parent. Operation-level
+state summarizes database, marker, or combined recovery requirements. Errors are
+sanitized and bounded; history never stores authored metadata or full scanner
+rows.
 
 Final states are `succeeded`, `partial`, `failed`, or `interrupted`. Scan history
 is finalized from a `finally` path, so scanner or ingestion exceptions release the
@@ -35,9 +42,10 @@ recoverable at the next startup.
 
 After migrations complete, startup changes any remaining `running` operation to
 `interrupted`, records an end time, and sets `recovery_state` to
-`review_required`. This is diagnostic state: it does not claim that SQLite and
-catalogue files were rolled back together. Marker-specific recovery is introduced
-in a later approved milestone.
+`review_required`. On the next catalogue operation, a valid pending intent whose
+operation item says `database_state=committed` is finalized before scanning.
+Pending intents without a committed item remain selected for safe retry. This is
+recoverable coordination, not a claim of cross-store atomic rollback.
 
 ## Deployment boundary
 
