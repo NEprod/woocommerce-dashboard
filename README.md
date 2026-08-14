@@ -55,6 +55,7 @@ The container listens on port `7485`, runs Gunicorn with one worker and four thr
 - [Data Model](docs/DATA_MODEL.md)
 - [Database Migrations](docs/MIGRATIONS.md)
 - [Catalogue Operation Control](docs/CATALOGUE_OPERATIONS.md)
+- [Phase 1 Acceptance](docs/PHASE_1_ACCEPTANCE.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Decisions](docs/DECISIONS.md)
 - [Development](docs/DEVELOPMENT.md)
