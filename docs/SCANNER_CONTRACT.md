@@ -69,3 +69,7 @@ The following behavior is deliberately protected as the current contract and is 
 - `.scanned.images_used` records source image filenames; emitted row URLs can refer to converted output filenames.
 
 These discrepancies require explicit future scanner-contract decisions. Phase 1 persists only values that reach the approved emitted projection.
+
+## SQLite projection boundary
+
+Milestone 4 does not change scanner selection, resolution, row building, markers, or SKU behavior. Ingestion stores each emitted parent and variation row losslessly as JSON, so blank and discrepant emitted values remain visible rather than being reconstructed from pre-row metadata. Exact collection type and portable source/JSON provenance are derived from the selected product's `.scanned` identity and its physical location beneath the configured catalogue root; this adds database context without adding keys to scanner rows.

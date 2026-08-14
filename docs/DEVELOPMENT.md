@@ -24,6 +24,8 @@ Migration tests construct a frozen, synthetic Phase 0 database in a temporary di
 
 Operation-control tests use temporary databases and fictional paths. They must prove conflict rejection before mutation, success and exception cleanup, sanitized persistent errors, notification-failure cleanup, and startup interruption recovery. Resetting the process-local test lock is allowed only in isolated tests. See [Catalogue Operation Control](CATALOGUE_OPERATIONS.md).
 
+Projection tests must use emitted fictional rows and temporary catalogue mounts. They must prove exact collection types and relationships, lossless parent/variation row storage, normalized field parity, portable relative provenance across mount changes, and preservation of existing Product, Variation, and Woo placeholder IDs. They must not alter scanner fixtures to conceal a row-builder discrepancy.
+
 Tests must create temporary directories and SQLite databases. Fixtures under `tests/fixtures` must be fictional and contain no copied commercial catalogue text, customer information, live SKU, local personal path, credential, or webhook. Tests must never use the live `.env`, `instance/site.db`, catalogue, output folder, Discord, WooCommerce, WordPress, or internet.
 
 ## Git workflow

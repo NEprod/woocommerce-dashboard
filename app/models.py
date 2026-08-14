@@ -120,6 +120,9 @@ class Collection(db.Model):
     root_path = db.Column(db.String(1024), unique=True, nullable=False)
     sku_prefix = db.Column(db.String(64), unique=True, nullable=False)
     shared_json_path = db.Column(db.String(1024), nullable=False)
+    collection_type = db.Column(db.String(50))
+    source_relpath = db.Column(db.String(1024), unique=True, index=True)
+    shared_json_relpath = db.Column(db.String(1024))
 
     created_at = db.Column(db.DateTime, server_default=func.now())
     updated_at = db.Column(db.DateTime, onupdate=func.now())
@@ -152,6 +155,11 @@ class Product(db.Model):
         db.String(1024)
     )  # product_info.json in product folder (optional)
     effective_json_path = db.Column(db.String(1024))  # override if present else shared
+    source_relpath = db.Column(db.String(1024), index=True)
+    shared_json_relpath = db.Column(db.String(1024))
+    override_json_relpath = db.Column(db.String(1024))
+    effective_json_relpath = db.Column(db.String(1024))
+    resolved_row_json = db.Column(db.Text)
 
     # Pricing (fallback defaults for variations)
     regular_price = db.Column(db.Numeric(10, 2))
@@ -178,6 +186,7 @@ class Product(db.Model):
     # Merchandising / links
     external_url = db.Column(db.String(255))
     button_text = db.Column(db.String(100))
+    grouped_products = db.Column(db.Text)
     upsell_ids = db.Column(db.Text)
     cross_sell_ids = db.Column(db.Text)
 
@@ -188,6 +197,17 @@ class Product(db.Model):
     )  # visible|catalog|search|hidden
     reviews_allowed = db.Column(db.Boolean, default=True)
     featured = db.Column(db.Boolean, default=False)
+    published = db.Column(db.Boolean)
+    tax_status = db.Column(db.String(20))
+    tax_class = db.Column(db.String(100))
+    in_stock = db.Column(db.Boolean)
+    sold_individually = db.Column(db.Boolean)
+    purchase_note = db.Column(db.Text)
+    download_limit = db.Column(db.Integer)
+    download_expiry_days = db.Column(db.Integer)
+    menu_order = db.Column(db.Integer)
+    meta_title = db.Column(db.String(255))
+    meta_description = db.Column(db.Text)
 
     # Primary image shortcut (gallery below holds multiple)
     image_url = db.Column(db.String(512))
@@ -227,6 +247,26 @@ class Product(db.Model):
         "Category", secondary=product_categories, lazy="subquery"
     )
     tags = db.relationship("Tag", secondary=product_tags, lazy="subquery")
+    attributes = db.relationship(
+        "ProductAttribute",
+        backref="product",
+        cascade="all, delete-orphan",
+        order_by="ProductAttribute.position.asc()",
+    )
+
+
+class ProductAttribute(db.Model):
+    __tablename__ = "product_attribute"
+
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(
+        db.Integer, db.ForeignKey("product.id"), nullable=False, index=True
+    )
+    name = db.Column(db.String(100), nullable=False)
+    values = db.Column(db.Text, nullable=False)
+    visible = db.Column(db.Boolean)
+    is_global = db.Column(db.Boolean)
+    position = db.Column(db.Integer, nullable=False, default=0)
 
 
 class ProductImage(db.Model):
@@ -253,6 +293,8 @@ class Variation(db.Model):
     )
 
     sku = db.Column(db.String(64), unique=True, index=True)
+    source_relpath = db.Column(db.String(1024), index=True)
+    resolved_row_json = db.Column(db.Text)
 
     # Pricing overrides
     regular_price = db.Column(db.Numeric(10, 2))
@@ -327,6 +369,9 @@ class VariationAttribute(db.Model):
     )
     name = db.Column(db.String(100), nullable=False)  # e.g. "Size" or "pa_size"
     value = db.Column(db.String(191), nullable=False)  # e.g. "A3"
+    visible = db.Column(db.Boolean)
+    is_global = db.Column(db.Boolean)
+    position = db.Column(db.Integer)
 
 
 # -------------------- Local assets --------------------
@@ -348,6 +393,7 @@ class ProductAsset(db.Model):
 
     # Local filesystem path to file or folder
     path = db.Column(db.String(1024), nullable=False)
+    source_relpath = db.Column(db.String(1024), index=True)
 
     # Useful metadata
     kind = db.Column(

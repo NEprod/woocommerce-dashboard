@@ -30,11 +30,15 @@ The real catalogue and database are never part of the repository or container im
 
 Authentication, initial settings, the initial scan screen, `/edit_products`, raw JSON viewing, and the JSON editor exist. The dashboard is a placeholder. Routes for Products, scanner, sync, orders, POS, tools, site, settings, and web sync refer to missing templates.
 
-## Database ingestion limitations
+## Database projection
 
-- The active path does not populate `Collection` or `Product.collection_id`.
-- Exact filesystem collection type is collapsed to `Simple` or `Variable`.
-- Categories, tags, SEO fields, and publication state are not actively mapped.
+- The active path populates Collection → Product → Variation for all three exact collection types.
+- Portable catalogue-relative source and JSON paths are stored separately from runtime absolute paths.
+- Every emitted parent and variation row is retained as JSON; commonly queried pricing, inventory, publication, taxonomy, SEO, image, and attribute values are also normalized.
+- Existing Product, Variation, and Woo placeholder identities are retained during ordinary row updates.
+
+Remaining ingestion limitations are:
+
 - Removed products and variations are not reconciled.
 - Parent and variation ingestion use separate commits.
 - `.scanned` is written before database ingestion succeeds.
@@ -53,4 +57,4 @@ WooCommerce-compatible rows and future Woo ID columns exist, but there is no liv
 - Scan progress is process-local and non-durable.
 - Several routes are incomplete because templates are absent.
 
-Phase 0 does not fix any of these issues.
+The protected scanner discrepancies remain unchanged; later Phase 1 milestones address transaction, marker recovery, reconciliation, and reconstruction concerns.

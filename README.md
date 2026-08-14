@@ -14,7 +14,7 @@ Phase 0 (`0.1.0`) establishes a secure, documented, tested, and containerised ba
 - Single-process catalogue operation locking and persistent operation history.
 - A limited product JSON editor and Discord scan/ingest notifications.
 
-Known incomplete areas include database field parity, active Collection-to-Product links, several missing routed templates, and live WooCommerce integration. See [Current State](docs/CURRENT_STATE.md).
+The catalogue projection now retains every emitted scanner row, exact collection relationships, queryable taxonomy/publication metadata, and portable source provenance. Remaining Phase 1 work includes transactional ingestion, recovery/reconciliation, reconstruction, and the formal metadata reference. Several routed templates and live WooCommerce integration also remain incomplete. See [Current State](docs/CURRENT_STATE.md).
 
 ## Local development
 

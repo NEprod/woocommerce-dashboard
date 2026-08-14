@@ -36,7 +36,9 @@ def test_ingest_maps_current_supported_subset_to_temporary_database(tmp_path, qu
     product_folder = catalogue / "Fictional Collection" / "Fictional Product"
     product_folder.mkdir(parents=True)
     (product_folder / ".scanned").write_text('{"sku":"FIC-0001"}')
-    (product_folder.parent / "product_info.json").write_text("{}")
+    (product_folder.parent / "product_info.json").write_text(
+        '{"collection_type":"Variable Collection","sku_prefix":"FIC-"}'
+    )
 
     original_uri = Config.SQLALCHEMY_DATABASE_URI
     Config.SQLALCHEMY_DATABASE_URI = f"sqlite:///{database}"
@@ -64,8 +66,12 @@ def test_ingest_maps_current_supported_subset_to_temporary_database(tmp_path, qu
             assert len(product.images) == 2
             assert variation.product_id == product.id
             assert {a.name: a.value for a in variation.attributes} == {"Size": "Large"}
-            assert product.categories == []
-            assert product.tags == []
-            assert product.collection_id is None
+            assert {category.name for category in product.categories} == {
+                "Ignored Category"
+            }
+            assert {tag.name for tag in product.tags} == {"ignored-tag"}
+            assert product.collection_id is not None
+            assert product.collection_type == "Variable Collection"
+            assert product.meta_title == "Ignored SEO title"
     finally:
         Config.SQLALCHEMY_DATABASE_URI = original_uri

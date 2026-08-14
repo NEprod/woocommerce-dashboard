@@ -3,11 +3,15 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config as AlembicConfig
 
 from app import create_app, db
 from app.database import (
     BASELINE_REVISION,
+    MIGRATIONS_PATH,
     MigrationFailure,
+    PHASE0_TABLE_COLUMNS,
     Phase0SchemaMismatch,
     backup_database,
     ensure_database,
@@ -20,12 +24,7 @@ from app.models import Product, User, Variation
 
 PHASE0_SCHEMA = Path(__file__).parent / "fixtures" / "db" / "phase0_schema.sql"
 MIGRATION_HEAD = migration_head()
-PHASE0_TABLES = {
-    "category", "collection", "product", "product_asset",
-    "product_categories", "product_image", "product_tags", "service",
-    "settings", "tag", "user", "variation", "variation_attribute",
-    "variation_image",
-}
+PHASE0_TABLES = set(PHASE0_TABLE_COLUMNS)
 
 
 def _url(path):
@@ -117,14 +116,18 @@ def _all_phase0_data(path):
     try:
         data = {}
         for table in sorted(PHASE0_TABLES):
-            rows = connection.execute(f'SELECT * FROM "{table}" ORDER BY rowid').fetchall()
+            columns = sorted(PHASE0_TABLE_COLUMNS[table])
+            selection = ", ".join(f'"{column}"' for column in columns)
+            rows = connection.execute(
+                f'SELECT {selection} FROM "{table}" ORDER BY rowid'
+            ).fetchall()
             data[table] = [dict(row) for row in rows]
         return data
     finally:
         connection.close()
 
 
-def _schema_signature(path, tables_to_include=None):
+def _schema_signature(path, table_columns=None):
     connection = sqlite3.connect(path)
     try:
         signature = {}
@@ -136,12 +139,15 @@ def _schema_signature(path, tables_to_include=None):
                 "AND name != 'alembic_version'"
             )
         }
-        if tables_to_include is not None:
-            tables &= set(tables_to_include)
+        if table_columns is not None:
+            tables &= set(table_columns)
         for table in sorted(tables):
-            columns = [tuple(row[1:6]) for row in connection.execute(
-                f'PRAGMA table_info("{table}")'
-            )]
+            expected_columns = table_columns.get(table) if table_columns else None
+            columns = [
+                tuple(row[1:6])
+                for row in connection.execute(f'PRAGMA table_info("{table}")')
+                if expected_columns is None or row[1] in expected_columns
+            ]
             indexes = []
             for index in connection.execute(f'PRAGMA index_list("{table}")'):
                 index_columns = tuple(
@@ -149,10 +155,13 @@ def _schema_signature(path, tables_to_include=None):
                         f'PRAGMA index_info("{index[1]}")'
                     )
                 )
-                indexes.append((index[1], index[2], index_columns))
-            foreign_keys = [tuple(row[2:8]) for row in connection.execute(
-                f'PRAGMA foreign_key_list("{table}")'
-            )]
+                if expected_columns is None or set(index_columns) <= expected_columns:
+                    indexes.append((index[1], index[2], index_columns))
+            foreign_keys = [
+                tuple(row[2:8])
+                for row in connection.execute(f'PRAGMA foreign_key_list("{table}")')
+                if expected_columns is None or row[3] in expected_columns
+            ]
             signature[table] = (columns, sorted(indexes), sorted(foreign_keys))
         return signature
     finally:
@@ -177,7 +186,44 @@ def test_fresh_database_initializes_at_migration_head(tmp_path):
         }
     finally:
         connection.close()
-    assert {"catalogue_operation", "catalogue_operation_item"} <= tables
+    assert {
+        "catalogue_operation",
+        "catalogue_operation_item",
+        "product_attribute",
+    } <= tables
+
+    connection = sqlite3.connect(database)
+    try:
+        collection_columns = {
+            row[1]
+            for row in connection.execute('PRAGMA table_info("collection")')
+        }
+        product_columns = {
+            row[1] for row in connection.execute('PRAGMA table_info("product")')
+        }
+        variation_columns = {
+            row[1] for row in connection.execute('PRAGMA table_info("variation")')
+        }
+        asset_columns = {
+            row[1]
+            for row in connection.execute('PRAGMA table_info("product_asset")')
+        }
+    finally:
+        connection.close()
+    assert {"collection_type", "source_relpath", "shared_json_relpath"} <= (
+        collection_columns
+    )
+    assert {
+        "source_relpath",
+        "shared_json_relpath",
+        "override_json_relpath",
+        "effective_json_relpath",
+        "resolved_row_json",
+        "meta_title",
+        "meta_description",
+    } <= product_columns
+    assert {"source_relpath", "resolved_row_json"} <= variation_columns
+    assert "source_relpath" in asset_columns
 
 
 def test_fresh_migration_schema_matches_frozen_phase0_fixture(tmp_path):
@@ -186,7 +232,7 @@ def test_fresh_migration_schema_matches_frozen_phase0_fixture(tmp_path):
     ensure_database(_url(fresh), backup_root=tmp_path / "backups")
     _create_phase0_database(phase0)
 
-    assert _schema_signature(fresh, PHASE0_TABLES) == _schema_signature(phase0)
+    assert _schema_signature(fresh, PHASE0_TABLE_COLUMNS) == _schema_signature(phase0)
 
 
 def test_application_factory_uses_migrations_for_fresh_database(tmp_path):
@@ -253,6 +299,13 @@ def test_unversioned_phase0_upgrade_preserves_data_ids_and_placeholders(tmp_path
     assert snapshot["product"]["woo_synced_at"] == "2025-03-04 05:06:07"
     assert snapshot["variation"]["woo_id"] == 201
     assert snapshot["product_image"]["woo_id"] == 301
+    assert snapshot["collection"]["source_relpath"] is None
+    assert snapshot["collection"]["collection_type"] is None
+    assert snapshot["product"]["source_relpath"] is None
+    assert snapshot["product"]["resolved_row_json"] is None
+    assert snapshot["variation"]["source_relpath"] is None
+    assert snapshot["variation"]["resolved_row_json"] is None
+    assert snapshot["asset"]["source_relpath"] is None
     assert _all_phase0_data(database) == before
 
 
@@ -270,6 +323,43 @@ def test_repeated_upgrade_is_safe_and_does_not_create_another_backup(tmp_path):
     assert second.action == "current"
     assert _snapshot(database) == before
     assert len(list(backup_root.glob("*.sqlite3"))) == 1
+
+
+def test_versioned_operation_history_survives_projection_upgrade(tmp_path):
+    database = tmp_path / "instance" / "versioned.db"
+    database.parent.mkdir()
+    database_url = _url(database)
+    config = AlembicConfig()
+    config.set_main_option("script_location", str(MIGRATIONS_PATH))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "0002_operations")
+
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute(
+            "INSERT INTO catalogue_operation "
+            "(id, operation_type, status, scope) VALUES (?, ?, ?, ?)",
+            ("fixture-operation", "append", "succeeded", "{}"),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    report = ensure_database(database_url)
+
+    assert report.action == "upgraded"
+    assert report.revision == MIGRATION_HEAD
+    assert report.backup_path is not None
+    assert report.backup_path.parent == database.parent / "backups"
+    connection = sqlite3.connect(database)
+    try:
+        operation = connection.execute(
+            "SELECT operation_type, status FROM catalogue_operation WHERE id = ?",
+            ("fixture-operation",),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert operation == ("append", "succeeded")
 
 
 def test_default_backup_names_are_unique_and_do_not_overwrite(tmp_path):

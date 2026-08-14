@@ -26,7 +26,7 @@ SQLite is not independently authoritative for authored product metadata.
 
 ## Schema versioning
 
-Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the Phase 0 tables and is also the adoption point for structurally matching unversioned Phase 0 databases. Revision `0002_operations` adds catalogue operation history. Application models do not create or alter tables directly at startup. See [Database Migrations](MIGRATIONS.md).
+Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the Phase 0 tables and is also the adoption point for structurally matching unversioned Phase 0 databases. Revision `0002_operations` adds catalogue operation history. Revision `0003_projection` activates catalogue relationships, complete emitted-row storage, normalized metadata, and portable provenance. Application models do not create or alter tables directly at startup. See [Database Migrations](MIGRATIONS.md).
 
 ## Models
 
@@ -34,17 +34,18 @@ Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the P
 - `Settings`: catalogue root, processed-image output root, and public URL prefix.
 - `CatalogueOperation`: bounded scan/update/reconstruction history, product counts, and recovery state.
 - `CatalogueOperationItem`: reserved per-parent database/marker recovery detail for later Phase 1 milestones.
-- `Product`: resolved parent identity, commercial/content fields, state defaults, paths, and future Woo sync fields.
-- `Variation`: child of Product with SKU, price/inventory/dimension fields, state defaults, and future Woo fields.
+- `Collection`: stable catalogue-relative source identity, exact collection type, SKU prefix, runtime root, shared JSON provenance, and child products.
+- `Product`: resolved parent identity, collection relationship, complete emitted row JSON, normalized commercial/content/publication/SEO fields, portable and runtime provenance, and future Woo sync fields.
+- `ProductAttribute`: emitted parent attribute definitions, values, visibility/global flags, and position.
+- `Variation`: child of Product with complete emitted row JSON, portable source provenance, normalized SKU/price/dimension/image fields, and future Woo fields.
 - `ProductImage` / `VariationImage`: ordered image URL galleries.
 - `VariationAttribute`: resolved name/value pairs.
 - `ProductAsset`: local filesystem paths, actively used for shared and override JSON.
-- `Collection`: intended explicit collection model; dormant in the active ingestion path.
-- `Category`, `Tag`, and association tables: present but not populated by active ingestion.
+- `Category`, `Tag`, and association tables: emitted parent taxonomy membership.
 - `Service`: dormant hosting/domain-oriented model.
 
-The Product-to-Variation relationship is active and populated. The Collection-to-Product relationship is not: collection rows and `collection_id` are not populated by the normal scan path.
+Collection → Product → Variation is active and populated by normal ingestion. `source_relpath` and the JSON `*_relpath` columns are POSIX-style paths relative to `Settings.product_folder`; these are portable across host/container mount changes. Legacy `root_path`, `product_dir`, JSON path, and `ProductAsset.path` values remain absolute runtime locators for existing filesystem behavior.
 
-## Scanner data currently omitted
+`resolved_row_json` is the lossless boundary for every key/value actually emitted by the protected row builder, including blank values and characterized discrepancies. Normalized columns are the query surface and do not invent values that the scanner failed to emit.
 
-Categories, tags, SEO metadata, exact collection type, publication state, explicit collection identity, source folder, and direct path columns are wholly or partially lost between resolved scanner rows and SQLite. Removed products and variations are not reconciled. These are Phase 1 concerns; this document makes no schema redesign decision.
+Removed products and stale variations are not yet reconciled, and parent/variation commits are not yet a complete-parent transaction. Those remain later Phase 1 milestones.
