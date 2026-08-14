@@ -52,7 +52,7 @@ The scanner is not a read-only resolver. For each selected product, the current 
 4. Writing `.scanned` removes the product-level `.update` marker when present.
 5. After all selected collections have been scanned, the accumulated Woo-style rows are passed to SQLite ingestion.
 
-For variable products, variation counter updates occur while variations are being built, between image processing and the final `.scanned` write. `sku_index.json` and `.scanned` are currently written directly rather than by atomic replacement. SQLite and filesystem state do not share a transaction: filesystem changes can survive a database failure, and the database currently commits parents before variations.
+For variable products, variation counter updates occur while variations are being built, between image processing and the final `.scanned` write. `sku_index.json` and `.scanned` are currently written directly rather than by atomic replacement. SQLite and filesystem state do not share a transaction, so filesystem changes can survive a database failure. Within SQLite, ordinary ingestion now commits each emitted parent and its emitted variations as one complete-parent transaction.
 
 Phase 1 may make marker/index writes atomic and add recoverable orchestration, but must preserve marker payloads, SKU allocation, SKU reuse, row resolution, and the distinction between filesystem and SQLite consistency.
 
@@ -73,3 +73,5 @@ These discrepancies require explicit future scanner-contract decisions. Phase 1 
 ## SQLite projection boundary
 
 Milestone 4 does not change scanner selection, resolution, row building, markers, or SKU behavior. Ingestion stores each emitted parent and variation row losslessly as JSON, so blank and discrepant emitted values remain visible rather than being reconstructed from pre-row metadata. Exact collection type and portable source/JSON provenance are derived from the selected product's `.scanned` identity and its physical location beneath the configured catalogue root; this adds database context without adding keys to scanner rows.
+
+Milestone 5 changes only the SQLite ingestion boundary and history reporting. It does not change scanner selection, resolution, emitted rows, SKU generation/reuse, JSON inheritance, append/update/full behavior, or marker/index writes.

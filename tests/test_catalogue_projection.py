@@ -219,6 +219,7 @@ def test_ingest_activates_hierarchy_full_projection_and_portable_provenance(
             assert summary == {
                 "products_created": 0,
                 "products_updated": 1,
+                "products_failed": 0,
                 "variations_created": 0,
                 "variations_updated": 1,
             }

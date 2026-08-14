@@ -11,9 +11,11 @@ until every milestone is complete and its focused commit history remains intact.
   separately approved replacement is introduced.
 - SQLite is a complete projection of emitted resolved scanner output, with active
   Collection → Product → Variation relationships and portable provenance.
-- Ordinary ingestion is transactional per complete parent; reconciliation,
-  missing/restored state, shared updates, and reconstruction meet their approved
-  identity and recovery criteria.
+- Ordinary ingestion is transactional per complete parent, rolls back all parent
+  relationships and child rows on any stage failure, preserves unrelated
+  committed parents and existing internal/Woo identities, and records affected
+  parents with sanitized outcomes. Reconciliation, missing/restored state, shared
+  updates, and reconstruction meet their approved identity and recovery criteria.
 - Metadata documentation, separate schemas, fictional examples, and in-app
   reference resources accurately describe active, alias, ignored, editor-only,
   Woo-only, legacy, and planned fields.

@@ -33,7 +33,7 @@ Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the P
 - `User`: local authentication and administrator flag.
 - `Settings`: catalogue root, processed-image output root, and public URL prefix.
 - `CatalogueOperation`: bounded scan/update/reconstruction history, product counts, and recovery state.
-- `CatalogueOperationItem`: reserved per-parent database/marker recovery detail for later Phase 1 milestones.
+- `CatalogueOperationItem`: per-parent ingestion outcome, portable source path, sanitized failure, database state, and reserved marker-recovery state.
 - `Collection`: stable catalogue-relative source identity, exact collection type, SKU prefix, runtime root, shared JSON provenance, and child products.
 - `Product`: resolved parent identity, collection relationship, complete emitted row JSON, normalized commercial/content/publication/SEO fields, portable and runtime provenance, and future Woo sync fields.
 - `ProductAttribute`: emitted parent attribute definitions, values, visibility/global flags, and position.
@@ -48,4 +48,6 @@ Collection → Product → Variation is active and populated by normal ingestion
 
 `resolved_row_json` is the lossless boundary for every key/value actually emitted by the protected row builder, including blank values and characterized discrepancies. Normalized columns are the query surface and do not invent values that the scanner failed to emit.
 
-Removed products and stale variations are not yet reconciled, and parent/variation commits are not yet a complete-parent transaction. Those remain later Phase 1 milestones.
+Ordinary append/update ingestion commits the complete emitted parent graph and its successful operation item in one transaction. Existing matching rows are updated in place so Product, Variation, gallery, asset, attribute, taxonomy and Woo-placeholder identities are retained. A parent-stage failure rolls back that graph and is recorded separately as `database_state=rolled_back`; unrelated committed parents remain intact.
+
+Removed products and stale variations are not yet reconciled. Marker state remains `not_started` until the recoverable marker orchestration milestone.

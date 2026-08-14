@@ -255,3 +255,56 @@ def test_notification_exception_does_not_leak_operation_lock(
         row = CatalogueOperation.query.one()
         assert row.status == "succeeded"
         assert get_active_operation() is None
+
+
+def test_scan_history_records_partial_parent_projection_counts(
+    operation_app, tmp_path, monkeypatch
+):
+    from app.models import Settings
+
+    catalogue = tmp_path / "catalogue"
+    output = tmp_path / "output"
+    catalogue.mkdir()
+    output.mkdir()
+    with operation_app.app_context():
+        db.session.add(
+            Settings(
+                product_folder=str(catalogue),
+                output_folder=str(output),
+                url_prefix="https://invalid.example/",
+            )
+        )
+        db.session.commit()
+
+    received = {}
+
+    def partial_ingest(*args, **kwargs):
+        received["operation_id"] = kwargs.get("operation_id")
+        return {
+            "products_created": 1,
+            "products_updated": 1,
+            "products_failed": 1,
+            "variations_created": 2,
+            "variations_updated": 1,
+        }
+
+    monkeypatch.setattr(
+        "app.utils.scan_runner.ingest_rows_to_db", partial_ingest
+    )
+    run_id = "partial-parent-run"
+    operation_id = start_scan(operation_app, run_id, scan_mode="append")
+
+    deadline = time.monotonic() + 5
+    while get_progress(run_id)["status"] == "running" and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert get_progress(run_id)["status"] == "done"
+    assert received["operation_id"] == operation_id
+    with operation_app.app_context():
+        row = db.session.get(CatalogueOperation, operation_id)
+        assert row.status == "partial"
+        assert row.products_attempted == 3
+        assert row.products_succeeded == 2
+        assert row.products_failed == 1
+        assert "1 parent projection(s) failed" in row.error
+        assert get_active_operation() is None

@@ -163,12 +163,15 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
             _runs[run_id]["summary"]["finished_at"] = datetime.utcnow().isoformat()
 
             # Ingest → DB
-            summary = ingest_rows_to_db(all_rows, log=log)
+            summary = ingest_rows_to_db(
+                all_rows, log=log, operation_id=operation_id
+            )
             _runs[run_id]["summary"].update(summary)
             products_succeeded = summary.get("products_created", 0) + summary.get(
                 "products_updated", 0
             )
-            products_attempted = products_succeeded
+            products_failed = summary.get("products_failed", 0)
+            products_attempted = products_succeeded + products_failed
             log(f"🗄️ DB summary: {summary}")
             log(f"📦 Total rows prepared: {len(all_rows)}")
             log("✅ Scan complete.")
@@ -183,7 +186,16 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
                 log(f"⚠️ Discord complete notify failed: {e}", level="WARN")
 
             _runs[run_id]["status"] = "done"
-            operation_status = "succeeded"
+            if products_failed and products_succeeded:
+                operation_status = "partial"
+            elif products_failed:
+                operation_status = "failed"
+            else:
+                operation_status = "succeeded"
+            if products_failed:
+                operation_error = (
+                    f"{products_failed} parent projection(s) failed and rolled back"
+                )
 
         except Exception as e:
             operation_error = e

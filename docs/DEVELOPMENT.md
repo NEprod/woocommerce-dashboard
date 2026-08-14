@@ -26,6 +26,8 @@ Operation-control tests use temporary databases and fictional paths. They must p
 
 Projection tests must use emitted fictional rows and temporary catalogue mounts. They must prove exact collection types and relationships, lossless parent/variation row storage, normalized field parity, portable relative provenance across mount changes, and preservation of existing Product, Variation, and Woo placeholder IDs. They must not alter scanner fixtures to conceal a row-builder discrepancy.
 
+Transactional-ingestion tests inject failures after collection, parent, product-gallery, asset, taxonomy, parent-attribute, variation, variation-attribute, variation-gallery, and operation-item stages. Every case must prove complete rollback of that parent, a sanitized failed history item, and survival of unrelated committed parents. They also cover missing variation-parent rows and update-in-place preservation of internal and Woo-placeholder identities.
+
 Tests must create temporary directories and SQLite databases. Fixtures under `tests/fixtures` must be fictional and contain no copied commercial catalogue text, customer information, live SKU, local personal path, credential, or webhook. Tests must never use the live `.env`, `instance/site.db`, catalogue, output folder, Discord, WooCommerce, WordPress, or internet.
 
 ## Git workflow

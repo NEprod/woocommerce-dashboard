@@ -15,9 +15,14 @@ recovery states. Scope values and errors are bounded, and keys that indicate
 secrets, passwords, tokens, API keys, or webhooks are redacted. Full metadata
 payloads and credentials must never be stored.
 
-The item table is the reserved per-parent history surface for later transactional
-ingestion and marker recovery milestones. Milestone 3 does not change scanner
-rows, markers, SKU allocation, or ingestion transaction boundaries to populate it.
+Ordinary ingestion now writes one item per emitted parent. A successful item and
+its complete parent projection share a transaction and use
+`database_state=committed`. If any parent stage fails, that transaction is rolled
+back and a separate item records `status=failed`,
+`database_state=rolled_back`, the affected SKU and portable source path, and a
+bounded sanitized error. Missing variation-parent rows are failed items rather
+than silently skipped. Marker state remains `not_started`; Milestone 5 does not
+stage or alter scanner markers.
 
 Final states are `succeeded`, `partial`, `failed`, or `interrupted`. Scan history
 is finalized from a `finally` path, so scanner or ingestion exceptions release the

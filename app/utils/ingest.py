@@ -1,10 +1,11 @@
 # app/utils/ingest.py
 from typing import List, Dict, Tuple
 from decimal import Decimal, InvalidOperation
-from datetime import datetime
+from datetime import UTC, datetime
 import os
 import json
 import re
+from sqlalchemy import select
 
 from app import db
 from app.models import (
@@ -19,8 +20,10 @@ from app.models import (
     Collection,
     Category,
     Tag,
+    CatalogueOperationItem,
 )
 from app.utils.discord import notify_ingest_product  # NEW
+from app.utils.operation_control import sanitize_operation_error
 
 # CSV-style keys
 ATTR_NAME_FMT = "Attribute {} name"
@@ -263,24 +266,27 @@ def _upsert_info_assets(
 ):
     if not info_paths:
         return
-    ProductAsset.query.filter_by(product_id=product.id, kind="info").delete(
-        synchronize_session="fetch"
-    )
+    existing = {
+        asset.label: asset
+        for asset in ProductAsset.query.filter_by(
+            product_id=product.id, kind="info"
+        ).all()
+    }
     for label, path in info_paths.items():
-        try:
-            db.session.add(
-                ProductAsset(
-                    product_id=product.id,
-                    variation_id=None,
-                    path=path,
-                    source_relpath=_portable_relpath(path, catalogue_root),
-                    kind="info",
-                    label=label,  # 'shared' or 'override'
-                    is_primary=(label == "shared"),
-                )
+        asset = existing.pop(label, None)
+        if not asset:
+            asset = ProductAsset(
+                product_id=product.id,
+                variation_id=None,
+                kind="info",
+                label=label,
             )
-        except Exception as e:
-            log(f"⚠️ Failed to add info asset ({label}) for {product.sku}: {e}", "WARN")
+            db.session.add(asset)
+        asset.path = path
+        asset.source_relpath = _portable_relpath(path, catalogue_root)
+        asset.is_primary = label == "shared"
+    for stale_asset in existing.values():
+        db.session.delete(stale_asset)
 
 
 # ---------------- mappers ----------------
@@ -396,185 +402,338 @@ def _sync_taxonomy(product, row):
 
 
 def _sync_product_attributes(product, row):
-    ProductAttribute.query.filter_by(product_id=product.id).delete(
-        synchronize_session="fetch"
-    )
+    existing = {
+        attribute.name: attribute
+        for attribute in ProductAttribute.query.filter_by(
+            product_id=product.id
+        ).all()
+    }
     for i in ATTR_SLOTS:
         name = _pick(row.get(ATTR_NAME_FMT.format(i)))
         values = _pick(row.get(ATTR_VALUE_FMT.format(i)))
         if not name or not values:
             continue
-        db.session.add(
-            ProductAttribute(
+        attribute = existing.pop(name, None)
+        if not attribute:
+            attribute = ProductAttribute(
                 product_id=product.id,
                 name=name,
-                values=values,
-                visible=_to_bool(row.get(f"Attribute {i} visible")),
-                is_global=_to_bool(row.get(f"Attribute {i} global")),
-                position=i - 1,
             )
-        )
+            db.session.add(attribute)
+        attribute.values = values
+        attribute.visible = _to_bool(row.get(f"Attribute {i} visible"))
+        attribute.is_global = _to_bool(row.get(f"Attribute {i} global"))
+        attribute.position = i - 1
+    for stale_attribute in existing.values():
+        db.session.delete(stale_attribute)
+
+
+def _sync_product_images(product, row):
+    existing = {}
+    for image in ProductImage.query.filter_by(product_id=product.id).all():
+        existing.setdefault(image.url, []).append(image)
+
+    image_urls = _all_images(row.get("Images", ""))
+    product.image_url = image_urls[0] if image_urls else None
+    for position, url in enumerate(image_urls):
+        matches = existing.get(url, [])
+        image = matches.pop(0) if matches else None
+        if not image:
+            image = ProductImage(product_id=product.id, url=url)
+            db.session.add(image)
+        image.position = position
+    for matches in existing.values():
+        for stale_image in matches:
+            db.session.delete(stale_image)
+
+
+def _sync_variation_attributes(variation, attributes):
+    existing = {
+        attribute.name: attribute
+        for attribute in VariationAttribute.query.filter_by(
+            variation_id=variation.id
+        ).all()
+    }
+    for fields in attributes:
+        attribute = existing.pop(fields["name"], None)
+        if not attribute:
+            attribute = VariationAttribute(
+                variation_id=variation.id, name=fields["name"]
+            )
+            db.session.add(attribute)
+        attribute.value = fields["value"]
+        attribute.visible = fields["visible"]
+        attribute.is_global = fields["is_global"]
+        attribute.position = fields["position"]
+    for stale_attribute in existing.values():
+        db.session.delete(stale_attribute)
+
+
+def _sync_variation_images(variation, row):
+    existing = {}
+    for image in VariationImage.query.filter_by(variation_id=variation.id).all():
+        existing.setdefault(image.url, []).append(image)
+
+    image_urls = _all_images(row.get("Images", ""))
+    variation.image_url = image_urls[0] if image_urls else None
+    for position, url in enumerate(image_urls):
+        matches = existing.get(url, [])
+        image = matches.pop(0) if matches else None
+        if not image:
+            image = VariationImage(variation_id=variation.id, url=url)
+            db.session.add(image)
+        image.position = position
+    for matches in existing.values():
+        for stale_image in matches:
+            db.session.delete(stale_image)
 
 
 # ---------------- main ingest ----------------
 
 
-def ingest_rows_to_db(rows: List[Dict], log=print) -> Dict[str, int]:
-    created_products = 0
-    updated_products = 0
+def _utcnow():
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _checkpoint(failure_injector, stage, sku):
+    if failure_injector:
+        failure_injector(stage, sku)
+
+
+def _record_failed_item(operation_id, sku, source_path, error):
+    if not operation_id:
+        return
+    with db.session.begin():
+        db.session.add(
+            CatalogueOperationItem(
+                operation_id=operation_id,
+                source_path=source_path,
+                sku=sku,
+                status="failed",
+                database_state="rolled_back",
+                marker_state="not_started",
+                error=sanitize_operation_error(error),
+                finished_at=_utcnow(),
+            )
+        )
+
+
+def _ingest_complete_parent(
+    parent_row,
+    variation_rows,
+    *,
+    catalogue_root,
+    folder,
+    context,
+    operation_id,
+    failure_injector,
+    log,
+):
+    sku = _pick(parent_row.get("SKU"))
+    collection = _upsert_collection(context)
+    _checkpoint(failure_injector, "collection", sku)
+
+    fields = _row_to_product_fields(parent_row, context)
+    product = Product.query.filter_by(sku=sku).first()
+    product_created = product is None
+    if product_created:
+        product = Product(**fields)
+        db.session.add(product)
+    else:
+        for key, value in fields.items():
+            setattr(product, key, value)
+
+    if collection:
+        product.collection = collection
+        product.collection_type = collection.collection_type
+        product.product_dir = context["product_path"]
+        product.shared_json_path = context["shared_json_path"]
+        product.override_json_path = context.get("override_json_path")
+        product.effective_json_path = context["effective_json_path"]
+    db.session.flush()
+    _checkpoint(failure_injector, "parent", sku)
+
+    _sync_product_images(product, parent_row)
+    db.session.flush()
+    _checkpoint(failure_injector, "product_images", sku)
+
+    if context.get("shared_json_path"):
+        info_paths = {"shared": context["shared_json_path"]}
+        if context.get("override_json_path"):
+            info_paths["override"] = context["override_json_path"]
+    else:
+        info_paths = _info_paths_for_folder(folder) if folder else {}
+    _upsert_info_assets(product, info_paths, catalogue_root, log=log)
+    db.session.flush()
+    _checkpoint(failure_injector, "assets", sku)
+
+    _sync_taxonomy(product, parent_row)
+    db.session.flush()
+    _checkpoint(failure_injector, "categories_tags", sku)
+
+    _sync_product_attributes(product, parent_row)
+    db.session.flush()
+    _checkpoint(failure_injector, "product_attributes", sku)
+
     created_variations = 0
     updated_variations = 0
+    for variation_row in variation_rows:
+        variation_sku = _pick(variation_row.get("SKU"))
+        if not variation_sku:
+            raise ValueError(f"Variation for parent {sku} is missing its SKU")
+        variation_fields, attributes = _row_to_variation_fields(
+            variation_row, context
+        )
+        variation = Variation.query.filter_by(sku=variation_sku).first()
+        if variation is None:
+            variation = Variation(product_id=product.id, **variation_fields)
+            db.session.add(variation)
+            created_variations += 1
+        else:
+            variation.product_id = product.id
+            for key, value in variation_fields.items():
+                setattr(variation, key, value)
+            updated_variations += 1
+        db.session.flush()
+        _checkpoint(failure_injector, "variations", sku)
 
-    # Build SKU → folder index from .scanned
-    settings = Settings.query.first()
-    catalogue_root = settings.product_folder if settings else ""
-    sku_to_folder = _scan_sku_folder_index(
-        catalogue_root, log=log
-    )
+        _sync_variation_attributes(variation, attributes)
+        db.session.flush()
+        _checkpoint(failure_injector, "variation_attributes", sku)
+
+        _sync_variation_images(variation, variation_row)
+        db.session.flush()
+        _checkpoint(failure_injector, "variation_images", sku)
+
+    if operation_id:
+        db.session.add(
+            CatalogueOperationItem(
+                operation_id=operation_id,
+                source_path=context.get("product_relpath"),
+                sku=sku,
+                status="succeeded",
+                database_state="committed",
+                marker_state="not_started",
+                finished_at=_utcnow(),
+            )
+        )
+        db.session.flush()
+    _checkpoint(failure_injector, "operation_item", sku)
+
+    return {
+        "product_created": product_created,
+        "variations_created": created_variations,
+        "variations_updated": updated_variations,
+        "notification": {
+            "name": fields.get("title"),
+            "type": fields.get("product_type"),
+            "images_count": len(_all_images(parent_row.get("Images", ""))),
+            "has_shared": "shared" in info_paths,
+            "has_override": "override" in info_paths,
+            "folder_path": folder,
+            "variations_count": len(variation_rows),
+        },
+    }
+
+
+def ingest_rows_to_db(
+    rows: List[Dict],
+    log=print,
+    *,
+    operation_id=None,
+    failure_injector=None,
+) -> Dict[str, int]:
+    # Ingestion owns its transaction boundaries. End any read-only transaction
+    # left open on the request-scoped session before starting parent units.
+    db.session.rollback()
+    summary = {
+        "products_created": 0,
+        "products_updated": 0,
+        "products_failed": 0,
+        "variations_created": 0,
+        "variations_updated": 0,
+    }
+
+    # Read settings without opening a transaction on the scoped ORM session.
+    with db.engine.connect() as connection:
+        catalogue_root = connection.execute(
+            select(Settings.product_folder).limit(1)
+        ).scalar_one_or_none() or ""
+    sku_to_folder = _scan_sku_folder_index(catalogue_root, log=log)
     source_by_sku = {
         sku: _source_context(folder, catalogue_root, log=log)
         for sku, folder in sku_to_folder.items()
     }
 
-    # Track per-product data for Discord pings
-    per_product: Dict[str, Dict] = {}
-
-    # 1) Products (simple + variable parent)
-    parent_rows = [r for r in rows if r.get("Type") in ("simple", "variable")]
-    for r in parent_rows:
-        sku = _pick(r.get("SKU"))
-        if not sku:
-            log(f"⚠️ Skipping product row without SKU: {r}", "WARN")
-            continue
-
-        context = source_by_sku.get(sku, {})
-        fields = _row_to_product_fields(r, context)
-        prod = Product.query.filter_by(sku=sku).first()
-        if not prod:
-            prod = Product(**fields)
-            db.session.add(prod)
-            created_products += 1
-            log(f"🆕 Product created: {sku}", "INFO")
-        else:
-            for k, v in fields.items():
-                setattr(prod, k, v)
-            updated_products += 1
-            log(f"🔁 Product updated: {sku}", "INFO")
-
-        collection = _upsert_collection(context)
-        if collection:
-            prod.collection = collection
-            prod.collection_type = collection.collection_type
-            prod.product_dir = context["product_path"]
-            prod.shared_json_path = context["shared_json_path"]
-            prod.override_json_path = context.get("override_json_path")
-            prod.effective_json_path = context["effective_json_path"]
-
-        # gallery
-        all_imgs = _all_images(r.get("Images", ""))
-        prod.image_url = all_imgs[0] if all_imgs else None
-        db.session.flush()
-        ProductImage.query.filter_by(product_id=prod.id).delete()
-        for pos, url in enumerate(all_imgs):
-            db.session.add(ProductImage(product_id=prod.id, url=url, position=pos))
-
-        _sync_taxonomy(prod, r)
-        _sync_product_attributes(prod, r)
-
-        # info assets
-        folder = sku_to_folder.get(sku)
-        if context.get("shared_json_path"):
-            info_paths = {"shared": context["shared_json_path"]}
-            if context.get("override_json_path"):
-                info_paths["override"] = context["override_json_path"]
-        else:
-            info_paths = _info_paths_for_folder(folder) if folder else {}
-        _upsert_info_assets(prod, info_paths, catalogue_root, log=log)
-
-        # record for ping
-        per_product[sku] = {
-            "name": fields.get("title"),
-            "type": fields.get("product_type"),
-            "images_count": len(all_imgs),
-            "has_shared": "shared" in info_paths,
-            "has_override": "override" in info_paths,
-            "folder_path": folder,
-            "variations_count": 0,  # will be incremented below
-        }
-
-    db.session.commit()
-
-    # Index parents by SKU
-    product_by_sku = {
-        p.sku: p
-        for p in Product.query.filter(
-            Product.sku.in_(
-                [_pick(r.get("SKU")) for r in parent_rows if _pick(r.get("SKU"))]
-            )
-        ).all()
+    parent_rows = [row for row in rows if row.get("Type") in ("simple", "variable")]
+    variation_rows = [row for row in rows if row.get("Type") == "variation"]
+    parents_by_sku = {
+        _pick(row.get("SKU")): row for row in parent_rows if _pick(row.get("SKU"))
     }
-
-    # 2) Variations
-    variation_rows = [r for r in rows if r.get("Type") == "variation"]
-    for r in variation_rows:
-        parent_sku = _pick(r.get("Parent"))
-        var_sku = _pick(r.get("SKU"))
-        if not parent_sku or not var_sku:
-            log(
-                f"⚠️ Skipping variation without parent or SKU: parent={parent_sku}, sku={var_sku}",
-                "WARN",
-            )
-            continue
-
-        parent = (
-            product_by_sku.get(parent_sku)
-            or Product.query.filter_by(sku=parent_sku).first()
-        )
-        if not parent:
-            log(f"❌ Variation references missing parent SKU: {parent_sku}", "ERROR")
-            continue
-
-        context = source_by_sku.get(parent_sku, {})
-        var_fields, attrs = _row_to_variation_fields(r, context)
-        variation = Variation.query.filter_by(sku=var_sku).first()
-
-        if not variation:
-            variation = Variation(product_id=parent.id, **var_fields)
-            db.session.add(variation)
-            db.session.flush()
-            created_variations += 1
-            log(f"🆕 Variation created: {var_sku} (parent {parent_sku})", "INFO")
+    variations_by_parent = {}
+    missing_parent_rows = {}
+    for row in variation_rows:
+        parent_sku = _pick(row.get("Parent"))
+        if parent_sku and parent_sku in parents_by_sku:
+            variations_by_parent.setdefault(parent_sku, []).append(row)
         else:
-            variation.product_id = parent.id
-            for k, v in var_fields.items():
-                setattr(variation, k, v)
-            db.session.flush()
-            updated_variations += 1
-            log(f"🔁 Variation updated: {var_sku}", "INFO")
+            failed_sku = parent_sku or _pick(row.get("SKU")) or "unknown"
+            missing_parent_rows.setdefault(failed_sku, []).append(row)
 
-        # attributes
-        VariationAttribute.query.filter_by(variation_id=variation.id).delete()
-        for attribute in attrs:
-            db.session.add(
-                VariationAttribute(variation_id=variation.id, **attribute)
+    per_product: Dict[str, Dict] = {}
+    for sku, parent_row in parents_by_sku.items():
+        context = source_by_sku.get(sku, {})
+        folder = sku_to_folder.get(sku)
+        try:
+            with db.session.begin():
+                result = _ingest_complete_parent(
+                    parent_row,
+                    variations_by_parent.get(sku, []),
+                    catalogue_root=catalogue_root,
+                    folder=folder,
+                    context=context,
+                    operation_id=operation_id,
+                    failure_injector=failure_injector,
+                    log=log,
+                )
+        except Exception as error:
+            db.session.rollback()
+            summary["products_failed"] += 1
+            _record_failed_item(
+                operation_id,
+                sku,
+                context.get("product_relpath"),
+                error,
             )
-
-        # gallery
-        v_imgs = _all_images(r.get("Images", ""))
-        variation.image_url = v_imgs[0] if v_imgs else None
-        VariationImage.query.filter_by(variation_id=variation.id).delete()
-        for pos, url in enumerate(v_imgs):
-            db.session.add(
-                VariationImage(variation_id=variation.id, url=url, position=pos)
+            log(
+                f"❌ Parent {sku} rolled back: {sanitize_operation_error(error)}",
+                "ERROR",
             )
+            continue
 
-        # count per-product variations
-        if parent_sku in per_product:
-            per_product[parent_sku]["variations_count"] += 1
+        key = "products_created" if result["product_created"] else "products_updated"
+        summary[key] += 1
+        summary["variations_created"] += result["variations_created"]
+        summary["variations_updated"] += result["variations_updated"]
+        per_product[sku] = result["notification"]
+        action = "created" if result["product_created"] else "updated"
+        log(f"✅ Product {action}: {sku}", "INFO")
 
-    db.session.commit()
+    for missing_sku in missing_parent_rows:
+        error = ValueError(
+            f"Variation rows reference missing parent row: {missing_sku}"
+        )
+        summary["products_failed"] += 1
+        context = source_by_sku.get(missing_sku, {})
+        _record_failed_item(
+            operation_id,
+            missing_sku,
+            context.get("product_relpath"),
+            error,
+        )
+        log(f"❌ {error}", "ERROR")
 
-    # 3) Per‑product Discord pings (after variations are known)
+    # Per-product notifications are best effort and run only after each parent commits.
     for sku, info in per_product.items():
         try:
             notify_ingest_product(
@@ -590,11 +749,5 @@ def ingest_rows_to_db(rows: List[Dict], log=print) -> Dict[str, int]:
         except Exception as e:
             log(f"⚠️ Discord ingest notify failed for {sku}: {e}", "WARN")
 
-    summary = {
-        "products_created": created_products,
-        "products_updated": updated_products,
-        "variations_created": created_variations,
-        "variations_updated": updated_variations,
-    }
     log(f"✅ Ingest complete — {summary}", "INFO")
     return summary

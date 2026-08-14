@@ -61,7 +61,13 @@ def test_ingest_maps_current_supported_subset_to_temporary_database(tmp_path, qu
 
             product = Product.query.filter_by(sku="FIC-0001").one()
             variation = Variation.query.filter_by(sku="FIC-0001-1").one()
-            assert summary == {"products_created": 1, "products_updated": 0, "variations_created": 1, "variations_updated": 0}
+            assert summary == {
+                "products_created": 1,
+                "products_updated": 0,
+                "products_failed": 0,
+                "variations_created": 1,
+                "variations_updated": 0,
+            }
             assert str(product.regular_price) == "12.50"
             assert len(product.images) == 2
             assert variation.product_id == product.id
