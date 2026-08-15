@@ -56,6 +56,15 @@ operation item says `database_state=committed` is finalized before scanning.
 Pending intents without a committed item remain selected for safe retry. This is
 recoverable coordination, not a claim of cross-store atomic rollback.
 
+## Reconstruction operations
+
+`reconstruction` is distinct from `full`. Its scope records `exhaustive=true` and
+`identity_mode=preserve`. All emitted parent items and lifecycle reconciliation
+share one replacement transaction. A parent failure records a sanitized rolled
+back item after that transaction is abandoned. Marker finalization happens only
+for genuinely new products; unresolved prior pending state produces a partial
+operation with `recovery_required`.
+
 ## Deployment boundary
 
 The lock and live active-operation summary are process-local. Persistent rows are

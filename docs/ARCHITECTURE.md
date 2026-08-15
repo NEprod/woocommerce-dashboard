@@ -43,6 +43,29 @@ compared with emitted parents. Missing, empty, unreadable, invalid, or partially
 resolved scope prevents product reconciliation. Append and individual update scans never
 treat unseen products as missing.
 
+## Reconstruction
+
+Setup detection reads only the configured repository-fixture catalogue and the
+current projection. It distinguishes no identities, existing marker/pending
+identities, an existing projection, and malformed/unavailable state. Ambiguous
+state blocks identity-generating actions rather than falling back to full scan.
+
+Reconstruction acquires the catalogue-operation lock, preflights every collection,
+override JSON object, marker, and expected parent, then resolves all scanner rows
+before touching the projection. It forces selection with SKU reuse enabled and
+counter reset disabled. Valid markers are read but not rewritten. Database
+identity overlays add safely matched variation identities that are newer than an
+old marker payload.
+
+After complete resolution, SQLite is integrity-checked and backed up beneath the
+active instance directory. Collection, product, variation, provenance, taxonomy,
+and lifecycle changes are applied in one transaction. Users, settings, operation
+history, internal IDs, and Woo placeholders are outside replacement or are updated
+in place. A parent/replacement failure rolls the transaction back; the verified
+backup remains. New-product pending markers finalize only after commit. Existing
+pending recovery makes the operation partial. Discord and Woo integrations are
+not invoked.
+
 Alembic owns SQLite schema initialization and upgrades. Application startup must reach migration head before requests are served. A structurally matching unversioned Phase 0 database is backed up and stamped at the frozen baseline; an unknown schema is rejected. Migration backups cover SQLite only and do not make filesystem catalogue state transactional.
 
 Atomic replacement prevents torn JSON files but does not make SQLite, marker files, SKU indexes, and processed images one transaction. Operational backup and recovery must include both the instance mount and catalogue/output mounts.

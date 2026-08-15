@@ -65,3 +65,10 @@ authoritative inside the parent transaction. Product presence is reconciled only
 from an approved exhaustive scope: catalogue-wide full/reconstruction or a
 collection-limited shared refresh. Ordinary append and individual update scopes
 are never authoritative for unseen products.
+
+Reconstruction does not replace the database file or recreate application tables.
+It updates the resolved Collection → Product → Variation projection inside one
+transaction. Portable product source identity is matched before SKU; variation
+attribute identity is matched before SKU. Consequently safe matches retain row
+IDs, Woo placeholders, timestamps, relationships, and lifecycle history. User,
+Settings, and prior CatalogueOperation rows are not part of projection replacement.

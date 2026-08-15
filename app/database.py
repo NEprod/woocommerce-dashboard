@@ -164,6 +164,7 @@ def backup_database(
     *,
     source_revision: str | None = None,
     target_revision: str | None = None,
+    purpose: str = "migration",
 ) -> Path:
     """Create a consistent SQLite backup using the SQLite backup API."""
 
@@ -175,8 +176,10 @@ def backup_database(
     transition = (
         f"{_revision_label(source_revision)}-to-{_revision_label(target_revision)}"
     )
+    safe_purpose = _revision_label(purpose)
     destination = root / (
-        f"{database_path.stem}.migration-{transition}.{timestamp}.{unique}.sqlite3"
+        f"{database_path.stem}.{safe_purpose}-{transition}."
+        f"{timestamp}.{unique}.sqlite3"
     )
     temporary = destination.with_suffix(destination.suffix + ".tmp")
     temporary.unlink(missing_ok=True)
@@ -216,6 +219,12 @@ def restore_database(backup_path: Path, database_path: Path) -> Path:
     _integrity_check(temporary)
     os.replace(temporary, database_path)
     return database_path
+
+
+def check_database_integrity(database_path: Path) -> None:
+    """Public integrity-check entry point for controlled recovery workflows."""
+
+    _integrity_check(database_path.resolve())
 
 
 def ensure_database(

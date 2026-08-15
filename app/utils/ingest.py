@@ -515,6 +515,14 @@ def _checkpoint(failure_injector, stage, sku):
         failure_injector(stage, sku)
 
 
+class ReconstructionParentError(RuntimeError):
+    def __init__(self, sku, source_path, error):
+        super().__init__(f"Parent {sku} reconstruction failed: {error}")
+        self.sku = sku
+        self.source_path = source_path
+        self.original_error = error
+
+
 def _record_failed_item(operation_id, sku, source_path, error):
     if not operation_id:
         return
@@ -847,4 +855,116 @@ def ingest_rows_to_db(
             log(f"⚠️ Discord ingest notify failed for {sku}: {e}", "WARN")
 
     log(f"✅ Ingest complete — {summary}", "INFO")
+    return summary
+
+
+def ingest_reconstruction_rows(
+    rows: List[Dict],
+    *,
+    operation_id,
+    failure_injector=None,
+    log=print,
+):
+    """Replace the resolved catalogue projection in one controlled transaction."""
+
+    db.session.rollback()
+    with db.engine.connect() as connection:
+        catalogue_root = connection.execute(
+            select(Settings.product_folder).limit(1)
+        ).scalar_one_or_none() or ""
+    sku_to_folder = _scan_sku_folder_index(catalogue_root, log=log)
+    source_by_sku = {
+        sku: _source_context(folder, catalogue_root, log=log)
+        for sku, folder in sku_to_folder.items()
+    }
+
+    parent_rows = [row for row in rows if row.get("Type") in ("simple", "variable")]
+    variation_rows = [row for row in rows if row.get("Type") == "variation"]
+    parents_by_sku = {
+        _pick(row.get("SKU")): row
+        for row in parent_rows
+        if _pick(row.get("SKU"))
+    }
+    variations_by_parent = {}
+    for row in variation_rows:
+        parent_sku = _pick(row.get("Parent"))
+        if parent_sku not in parents_by_sku:
+            raise ValueError(
+                f"Variation rows reference missing parent row: {parent_sku or 'unknown'}"
+            )
+        variations_by_parent.setdefault(parent_sku, []).append(row)
+
+    summary = {
+        "products_created": 0,
+        "products_updated": 0,
+        "products_failed": 0,
+        "products_missing": 0,
+        "products_restored": 0,
+        "variations_created": 0,
+        "variations_updated": 0,
+        "variations_missing": 0,
+        "variations_restored": 0,
+    }
+    seen_source_relpaths = set()
+    now = _utcnow()
+
+    with db.session.begin():
+        for sku, parent_row in parents_by_sku.items():
+            context = source_by_sku.get(sku, {})
+            folder = sku_to_folder.get(sku)
+            if not context.get("product_relpath"):
+                raise ValueError(f"No portable source identity resolved for {sku}")
+            try:
+                result = _ingest_complete_parent(
+                    parent_row,
+                    variations_by_parent.get(sku, []),
+                    catalogue_root=catalogue_root,
+                    folder=folder,
+                    context=context,
+                    operation_id=operation_id,
+                    failure_injector=failure_injector,
+                    log=log,
+                )
+            except Exception as error:
+                raise ReconstructionParentError(
+                    sku, context.get("product_relpath"), error
+                ) from error
+            seen_source_relpaths.add(context["product_relpath"])
+            key = (
+                "products_created"
+                if result["product_created"]
+                else "products_updated"
+            )
+            summary[key] += 1
+            summary["products_restored"] += int(result["product_restored"])
+            for key in (
+                "variations_created",
+                "variations_updated",
+                "variations_missing",
+                "variations_restored",
+            ):
+                summary[key] += result[key]
+
+        for product in Product.query.filter_by(catalogue_status="active").all():
+            if product.source_relpath in seen_source_relpaths:
+                continue
+            preserved_local_updated_at = product.local_updated_at
+            product.catalogue_status = "missing"
+            product.missing_at = now
+            product.local_updated_at = preserved_local_updated_at
+            summary["products_missing"] += 1
+            if operation_id:
+                db.session.add(
+                    CatalogueOperationItem(
+                        operation_id=operation_id,
+                        source_path=product.source_relpath,
+                        sku=product.sku,
+                        status="missing",
+                        database_state="committed",
+                        marker_state="not_applicable",
+                        finished_at=now,
+                    )
+                )
+        _checkpoint(failure_injector, "projection_replacement", None)
+
     return summary

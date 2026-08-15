@@ -110,7 +110,8 @@ def test_scan_start_route_reports_active_operation_conflict(operation_app):
         lease = acquire_catalogue_operation("append", {"mode": "append"})
 
     response = operation_app.test_client().post(
-        "/initial-scan/start", json={"mode": "full"}
+        "/initial-scan/start",
+        json={"mode": "full", "confirm_full_regeneration": True},
     )
 
     assert response.status_code == 409

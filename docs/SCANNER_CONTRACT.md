@@ -93,3 +93,10 @@ Milestone 4 does not change scanner selection, resolution, row building, markers
 Milestone 5 changes only the SQLite ingestion boundary and history reporting. It does not change scanner selection, resolution, emitted rows, SKU generation/reuse, JSON inheritance, append/update/full behavior, or marker/index writes.
 
 Milestone 6 adds atomic marker/index replacement and recoverable finalization. It does not change resolved metadata, emitted row values, JSON inheritance, variation matching rules, or intentional clean full-scan regeneration.
+
+Milestone 8 adds reconstruction-only orchestration around the same scanner: force
+complete selection, reuse identities, disable counter reset, preserve valid
+markers, and supplement safe matches from the existing database projection.
+Default append, update, shared-refresh, and full calls retain their characterized
+arguments and behavior. Intentional full regeneration remains separate and
+requires explicit UI/API confirmation.

@@ -38,6 +38,13 @@ The default backup directory is derived from the active database path: a databas
 
 Already-current and fresh databases do not create migration backups. Backups are runtime data and must not be committed or baked into the image.
 
+Identity-preserving reconstruction uses the same verified backup mechanism, with
+a unique name such as
+`site.reconstruction-0004_lifecycle-to-reconstruction.TIMESTAMP.UNIQUE.sqlite3`.
+It is created only after complete catalogue pre-resolution and before the single
+projection replacement transaction. It remains available after success or
+failure.
+
 ## Manual upgrade and restore
 
 Stop all application processes before a manual migration or restore. In a local checkout or running image:

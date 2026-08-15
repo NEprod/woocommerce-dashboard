@@ -40,7 +40,9 @@ from app.utils.operation_control import (
     CatalogueOperationActive,
     acquire_catalogue_operation,
     finish_catalogue_operation,
+    get_active_operation,
 )
+from app.utils.reconstruction import detect_setup_state, run_reconstruction
 
 main = Blueprint("main", __name__)
 
@@ -598,7 +600,10 @@ def open_info_asset(product_id, label):
 @login_required
 def initial_scan_page():
     s = Settings.query.first()
-    return render_template("setup/initial_scan.html", settings=s)
+    setup_state = detect_setup_state()
+    return render_template(
+        "setup/initial_scan.html", settings=s, setup_state=setup_state
+    )
 
 
 @main.route("/initial-scan/start", methods=["POST"])
@@ -609,13 +614,71 @@ def initial_scan_start():
     Start a scan. We do NOT ping Discord from here to avoid double 'start' notifications,
     because scan_runner already sends the start + completion notifications.
     """
+    payload = request.get_json(silent=True) or {}
     run_id = uuid.uuid4().hex
-    scan_mode = request.json.get("mode", "append")
+    scan_mode = payload.get("mode", "append")
+    active_operation = get_active_operation()
+    if active_operation:
+        return _operation_conflict(CatalogueOperationActive(active_operation))
+    if scan_mode not in {"append", "update", "full"}:
+        return jsonify({"error": "unsupported scan mode"}), 400
+    setup_state = detect_setup_state()
+    if not setup_state.safe_to_run:
+        return (
+            jsonify(
+                {
+                    "error": "catalogue_state_ambiguous",
+                    "message": setup_state.message,
+                    "failures": list(setup_state.errors),
+                }
+            ),
+            409,
+        )
+    if scan_mode == "full" and payload.get("confirm_full_regeneration") is not True:
+        return (
+            jsonify(
+                {
+                    "error": "full_regeneration_confirmation_required",
+                    "message": (
+                        "Full regeneration may replace catalogue SKU identities. "
+                        "Explicit confirmation is required."
+                    ),
+                }
+            ),
+            400,
+        )
     try:
         start_scan(current_app._get_current_object(), run_id, scan_mode=scan_mode)
     except CatalogueOperationActive as error:
         return _operation_conflict(error)
     return jsonify({"run_id": run_id})
+
+
+@main.route("/catalogue/reconstruct", methods=["POST"])
+@login_required
+@csrf.exempt
+def catalogue_reconstruct():
+    try:
+        result = run_reconstruction()
+    except CatalogueOperationActive as error:
+        return _operation_conflict(error)
+    payload = {
+        "operation_id": result.operation_id,
+        "status": result.status,
+        "collections": result.collections,
+        "products": result.products,
+        "markers": result.markers,
+        "backup": (
+            f"backups/{result.backup_path.name}" if result.backup_path else None
+        ),
+        "products_missing": result.products_missing,
+        "products_restored": result.products_restored,
+        "variations_missing": result.variations_missing,
+        "variations_restored": result.variations_restored,
+        "recovery_required": result.recovery_required,
+        "error": result.error,
+    }
+    return jsonify(payload), (200 if result.status == "succeeded" else 409)
 
 
 @main.route("/initial-scan/stream/<run_id>")

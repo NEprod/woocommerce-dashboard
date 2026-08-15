@@ -30,6 +30,19 @@ Transactional-ingestion tests inject failures after collection, parent, product-
 
 Marker-recovery tests use only temporary fictional catalogues/databases and disable Discord. They must cover the protected old ordering, the new pending/DB/finalization ordering, atomic `.scanned` and `sku_index.json` replacement, pre-DB and parent-transaction failures, post-commit marker and `.update` failures, interruption recovery, retry identity reuse for parents and variations, valid-marker retention, and unrelated-product isolation.
 
+Controlled reconstruction can be inspected or run from an application runtime:
+
+```bash
+python -m app.utils.reconstruction status
+python -m app.utils.reconstruction run
+```
+
+`status` is read-only. `run` acquires the catalogue-operation lock, never aliases
+full scan, suppresses Discord, and prints bounded counts plus a backup path
+relative to the instance directory. Reconstruction tests use temporary fictional
+catalogues and cover preflight, backup/restore, transaction rollback, identity
+preservation, idempotence, lifecycle reconciliation, and pending recovery.
+
 Tests must create temporary directories and SQLite databases. Fixtures under `tests/fixtures` must be fictional and contain no copied commercial catalogue text, customer information, live SKU, local personal path, credential, or webhook. Tests must never use the live `.env`, `instance/site.db`, catalogue, output folder, Discord, WooCommerce, WordPress, or internet.
 
 ## Git workflow

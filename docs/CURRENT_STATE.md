@@ -6,7 +6,7 @@ This document records the Phase 0 baseline established from two read-only audits
 
 `run.py` creates the Flask application. The application factory configures Flask-SQLAlchemy, Flask-Login, CSRF protection, the main blueprint, and upgrades SQLite to the current Alembic migration head. `db.create_all()` is no longer used. Missing databases are initialized from migrations; a matching unversioned Phase 0 database is backed up and adopted at the frozen baseline.
 
-A new installation follows `/` → `/setup` → `/initial-settings` → `/initial-scan`. Setup creates the initial administrator and stores the product root, output root, and public image URL prefix. The initial-scan screen currently submits append mode rather than full mode.
+A new installation follows `/` → `/setup` → `/initial-settings` → `/initial-scan`. Setup creates the initial administrator and stores the product root, output root, and public image URL prefix. The initial-scan screen classifies the configured catalogue as new, requiring reconstruction, ready, or ambiguous. It shows collection/product/marker/projection counts and enables only a safe recommended action.
 
 ## Scanner modes
 
@@ -16,6 +16,13 @@ A new installation follows `/` → `/setup` → `/initial-settings` → `/initia
 - **shared collection refresh** explicitly forces every product in one collection
   while reusing marker identities. A shared JSON editor save invokes this mode;
   ordinary append and individual-update selection remain unchanged.
+- **reconstruction** resolves the complete catalogue with marker and database
+  identity reuse, disables SKU-index reset, creates a persistent SQLite backup,
+  then updates the full projection in one controlled transaction.
+
+Intentional full regeneration remains a separate warning-labelled action. The UI
+and route require explicit confirmation because it retains the scanner's existing
+SKU-reset behavior. An empty database never selects it automatically.
 
 The scanner supports exact collection types `Simple`, `Variable Collection`, and `Single Variable`.
 
@@ -26,6 +33,13 @@ Append, product update, shared collection update, full, and reconstruction opera
 Ordinary scan ingestion adds one operation item per emitted parent. Successful items are committed with their parent transaction. A failed parent is rolled back and receives a separate sanitized failed item; the operation becomes `partial` when other parents succeeded or `failed` when none did.
 
 Production scans stage `.scanned.pending` before database ingestion and finalize `.scanned` only after the corresponding parent commits. Database failures retain/recreate `.update`; marker-finalization failures retain pending identity. The next operation finalizes already committed intents before scanning and retries only unresolved products with preserved parent/variation SKUs. Marker and index JSON replacements are atomic.
+
+Reconstruction does not rewrite a valid `.scanned`, reset `sku_index.json`, or
+remove an existing `.update`. Database identity overlays supplement old marker
+payloads for newly discovered variation combinations, so repeated reconstruction
+does not allocate another SKU. Only genuinely unmarked products stage and finalize
+a new marker. Outstanding pre-existing pending state makes the result partial and
+`recovery_required` rather than falsely successful.
 
 ## Verified catalogue/database consistency
 
@@ -62,10 +76,9 @@ WooCommerce-compatible rows and future Woo ID columns exist, but there is no liv
 
 ## Known operational risks
 
-- The initial UI exposes append, not full, mode.
 - Multi-worker or multi-replica catalogue mutation is not supported; the lock is process-local.
 - Scan progress is process-local and non-durable.
 - Several routes are incomplete because templates are absent.
 
-The protected scanner discrepancies remain unchanged. Reconstruction remains a
-separate Milestone 8 concern.
+The protected scanner discrepancies and intentional full-scan semantics remain
+unchanged.

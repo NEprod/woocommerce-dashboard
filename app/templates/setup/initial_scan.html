@@ -22,13 +22,36 @@
             <!-- Jinja → data-* so JS stays clean -->
             <div id="scanCfg"
                  data-start-url="{{ url_for('main.initial_scan_start') }}"
+                 data-reconstruct-url="{{ url_for('main.catalogue_reconstruct') }}"
                  data-stream-url-template="{{ url_for('main.initial_scan_stream', run_id='__RUN__') }}"
                  data-progress-url-template="{{ url_for('main.initial_scan_progress', run_id='__RUN__') }}"
                  data-have-settings="{{ 1 if (settings and settings.product_folder and settings.output_folder and settings.url_prefix) else 0 }}">
             </div>
 
             <h2 class="tlc-heading mb-3">Initial Scan</h2>
-            <p class="text-muted small mb-4">We’ll scan your product folders and prepare everything locally.</p>
+            <p class="text-muted small mb-3">Choose the identity-safe action for the detected catalogue state.</p>
+
+            <div class="alert {{ 'alert-danger' if not setup_state.safe_to_run else 'alert-info' }} small">
+              <strong>Detected state:</strong> {{ setup_state.code.replace('_', ' ')|title }}<br>
+              {{ setup_state.message }}
+              <div class="mt-2">
+                {{ setup_state.collection_count }} collections ·
+                {{ setup_state.product_count }} products ·
+                {{ setup_state.marker_count }} identity markers ·
+                {{ setup_state.projection_products }} projected products
+              </div>
+              <div class="mt-1">
+                <strong>Identity handling:</strong>
+                {% if setup_state.identities_preserved %}
+                  Existing parent and variation identities will be preserved.
+                {% else %}
+                  Normal new-product processing may allocate new identities.
+                {% endif %}
+              </div>
+              {% for error in setup_state.errors %}
+                <div class="text-danger mt-1">{{ error }}</div>
+              {% endfor %}
+            </div>
 
             <!-- Settings summary -->
             <div class="card p-3 mb-3 bg-white">
@@ -47,13 +70,28 @@
 
             <!-- Controls -->
             <div class="d-flex flex-wrap gap-2 mb-3">
-              <select id="scanMode" class="form-select form-select-sm" style="max-width: 220px;">
-                <option value="append" selected>Append (initial scan)</option>
-                <option value="update" disabled>Update (keep SKUs)</option>
-                <option value="full" disabled>Force (reset SKUs)</option>
-              </select>
-              <button id="startBtn" class="btn btn-tlc btn-sm">Start Scan</button>
+              <button id="startBtn" class="btn btn-tlc btn-sm"
+                      {% if not setup_state.safe_to_run or setup_state.recommended_action == 'reconstruction' %}disabled{% endif %}>
+                Process new catalogue
+              </button>
+              <button id="reconstructBtn" class="btn btn-info btn-sm"
+                      {% if not setup_state.safe_to_run or setup_state.code == 'new_catalogue' %}disabled{% endif %}>
+                Rebuild catalogue index
+              </button>
               <a id="continueBtn" class="btn btn-outline-secondary btn-sm d-none d-flex align-items-center justify-content-center" href="{{ url_for('main.dashboard') }}">Continue to Dashboard</a>
+            </div>
+
+            <div class="border border-danger rounded p-3 mb-3 small">
+              <strong class="text-danger">Intentional full regeneration</strong>
+              <p class="mb-2">This is not reconstruction. It retains the scanner’s existing reset behavior and may regenerate parent and variation SKU identities.</p>
+              <label class="form-check-label">
+                <input id="confirmFull" class="form-check-input me-1" type="checkbox">
+                I understand the SKU and integration identity implications.
+              </label>
+              <button id="fullBtn" class="btn btn-outline-danger btn-sm ms-2"
+                      {% if not setup_state.safe_to_run %}disabled{% endif %}>
+                Run intentional full regeneration
+              </button>
             </div>
 
             <!-- Progress -->
@@ -107,15 +145,23 @@
     return d.toTimeString().slice(0,8);
   }
 
-  function startScan(){
+  function startScan(mode){
     const cfg = document.getElementById('scanCfg');
     const startUrl = cfg.dataset.startUrl;
-    const mode = document.getElementById('scanMode').value;
+    const payload = {mode};
+    if (mode === 'full') {
+      if (!document.getElementById('confirmFull').checked) {
+        appendLogLine('[❌] Confirm the full-regeneration warning first.');
+        return;
+      }
+      if (!window.confirm('Full regeneration can replace SKU identities. Continue?')) return;
+      payload.confirm_full_regeneration = true;
+    }
 
     fetch(startUrl, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({mode})
+      body: JSON.stringify(payload)
     })
     .then(async r => {
       const data = await r.json();
@@ -130,6 +176,29 @@
       document.getElementById('startBtn').disabled = true;
     })
     .catch(err => appendLogLine(`[❌] ${err.message || 'Error starting scan'}`));
+  }
+
+  function reconstructCatalogue(){
+    const cfg = document.getElementById('scanCfg');
+    const button = document.getElementById('reconstructBtn');
+    button.disabled = true;
+    appendLogLine('[ℹ️] Validating the complete catalogue before reconstruction…');
+    fetch(cfg.dataset.reconstructUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: '{}'
+    })
+    .then(async r => {
+      const data = await r.json();
+      if(!r.ok) throw new Error(data.error || data.message || 'Reconstruction failed');
+      return data;
+    })
+    .then(data => {
+      appendLogLine(`[✅] Catalogue index rebuilt. Backup: ${data.backup || 'not created'}`);
+      document.getElementById('continueBtn').classList.remove('d-none');
+    })
+    .catch(err => appendLogLine(`[❌] ${err.message}`))
+    .finally(() => { button.disabled = false; });
   }
 
   function streamLogs(){
@@ -178,7 +247,9 @@
       startBtn.disabled = true;
       startBtn.title = 'Please complete Initial Settings first';
     }
-    document.getElementById('startBtn').addEventListener('click', startScan);
+    document.getElementById('startBtn').addEventListener('click', () => startScan('append'));
+    document.getElementById('fullBtn').addEventListener('click', () => startScan('full'));
+    document.getElementById('reconstructBtn').addEventListener('click', reconstructCatalogue);
     window.addEventListener('beforeunload', () => { if (sse) sse.close(); });
   })();
 </script>

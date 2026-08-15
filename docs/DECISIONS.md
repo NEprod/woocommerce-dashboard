@@ -34,3 +34,11 @@ No new source-of-truth or schema design decision is made here.
     Variable Collection child-marker selection is not widened globally. A shared
     save targets its portable collection path, force-refreshes every child using
     existing marker identities, and leaves unrelated collections untouched.
+14. **Empty SQLite does not imply identity reset.** Setup inspects catalogue
+    markers independently. Existing `.scanned` or pending identity selects
+    reconstruction; malformed or unavailable state blocks action. Full regeneration
+    remains separately named, warned, and explicitly confirmed.
+15. **Reconstruction is a controlled in-place projection replacement.** Complete
+    pre-resolution precedes a persistent verified backup and one SQLite transaction.
+    Valid markers and counters are not reset or rewritten. Database identity
+    overlays provide idempotence for safely matched rows newer than marker payloads.
