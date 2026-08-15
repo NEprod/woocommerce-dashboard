@@ -208,6 +208,10 @@ def test_fresh_database_initializes_at_migration_head(tmp_path):
             row[1]
             for row in connection.execute('PRAGMA table_info("product_asset")')
         }
+        operation_columns = {
+            row[1]
+            for row in connection.execute('PRAGMA table_info("catalogue_operation")')
+        }
     finally:
         connection.close()
     assert {"collection_type", "source_relpath", "shared_json_relpath"} <= (
@@ -221,8 +225,24 @@ def test_fresh_database_initializes_at_migration_head(tmp_path):
         "resolved_row_json",
         "meta_title",
         "meta_description",
+        "catalogue_status",
+        "missing_at",
+        "restored_at",
     } <= product_columns
-    assert {"source_relpath", "resolved_row_json"} <= variation_columns
+    assert {
+        "source_relpath",
+        "source_identity",
+        "resolved_row_json",
+        "catalogue_status",
+        "missing_at",
+        "restored_at",
+    } <= variation_columns
+    assert {
+        "products_missing",
+        "products_restored",
+        "variations_missing",
+        "variations_restored",
+    } <= operation_columns
     assert "source_relpath" in asset_columns
 
 
@@ -306,6 +326,17 @@ def test_unversioned_phase0_upgrade_preserves_data_ids_and_placeholders(tmp_path
     assert snapshot["variation"]["source_relpath"] is None
     assert snapshot["variation"]["resolved_row_json"] is None
     assert snapshot["asset"]["source_relpath"] is None
+    connection = sqlite3.connect(database)
+    try:
+        lifecycle = connection.execute(
+            "SELECT p.catalogue_status, p.missing_at, p.restored_at, "
+            "v.catalogue_status, v.missing_at, v.restored_at "
+            "FROM product p JOIN variation v ON v.product_id = p.id "
+            "WHERE p.id = 11 AND v.id = 21"
+        ).fetchone()
+    finally:
+        connection.close()
+    assert lifecycle == ("active", None, None, "active", None, None)
     assert _all_phase0_data(database) == before
 
 

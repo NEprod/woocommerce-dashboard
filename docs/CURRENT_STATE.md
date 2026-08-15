@@ -13,12 +13,15 @@ A new installation follows `/` → `/setup` → `/initial-settings` → `/initia
 - **append** processes products without `.scanned` and products carrying `.update`.
 - **update** uses the same selection rule and reuses parent/variation SKUs from `.scanned`.
 - **full** forces processing and regenerates SKUs using index counters.
+- **shared collection refresh** explicitly forces every product in one collection
+  while reusing marker identities. A shared JSON editor save invokes this mode;
+  ordinary append and individual-update selection remain unchanged.
 
 The scanner supports exact collection types `Simple`, `Variable Collection`, and `Single Variable`.
 
 ## Operation control
 
-Append, product update, shared collection update, full, and reconstruction operation types share a non-blocking process-local lock. A conflicting request receives HTTP `409` with the active operation type and identifier before it changes catalogue files. Operation history is persistent and records bounded diagnostic fields; startup marks unfinished rows interrupted and requiring review. This control is intentionally limited to the documented single-worker, single-replica runtime.
+Append, product update, shared collection update, full, and reconstruction operation types share a non-blocking process-local lock. A conflicting request receives HTTP `409` with the active operation type and identifier before it changes catalogue files. Operation history is persistent and records bounded diagnostic fields and lifecycle counts; startup marks unfinished rows interrupted and requiring review. This control is intentionally limited to the documented single-worker, single-replica runtime.
 
 Ordinary scan ingestion adds one operation item per emitted parent. Successful items are committed with their parent transaction. A failed parent is rolled back and receives a separate sanitized failed item; the operation becomes `partial` when other parents succeeded or `failed` when none did.
 
@@ -40,10 +43,16 @@ Authentication, initial settings, the initial scan screen, `/edit_products`, raw
 - Portable catalogue-relative source and JSON paths are stored separately from runtime absolute paths.
 - Every emitted parent and variation row is retained as JSON; commonly queried pricing, inventory, publication, taxonomy, SEO, image, and attribute values are also normalized.
 - Existing Product, Variation, and Woo placeholder identities are retained during ordinary row updates.
+- Every committed parent's emitted variation set is authoritative. Stale
+  variations become `missing` rather than being deleted, and matching rows are
+  restored in place if emitted again.
+- Products become `missing` only after a completely resolved and successful full
+  scan, reconstruction, or collection-limited shared refresh. Append and
+  individual product updates never reconcile unseen products.
 
-Remaining ingestion limitations are:
-
-- Removed products and variations are not reconciled.
+Missing rows retain internal/SKU/Woo identity, provenance, relationships, and
+timestamps. Product restoration matches portable `source_relpath` before SKU;
+variation restoration matches its emitted attribute identity before SKU.
 
 Scanner characterization also confirms that variation modifier sale prices are not emitted by the variation row builder, authored shipping class is emitted as blank, list ordering is not stable, unknown collection types yield no rows, editor relationship-key names differ from the row builder, and Woo rows are limited to five attribute slots. These remain protected discrepancies pending separate contract decisions.
 
@@ -53,10 +62,10 @@ WooCommerce-compatible rows and future Woo ID columns exist, but there is no liv
 
 ## Known operational risks
 
-- Shared collection edits place `.update` at collection root, but Simple and Variable Collection products check child product folders.
 - The initial UI exposes append, not full, mode.
 - Multi-worker or multi-replica catalogue mutation is not supported; the lock is process-local.
 - Scan progress is process-local and non-durable.
 - Several routes are incomplete because templates are absent.
 
-The protected scanner discrepancies remain unchanged; later Phase 1 milestones address reconciliation and reconstruction concerns.
+The protected scanner discrepancies remain unchanged. Reconstruction remains a
+separate Milestone 8 concern.

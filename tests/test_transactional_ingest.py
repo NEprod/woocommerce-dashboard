@@ -26,6 +26,7 @@ SIGNIFICANT_STAGES = (
     "variations",
     "variation_attributes",
     "variation_images",
+    "variation_reconciliation",
     "operation_item",
 )
 
@@ -335,6 +336,9 @@ def test_late_parent_failure_does_not_remove_an_unrelated_committed_parent(
             "products_failed": 1,
             "variations_created": 1,
             "variations_updated": 0,
+            "variations_missing": 0,
+            "variations_restored": 0,
+            "products_restored": 0,
         }
         assert Product.query.filter_by(sku="FIC-TX-0001").one().variations
         assert Product.query.filter_by(sku="FIC-TX-0002").first() is None

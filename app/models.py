@@ -36,6 +36,10 @@ class CatalogueOperation(db.Model):
     products_attempted = db.Column(db.Integer, nullable=False, default=0)
     products_succeeded = db.Column(db.Integer, nullable=False, default=0)
     products_failed = db.Column(db.Integer, nullable=False, default=0)
+    products_missing = db.Column(db.Integer, nullable=False, default=0)
+    products_restored = db.Column(db.Integer, nullable=False, default=0)
+    variations_missing = db.Column(db.Integer, nullable=False, default=0)
+    variations_restored = db.Column(db.Integer, nullable=False, default=0)
     error = db.Column(db.Text)
     marker_state = db.Column(db.String(32), nullable=False, default="not_started")
     recovery_state = db.Column(db.String(32), nullable=False, default="none")
@@ -64,6 +68,9 @@ class CatalogueOperationItem(db.Model):
     database_state = db.Column(db.String(32), nullable=False, default="not_started")
     marker_state = db.Column(db.String(32), nullable=False, default="not_started")
     error = db.Column(db.Text)
+    product_restored = db.Column(db.Boolean, nullable=False, default=False)
+    variations_missing = db.Column(db.Integer, nullable=False, default=0)
+    variations_restored = db.Column(db.Integer, nullable=False, default=0)
     started_at = db.Column(db.DateTime, server_default=func.now())
     finished_at = db.Column(db.DateTime)
 
@@ -160,6 +167,11 @@ class Product(db.Model):
     override_json_relpath = db.Column(db.String(1024))
     effective_json_relpath = db.Column(db.String(1024))
     resolved_row_json = db.Column(db.Text)
+    catalogue_status = db.Column(
+        db.String(20), nullable=False, default="active", index=True
+    )
+    missing_at = db.Column(db.DateTime)
+    restored_at = db.Column(db.DateTime)
 
     # Pricing (fallback defaults for variations)
     regular_price = db.Column(db.Numeric(10, 2))
@@ -295,6 +307,12 @@ class Variation(db.Model):
     sku = db.Column(db.String(64), unique=True, index=True)
     source_relpath = db.Column(db.String(1024), index=True)
     resolved_row_json = db.Column(db.Text)
+    source_identity = db.Column(db.String(1024), index=True)
+    catalogue_status = db.Column(
+        db.String(20), nullable=False, default="active", index=True
+    )
+    missing_at = db.Column(db.DateTime)
+    restored_at = db.Column(db.DateTime)
 
     # Pricing overrides
     regular_price = db.Column(db.Numeric(10, 2))

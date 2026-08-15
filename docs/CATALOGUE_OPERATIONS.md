@@ -11,7 +11,9 @@ operation; it is not queued.
 Migration `0002_operations` adds `catalogue_operation` and
 `catalogue_operation_item`. The operation row records type, safe scope, UTC start
 and end times, status, product counts, a concise sanitized error, and marker and
-recovery states. Scope values and errors are bounded, and keys that indicate
+recovery states. Migration `0004_lifecycle` adds product/variation
+missing/restored counts and per-parent lifecycle outcomes. Scope values and
+errors are bounded, and keys that indicate
 secrets, passwords, tokens, API keys, or webhooks are redacted. Full metadata
 payloads and credentials must never be stored.
 
@@ -30,6 +32,13 @@ pending envelope. Per-item state identifies the affected parent. Operation-level
 state summarizes database, marker, or combined recovery requirements. Errors are
 sanitized and bounded; history never stores authored metadata or full scanner
 rows.
+
+Full and shared-collection operations record whether their scope is exhaustive.
+Shared saves record the portable collection path and refresh only that collection.
+Missing-product items use `status=missing`, `database_state=committed`, and
+`marker_state=not_applicable`; restored parents and reconciled variations are
+counted on their ordinary successful item. An incomplete authoritative scan is a
+failed/partial operation and never applies product missing-state reconciliation.
 
 Final states are `succeeded`, `partial`, `failed`, or `interrupted`. Scan history
 is finalized from a `finally` path, so scanner or ingestion exceptions release the

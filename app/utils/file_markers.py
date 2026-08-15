@@ -162,6 +162,36 @@ def set_pending_state(folder, state, log=print):
     return pending
 
 
+def preserve_pending_identity(folder, parent_sku, variations, log=print):
+    """Atomically align pending identity with an existing restored DB identity."""
+
+    pending = load_pending_scanned(folder, log=log)
+    if not pending:
+        return {}
+    marker = pending["marker"]
+    marker["sku"] = parent_sku
+    if "variations" in marker:
+        by_identity = {
+            json.dumps(
+                sorted(item.get("attributes", {}).items()),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ): item["sku"]
+            for item in variations
+        }
+        for item in marker.get("variations", []):
+            identity = json.dumps(
+                sorted(item.get("attributes", {}).items()),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            if identity in by_identity:
+                item["sku"] = by_identity[identity]
+        marker["variation_count"] = len(marker.get("variations", []))
+    atomic_write_json(os.path.join(folder, PENDING_FILE), pending)
+    return pending
+
+
 def ensure_update(folder):
     path = os.path.join(folder, UPDATE_FILE)
     if not os.path.exists(path):

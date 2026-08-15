@@ -211,6 +211,22 @@ def test_thread_start_failure_records_failure_and_releases_lock(
         assert get_active_operation() is None
 
 
+def test_full_scan_history_records_explicit_authoritative_scope(
+    operation_app, monkeypatch
+):
+    monkeypatch.setattr("app.utils.scan_runner.threading.Thread.start", lambda self: None)
+
+    operation_id = start_scan(operation_app, "scope-only-run", scan_mode="full")
+    with operation_app.app_context():
+        row = db.session.get(CatalogueOperation, operation_id)
+        assert row.operation_type == "full"
+        assert row.scope == (
+            '{"exhaustive": true, "scan_mode": "full", '
+            '"scope_kind": "catalogue"}'
+        )
+        finish_catalogue_operation(operation_id, status="succeeded")
+
+
 def test_notification_exception_does_not_leak_operation_lock(
     operation_app, tmp_path, monkeypatch
 ):

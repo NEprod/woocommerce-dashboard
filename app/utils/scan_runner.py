@@ -2,11 +2,13 @@
 import os
 import time
 import threading
+from dataclasses import dataclass
 from flask import url_for
 from datetime import datetime
 from queue import Queue, Empty
 
 from app.models import Settings
+from app.utils.json_utils import load_json, validate_json
 from app.utils.scanner import scan_collection
 from app.utils.discord import (  # UPDATED import
     notify_scan_started,
@@ -23,9 +25,139 @@ from app.utils.operation_control import (
     acquire_catalogue_operation,
     finish_catalogue_operation,
 )
+from app.utils.reconciliation import (
+    authoritative_scope,
+    reconcile_authoritative_products,
+)
 
 # In-memory progress store
 _runs = {}
+
+
+@dataclass(frozen=True)
+class ScanScopePlan:
+    collection_paths: tuple[str, ...]
+    seen_source_relpaths: frozenset[str]
+    expected_parent_counts: dict[str, int]
+    authoritative: bool
+    complete: bool
+    collection_relpath: str | None = None
+    error: str | None = None
+
+
+def _safe_collection_path(scan_folder, collection_relpath):
+    root = os.path.realpath(scan_folder)
+    candidate = os.path.realpath(os.path.join(root, collection_relpath))
+    try:
+        if os.path.commonpath([root, candidate]) != root:
+            return None
+    except ValueError:
+        return None
+    return candidate
+
+
+def build_scan_scope(scan_folder, scan_mode, *, collection_relpath=None):
+    """Preflight an exhaustive scan without changing scanner selection behavior."""
+
+    authoritative = scan_mode in {"full", "shared_collection"}
+    if not os.path.isdir(scan_folder):
+        return ScanScopePlan(
+            (),
+            frozenset(),
+            {},
+            False,
+            False,
+            error="catalogue root unavailable",
+        )
+
+    try:
+        if scan_mode == "shared_collection":
+            target = _safe_collection_path(scan_folder, collection_relpath or "")
+            if not target or not os.path.isdir(target):
+                return ScanScopePlan(
+                    (),
+                    frozenset(),
+                    {},
+                    False,
+                    False,
+                    collection_relpath,
+                    "collection unavailable",
+                )
+            collection_paths = (target,)
+        else:
+            collection_paths = tuple(
+                os.path.join(scan_folder, name)
+                for name in sorted(os.listdir(scan_folder))
+                if os.path.isdir(os.path.join(scan_folder, name))
+                and not name.startswith("_")
+            )
+    except OSError as error:
+        return ScanScopePlan(
+            (), frozenset(), {}, False, False, collection_relpath, str(error)
+        )
+
+    if not authoritative:
+        return ScanScopePlan(collection_paths, frozenset(), {}, False, True)
+    if scan_mode == "full" and not collection_paths:
+        return ScanScopePlan(
+            (),
+            frozenset(),
+            {},
+            False,
+            False,
+            error="catalogue has no resolvable collections",
+        )
+
+    seen = set()
+    expected = {}
+    try:
+        for path in collection_paths:
+            shared = validate_json(
+                load_json(os.path.join(path, "product_info.json")),
+                is_collection=True,
+            )
+            relative = os.path.relpath(path, scan_folder).replace(os.sep, "/")
+            collection_type = shared.get("collection_type")
+            if collection_type == "Single Variable":
+                sources = {relative}
+            elif collection_type in {"Simple", "Variable Collection"}:
+                sources = {
+                    f"{relative}/{name}"
+                    for name in sorted(os.listdir(path))
+                    if os.path.isdir(os.path.join(path, name))
+                    and not name.startswith(".")
+                }
+            else:
+                return ScanScopePlan(
+                    collection_paths,
+                    frozenset(),
+                    {},
+                    False,
+                    False,
+                    collection_relpath,
+                    "collection type is not exhaustive",
+                )
+            seen.update(sources)
+            expected[path] = len(sources)
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        return ScanScopePlan(
+            collection_paths,
+            frozenset(),
+            {},
+            False,
+            False,
+            collection_relpath,
+            str(error),
+        )
+
+    return ScanScopePlan(
+        collection_paths,
+        frozenset(seen),
+        expected,
+        True,
+        True,
+        collection_relpath,
+    )
 
 
 def make_logger(run_id):
@@ -46,6 +178,8 @@ def _operation_type_for_scan(scan_mode):
         return "full"
     if scan_mode == "update":
         return "product_update"
+    if scan_mode == "shared_collection":
+        return "shared_collection_update"
     return "append"
 
 
@@ -57,12 +191,21 @@ def start_scan(
     operation_id=None,
     operation_type=None,
     scope=None,
+    collection_relpath=None,
 ):
+    operation_scope = dict(scope or {"scan_mode": scan_mode})
+    if scan_mode == "full":
+        operation_scope.setdefault("scope_kind", "catalogue")
+        operation_scope.setdefault("exhaustive", True)
+    elif scan_mode == "shared_collection":
+        operation_scope.setdefault("scope_kind", "collection")
+        operation_scope.setdefault("collection_relpath", collection_relpath)
+        operation_scope.setdefault("exhaustive", True)
     if operation_id is None:
         with app.app_context():
             lease = acquire_catalogue_operation(
                 operation_type or _operation_type_for_scan(scan_mode),
-                scope or {"scan_mode": scan_mode},
+                operation_scope,
             )
         operation_id = lease.id
 
@@ -78,10 +221,18 @@ def start_scan(
             "finished_at": None,
         },
         "operation_id": operation_id,
+        "scope": operation_scope,
     }
     thread = threading.Thread(
         target=_scan_thread,
-        args=(app, run_id, scan_mode, operation_id),
+        args=(
+            app,
+            run_id,
+            scan_mode,
+            operation_id,
+            operation_scope,
+            collection_relpath,
+        ),
         daemon=True,
     )
     try:
@@ -93,8 +244,18 @@ def start_scan(
     return operation_id
 
 
-def _scan_thread(app, run_id, scan_mode, operation_id):
+def _scan_thread(
+    app,
+    run_id,
+    scan_mode,
+    operation_id,
+    operation_scope,
+    collection_relpath,
+):
     with app.app_context():
+        collection_relpath = collection_relpath or operation_scope.get(
+            "collection_relpath"
+        )
         start_ts = datetime.utcnow()
         operation_status = "failed"
         operation_error = None
@@ -103,6 +264,10 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
         products_failed = 0
         operation_marker_state = None
         operation_recovery_state = None
+        products_missing = 0
+        products_restored = 0
+        variations_missing = 0
+        variations_restored = 0
         try:
             log = make_logger(run_id)
 
@@ -123,8 +288,8 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
                 log(operation_error, level="ERROR")
                 return
 
-            force = scan_mode == "full"
-            update = scan_mode == "update"
+            force = scan_mode in {"full", "shared_collection"}
+            update = scan_mode in {"update", "shared_collection"}
 
             recovered = recover_committed_markers(scan_folder, log=log)
             if recovered["recovered"]:
@@ -133,11 +298,13 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
                     level="INFO",
                 )
 
-            folders = [
-                f
-                for f in sorted(os.listdir(scan_folder))
-                if os.path.isdir(os.path.join(scan_folder, f)) and not f.startswith("_")
-            ]
+            plan = build_scan_scope(
+                scan_folder,
+                scan_mode,
+                collection_relpath=collection_relpath,
+            )
+            folders = [os.path.basename(path) for path in plan.collection_paths]
+            scan_complete = plan.complete
             _runs[run_id]["total"] = len(folders)
             _runs[run_id]["summary"]["folders"] = len(folders)
 
@@ -156,7 +323,7 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
 
             all_rows = []
             for idx, name in enumerate(folders, start=1):
-                folder_path = os.path.join(scan_folder, name)
+                folder_path = plan.collection_paths[idx - 1]
                 log(f"📂 Scanning: {folder_path}")
                 try:
                     rows = scan_collection(
@@ -170,8 +337,24 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
                         operation_id=operation_id,
                     )
                     all_rows.extend(rows)
+                    if plan.authoritative:
+                        parent_count = sum(
+                            row.get("Type") in ("simple", "variable") for row in rows
+                        )
+                        if parent_count != plan.expected_parent_counts.get(
+                            folder_path
+                        ):
+                            scan_complete = False
+                            log(
+                                f"Authoritative scope incomplete for {name}: expected "
+                                f"{plan.expected_parent_counts.get(folder_path)} "
+                                f"parent(s), got {parent_count}",
+                                level="ERROR",
+                            )
                     log(f"✅ {name} → {len(rows)} rows processed.")
                 except Exception as e:
+                    if plan.authoritative:
+                        scan_complete = False
                     log(f"❌ Error in {name}: {e}", level="ERROR")
                 _runs[run_id]["done"] = idx
 
@@ -206,6 +389,38 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
             products_succeeded = max(0, database_succeeded - marker_failed)
             products_failed = summary.get("products_failed", 0) + marker_failed
             products_attempted = products_succeeded + products_failed
+            products_restored = summary.get("products_restored", 0)
+            variations_missing = summary.get("variations_missing", 0)
+            variations_restored = summary.get("variations_restored", 0)
+
+            scope_type = (
+                "shared_collection_update"
+                if scan_mode == "shared_collection"
+                else scan_mode
+            )
+            if plan.authoritative and not scan_complete:
+                products_failed = max(1, products_failed)
+                products_attempted = max(
+                    products_attempted, products_succeeded + products_failed
+                )
+                operation_error = "Authoritative catalogue scope did not resolve completely"
+            if (
+                plan.authoritative
+                and scan_complete
+                and products_failed == 0
+                and marker_failed == 0
+                and marker_outcome["database_recovery_required"] == 0
+            ):
+                lifecycle = reconcile_authoritative_products(
+                    authoritative_scope(
+                        scope_type,
+                        seen_source_relpaths=plan.seen_source_relpaths,
+                        collection_source_relpath=collection_relpath,
+                    ),
+                    operation_id=operation_id,
+                )
+                products_missing = lifecycle["products_missing"]
+                _runs[run_id]["summary"].update(lifecycle)
             if marker_outcome["database_recovery_required"] and marker_failed:
                 operation_marker_state = "partial"
                 operation_recovery_state = "multiple_recovery_required"
@@ -270,6 +485,10 @@ def _scan_thread(app, run_id, scan_mode, operation_id):
                     error=operation_error,
                     marker_state=operation_marker_state,
                     recovery_state=operation_recovery_state,
+                    products_missing=products_missing,
+                    products_restored=products_restored,
+                    variations_missing=variations_missing,
+                    variations_restored=variations_restored,
                 )
             except Exception as finish_error:
                 make_logger(run_id)(

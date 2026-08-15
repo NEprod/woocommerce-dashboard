@@ -265,9 +265,37 @@ def product_save_json(sku):
             return jsonify({"error": "collection_type is required on shared JSON"}), 400
 
     try:
+        collection_relpath = None
+        operation_scope = {"sku": p.sku, "kind": kind}
+        if kind == "shared":
+            settings = Settings.query.first()
+            catalogue_root = (
+                os.path.realpath(settings.product_folder or "") if settings else ""
+            )
+            collection_folder = os.path.realpath(folder)
+            try:
+                inside_catalogue = (
+                    catalogue_root
+                    and os.path.commonpath([catalogue_root, collection_folder])
+                    == catalogue_root
+                )
+            except ValueError:
+                inside_catalogue = False
+            if not inside_catalogue:
+                return jsonify({"error": "shared collection path not allowed"}), 403
+            collection_relpath = os.path.relpath(
+                collection_folder, catalogue_root
+            ).replace(os.sep, "/")
+            operation_scope.update(
+                {
+                    "scope_kind": "collection",
+                    "collection_relpath": collection_relpath,
+                    "exhaustive": True,
+                }
+            )
         operation = acquire_catalogue_operation(
             "shared_collection_update" if kind == "shared" else "product_update",
-            {"sku": p.sku, "kind": kind},
+            operation_scope,
         )
     except CatalogueOperationActive as error:
         return _operation_conflict(error)
@@ -292,20 +320,24 @@ def product_save_json(sku):
             json.dump(merged, f, ensure_ascii=False, indent=4)
         os.replace(tmp, target)
 
-        # Touch .update so scanner reprocesses
-        try:
-            with open(os.path.join(folder, ".update"), "w") as f:
-                f.write("1")
-        except Exception:
-            pass
+        # Product overrides retain ordinary marker selection. Shared metadata is
+        # handled by an explicit exhaustive collection refresh instead.
+        if kind == "override":
+            try:
+                with open(os.path.join(folder, ".update"), "w") as f:
+                    f.write("1")
+            except Exception:
+                pass
 
         # Kick update scan
         run_id = uuid.uuid4().hex
         start_scan(
             current_app._get_current_object(),
             run_id,
-            scan_mode="update",
+            scan_mode="shared_collection" if kind == "shared" else "update",
             operation_id=operation.id,
+            scope=operation_scope,
+            collection_relpath=collection_relpath,
         )
     except Exception as error:
         finish_catalogue_operation(operation.id, status="failed", error=error)

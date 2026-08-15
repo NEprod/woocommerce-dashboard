@@ -23,7 +23,11 @@ from app.models import (
     CatalogueOperationItem,
 )
 from app.utils.discord import notify_ingest_product  # NEW
-from app.utils.file_markers import PENDING_FILE, load_pending_scanned
+from app.utils.file_markers import (
+    PENDING_FILE,
+    load_pending_scanned,
+    preserve_pending_identity,
+)
 from app.utils.operation_control import sanitize_operation_error
 
 # CSV-style keys
@@ -384,6 +388,11 @@ def _row_to_variation_fields(row: Dict, context=None) -> Tuple[Dict, list[Dict]]
                 "position": i - 1,
             }
         )
+    variation_fields["source_identity"] = json.dumps(
+        sorted((attribute["name"], attribute["value"]) for attribute in attrs),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     return variation_fields, attrs
 
 
@@ -540,14 +549,30 @@ def _ingest_complete_parent(
     _checkpoint(failure_injector, "collection", sku)
 
     fields = _row_to_product_fields(parent_row, context)
-    product = Product.query.filter_by(sku=sku).first()
+    product = None
+    if context.get("product_relpath"):
+        product = Product.query.filter_by(
+            source_relpath=context["product_relpath"]
+        ).first()
+    if product is None:
+        product = Product.query.filter_by(sku=sku).first()
     product_created = product is None
+    product_restored = bool(
+        product is not None and product.catalogue_status == "missing"
+    )
     if product_created:
         product = Product(**fields)
         db.session.add(product)
     else:
+        # Portable source identity is primary. Never replace an established SKU
+        # (and therefore Woo integration identity) with a newly allocated one.
+        fields["sku"] = product.sku
         for key, value in fields.items():
             setattr(product, key, value)
+    product.catalogue_status = "active"
+    product.missing_at = None
+    if product_restored:
+        product.restored_at = _utcnow()
 
     if collection:
         product.collection = collection
@@ -583,6 +608,9 @@ def _ingest_complete_parent(
 
     created_variations = 0
     updated_variations = 0
+    restored_variations = 0
+    emitted_variation_ids = set()
+    canonical_variations = []
     for variation_row in variation_rows:
         variation_sku = _pick(variation_row.get("SKU"))
         if not variation_sku:
@@ -590,17 +618,40 @@ def _ingest_complete_parent(
         variation_fields, attributes = _row_to_variation_fields(
             variation_row, context
         )
-        variation = Variation.query.filter_by(sku=variation_sku).first()
+        variation = None
+        source_identity = variation_fields["source_identity"]
+        if source_identity:
+            variation = Variation.query.filter_by(
+                product_id=product.id, source_identity=source_identity
+            ).first()
+        if variation is None:
+            variation = Variation.query.filter_by(sku=variation_sku).first()
         if variation is None:
             variation = Variation(product_id=product.id, **variation_fields)
             db.session.add(variation)
             created_variations += 1
         else:
+            was_missing = variation.catalogue_status == "missing"
             variation.product_id = product.id
+            variation_fields["sku"] = variation.sku
             for key, value in variation_fields.items():
                 setattr(variation, key, value)
             updated_variations += 1
+            if was_missing:
+                restored_variations += 1
+                variation.restored_at = _utcnow()
+        variation.catalogue_status = "active"
+        variation.missing_at = None
         db.session.flush()
+        emitted_variation_ids.add(variation.id)
+        canonical_variations.append(
+            {
+                "attributes": {
+                    item["name"]: item["value"] for item in attributes
+                },
+                "sku": variation.sku,
+            }
+        )
         _checkpoint(failure_injector, "variations", sku)
 
         _sync_variation_attributes(variation, attributes)
@@ -611,6 +662,26 @@ def _ingest_complete_parent(
         db.session.flush()
         _checkpoint(failure_injector, "variation_images", sku)
 
+    missing_variations = 0
+    now = _utcnow()
+    for stale in Variation.query.filter_by(
+        product_id=product.id, catalogue_status="active"
+    ).all():
+        if stale.id in emitted_variation_ids:
+            continue
+        preserved_local_updated_at = stale.local_updated_at
+        stale.catalogue_status = "missing"
+        stale.missing_at = now
+        stale.local_updated_at = preserved_local_updated_at
+        missing_variations += 1
+    db.session.flush()
+    _checkpoint(failure_injector, "variation_reconciliation", sku)
+
+    if folder:
+        preserve_pending_identity(
+            folder, product.sku, canonical_variations, log=log
+        )
+
     if operation_id:
         db.session.add(
             CatalogueOperationItem(
@@ -620,6 +691,9 @@ def _ingest_complete_parent(
                 status="succeeded",
                 database_state="committed",
                 marker_state="not_started",
+                product_restored=product_restored,
+                variations_missing=missing_variations,
+                variations_restored=restored_variations,
                 finished_at=_utcnow(),
             )
         )
@@ -627,9 +701,13 @@ def _ingest_complete_parent(
     _checkpoint(failure_injector, "operation_item", sku)
 
     return {
+        "sku": product.sku,
         "product_created": product_created,
         "variations_created": created_variations,
         "variations_updated": updated_variations,
+        "variations_missing": missing_variations,
+        "variations_restored": restored_variations,
+        "product_restored": product_restored,
         "notification": {
             "name": fields.get("title"),
             "type": fields.get("product_type"),
@@ -648,6 +726,7 @@ def ingest_rows_to_db(
     *,
     operation_id=None,
     failure_injector=None,
+    source_folders=None,
 ) -> Dict[str, int]:
     # Ingestion owns its transaction boundaries. End any read-only transaction
     # left open on the request-scoped session before starting parent units.
@@ -658,6 +737,9 @@ def ingest_rows_to_db(
         "products_failed": 0,
         "variations_created": 0,
         "variations_updated": 0,
+        "variations_missing": 0,
+        "variations_restored": 0,
+        "products_restored": 0,
     }
 
     # Read settings without opening a transaction on the scoped ORM session.
@@ -666,6 +748,7 @@ def ingest_rows_to_db(
             select(Settings.product_folder).limit(1)
         ).scalar_one_or_none() or ""
     sku_to_folder = _scan_sku_folder_index(catalogue_root, log=log)
+    sku_to_folder.update(source_folders or {})
     source_by_sku = {
         sku: _source_context(folder, catalogue_root, log=log)
         for sku, folder in sku_to_folder.items()
@@ -705,9 +788,13 @@ def ingest_rows_to_db(
         except Exception as error:
             db.session.rollback()
             summary["products_failed"] += 1
+            pending = load_pending_scanned(
+                folder, log=lambda *args, **kwargs: None
+            ) if folder else {}
+            recorded_sku = pending.get("marker", {}).get("sku") or sku
             _record_failed_item(
                 operation_id,
-                sku,
+                recorded_sku,
                 context.get("product_relpath"),
                 error,
             )
@@ -721,9 +808,13 @@ def ingest_rows_to_db(
         summary[key] += 1
         summary["variations_created"] += result["variations_created"]
         summary["variations_updated"] += result["variations_updated"]
-        per_product[sku] = result["notification"]
+        summary["variations_missing"] += result["variations_missing"]
+        summary["variations_restored"] += result["variations_restored"]
+        summary["products_restored"] += int(result["product_restored"])
+        canonical_sku = result["sku"]
+        per_product[canonical_sku] = result["notification"]
         action = "created" if result["product_created"] else "updated"
-        log(f"✅ Product {action}: {sku}", "INFO")
+        log(f"✅ Product {action}: {canonical_sku}", "INFO")
 
     for missing_sku in missing_parent_rows:
         error = ValueError(

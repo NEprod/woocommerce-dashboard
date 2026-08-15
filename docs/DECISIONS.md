@@ -25,3 +25,12 @@ No new source-of-truth or schema design decision is made here.
 9. **Catalogue-relative paths are portable identity and provenance.** Collection identity is the POSIX-style path relative to the configured catalogue root. Product and JSON relative paths use the same root. Absolute columns remain runtime locators only, and changing a mount point must not create a new collection.
 10. **The emitted row is the parity boundary.** Parent and variation rows are stored losslessly as JSON, with common fields normalized for queries. SQLite does not promote internally resolved values that the protected row builder did not emit.
 11. **Marker coordination uses durable intent, not rollback fiction.** Production scans atomically stage `.scanned.pending`, commit SQLite per parent, then atomically finalize `.scanned` and remove `.update`. Failures retain identity and explicit recovery state. SKU counters and processed images are allowed to remain advanced/present.
+12. **Presence reconciliation is soft and explicitly scoped.** A committed
+    parent's emitted variations are complete for that parent. Products are
+    reconciled only by a successfully resolved exhaustive catalogue operation or
+    a collection-limited shared refresh. Rows are marked `missing`, never deleted,
+    and are restored by portable identity before protected SKU identity.
+13. **Shared JSON saves use explicit collection orchestration.** Simple and
+    Variable Collection child-marker selection is not widened globally. A shared
+    save targets its portable collection path, force-refreshes every child using
+    existing marker identities, and leaves unrelated collections untouched.

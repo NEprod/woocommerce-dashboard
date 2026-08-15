@@ -29,18 +29,18 @@ SQLite is not independently authoritative for authored product metadata.
 
 ## Schema versioning
 
-Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the Phase 0 tables and is also the adoption point for structurally matching unversioned Phase 0 databases. Revision `0002_operations` adds catalogue operation history. Revision `0003_projection` activates catalogue relationships, complete emitted-row storage, normalized metadata, and portable provenance. Application models do not create or alter tables directly at startup. See [Database Migrations](MIGRATIONS.md).
+Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the Phase 0 tables and is also the adoption point for structurally matching unversioned Phase 0 databases. Revision `0002_operations` adds catalogue operation history. Revision `0003_projection` activates catalogue relationships, complete emitted-row storage, normalized metadata, and portable provenance. Revision `0004_lifecycle` adds soft missing/restored state, variation source identity, and lifecycle outcome counts. Application models do not create or alter tables directly at startup. See [Database Migrations](MIGRATIONS.md).
 
 ## Models
 
 - `User`: local authentication and administrator flag.
 - `Settings`: catalogue root, processed-image output root, and public URL prefix.
-- `CatalogueOperation`: bounded scan/update/reconstruction history, product counts, and recovery state.
-- `CatalogueOperationItem`: per-parent ingestion outcome, portable source path, sanitized failure, database state, and reserved marker-recovery state.
+- `CatalogueOperation`: bounded scan/update/reconstruction history, projection and lifecycle counts, and recovery state.
+- `CatalogueOperationItem`: per-parent ingestion/lifecycle outcome, portable source path, sanitized failure, database state, and marker-recovery state.
 - `Collection`: stable catalogue-relative source identity, exact collection type, SKU prefix, runtime root, shared JSON provenance, and child products.
 - `Product`: resolved parent identity, collection relationship, complete emitted row JSON, normalized commercial/content/publication/SEO fields, portable and runtime provenance, and future Woo sync fields.
 - `ProductAttribute`: emitted parent attribute definitions, values, visibility/global flags, and position.
-- `Variation`: child of Product with complete emitted row JSON, portable source provenance, normalized SKU/price/dimension/image fields, and future Woo fields.
+- `Variation`: child of Product with complete emitted row JSON, portable source provenance, canonical emitted-attribute identity, normalized SKU/price/dimension/image fields, lifecycle state, and future Woo fields.
 - `ProductImage` / `VariationImage`: ordered image URL galleries.
 - `VariationAttribute`: resolved name/value pairs.
 - `ProductAsset`: local filesystem paths, actively used for shared and override JSON.
@@ -53,4 +53,15 @@ Collection → Product → Variation is active and populated by normal ingestion
 
 Ordinary append/update ingestion commits the complete emitted parent graph and its successful operation item in one transaction. Existing matching rows are updated in place so Product, Variation, gallery, asset, attribute, taxonomy and Woo-placeholder identities are retained. A parent-stage failure rolls back that graph and is recorded separately as `database_state=rolled_back`; unrelated committed parents remain intact.
 
-Removed products and stale variations are not yet reconciled. Marker state now records finalization or the exact recovery class. No schema revision was needed because Milestone 3 reserved the operation/item marker and recovery columns.
+`Product.catalogue_status` and `Variation.catalogue_status` use `active` or
+`missing`; `missing_at` records the soft transition and `restored_at` records the
+latest return. Missing rows remain related and retain internal IDs, SKUs,
+provenance, Woo placeholders, and historical timestamps. `Product.status` and
+`Variation.status` remain the emitted/Woo publication status and are not reused
+for catalogue presence.
+
+Every successfully committed parent treats its emitted variation set as
+authoritative inside the parent transaction. Product presence is reconciled only
+from an approved exhaustive scope: catalogue-wide full/reconstruction or a
+collection-limited shared refresh. Ordinary append and individual update scopes
+are never authoritative for unseen products.

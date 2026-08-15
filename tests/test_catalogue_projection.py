@@ -222,6 +222,9 @@ def test_ingest_activates_hierarchy_full_projection_and_portable_provenance(
                 "products_failed": 0,
                 "variations_created": 0,
                 "variations_updated": 1,
+                "variations_missing": 0,
+                "variations_restored": 0,
+                "products_restored": 0,
             }
             assert collection.collection_type == "Variable Collection"
             assert collection.sku_prefix == "FIC-P-"

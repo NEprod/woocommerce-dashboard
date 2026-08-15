@@ -132,6 +132,10 @@ def finish_catalogue_operation(
     error=None,
     marker_state: str | None = None,
     recovery_state: str | None = None,
+    products_missing: int | None = None,
+    products_restored: int | None = None,
+    variations_missing: int | None = None,
+    variations_restored: int | None = None,
 ) -> None:
     global _active_operation
 
@@ -148,6 +152,14 @@ def finish_catalogue_operation(
                 row.products_succeeded = max(0, products_succeeded)
             if products_failed is not None:
                 row.products_failed = max(0, products_failed)
+            if products_missing is not None:
+                row.products_missing = max(0, products_missing)
+            if products_restored is not None:
+                row.products_restored = max(0, products_restored)
+            if variations_missing is not None:
+                row.variations_missing = max(0, variations_missing)
+            if variations_restored is not None:
+                row.variations_restored = max(0, variations_restored)
             if error is not None:
                 row.error = sanitize_operation_error(error)
             if marker_state is not None:

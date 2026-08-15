@@ -22,6 +22,11 @@ Each collection has collection-level `product_info.json` containing shared/defau
 
 Product metadata starts with the shared collection object. Override scalar/object values replace shared values. When both shared and override values are lists, the current implementation combines and deduplicates them. Title has dedicated shared/override/folder fallback rules.
 
+A shared JSON editor save now orchestrates an explicit exhaustive refresh of its
+own collection with SKU reuse enabled. This is operation-level selection, not a
+change to the low-level append, individual `.update`, full-scan, inheritance, or
+row-emission contracts characterized below.
+
 `attributes` define variation dimensions. The scanner creates the Cartesian product of attribute values. `variation_modifiers` select effective price, sale price, weight, and dimensions by exact or most-specific partial attribute key. Image attributes select folders for Single Variable variation images.
 
 ## Local state

@@ -32,7 +32,16 @@ SQLite stores users, settings, the complete emitted parent/variation row project
 
 Each collection and product has a POSIX-style source path relative to the configured catalogue root. This is the portable identity/provenance representation and remains stable when the catalogue mount point changes. Existing absolute path columns remain runtime locators for filesystem routes; they are not portable identity. Parent and variation `resolved_row_json` retain every key/value actually emitted by the protected scanner, while normalized columns and related tables provide common query fields.
 
-Ordinary append/update ingestion groups emitted variation rows beneath their emitted parent row. One SQLite transaction covers the collection relationship, parent projection and provenance, galleries, JSON assets, taxonomy, parent attributes, variations, variation attributes and variation galleries, plus that parent's successful operation-history item. A stage failure rolls that parent graph back and records a separate sanitized failed item; parents committed by earlier transactions remain committed. Current-row child reconciliation is within this boundary, but stale-child and missing-product policy is deferred to Milestone 7.
+Ordinary append/update ingestion groups emitted variation rows beneath their emitted parent row. One SQLite transaction covers the collection relationship, parent projection and provenance, galleries, JSON assets, taxonomy, parent attributes, variations, variation attributes and variation galleries, stale-variation reconciliation, plus that parent's successful operation-history item. A stage failure rolls that parent graph back and records a separate sanitized failed item; parents committed by earlier transactions remain committed. Stale variations are soft-marked `missing` in that transaction and restored in place when their emitted identity returns.
+
+Product-level reconciliation is a separate post-ingestion transaction and is
+allowed only after an exhaustive scope has resolved, every selected parent has
+committed, and marker finalization has succeeded. Deliberate full scans cover the
+catalogue; shared JSON saves explicitly force every product in one collection and
+cover only that collection. Expected filesystem products are preflighted and
+compared with emitted parents. Missing, empty, unreadable, invalid, or partially
+resolved scope prevents product reconciliation. Append and individual update scans never
+treat unseen products as missing.
 
 Alembic owns SQLite schema initialization and upgrades. Application startup must reach migration head before requests are served. A structurally matching unversioned Phase 0 database is backed up and stamped at the frozen baseline; an unknown schema is rejected. Migration backups cover SQLite only and do not make filesystem catalogue state transactional.
 
