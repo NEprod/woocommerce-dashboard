@@ -14,6 +14,13 @@ This is a personal project baseline. Report suspected vulnerabilities privately 
 - Use a long random `SECRET_KEY` outside isolated development.
 - Review staged files and Docker build context before every push.
 - Keep persistent mounts and backups access-controlled.
+- Treat `/app/instance` as sensitive application data: `site.db` contains user
+  records and password hashes, and `backups/` contains historical database copies.
+- Mount `/app/instance`, `/catalogue`, and `/output` read/write from explicit host
+  directories. Keep catalogue/output outside appdata and back up the instance and
+  catalogue separately at an understood consistency point.
+- Unraid templates must contain only placeholders and harmless defaults. Never
+  save a generated `SECRET_KEY` or Discord webhook into tracked/shared XML.
 - Keep catalogue operation scopes concise. Operation history must redact credential-like keys and errors and must not store full metadata payloads.
 - Pending marker envelopes may contain only the established `.scanned` payload and bounded coordination fields; never add authored JSON, credentials, webhooks, or resolved database rows.
 

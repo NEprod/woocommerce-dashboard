@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>WooCommerce Dashboard</Name>
+  <Repository>neprod/woocommerce-dashboard:0.2.2</Repository>
+  <Registry>https://hub.docker.com/r/neprod/woocommerce-dashboard</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/NEprod/woocommerce-dashboard/issues</Support>
+  <Project>https://github.com/NEprod/woocommerce-dashboard</Project>
+  <Overview>Local catalogue scanner and SQLite projection for preparing WooCommerce-compatible product data. Phase 1 preserves scanner identities and provides transactional ingestion, recovery, reconstruction, and metadata guidance.</Overview>
+  <Category>Productivity: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:7485]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/NEprod/woocommerce-dashboard/main/unraid/my-woocommerce-dashboard.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/NEprod/woocommerce-dashboard/main/app/static/assets/img/woocommerce-dashboard-icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>Supports linux/amd64 and linux/arm64. Requires three read/write persistent path mappings.</Requires>
+  <Config Name="WebUI Port" Target="7485" Default="7485" Mode="tcp" Description="WooCommerce Dashboard web interface." Type="Port" Display="always" Required="true" Mask="false">7485</Config>
+  <Config Name="Application Data" Target="/app/instance" Default="/mnt/user/appdata/woocommerce-dashboard/instance" Mode="rw" Description="Persistent SQLite database plus migration and reconstruction backups." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/woocommerce-dashboard/instance</Config>
+  <Config Name="Product Catalogue" Target="/catalogue" Default="" Mode="rw" Description="Collection folders, product_info.json, source images, .scanned, .update and SKU index state. Select a catalogue share outside appdata." Type="Path" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="Generated Output" Target="/output" Default="" Mode="rw" Description="Processed/generated image output. Select an output share outside appdata." Type="Path" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="SECRET_KEY" Target="SECRET_KEY" Default="" Mode="" Description="Required strong random Flask session key. Generate with: openssl rand -hex 32" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="DISCORD_ENABLED" Target="DISCORD_ENABLED" Default="false" Mode="" Description="Enable optional Discord notifications only after webhook variables are configured." Type="Variable" Display="always" Required="true" Mask="false">false</Config>
+  <Config Name="DISCORD_DEFAULT_USERNAME" Target="DISCORD_DEFAULT_USERNAME" Default="Woo Scanner" Mode="" Description="Optional Discord message username." Type="Variable" Display="advanced" Required="false" Mask="false">Woo Scanner</Config>
+  <Config Name="DISCORD_DEFAULT_AVATAR_URL" Target="DISCORD_DEFAULT_AVATAR_URL" Default="" Mode="" Description="Optional public avatar URL for Discord messages." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="DISCORD_WEBHOOK_SCANS_INFO" Target="DISCORD_WEBHOOK_SCANS_INFO" Default="" Mode="" Description="Optional scan information webhook URL." Type="Variable" Display="advanced-hide" Required="false" Mask="true"></Config>
+  <Config Name="DISCORD_WEBHOOK_SCANS_ERRORS" Target="DISCORD_WEBHOOK_SCANS_ERRORS" Default="" Mode="" Description="Optional scan error webhook URL." Type="Variable" Display="advanced-hide" Required="false" Mask="true"></Config>
+  <Config Name="DISCORD_WEBHOOK_EDITS" Target="DISCORD_WEBHOOK_EDITS" Default="" Mode="" Description="Optional metadata edit webhook URL." Type="Variable" Display="advanced-hide" Required="false" Mask="true"></Config>
+  <Config Name="DISCORD_WEBHOOK_OVERRIDES" Target="DISCORD_WEBHOOK_OVERRIDES" Default="" Mode="" Description="Optional metadata override webhook URL." Type="Variable" Display="advanced-hide" Required="false" Mask="true"></Config>
+  <Config Name="DISCORD_WEBHOOK_INGEST" Target="DISCORD_WEBHOOK_INGEST" Default="" Mode="" Description="Optional per-product ingestion webhook URL." Type="Variable" Display="advanced-hide" Required="false" Mask="true"></Config>
+</Container>

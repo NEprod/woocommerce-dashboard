@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 128" role="img" aria-labelledby="title description">
+  <title id="title">WooCommerce Dashboard</title>
+  <desc id="description">An original storefront and analytics dashboard mark.</desc>
+  <rect width="128" height="128" rx="24" fill="#0b182b"/>
+  <path fill="#ffb719" d="M23 31h82l10 16H13zm-7 18h96v11a12 12 0 0 1-24 0 12 12 0 0 1-24 0 12 12 0 0 1-24 0 12 12 0 0 1-24 0z"/>
+  <rect x="24" y="70" width="22" height="20" rx="4" fill="#20334b"/>
+  <rect x="53" y="70" width="22" height="20" rx="4" fill="#20334b"/>
+  <rect x="82" y="70" width="22" height="20" rx="4" fill="#20334b"/>
+  <path fill="none" stroke="#ffb719" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" d="m21 103 18 12 20-21 20 20 27-30"/>
+  <path fill="#42c9b3" d="m105 78 9 20-21-7z"/>
+  <text x="152" y="59" fill="#0b182b" font-family="Arial, Helvetica, sans-serif" font-size="38" font-weight="700">WooCommerce</text>
+  <text x="152" y="101" fill="#c68100" font-family="Arial, Helvetica, sans-serif" font-size="36" font-weight="700">Dashboard</text>
+</svg>
