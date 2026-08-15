@@ -65,3 +65,18 @@ def test_setup_invalid_email_returns_form_validation_response(setup_app):
     assert b'email' in response.data.lower()
     with app.app_context():
         assert User.query.count() == 0
+
+
+def test_setup_referenced_local_assets_exist(setup_app):
+    app, _database = setup_app
+    client = app.test_client()
+
+    response = client.get("/setup")
+    assert response.status_code == 200
+    assert b"/static/assets/img/logo-placeholder.svg" in response.data
+    assert b"/static/assets/img/favicon/favicon-32x32.png" in response.data
+    assert client.get("/static/assets/img/logo-placeholder.svg").status_code == 200
+    assert (
+        client.get("/static/assets/img/favicon/favicon-32x32.png").status_code
+        == 200
+    )
