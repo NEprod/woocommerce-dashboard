@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="title description">
+  <title id="title">WooCommerce Dashboard placeholder logo</title>
+  <desc id="description">A neutral project-owned lettermark.</desc>
+  <circle cx="50" cy="50" r="48" fill="#ffc107"/>
+  <circle cx="50" cy="50" r="42" fill="#212529"/>
+  <path fill="#ffc107" d="M20 30h12l7 31 8-23h7l8 23 7-31h12L69 73H58L50 51l-8 22H31z"/>
+</svg>
