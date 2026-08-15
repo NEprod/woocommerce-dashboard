@@ -17,6 +17,7 @@ from flask import (
     send_file,
 )
 from flask_login import login_user, logout_user, login_required, current_user
+from werkzeug.exceptions import BadRequest
 from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy.orm import aliased
 
@@ -43,6 +44,15 @@ from app.utils.operation_control import (
     get_active_operation,
 )
 from app.utils.reconstruction import detect_setup_state, run_reconstruction
+from app.product_info import (
+    EXAMPLE_NAMES,
+    FIELD_INVENTORY,
+    TEMPLATE_NAMES,
+    load_example,
+    load_schema,
+    load_template,
+    validate_product_info,
+)
 
 main = Blueprint("main", __name__)
 
@@ -168,7 +178,7 @@ def product_edit(product_id, label):
     if label not in ("shared", "override"):
         return "invalid label", 400
 
-    p = Product.query.get_or_404(product_id)
+    p = db.get_or_404(Product, product_id)
     asset = (
         ProductAsset.query.filter_by(product_id=p.id, kind="info", label=label)
         .order_by(ProductAsset.id.desc())
@@ -220,20 +230,54 @@ def product_save_json(sku):
     Editor POST target.
     Body: { kind: "shared"|"override", data: {...} }
 
-    - Loads existing JSON from disk (if present)
+    - Loads and validates existing JSON from disk (if present)
     - Deep‑merges new data into existing (so required fields like collection_type survive)
     - Prunes empties
+    - Validates before acquiring the operation lock or creating side effects
     - Writes a timestamped .bak backup
     - Writes atomically
-    - Touches .update and kicks an 'update' scan
+    - Uses existing override-update or shared-collection refresh orchestration
     """
     p = Product.query.filter_by(sku=sku).first_or_404()
-    payload = request.get_json(force=True) or {}
+    try:
+        payload = request.get_json(force=True)
+    except BadRequest:
+        return (
+            jsonify(
+                {
+                    "error": "invalid_json",
+                    "errors": [
+                        {
+                            "path": "$",
+                            "code": "invalid_json",
+                            "message": "The submitted content is not valid JSON.",
+                        }
+                    ],
+                    "submitted_content": request.get_data(
+                        cache=True, as_text=True
+                    ),
+                }
+            ),
+            400,
+        )
+    if not isinstance(payload, dict):
+        return jsonify({"error": "request body must be a JSON object"}), 400
     kind = (payload.get("kind") or "").lower()
-    new_data = payload.get("data") or {}
+    new_data = payload.get("data", {})
 
     if kind not in ("shared", "override"):
         return jsonify({"error": "invalid kind"}), 400
+
+    submitted_validation = validate_product_info(new_data, "override")
+    if not submitted_validation.valid:
+        result = submitted_validation.to_dict()
+        result.update(
+            {
+                "error": "metadata_validation_failed",
+                "submitted_data": new_data,
+            }
+        )
+        return jsonify(result), 400
 
     asset = (
         ProductAsset.query.filter_by(product_id=p.id, kind="info", label=kind)
@@ -251,20 +295,45 @@ def product_save_json(sku):
     if os.path.exists(target):
         try:
             with open(target, "r", encoding="utf-8") as f:
-                existing = json.load(f) or {}
+                existing = json.load(f)
+            if not isinstance(existing, dict):
+                raise ValueError("existing metadata root is not an object")
         except Exception:
-            existing = {}
+            return (
+                jsonify(
+                    {
+                        "error": "existing_metadata_invalid",
+                        "errors": [
+                            {
+                                "path": "$",
+                                "code": "existing_metadata_invalid",
+                                "message": (
+                                    "The existing product_info.json must be corrected "
+                                    "before it can be saved through the editor."
+                                ),
+                            }
+                        ],
+                        "submitted_data": new_data,
+                    }
+                ),
+                400,
+            )
 
     # Merge + prune
     merged = _deep_merge(existing.copy(), new_data)
     merged = _prune(merged)
-
-    # If editing SHARED, ensure collection_type exists (override must NOT set this)
-    if kind == "shared" and not merged.get("collection_type"):
-        if existing.get("collection_type"):
-            merged["collection_type"] = existing["collection_type"]
-        else:
-            return jsonify({"error": "collection_type is required on shared JSON"}), 400
+    validation = validate_product_info(
+        merged, "collection" if kind == "shared" else "override"
+    )
+    if not validation.valid:
+        result = validation.to_dict()
+        result.update(
+            {
+                "error": "metadata_validation_failed",
+                "submitted_data": new_data,
+            }
+        )
+        return jsonify(result), 400
 
     try:
         collection_relpath = None
@@ -345,7 +414,52 @@ def product_save_json(sku):
         finish_catalogue_operation(operation.id, status="failed", error=error)
         return jsonify({"error": "failed to save product metadata"}), 500
 
-    return jsonify({"ok": True, "run_id": run_id})
+    return jsonify(
+        {
+            "ok": True,
+            "run_id": run_id,
+            "warnings": [issue.to_dict() for issue in validation.warnings],
+        }
+    )
+
+
+@main.route("/metadata-reference")
+@login_required
+def metadata_reference():
+    return render_template(
+        "metadata_reference.html",
+        fields=FIELD_INVENTORY,
+        examples={name: load_example(name) for name in EXAMPLE_NAMES},
+        template_names=TEMPLATE_NAMES,
+    )
+
+
+@main.route("/api/metadata-reference/template/<name>")
+@login_required
+def metadata_reference_template(name):
+    try:
+        data = load_template(name)
+    except KeyError:
+        return jsonify({"error": "unknown metadata template"}), 404
+    return jsonify({"name": name, "data": data})
+
+
+@main.route("/api/metadata-reference/schema/<name>")
+@login_required
+def metadata_reference_schema(name):
+    try:
+        return jsonify(load_schema(name))
+    except KeyError:
+        return jsonify({"error": "unknown metadata schema"}), 404
+
+
+@main.route("/api/metadata-reference/example/<name>")
+@login_required
+def metadata_reference_example(name):
+    try:
+        return jsonify({"name": name, "data": load_example(name)})
+    except KeyError:
+        return jsonify({"error": "unknown metadata example"}), 404
 
 
 @main.route("/api/delete-override/<int:product_id>", methods=["POST"])

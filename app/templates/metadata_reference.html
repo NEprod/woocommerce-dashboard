@@ -1,0 +1,86 @@
+{% extends "layouts/base.html" %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+  <div>
+    <h2 class="mb-1">product_info.json Metadata Reference</h2>
+    <p class="text-muted mb-0">The current authored metadata contract, including active, ignored, legacy, and planned behavior.</p>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('main.edit_products') }}">Back to editors</a>
+</div>
+
+<div class="alert alert-warning small">
+  <strong>Known unchanged behavior:</strong>
+  variation modifier sale_price is resolved but not emitted;
+  <code>shipping_class</code> is currently ignored; merged list order may vary;
+  unknown collection types emit no rows; editor <code>upsell_ids</code>/<code>cross_sell_ids</code>
+  differ from the row builder’s <code>upsells</code>/<code>crosssells</code>; and Woo-style rows expose five attribute slots.
+</div>
+
+<section class="card p-3 mb-4">
+  <h3 class="h5">Templates and examples</h3>
+  <p class="small text-muted">A normal override starts from the minimal empty override, not the complete reference.</p>
+  <p class="small">
+    Machine-readable schemas:
+    <a href="{{ url_for('main.metadata_reference_schema', name='collection') }}">collection</a> ·
+    <a href="{{ url_for('main.metadata_reference_schema', name='override') }}">partial override</a>
+  </p>
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    {% for name in template_names %}
+      <button class="btn btn-outline-primary btn-sm template-button" data-template="{{ name }}">{{ name.replace('-', ' ')|title }}</button>
+    {% endfor %}
+  </div>
+  <pre id="templateView" class="bg-light border rounded p-3 small mb-0">Select a template to view it.</pre>
+</section>
+
+<section class="card p-3 mb-4">
+  <h3 class="h5">Complete all-fields example</h3>
+  <p class="small text-muted">Ignored and legacy fields appear here for reference; the status table below is authoritative about what works.</p>
+  <pre class="bg-light border rounded p-3 small">{{ examples['complete'] | tojson(indent=2) }}</pre>
+</section>
+
+<section>
+  <h3 class="h5">Field inventory</h3>
+  <div class="table-responsive">
+    <table class="table table-sm table-striped align-middle small">
+      <thead>
+        <tr>
+          <th>Key</th><th>Classification</th><th>Type / units</th>
+          <th>Collection</th><th>Override</th><th>Inherited / override behavior</th>
+          <th>Parent / variation effect</th><th>Woo field</th><th>SQLite destination</th>
+          <th>Warnings / errors</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for field in fields %}
+        <tr>
+          <td><code>{{ field.key }}</code>{% if field.alias_for %}<br><span class="text-muted">Alias for: {{ field.alias_for }}</span>{% elif field.aliases %}<br><span class="text-muted">Accepted aliases: {{ field.aliases|join(', ') }}</span>{% endif %}</td>
+          <td>{{ field.classification }}<br><span class="text-muted">{{ field.implementation_status }}</span></td>
+          <td>{{ field.type }}{% if field.units %}<br>{{ field.units }}{% endif %}</td>
+          <td>{{ 'required' if field.required_collection else ('allowed' if field.collection_allowed else 'no') }}</td>
+          <td>{{ 'required' if field.required_override else ('allowed' if field.override_allowed else 'no') }}</td>
+          <td>{{ field.inheritance }}<br>{{ field.merge }}</td>
+          <td>{{ field.parent_effect }}<br>{{ field.variation_effect }}</td>
+          <td>{{ field.woo_field or 'None' }}</td>
+          <td>{{ field.sqlite_destination }}</td>
+          <td>{{ field.warning_error }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block javascripts %}
+<script>
+document.querySelectorAll('.template-button').forEach(button => {
+  button.addEventListener('click', async () => {
+    const response = await fetch(`/api/metadata-reference/template/${encodeURIComponent(button.dataset.template)}`);
+    const payload = await response.json();
+    document.getElementById('templateView').textContent = response.ok
+      ? JSON.stringify(payload.data, null, 2)
+      : (payload.error || 'Unable to load template.');
+  });
+});
+</script>
+{% endblock %}

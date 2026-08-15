@@ -42,3 +42,9 @@ No new source-of-truth or schema design decision is made here.
     pre-resolution precedes a persistent verified backup and one SQLite transaction.
     Valid markers and counters are not reset or rewritten. Database identity
     overlays provide idempotence for safely matched rows newer than marker payloads.
+16. **Metadata schemas protect editor writes, not scanner input globally.** The
+    collection and partial-override schemas formalize known types and unsafe
+    structures while top-level unknown fields remain warnings. Legacy editor
+    upsell/cross-sell spellings are documented and warned but not normalized.
+    Unknown collection types and every characterized scanner discrepancy remain
+    unchanged pending an explicit contract decision.

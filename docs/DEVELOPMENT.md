@@ -43,6 +43,13 @@ relative to the instance directory. Reconstruction tests use temporary fictional
 catalogues and cover preflight, backup/restore, transaction rollback, identity
 preservation, idempotence, lifecycle reconciliation, and pending recovery.
 
+Metadata-contract tests validate both Draft 2020-12 schemas, every fictional
+example/template, partial inheritance, aliases and warnings, unsafe nested
+structures, editor side-effect boundaries, in-app resources, and the production
+image copy boundary. The frozen Phase 0 complete-row parity test must remain green.
+Runtime resources live under `app/resources/product_info`; test-only fixtures do
+not belong there. See [product_info.json Contract](PRODUCT_INFO.md).
+
 Tests must create temporary directories and SQLite databases. Fixtures under `tests/fixtures` must be fictional and contain no copied commercial catalogue text, customer information, live SKU, local personal path, credential, or webhook. Tests must never use the live `.env`, `instance/site.db`, catalogue, output folder, Discord, WooCommerce, WordPress, or internet.
 
 ## Git workflow

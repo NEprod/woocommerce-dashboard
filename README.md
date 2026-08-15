@@ -12,9 +12,9 @@ Phase 0 (`0.1.0`) establishes a secure, documented, tested, and containerised ba
 - Stable local SKU markers and variation generation.
 - Image preparation and SQLite ingestion.
 - Single-process catalogue operation locking and persistent operation history.
-- A limited product JSON editor and Discord scan/ingest notifications.
+- A schema-backed product JSON editor, in-app metadata reference/templates, and Discord scan/ingest notifications.
 
-The catalogue projection now retains every emitted scanner row, exact collection relationships, queryable taxonomy/publication metadata, and portable source provenance. Ordinary append/update ingestion commits each complete parent graph as one SQLite transaction, with atomic marker/index replacement and recoverable pending identities across filesystem/database failures. Emitted variation sets reconcile in place, and only explicitly exhaustive successful scopes can mark catalogue products missing. Shared metadata edits use an exhaustive collection-limited refresh. Setup distinguishes new catalogues from existing marker identities and offers identity-preserving reconstruction without turning an empty database into a full SKU reset. Remaining Phase 1 work is the formal metadata reference and final acceptance/publication. Several routed templates and live WooCommerce integration also remain incomplete. See [Current State](docs/CURRENT_STATE.md).
+The catalogue projection now retains every emitted scanner row, exact collection relationships, queryable taxonomy/publication metadata, and portable source provenance. Ordinary append/update ingestion commits each complete parent graph as one SQLite transaction, with atomic marker/index replacement and recoverable pending identities across filesystem/database failures. Emitted variation sets reconcile in place, and only explicitly exhaustive successful scopes can mark catalogue products missing. Shared metadata edits use an exhaustive collection-limited refresh. Setup distinguishes new catalogues from existing marker identities and offers identity-preserving reconstruction without turning an empty database into a full SKU reset. The complete `product_info.json` contract now has runtime schemas, fictional examples, editor-safe validation, templates, and an in-app reference. Remaining Phase 1 work is final acceptance and gated publication. Live WooCommerce integration remains outside this phase. See [Current State](docs/CURRENT_STATE.md).
 
 ## Local development
 
@@ -52,6 +52,7 @@ The container listens on port `7485`, runs Gunicorn with one worker and four thr
 - [Current State](docs/CURRENT_STATE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Scanner Contract](docs/SCANNER_CONTRACT.md)
+- [product_info.json Contract](docs/PRODUCT_INFO.md)
 - [Data Model](docs/DATA_MODEL.md)
 - [Database Migrations](docs/MIGRATIONS.md)
 - [Catalogue Operation Control](docs/CATALOGUE_OPERATIONS.md)

@@ -1,0 +1,7 @@
+{
+  "collection_type": "Variable Collection",
+  "sku_prefix": "FIC-V-",
+  "title": "Fictional Variable Collection",
+  "price": "10.00",
+  "attributes": {"Option": ["First", "Second"]}
+}

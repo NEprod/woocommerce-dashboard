@@ -27,6 +27,11 @@ future downstream integration
 
 SQLite is not independently authoritative for authored product metadata.
 
+The authored field contract, including fields that currently have no operational
+SQLite destination, is defined in [product_info.json Contract](PRODUCT_INFO.md)
+and the runtime `field_inventory.json`. Editor schemas validate authored shapes;
+they do not turn SQLite into the metadata source of truth.
+
 ## Schema versioning
 
 Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the Phase 0 tables and is also the adoption point for structurally matching unversioned Phase 0 databases. Revision `0002_operations` adds catalogue operation history. Revision `0003_projection` activates catalogue relationships, complete emitted-row storage, normalized metadata, and portable provenance. Revision `0004_lifecycle` adds soft missing/restored state, variation source identity, and lifecycle outcome counts. Application models do not create or alter tables directly at startup. See [Database Migrations](MIGRATIONS.md).

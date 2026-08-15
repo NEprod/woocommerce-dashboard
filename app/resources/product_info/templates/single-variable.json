@@ -1,0 +1,8 @@
+{
+  "collection_type": "Single Variable",
+  "sku_prefix": "FIC-O-",
+  "title": "Fictional Single Variable Collection",
+  "price": "10.00",
+  "attributes": {"Option": ["First", "Second"]},
+  "image_attributes": ["Option"]
+}

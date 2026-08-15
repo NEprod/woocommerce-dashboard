@@ -35,6 +35,12 @@ Back up the instance/database and filesystem catalogue together with an understo
 
 Never bake `.env`, SQLite, product folders, markers, generated images, exports, logs, or backups into the image. The mounted instance directory contains the live database plus migration and reconstruction backups, so the instance mount itself must be included in operational backups and have space for unique reconstruction snapshots.
 
+The production image includes `app/resources/product_info` because collection and
+override schemas, the field inventory, fictional examples, and editor templates
+are runtime help/validation resources. They contain no catalogue data. Test files
+and test-only fixtures remain excluded because the Dockerfile copies `app`, not
+`tests`.
+
 For recovery, stop the container and use a one-off container with the same instance mount to run `python -m app.database restore`, as documented in [Database Migrations](MIGRATIONS.md). Do not restore while Gunicorn is accessing SQLite.
 
 Automatic startup migration is approved only for the documented single-worker Phase 1 runtime. A future multi-worker or multi-replica deployment must run migrations as a separate, single-owner deployment step before application replicas start.

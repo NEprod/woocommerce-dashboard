@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://invalid.example/schemas/product-info-override.schema.json",
+  "title": "Partial product-level override product_info.json",
+  "type": "object",
+  "properties": {
+    "collection_type": {"type": "string", "minLength": 1},
+    "title": {"type": "string"},
+    "sku_prefix": {"type": "string", "minLength": 1},
+    "price": {"$ref": "#/$defs/numberLike"},
+    "sale_price": {"$ref": "#/$defs/numberLike"},
+    "sale_start_date": {"type": "string", "format": "date"},
+    "sale_end_date": {"type": "string", "format": "date"},
+    "weight": {"$ref": "#/$defs/numberLike"},
+    "dimensions": {"$ref": "#/$defs/dimensions"},
+    "categories": {"$ref": "#/$defs/stringArray"},
+    "tags": {"$ref": "#/$defs/stringArray"},
+    "live": {"type": "boolean"},
+    "short_description": {"type": "string"},
+    "description": {"type": "string"},
+    "attributes": {"$ref": "#/$defs/attributes"},
+    "image_attributes": {"$ref": "#/$defs/stringArray"},
+    "variation_modifiers": {"$ref": "#/$defs/variationModifiers"},
+    "shipping_class": {"type": "string"},
+    "grouped_ids": {"$ref": "#/$defs/stringArray"},
+    "grouped_products": {"$ref": "#/$defs/stringArray"},
+    "upsell_ids": {"$ref": "#/$defs/stringArray"},
+    "cross_sell_ids": {"$ref": "#/$defs/stringArray"},
+    "upsells": {"$ref": "#/$defs/stringArray"},
+    "crosssells": {"$ref": "#/$defs/stringArray"},
+    "meta_title": {"type": "string"},
+    "meta_description": {"type": "string"}
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "numberLike": {
+      "oneOf": [
+        {"type": "number"},
+        {"type": "string", "pattern": "^-?[0-9]+(?:\\.[0-9]+)?$"}
+      ]
+    },
+    "stringArray": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "dimensions": {
+      "type": "object",
+      "properties": {
+        "length": {"$ref": "#/$defs/numberLike"},
+        "width": {"$ref": "#/$defs/numberLike"},
+        "height": {"$ref": "#/$defs/numberLike"}
+      },
+      "additionalProperties": false
+    },
+    "attributeValues": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": ["string", "number", "boolean"]}
+    },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/attributeValues"}
+    },
+    "variationModifier": {
+      "type": "object",
+      "properties": {
+        "price": {"$ref": "#/$defs/numberLike"},
+        "sale_price": {"$ref": "#/$defs/numberLike"},
+        "weight": {"$ref": "#/$defs/numberLike"},
+        "dimensions": {"$ref": "#/$defs/dimensions"}
+      },
+      "additionalProperties": false
+    },
+    "variationModifiers": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/variationModifier"}
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "collection_type": "Simple",
+  "sku_prefix": "FIC-S-",
+  "title": "Fictional Desk Token",
+  "price": "8.50",
+  "categories": ["Fictional Goods"],
+  "tags": ["fictional", "simple"],
+  "weight": 25,
+  "dimensions": {"length": 40, "width": 40, "height": 3},
+  "short_description": "A fictional product used for documentation.",
+  "description": "This example contains no commercial catalogue content."
+}

@@ -1,0 +1,14 @@
+{
+  "collection_type": "Single Variable",
+  "sku_prefix": "FIC-O-",
+  "title": "Fictional Orbit Print",
+  "price": "15.00",
+  "attributes": {
+    "Theme": ["Moon", "Sun"],
+    "Size": ["Mini", "Maxi"]
+  },
+  "image_attributes": ["Theme", "Size"],
+  "variation_modifiers": {
+    "Size=Maxi": {"price": "18.00", "weight": 80}
+  }
+}

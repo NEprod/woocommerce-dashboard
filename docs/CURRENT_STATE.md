@@ -41,6 +41,13 @@ does not allocate another SKU. Only genuinely unmarked products stage and finali
 a new marker. Outstanding pre-existing pending state makes the result partial and
 `recovery_required` rather than falsely successful.
 
+The authored `product_info.json` contract is now represented by collection and
+partial-override JSON Schemas, a complete field inventory, fictional examples,
+minimal/type-specific templates, and an authenticated in-app reference. Editor
+saves validate before any backup, marker, operation lock, or scan side effect.
+This is intentionally not scanner-wide strict enforcement; protected inheritance,
+aliases, unknown collection types, and known discrepancies remain unchanged.
+
 ## Verified catalogue/database consistency
 
 At the audit baseline, the live local catalogue and SQLite database agreed for 11 parent SKUs and 49 variation SKUs. Database integrity passed. Titles, types, mapped prices, dates, dimensions, descriptions, images, variation attributes, and supported modifier results agreed for the currently ingested subset.

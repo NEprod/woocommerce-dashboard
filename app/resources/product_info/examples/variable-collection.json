@@ -1,0 +1,19 @@
+{
+  "collection_type": "Variable Collection",
+  "sku_prefix": "FIC-V-",
+  "title": "Fictional Colour Badge",
+  "price": "10.00",
+  "categories": ["Fictional Goods"],
+  "tags": ["fictional", "variable"],
+  "attributes": {
+    "Colour": ["Amber", "Teal"],
+    "Size": ["Small", "Large"]
+  },
+  "variation_modifiers": {
+    "Size=Large": {
+      "price": "12.00",
+      "weight": 45,
+      "dimensions": {"length": 70, "width": 70, "height": 5}
+    }
+  }
+}

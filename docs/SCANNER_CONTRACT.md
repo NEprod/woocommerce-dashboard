@@ -100,3 +100,9 @@ markers, and supplement safe matches from the existing database projection.
 Default append, update, shared-refresh, and full calls retain their characterized
 arguments and behavior. Intentional full regeneration remains separate and
 requires explicit UI/API confirmation.
+
+Milestone 9 adds JSON Schema resources and editor-side validation only. It does
+not add strict scanner-wide schema enforcement, change merge/resolution behavior,
+normalize aliases, block unknown collection types in the scanner, or correct any
+characterized row-builder discrepancy. The definitive authored-field inventory is
+in [product_info.json Contract](PRODUCT_INFO.md).

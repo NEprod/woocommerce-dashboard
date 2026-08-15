@@ -1,0 +1,20 @@
+{
+  "collection_type": "Variable Collection",
+  "sku_prefix": "FIC-M-",
+  "title": "Fictional Modifier Example",
+  "price": "10.00",
+  "sale_price": "8.00",
+  "attributes": {
+    "Finish": ["Matte", "Gloss"],
+    "Size": ["Small", "Large"]
+  },
+  "variation_modifiers": {
+    "Size=Large": {
+      "price": "14.00",
+      "sale_price": "11.00",
+      "weight": 90,
+      "dimensions": {"length": 80, "width": 60, "height": 5}
+    },
+    "Finish=Gloss|Size=Large": {"price": "15.00"}
+  }
+}
