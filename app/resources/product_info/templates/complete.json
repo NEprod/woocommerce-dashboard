@@ -1,0 +1,35 @@
+{
+  "collection_type": "Variable Collection",
+  "title": "Fictional Complete Reference",
+  "sku_prefix": "FIC-ALL-",
+  "price": "20.00",
+  "sale_price": "17.50",
+  "sale_start_date": "2026-02-01",
+  "sale_end_date": "2026-02-28",
+  "weight": 120,
+  "dimensions": {"length": 210, "width": 148, "height": 4},
+  "categories": ["Fictional Reference"],
+  "tags": ["fictional", "complete"],
+  "live": false,
+  "short_description": "A complete fictional metadata reference.",
+  "description": "Every recognized authored key is demonstrated here.",
+  "attributes": {"Finish": ["Matte", "Gloss"], "Size": ["Small", "Large"]},
+  "image_attributes": ["Finish", "Size"],
+  "variation_modifiers": {
+    "Size=Large": {
+      "price": "24.00",
+      "sale_price": "19.00",
+      "weight": 150,
+      "dimensions": {"length": 297, "width": 210, "height": 5}
+    }
+  },
+  "shipping_class": "fictional-class",
+  "grouped_ids": ["FIC-GROUP-1"],
+  "grouped_products": ["FIC-GROUP-2"],
+  "upsell_ids": ["FIC-LEGACY-UP-1"],
+  "cross_sell_ids": ["FIC-LEGACY-CROSS-1"],
+  "upsells": ["FIC-UP-1"],
+  "crosssells": ["FIC-CROSS-1"],
+  "meta_title": "Fictional SEO title",
+  "meta_description": "Fictional SEO description for schema documentation."
+}

@@ -12,6 +12,9 @@ authored catalogue metadata and generation rules
 .scanned:
 processed-state and durable local SKU mapping
 
+.scanned.pending:
+recovery-only intended marker payload and operation/state reference
+
 sku_index.json:
 new SKU allocation counters
 
@@ -24,21 +27,53 @@ future downstream integration
 
 SQLite is not independently authoritative for authored product metadata.
 
+The authored field contract, including fields that currently have no operational
+SQLite destination, is defined in [product_info.json Contract](PRODUCT_INFO.md)
+and the runtime `field_inventory.json`. Editor schemas validate authored shapes;
+they do not turn SQLite into the metadata source of truth.
+
+## Schema versioning
+
+Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the Phase 0 tables and is also the adoption point for structurally matching unversioned Phase 0 databases. Revision `0002_operations` adds catalogue operation history. Revision `0003_projection` activates catalogue relationships, complete emitted-row storage, normalized metadata, and portable provenance. Revision `0004_lifecycle` adds soft missing/restored state, variation source identity, and lifecycle outcome counts. Application models do not create or alter tables directly at startup. See [Database Migrations](MIGRATIONS.md).
+
 ## Models
 
 - `User`: local authentication and administrator flag.
 - `Settings`: catalogue root, processed-image output root, and public URL prefix.
-- `Product`: resolved parent identity, commercial/content fields, state defaults, paths, and future Woo sync fields.
-- `Variation`: child of Product with SKU, price/inventory/dimension fields, state defaults, and future Woo fields.
+- `CatalogueOperation`: bounded scan/update/reconstruction history, projection and lifecycle counts, and recovery state.
+- `CatalogueOperationItem`: per-parent ingestion/lifecycle outcome, portable source path, sanitized failure, database state, and marker-recovery state.
+- `Collection`: stable catalogue-relative source identity, exact collection type, SKU prefix, runtime root, shared JSON provenance, and child products.
+- `Product`: resolved parent identity, collection relationship, complete emitted row JSON, normalized commercial/content/publication/SEO fields, portable and runtime provenance, and future Woo sync fields.
+- `ProductAttribute`: emitted parent attribute definitions, values, visibility/global flags, and position.
+- `Variation`: child of Product with complete emitted row JSON, portable source provenance, canonical emitted-attribute identity, normalized SKU/price/dimension/image fields, lifecycle state, and future Woo fields.
 - `ProductImage` / `VariationImage`: ordered image URL galleries.
 - `VariationAttribute`: resolved name/value pairs.
 - `ProductAsset`: local filesystem paths, actively used for shared and override JSON.
-- `Collection`: intended explicit collection model; dormant in the active ingestion path.
-- `Category`, `Tag`, and association tables: present but not populated by active ingestion.
+- `Category`, `Tag`, and association tables: emitted parent taxonomy membership.
 - `Service`: dormant hosting/domain-oriented model.
 
-The Product-to-Variation relationship is active and populated. The Collection-to-Product relationship is not: collection rows and `collection_id` are not populated by the normal scan path.
+Collection → Product → Variation is active and populated by normal ingestion. `source_relpath` and the JSON `*_relpath` columns are POSIX-style paths relative to `Settings.product_folder`; these are portable across host/container mount changes. Legacy `root_path`, `product_dir`, JSON path, and `ProductAsset.path` values remain absolute runtime locators for existing filesystem behavior.
 
-## Scanner data currently omitted
+`resolved_row_json` is the lossless boundary for every key/value actually emitted by the protected row builder, including blank values and characterized discrepancies. Normalized columns are the query surface and do not invent values that the scanner failed to emit.
 
-Categories, tags, SEO metadata, exact collection type, publication state, explicit collection identity, source folder, and direct path columns are wholly or partially lost between resolved scanner rows and SQLite. Removed products and variations are not reconciled. These are Phase 1 concerns; this document makes no schema redesign decision.
+Ordinary append/update ingestion commits the complete emitted parent graph and its successful operation item in one transaction. Existing matching rows are updated in place so Product, Variation, gallery, asset, attribute, taxonomy and Woo-placeholder identities are retained. A parent-stage failure rolls back that graph and is recorded separately as `database_state=rolled_back`; unrelated committed parents remain intact.
+
+`Product.catalogue_status` and `Variation.catalogue_status` use `active` or
+`missing`; `missing_at` records the soft transition and `restored_at` records the
+latest return. Missing rows remain related and retain internal IDs, SKUs,
+provenance, Woo placeholders, and historical timestamps. `Product.status` and
+`Variation.status` remain the emitted/Woo publication status and are not reused
+for catalogue presence.
+
+Every successfully committed parent treats its emitted variation set as
+authoritative inside the parent transaction. Product presence is reconciled only
+from an approved exhaustive scope: catalogue-wide full/reconstruction or a
+collection-limited shared refresh. Ordinary append and individual update scopes
+are never authoritative for unseen products.
+
+Reconstruction does not replace the database file or recreate application tables.
+It updates the resolved Collection → Product → Variation projection inside one
+transaction. Portable product source identity is matched before SKU; variation
+attribute identity is matched before SKU. Consequently safe matches retain row
+IDs, Woo placeholders, timestamps, relationships, and lifecycle history. User,
+Settings, and prior CatalogueOperation rows are not part of projection replacement.

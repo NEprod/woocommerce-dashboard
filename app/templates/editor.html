@@ -14,8 +14,32 @@
 {% endif %}
 
 <div class="alert alert-info" role="alert">
-  Only non‑empty fields are saved. A <code>.update</code> file will be dropped and an update scan will run automatically.
+  Only non‑empty fields are saved. Shared values are inherited; product override values replace them, except additive lists such as tags and categories. A valid save starts the existing appropriate update operation.
+  <a href="{{ url_for('main.metadata_reference') }}" class="alert-link">Metadata reference</a>
 </div>
+
+<div class="card p-3 mb-3">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-8">
+      <label class="form-label" for="templateSelect">Load a fictional template into the form</label>
+      <select class="form-select form-select-sm" id="templateSelect">
+        <option value="">— choose template —</option>
+        {% if kind == 'override' %}<option value="minimal-override">Minimal partial override</option>{% endif %}
+        <option value="minimal-collection">Minimal collection</option>
+        <option value="simple">Simple collection</option>
+        <option value="variable-collection">Variable Collection</option>
+        <option value="single-variable">Single Variable</option>
+        <option value="complete">Complete reference</option>
+      </select>
+    </div>
+    <div class="col-md-4">
+      <button type="button" id="loadTemplateBtn" class="btn btn-outline-primary btn-sm">Load template</button>
+    </div>
+  </div>
+  <div class="form-text">The normal override template is empty so inherited fields remain inherited. Loading never saves automatically.</div>
+</div>
+
+<div id="validationMessages" class="d-none" role="alert"></div>
 
 <form id="editorForm" class="mb-4">
   <!-- Collection type -->
@@ -182,6 +206,7 @@
   "has_file": json_path|length > 0,
   "open_asset_url": (url_for('main.open_info_asset', product_id=product.id, label=kind) if json_path else None),
   "save_url": url_for('main.product_save_json', sku=product.sku),
+  "template_url_tpl": url_for('main.metadata_reference_template', name='__NAME__'),
   "stream_url_tpl": url_for('main.initial_scan_stream',   run_id='__RUNID__'),
   "progress_url_tpl": url_for('main.initial_scan_progress', run_id='__RUNID__'),
   "done_url_tpl": url_for('main.initial_scan_done',     run_id='__RUNID__')
@@ -208,8 +233,10 @@
     if (!s) return [];
     return s.split(",").map(x => x.trim()).filter(Boolean);
   }
-  function safeJSON(str, fallback) {
-    try { return JSON.parse(str); } catch { return fallback; }
+  function parseJSONField(str, fallback, fieldName) {
+    if (!str.trim()) return fallback;
+    try { return JSON.parse(str); }
+    catch { throw new Error(`${fieldName}: invalid JSON`); }
   }
 
   // Remove empty strings, empty arrays/objects, and nulls
@@ -340,11 +367,11 @@
       cross_sell_ids: fromCSV(v.cross_sell_ids || ""),
       short_description: v.short_description || "",
       description: v.description || "",
-      // If textarea blank -> safeJSON("", fallback) returns fallback ({} / []),
+      // Blank textareas return empty containers which prune() removes.
       // but prune() will drop empty objects/arrays so nothing gets written.
-      attributes: safeJSON(v.attributes || "", {}),
-      image_attributes: safeJSON(v.image_attributes || "", []),
-      variation_modifiers: safeJSON(v.variation_modifiers || "", {}),
+      attributes: parseJSONField(v.attributes || "", {}, "attributes"),
+      image_attributes: parseJSONField(v.image_attributes || "", [], "image_attributes"),
+      variation_modifiers: parseJSONField(v.variation_modifiers || "", {}, "variation_modifiers"),
       meta_title: v.meta_title || "",
       meta_description: v.meta_description || "",
     };
@@ -361,18 +388,68 @@
   // Prefill
   loadExisting().then(setForm);
 
+  function showValidation(kind, issues) {
+    const box = document.getElementById('validationMessages');
+    if (!issues || !issues.length) {
+      box.className = 'd-none';
+      box.innerHTML = '';
+      return;
+    }
+    box.className = `alert ${kind === 'error' ? 'alert-danger' : 'alert-warning'}`;
+    const heading = kind === 'error' ? 'Save blocked' : 'Saved with warnings';
+    box.textContent = '';
+    const strong = document.createElement('strong');
+    strong.textContent = heading;
+    box.appendChild(strong);
+    const list = document.createElement('ul');
+    list.className = 'mb-0';
+    issues.forEach(issue => {
+      const item = document.createElement('li');
+      const path = document.createElement('code');
+      path.textContent = issue.path || '$';
+      item.append(path, document.createTextNode(`: ${issue.message || issue}`));
+      list.appendChild(item);
+    });
+    box.appendChild(list);
+  }
+
+  document.getElementById('loadTemplateBtn').addEventListener('click', async () => {
+    const name = document.getElementById('templateSelect').value;
+    if (!name) return;
+    const url = BOOT.template_url_tpl.replace('__NAME__', encodeURIComponent(name));
+    const response = await fetch(url);
+    const payload = await response.json();
+    if (!response.ok) {
+      showValidation('error', [{path: '$', message: payload.error || 'Template unavailable'}]);
+      return;
+    }
+    setForm(payload.data);
+    showValidation('warning', [{path: '$', message: 'Template loaded into the form but not saved.'}]);
+  });
+
   // -------- Save + scan modal --------
   const saveBtn = document.getElementById("saveBtn");
   if (HAS_FILE) {
     saveBtn.addEventListener("click", async () => {
-      const payload = { kind: KIND, data: getFormData() };
+      let data;
+      try {
+        data = getFormData();
+      } catch (error) {
+        showValidation('error', [{path: '$', message: error.message}]);
+        return;
+      }
+      const payload = { kind: KIND, data };
       const res = await fetch(BOOT.save_url, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(payload)
       });
       const out = await res.json();
-      if (out.error) { alert(out.error); return; }
+      if (out.error) {
+        showValidation('error', out.errors || [{path: '$', message: out.message || out.error}]);
+        return;
+      }
+      showValidation('warning', out.warnings || []);
 
       const runId = out.run_id;
       const modalEl = document.getElementById("scanModal");

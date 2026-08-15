@@ -1,0 +1,203 @@
+[
+  {
+    "key": "collection_type", "aliases": [], "type": "non-empty string", "units": null,
+    "required_collection": true, "required_override": false, "collection_allowed": true, "override_allowed": false,
+    "inheritance": "Collection-only scanner selector.", "merge": "Shared value is retained unless an unsupported override supplies the key.",
+    "parent_effect": "Selects Simple, Variable Collection, or Single Variable scanning.", "variation_effect": "Selects whether and how variations are generated.",
+    "woo_field": null, "sqlite_destination": "collection.collection_type; product.collection_type",
+    "classification": "canonical and active", "implementation_status": "Active; unknown values currently emit no rows.",
+    "example": "Variable Collection", "warning_error": "Missing or wrong type blocks collection editor save; unknown value warns."
+  },
+  {
+    "key": "title", "aliases": [], "type": "string", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Shared title is inherited; product title combines as override - shared.", "merge": "Special title combination rather than ordinary replacement.",
+    "parent_effect": "Sets Name with folder fallback.", "variation_effect": "Variations inherit the resolved parent name.",
+    "woo_field": "Name", "sqlite_destination": "product.title; product/variation.resolved_row_json",
+    "classification": "canonical and active", "implementation_status": "Active.", "example": "Fictional Orbit Print",
+    "warning_error": "Wrong type blocks editor save."
+  },
+  {
+    "key": "sku_prefix", "aliases": [], "type": "non-empty string", "units": null,
+    "required_collection": true, "required_override": false, "collection_allowed": true, "override_allowed": false,
+    "inheritance": "Collection-only identity prefix.", "merge": "Inherited from shared metadata.",
+    "parent_effect": "Used only when allocating a new parent SKU.", "variation_effect": "Variation SKUs derive from the parent SKU.",
+    "woo_field": "SKU", "sqlite_destination": "collection.sku_prefix; generated product/variation.sku",
+    "classification": "canonical and active", "implementation_status": "Active and identity-sensitive.", "example": "FIC-V-",
+    "warning_error": "Missing or wrong type blocks collection editor save; override use warns."
+  },
+  {
+    "key": "price", "aliases": [], "type": "number or numeric string", "units": "store currency",
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless overridden.", "merge": "Scalar replacement.",
+    "parent_effect": "Sets regular price.", "variation_effect": "Inherited as regular price unless a modifier replaces it.",
+    "woo_field": "Regular price", "sqlite_destination": "product.regular_price; variation.regular_price",
+    "classification": "canonical and active", "implementation_status": "Active.", "example": "12.50", "warning_error": "Wrong type or non-numeric string blocks editor save."
+  },
+  {
+    "key": "sale_price", "aliases": [], "type": "number or numeric string", "units": "store currency",
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless overridden.", "merge": "Scalar replacement.",
+    "parent_effect": "Sets parent sale price.", "variation_effect": "Base sale price is inherited; modifier sale_price is resolved but not emitted.",
+    "woo_field": "Sale price", "sqlite_destination": "product.sale_price; variation.sale_price",
+    "classification": "canonical and active", "implementation_status": "Active with protected variation-modifier discrepancy.", "example": "10.00", "warning_error": "Wrong type blocks; modifier use warns through reference guidance."
+  },
+  {
+    "key": "sale_start_date", "aliases": [], "type": "YYYY-MM-DD string", "units": "calendar date",
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless overridden.", "merge": "Scalar replacement.",
+    "parent_effect": "Sets sale start date.", "variation_effect": "Inherited by variation rows.",
+    "woo_field": "Date sale price starts", "sqlite_destination": "product.sale_start; variation.sale_start",
+    "classification": "canonical and active", "implementation_status": "Active.", "example": "2026-02-01", "warning_error": "Invalid date/type blocks editor save."
+  },
+  {
+    "key": "sale_end_date", "aliases": [], "type": "YYYY-MM-DD string", "units": "calendar date",
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless overridden.", "merge": "Scalar replacement.",
+    "parent_effect": "Sets sale end date.", "variation_effect": "Inherited by variation rows.",
+    "woo_field": "Date sale price ends", "sqlite_destination": "product.sale_end; variation.sale_end",
+    "classification": "canonical and active", "implementation_status": "Active.", "example": "2026-02-28", "warning_error": "Invalid date/type blocks editor save."
+  },
+  {
+    "key": "weight", "aliases": [], "type": "number or numeric string", "units": "grams",
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless overridden.", "merge": "Scalar replacement.",
+    "parent_effect": "Sets weight.", "variation_effect": "Inherited or replaced by matching modifier.",
+    "woo_field": "Weight (g)", "sqlite_destination": "product.weight; variation.weight",
+    "classification": "canonical and active", "implementation_status": "Active.", "example": 120, "warning_error": "Wrong type blocks editor save."
+  },
+  {
+    "key": "dimensions", "aliases": [], "type": "object with length, width, height", "units": "millimetres",
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless the whole object is overridden by scanner merge.", "merge": "Scanner replaces the object; editor save deep-merges the same file.",
+    "parent_effect": "Sets length, width, height.", "variation_effect": "Inherited or replaced by matching modifier dimensions.",
+    "woo_field": "Length (mm), Width (mm), Height (mm)", "sqlite_destination": "product/variation.length, width, height",
+    "classification": "canonical and active", "implementation_status": "Active.", "example": {"length": 210, "width": 148, "height": 4}, "warning_error": "Non-object, unknown dimension keys, or invalid values block editor save."
+  },
+  {
+    "key": "categories", "aliases": [], "type": "array of strings", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Shared and override lists are additive.", "merge": "Set-based deduplication; output order is not stable.",
+    "parent_effect": "Assigns parent categories.", "variation_effect": "Present in resolved variation rows but not normalized separately.",
+    "woo_field": "Categories", "sqlite_destination": "category and product_categories; resolved_row_json",
+    "classification": "canonical and active", "implementation_status": "Active with nondeterministic ordering.", "example": ["Fictional Reference"], "warning_error": "Wrong type blocks editor save."
+  },
+  {
+    "key": "tags", "aliases": [], "type": "array of strings", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Shared and override lists are additive.", "merge": "Set-based deduplication; output order is not stable.",
+    "parent_effect": "Assigns parent tags.", "variation_effect": "Present in resolved variation rows but not normalized separately.",
+    "woo_field": "Tags", "sqlite_destination": "tag and product_tags; resolved_row_json",
+    "classification": "canonical and active", "implementation_status": "Active with nondeterministic ordering.", "example": ["fictional", "complete"], "warning_error": "Wrong type blocks editor save."
+  },
+  {
+    "key": "live", "aliases": [], "type": "boolean", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless overridden.", "merge": "Scalar replacement.",
+    "parent_effect": "Maps true/omitted to published and false to draft.", "variation_effect": "Inherited Published row value.",
+    "woo_field": "Published", "sqlite_destination": "product.published; product.status; resolved_row_json",
+    "classification": "canonical and active", "implementation_status": "Active.", "example": false, "warning_error": "Wrong type blocks editor save."
+  },
+  {
+    "key": "short_description", "aliases": [], "type": "string", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless overridden.", "merge": "Scalar replacement.", "parent_effect": "Sets short description.", "variation_effect": "Inherited into variation rows.",
+    "woo_field": "Short description", "sqlite_destination": "product.short_description; resolved_row_json",
+    "classification": "canonical and active", "implementation_status": "Active.", "example": "A fictional reference item.", "warning_error": "Wrong type blocks editor save."
+  },
+  {
+    "key": "description", "aliases": [], "type": "string", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless overridden.", "merge": "Scalar replacement.", "parent_effect": "Sets description.", "variation_effect": "Inherited into variation rows.",
+    "woo_field": "Description", "sqlite_destination": "product.description; resolved_row_json",
+    "classification": "canonical and active", "implementation_status": "Active.", "example": "Synthetic documentation content.", "warning_error": "Wrong type blocks editor save."
+  },
+  {
+    "key": "attributes", "aliases": [], "type": "object of attribute-name to non-empty scalar arrays", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless the attributes object is overridden.", "merge": "Scanner replaces the object; editor save deep-merges the same file.",
+    "parent_effect": "Defines parent attribute columns, limited to five Woo row slots.", "variation_effect": "Creates the Cartesian product and variation attributes.",
+    "woo_field": "Attribute 1-5 fields", "sqlite_destination": "product_attribute; variation_attribute; resolved_row_json",
+    "classification": "canonical and active", "implementation_status": "Active; more than five attributes are generated but truncated in Woo-style rows.", "example": {"Size": ["Small", "Large"]}, "warning_error": "Unsafe structure blocks; more than five attributes warns."
+  },
+  {
+    "key": "image_attributes", "aliases": [], "type": "array of strings", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless overridden.", "merge": "List values are additive when both shared and override provide lists.",
+    "parent_effect": "No parent-row metadata effect.", "variation_effect": "Selects Single Variable image subfolders by exact attribute names.",
+    "woo_field": "Images", "sqlite_destination": "variation_image and variation.image_url via emitted row",
+    "classification": "canonical and active", "implementation_status": "Active for Single Variable image selection.", "example": ["Finish", "Size"], "warning_error": "Wrong structure blocks editor save."
+  },
+  {
+    "key": "variation_modifiers", "aliases": [], "type": "object keyed by Attribute=Value pairs", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless the modifier object is overridden.", "merge": "Scanner replaces the object; editor save deep-merges the same file.",
+    "parent_effect": "No parent effect.", "variation_effect": "Exact or most-specific partial match can change price, sale_price, weight, and dimensions.",
+    "woo_field": "Variation Regular price, Weight, dimensions; modifier Sale price currently not emitted",
+    "sqlite_destination": "variation price/weight/dimensions through emitted rows; resolved_row_json",
+    "classification": "canonical and active", "implementation_status": "Active except protected sale_price emission discrepancy.", "example": {"Size=Large": {"price": "24.00"}}, "warning_error": "Unsafe modifier/value structure blocks editor save."
+  },
+  {
+    "key": "shipping_class", "aliases": [], "type": "string", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless overridden.", "merge": "Scalar replacement.", "parent_effect": "Currently none; row builder emits blank.", "variation_effect": "Currently none.",
+    "woo_field": "Shipping class (blank)", "sqlite_destination": "product.shipping_class remains empty from current rows",
+    "classification": "supported but currently ignored", "implementation_status": "Authored and preserved in JSON, not emitted.", "example": "fictional-class", "warning_error": "Accepted with currently_ignored warning."
+  },
+  {
+    "key": "grouped_ids", "aliases": [], "type": "array of strings", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Editor persists it; scanner merge treats it as an additive list.", "merge": "Set-based list merge.", "parent_effect": "None in current row builder.", "variation_effect": "None.",
+    "woo_field": "Grouped products (currently blank)", "sqlite_destination": "No active destination",
+    "classification": "editor-only", "implementation_status": "Editor field, not consumed by row builder.", "example": ["FIC-GROUP-1"], "warning_error": "Accepted with editor_only warning."
+  },
+  {
+    "key": "grouped_products", "aliases": [], "type": "array of strings", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Scanner merge accepts the list but row builder does not read it.", "merge": "Set-based list merge.", "parent_effect": "None in current metadata path.", "variation_effect": "None.",
+    "woo_field": "Grouped products (Woo row field only)", "sqlite_destination": "product.grouped_products only if supplied by a row",
+    "classification": "Woo CSV-only", "implementation_status": "JSON value is not operational.", "example": ["FIC-GROUP-2"], "warning_error": "Accepted with currently_ignored warning."
+  },
+  {
+    "key": "upsell_ids", "aliases": [], "alias_for": "upsells", "type": "array of strings", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Editor persists it; scanner merge treats it as an additive list.", "merge": "Set-based list merge.", "parent_effect": "None because the current row builder reads upsells.", "variation_effect": "None.",
+    "woo_field": "Upsells (not populated from this spelling)", "sqlite_destination": "No active destination from this spelling",
+    "classification": "accepted alias", "implementation_status": "Accepted legacy/editor spelling; deliberately not normalized in Milestone 9.", "example": ["FIC-LEGACY-UP-1"], "warning_error": "Accepted with alias/discrepancy warning."
+  },
+  {
+    "key": "cross_sell_ids", "aliases": [], "alias_for": "crosssells", "type": "array of strings", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Editor persists it; scanner merge treats it as an additive list.", "merge": "Set-based list merge.", "parent_effect": "None because the current row builder reads crosssells.", "variation_effect": "None.",
+    "woo_field": "Cross-sells (not populated from this spelling)", "sqlite_destination": "No active destination from this spelling",
+    "classification": "accepted alias", "implementation_status": "Accepted legacy/editor spelling; deliberately not normalized in Milestone 9.", "example": ["FIC-LEGACY-CROSS-1"], "warning_error": "Accepted with alias/discrepancy warning."
+  },
+  {
+    "key": "upsells", "aliases": ["upsell_ids"], "type": "array of strings", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Shared and override lists are additive.", "merge": "Set-based deduplication.", "parent_effect": "Sets Woo-style upsell list.", "variation_effect": "Inherited row metadata only.",
+    "woo_field": "Upsells", "sqlite_destination": "product.upsell_ids",
+    "classification": "canonical and active", "implementation_status": "Active scanner spelling.", "example": ["FIC-UP-1"], "warning_error": "Wrong type blocks editor save."
+  },
+  {
+    "key": "crosssells", "aliases": ["cross_sell_ids"], "type": "array of strings", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Shared and override lists are additive.", "merge": "Set-based deduplication.", "parent_effect": "Sets Woo-style cross-sell list.", "variation_effect": "Inherited row metadata only.",
+    "woo_field": "Cross-sells", "sqlite_destination": "product.cross_sell_ids",
+    "classification": "canonical and active", "implementation_status": "Active scanner spelling.", "example": ["FIC-CROSS-1"], "warning_error": "Wrong type blocks editor save."
+  },
+  {
+    "key": "meta_title", "aliases": [], "type": "string", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless overridden.", "merge": "Scalar replacement.", "parent_effect": "Sets SEO title metadata.", "variation_effect": "Inherited row metadata only.",
+    "woo_field": "Meta: _yoast_wpseo_title", "sqlite_destination": "product.meta_title; resolved_row_json",
+    "classification": "canonical and active", "implementation_status": "Active.", "example": "Fictional SEO title", "warning_error": "Wrong type blocks editor save."
+  },
+  {
+    "key": "meta_description", "aliases": [], "type": "string", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless overridden.", "merge": "Scalar replacement.", "parent_effect": "Sets SEO description metadata.", "variation_effect": "Inherited row metadata only.",
+    "woo_field": "Meta: _yoast_wpseo_metadesc", "sqlite_destination": "product.meta_description; resolved_row_json",
+    "classification": "canonical and active", "implementation_status": "Active.", "example": "Fictional SEO description.", "warning_error": "Wrong type blocks editor save."
+  }
+]

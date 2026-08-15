@@ -11,7 +11,12 @@ from .sku_manager import (
     get_next_variation_counter,
     set_variation_counter,
 )
-from .file_markers import should_rescan, write_scanned, load_scanned
+from .file_markers import (
+    load_pending_scanned,
+    load_scanned,
+    should_rescan,
+    write_scanned,
+)
 from .image_tools import process_images, get_image_csv_urls
 from .csv_writer import build_simple_product, build_variable_parent, build_variation_row
 
@@ -35,6 +40,11 @@ def scan_collection(
     force_update=False,
     update_csv=False,
     log=default_log,
+    defer_markers=False,
+    operation_id=None,
+    reset_sku_index=None,
+    preserve_existing_markers=False,
+    identity_overrides=None,
 ):
     """
     Main entry point to scan a collection folder.
@@ -50,7 +60,8 @@ def scan_collection(
     Returns:
         list: All product rows ready for CSV export
     """
-    reset_flag = force_update  # Used to ensure SKU reset happens only once
+    reset_flag = force_update if reset_sku_index is None else reset_sku_index
+    identity_overrides = identity_overrides or {}
 
     # Load the collection's shared JSON data
     collection_json_path = os.path.join(base_path, "product_info.json")
@@ -99,6 +110,10 @@ def scan_collection(
                 update_csv,
                 log,
                 reset_flag=reset_flag,
+                defer_markers=defer_markers,
+                operation_id=operation_id,
+                preserve_existing_marker=preserve_existing_markers,
+                identity_override=identity_overrides.get(os.path.realpath(item_path)),
             )
             reset_flag = False  # Only reset SKU index once
             all_rows.extend(rows)
@@ -115,6 +130,10 @@ def scan_collection(
                 update_csv,
                 log,
                 reset_flag=reset_flag,
+                defer_markers=defer_markers,
+                operation_id=operation_id,
+                preserve_existing_marker=preserve_existing_markers,
+                identity_override=identity_overrides.get(os.path.realpath(item_path)),
             )
             reset_flag = False  # Only reset SKU index once
             all_rows.extend(rows)
@@ -131,6 +150,10 @@ def scan_collection(
                 update_csv,
                 log,
                 reset_flag=reset_flag,
+                defer_markers=defer_markers,
+                operation_id=operation_id,
+                preserve_existing_marker=preserve_existing_markers,
+                identity_override=identity_overrides.get(os.path.realpath(base_path)),
             )
             reset_flag = False  # Only reset SKU index once
             all_rows.extend(rows)
@@ -148,6 +171,10 @@ def scan_simple_product(
     update_csv,
     log,
     reset_flag,
+    defer_markers=False,
+    operation_id=None,
+    preserve_existing_marker=False,
+    identity_override=None,
 ):
     """
     Scans a single simple product folder and generates a CSV-ready row.
@@ -202,17 +229,21 @@ def scan_simple_product(
     merged["source_folder"] = folder
 
     # Load existing .scanned file if update mode is active
-    scanned = {} if not update_csv else load_scanned(folder, log=log)
+    pending = load_pending_scanned(folder, log=log)
+    scanned = identity_override or (pending.get("marker", {}) if pending else {})
+    if not scanned and update_csv:
+        scanned = load_scanned(folder, log=log)
+    reuse_identity = bool(pending) or update_csv
 
     # Reuse existing SKU if found, else generate a new one
-    if update_csv:
+    if reuse_identity:
         log(
             f"🔁 Update mode is ON — using scanned SKU: {scanned.get('sku')}",
             level="INFO",
         )
     sku = (
         scanned.get("sku")
-        if scanned.get("sku") and update_csv
+        if scanned.get("sku") and reuse_identity
         else generate_sku(
             shared_data["sku_prefix"],
             os.path.dirname(folder),
@@ -229,15 +260,20 @@ def scan_simple_product(
     image_urls = get_image_csv_urls(image_names, url_prefix)
 
     # Save .scanned marker to record this product's processing
-    write_scanned(
-        folder,
-        {
-            "sku": sku,
-            "title": merged.get("title") or os.path.basename(folder),
-            "images_used": image_names,
-        },
-        log=log,
-    )
+    if not preserve_existing_marker or not (
+        os.path.isfile(os.path.join(folder, ".scanned")) or pending
+    ):
+        write_scanned(
+            folder,
+            {
+                "sku": sku,
+                "title": merged.get("title") or os.path.basename(folder),
+                "images_used": image_names,
+            },
+            log=log,
+            defer=defer_markers,
+            operation_id=operation_id,
+        )
 
     log(
         f"📝 .scanned file updated for {merged.get('title') or os.path.basename(folder)}",
@@ -257,6 +293,10 @@ def scan_variable_product(
     update_csv,
     log,
     reset_flag,
+    defer_markers=False,
+    operation_id=None,
+    preserve_existing_marker=False,
+    identity_override=None,
 ):
     """
     Scans a single variable product folder (e.g., 'Pug', 'Beagle') and builds all variation rows.
@@ -311,19 +351,23 @@ def scan_variable_product(
     merged["source_folder"] = folder
 
     # Load existing .scanned file if updating
-    scanned = {} if not update_csv else load_scanned(folder, log=log)
+    pending = load_pending_scanned(folder, log=log)
+    scanned = identity_override or (pending.get("marker", {}) if pending else {})
+    if not scanned and update_csv:
+        scanned = load_scanned(folder, log=log)
+    reuse_identity = bool(pending) or update_csv
 
     matcher = ScannedVariationMatcher(scanned, log=log)
 
     # Either reuse existing SKU or generate a new one
-    if update_csv:
+    if reuse_identity:
         log(
             f"🔁 Update mode is ON — using scanned SKU: {scanned.get('sku')}",
             level="INFO",
         )
     sku = (
         scanned.get("sku")
-        if scanned.get("sku") and update_csv
+        if scanned.get("sku") and reuse_identity
         else generate_sku(
             shared_data["sku_prefix"],
             os.path.dirname(folder),
@@ -331,7 +375,7 @@ def scan_variable_product(
             log=log,
         )
     )
-    if not update_csv:
+    if not reuse_identity:
         set_variation_counter(folder, 0, log=log)  # Start counter at 1 for variations
         log("🔢 Manually set initial variation counter to 1", level="INFO")
 
@@ -360,7 +404,7 @@ def scan_variable_product(
     # Create a CSV-ready row for each variation
     for i, v_attrs in enumerate(variations):
         mod = apply_variation_modifiers(merged, v_attrs, log=log)
-        v_sku = matcher.match(v_attrs) if update_csv else None
+        v_sku = matcher.match(v_attrs) if reuse_identity else None
         if not v_sku:
             next_num = get_next_variation_counter(folder, log=log)
             v_sku = f"{sku}-{next_num}"
@@ -380,17 +424,22 @@ def scan_variable_product(
         resolved_variations.append({"attributes": v_attrs, "sku": v_sku})
 
     # Write .scanned marker with metadata
-    write_scanned(
-        folder,
-        {
-            "sku": sku,
-            "title": merged.get("title") or os.path.basename(folder),
-            "images_used": parent_image_names,
-            "variation_count": len(variations),
-            "variations": resolved_variations,
-        },
-        log=log,
-    )
+    if not preserve_existing_marker or not (
+        os.path.isfile(os.path.join(folder, ".scanned")) or pending
+    ):
+        write_scanned(
+            folder,
+            {
+                "sku": sku,
+                "title": merged.get("title") or os.path.basename(folder),
+                "images_used": parent_image_names,
+                "variation_count": len(variations),
+                "variations": resolved_variations,
+            },
+            log=log,
+            defer=defer_markers,
+            operation_id=operation_id,
+        )
 
     log(
         f"📝 .scanned file updated for {merged.get('title') or os.path.basename(folder)}",
@@ -409,6 +458,10 @@ def scan_single_variable(
     update_csv,
     log,
     reset_flag,
+    defer_markers=False,
+    operation_id=None,
+    preserve_existing_marker=False,
+    identity_override=None,
 ):
     """
     Scans a single folder that represents a variable product with all its variations inside.
@@ -439,24 +492,28 @@ def scan_single_variable(
     merged["source_folder"] = base_folder
 
     # Load existing scan data if in update mode
-    scanned = {} if not update_csv else load_scanned(base_folder, log=log)
+    pending = load_pending_scanned(base_folder, log=log)
+    scanned = identity_override or (pending.get("marker", {}) if pending else {})
+    if not scanned and update_csv:
+        scanned = load_scanned(base_folder, log=log)
+    reuse_identity = bool(pending) or update_csv
 
     matcher = ScannedVariationMatcher(scanned, log=log)
 
     # Either reuse scanned SKU or generate a new one
-    if update_csv:
+    if reuse_identity:
         log(
             f"🔁 Update mode is ON — using scanned SKU: {scanned.get('sku')}",
             level="INFO",
         )
     sku = (
         scanned.get("sku")
-        if scanned.get("sku") and update_csv
+        if scanned.get("sku") and reuse_identity
         else generate_sku(
             shared_data["sku_prefix"], base_folder, reset_index=reset_flag, log=log
         )
     )
-    if not update_csv:
+    if not reuse_identity:
         set_variation_counter(
             base_folder, 0, log=log
         )  # Start counter at 1 for variations
@@ -527,7 +584,7 @@ def scan_single_variable(
 
         image_urls = get_image_csv_urls(style_images, url_prefix)
         mod = apply_variation_modifiers(merged, v_attrs, log=log)
-        v_sku = matcher.match(v_attrs) if update_csv else None
+        v_sku = matcher.match(v_attrs) if reuse_identity else None
         if not v_sku:
             next_num = get_next_variation_counter(base_folder, log=log)
             v_sku = f"{sku}-{next_num}"
@@ -547,17 +604,22 @@ def scan_single_variable(
         resolved_variations.append({"attributes": v_attrs, "sku": v_sku})
 
     # Save .scanned data with variation count
-    write_scanned(
-        base_folder,
-        {
-            "sku": sku,
-            "title": parent_title,
-            "images_used": parent_image_names,
-            "variation_count": len(variations),
-            "variations": resolved_variations,
-        },
-        log=log,
-    )
+    if not preserve_existing_marker or not (
+        os.path.isfile(os.path.join(base_folder, ".scanned")) or pending
+    ):
+        write_scanned(
+            base_folder,
+            {
+                "sku": sku,
+                "title": parent_title,
+                "images_used": parent_image_names,
+                "variation_count": len(variations),
+                "variations": resolved_variations,
+            },
+            log=log,
+            defer=defer_markers,
+            operation_id=operation_id,
+        )
 
     log(
         f"📝 .scanned file updated for {merged.get('title') or os.path.basename(base_folder)}",

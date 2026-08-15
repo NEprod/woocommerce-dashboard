@@ -160,7 +160,7 @@
                + (rel ? ("?rel=" + encodeURIComponent(rel)) : "");
     const res = await fetch(url);
     const out = await res.json();
-    if (out.error) { alert(out.error); return; }
+    if (out.error) { alert(out.message || out.error); return; }
 
     pickerState.root = out.root;
     pickerState.path = out.path;
@@ -207,7 +207,7 @@
         body: JSON.stringify({rel: pickerState.selectedRel})
       });
       const out2 = await res2.json();
-      if (out2.error) { alert(out2.error); return; }
+      if (out2.error) { alert(out2.message || out2.error); return; }
       bootstrap.Modal.getInstance(document.getElementById('overrideModal')).hide();
 
       // Start streaming scan logs
@@ -234,7 +234,7 @@
         headers: {"Content-Type":"application/json"}
       });
       const out = await res.json();
-      if (out.error) { alert(out.error); return; }
+      if (out.error) { alert(out.message || out.error); return; }
       if (out.run_id) openScanModal(out.run_id);
       else await loadTable();
     }

@@ -2,7 +2,7 @@
 
 WooCommerce Dashboard is a local Flask application that scans a structured product catalogue, resolves shared and product-specific JSON metadata, prepares WooCommerce-compatible product rows, and ingests the currently supported subset into SQLite for a web interface.
 
-Phase 0 (`0.1.0`) establishes a secure, documented, tested, and containerised baseline. It preserves the existing scanner and application behaviour; it is not a production-ready release.
+Phase 0 (`0.1.0`) established the secure, documented, tested, and containerised baseline. Phase 1 (`0.2.0`) makes SQLite a complete, recoverable projection of resolved scanner output while preserving the protected scanner contract.
 
 ## Current capabilities
 
@@ -11,9 +11,10 @@ Phase 0 (`0.1.0`) establishes a secure, documented, tested, and containerised ba
 - Shared collection metadata with optional per-product overrides.
 - Stable local SKU markers and variation generation.
 - Image preparation and SQLite ingestion.
-- A limited product JSON editor and Discord scan/ingest notifications.
+- Single-process catalogue operation locking and persistent operation history.
+- A schema-backed product JSON editor, in-app metadata reference/templates, and Discord scan/ingest notifications.
 
-Known incomplete areas include database field parity, active Collection-to-Product links, several missing routed templates, and live WooCommerce integration. See [Current State](docs/CURRENT_STATE.md).
+The catalogue projection retains every emitted scanner row, exact collection relationships, queryable taxonomy/publication metadata, and portable source provenance. Ordinary append/update ingestion commits each complete parent graph as one SQLite transaction, with atomic marker/index replacement and recoverable pending identities across filesystem/database failures. Emitted variation sets reconcile in place, and only explicitly exhaustive successful scopes can mark catalogue products missing. Shared metadata edits use an exhaustive collection-limited refresh. Setup distinguishes new catalogues from existing marker identities and offers identity-preserving reconstruction without turning an empty database into a full SKU reset. The complete `product_info.json` contract has runtime schemas, fictional examples, editor-safe validation, templates, and an in-app reference. Live WooCommerce integration remains outside Phase 1. See [Current State](docs/CURRENT_STATE.md).
 
 ## Local development
 
@@ -28,7 +29,7 @@ pytest
 python run.py
 ```
 
-Replace placeholders in `.env` locally and keep Discord disabled during development unless notifications are intentionally being tested. Application startup creates missing SQLite tables, so use an isolated instance directory for safety.
+Replace placeholders in `.env` locally and keep Discord disabled during development unless notifications are intentionally being tested. Application startup applies versioned SQLite migrations, so use an isolated instance directory for safety. Existing unversioned Phase 0 databases are backed up and adopted only when their schema matches the frozen baseline. See [Database Migrations](docs/MIGRATIONS.md).
 
 ## Docker
 
@@ -51,7 +52,11 @@ The container listens on port `7485`, runs Gunicorn with one worker and four thr
 - [Current State](docs/CURRENT_STATE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Scanner Contract](docs/SCANNER_CONTRACT.md)
+- [product_info.json Contract](docs/PRODUCT_INFO.md)
 - [Data Model](docs/DATA_MODEL.md)
+- [Database Migrations](docs/MIGRATIONS.md)
+- [Catalogue Operation Control](docs/CATALOGUE_OPERATIONS.md)
+- [Phase 1 Acceptance](docs/PHASE_1_ACCEPTANCE.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Decisions](docs/DECISIONS.md)
 - [Development](docs/DEVELOPMENT.md)

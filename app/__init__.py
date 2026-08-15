@@ -42,6 +42,12 @@ def create_app():
         return {"current_year": datetime.now().year}
 
     with app.app_context():
-        db.create_all()
+        from .database import ensure_database
+        from .utils.operation_control import recover_interrupted_operations
+
+        app.config["DATABASE_MIGRATION_REPORT"] = ensure_database(str(db.engine.url))
+        app.config["INTERRUPTED_OPERATIONS_RECOVERED"] = (
+            recover_interrupted_operations()
+        )
 
     return app

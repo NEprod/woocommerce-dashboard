@@ -60,6 +60,7 @@ desktop.ini
 
 # Local catalogue/runtime scanner state
 .scanned
+.scanned.pending
 .update
 sku_index.json
 !tests/fixtures/**/.scanned

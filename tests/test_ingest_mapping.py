@@ -36,7 +36,9 @@ def test_ingest_maps_current_supported_subset_to_temporary_database(tmp_path, qu
     product_folder = catalogue / "Fictional Collection" / "Fictional Product"
     product_folder.mkdir(parents=True)
     (product_folder / ".scanned").write_text('{"sku":"FIC-0001"}')
-    (product_folder.parent / "product_info.json").write_text("{}")
+    (product_folder.parent / "product_info.json").write_text(
+        '{"collection_type":"Variable Collection","sku_prefix":"FIC-"}'
+    )
 
     original_uri = Config.SQLALCHEMY_DATABASE_URI
     Config.SQLALCHEMY_DATABASE_URI = f"sqlite:///{database}"
@@ -59,13 +61,26 @@ def test_ingest_maps_current_supported_subset_to_temporary_database(tmp_path, qu
 
             product = Product.query.filter_by(sku="FIC-0001").one()
             variation = Variation.query.filter_by(sku="FIC-0001-1").one()
-            assert summary == {"products_created": 1, "products_updated": 0, "variations_created": 1, "variations_updated": 0}
+            assert summary == {
+                "products_created": 1,
+                "products_updated": 0,
+                "products_failed": 0,
+                    "variations_created": 1,
+                    "variations_updated": 0,
+                    "variations_missing": 0,
+                    "variations_restored": 0,
+                    "products_restored": 0,
+                }
             assert str(product.regular_price) == "12.50"
             assert len(product.images) == 2
             assert variation.product_id == product.id
             assert {a.name: a.value for a in variation.attributes} == {"Size": "Large"}
-            assert product.categories == []
-            assert product.tags == []
-            assert product.collection_id is None
+            assert {category.name for category in product.categories} == {
+                "Ignored Category"
+            }
+            assert {tag.name for tag in product.tags} == {"ignored-tag"}
+            assert product.collection_id is not None
+            assert product.collection_type == "Variable Collection"
+            assert product.meta_title == "Ignored SEO title"
     finally:
         Config.SQLALCHEMY_DATABASE_URI = original_uri

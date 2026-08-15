@@ -6,8 +6,21 @@ ROOT = Path(__file__).parents[1]
 
 def test_sensitive_runtime_patterns_are_ignored():
     gitignore = (ROOT / ".gitignore").read_text()
-    for pattern in (".env", "instance/", "*.db", ".scanned", ".update", "sku_index.json", "backups/", "*.log"):
+    for pattern in (
+        ".env",
+        "instance/",
+        "*.db",
+        ".scanned",
+        ".scanned.pending",
+        ".update",
+        "sku_index.json",
+        "backups/",
+        "*.log",
+    ):
         assert pattern in gitignore
+
+    dockerignore = (ROOT / ".dockerignore").read_text()
+    assert ".scanned.pending" in dockerignore
 
 
 def test_docker_runs_non_root_single_worker_without_debug_mode():

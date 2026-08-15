@@ -27,6 +27,7 @@ venv
 .vscode
 .idea
 .scanned
+.scanned.pending
 .update
 sku_index.json
 output

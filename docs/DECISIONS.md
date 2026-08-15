@@ -11,3 +11,40 @@
 7. **The initial container uses one Gunicorn worker.** Scan state and threads are process-local and SQLite/background work has not been designed for multiple workers. Four threads allow ordinary request concurrency within that single process.
 
 No new source-of-truth or schema design decision is made here.
+
+## Phase 1 approved constraints
+
+1. **Scanner discrepancies remain characterised, not silently corrected.** Database parity means parity with emitted scanner rows. Internally resolved but un-emitted values are not promoted into SQLite.
+2. **Cross-store consistency is recoverable, not atomic.** SQLite transactions cannot atomically include processed images, `sku_index.json`, `.scanned`, or `.update`. Phase 1 will record and recover incomplete finalisation explicitly.
+3. **Ordinary ingestion uses a complete-parent boundary.** Each parent, its collection relationship, metadata, images, taxonomy, assets, variations, attributes, and variation images form one database transaction. An unrelated successful parent need not roll back when a later parent fails.
+4. **Reconstruction is distinct from full scanning.** Reconstruction must reuse `.scanned` identities; intentional full scanning retains its current SKU-regeneration implications and requires an explicit choice.
+5. **Catalogue-mutating operations remain single-process.** A non-blocking process-local lock rejects concurrent mutations, while persistent rows record bounded history and interrupted state. History is not treated as a distributed lock, queue, or multi-worker coordinator.
+6. **Alembic owns schema evolution.** The frozen `0001_phase0` revision initializes new databases and is the adoption point for an exact unversioned Phase 0 schema. `db.create_all()` has no remaining startup role.
+7. **Migration adoption is conservative and recoverable.** Unknown unversioned schemas are rejected. Adoption and later upgrades create a verified SQLite backup before schema-version state changes.
+8. **Interrupted operation rows require review.** Startup marks unfinished operations interrupted after migrations complete. It does not infer that filesystem side effects and SQLite were atomically rolled back; the next catalogue operation uses pending intent and committed item state to recover markers safely.
+9. **Catalogue-relative paths are portable identity and provenance.** Collection identity is the POSIX-style path relative to the configured catalogue root. Product and JSON relative paths use the same root. Absolute columns remain runtime locators only, and changing a mount point must not create a new collection.
+10. **The emitted row is the parity boundary.** Parent and variation rows are stored losslessly as JSON, with common fields normalized for queries. SQLite does not promote internally resolved values that the protected row builder did not emit.
+11. **Marker coordination uses durable intent, not rollback fiction.** Production scans atomically stage `.scanned.pending`, commit SQLite per parent, then atomically finalize `.scanned` and remove `.update`. Failures retain identity and explicit recovery state. SKU counters and processed images are allowed to remain advanced/present.
+12. **Presence reconciliation is soft and explicitly scoped.** A committed
+    parent's emitted variations are complete for that parent. Products are
+    reconciled only by a successfully resolved exhaustive catalogue operation or
+    a collection-limited shared refresh. Rows are marked `missing`, never deleted,
+    and are restored by portable identity before protected SKU identity.
+13. **Shared JSON saves use explicit collection orchestration.** Simple and
+    Variable Collection child-marker selection is not widened globally. A shared
+    save targets its portable collection path, force-refreshes every child using
+    existing marker identities, and leaves unrelated collections untouched.
+14. **Empty SQLite does not imply identity reset.** Setup inspects catalogue
+    markers independently. Existing `.scanned` or pending identity selects
+    reconstruction; malformed or unavailable state blocks action. Full regeneration
+    remains separately named, warned, and explicitly confirmed.
+15. **Reconstruction is a controlled in-place projection replacement.** Complete
+    pre-resolution precedes a persistent verified backup and one SQLite transaction.
+    Valid markers and counters are not reset or rewritten. Database identity
+    overlays provide idempotence for safely matched rows newer than marker payloads.
+16. **Metadata schemas protect editor writes, not scanner input globally.** The
+    collection and partial-override schemas formalize known types and unsafe
+    structures while top-level unknown fields remain warnings. Legacy editor
+    upsell/cross-sell spellings are documented and warned but not normalized.
+    Unknown collection types and every characterized scanner discrepancy remain
+    unchanged pending an explicit contract decision.
