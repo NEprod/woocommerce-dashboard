@@ -1,13 +1,13 @@
 # Roadmap
 
 - **Phase 0 — Secure baseline, documentation, tests and containerisation:** complete baseline scope for version `0.1.0`.
-- **Phase 1 — Database ingestion parity and catalogue integrity:** in progress on the Phase 1 branch. Scanner characterization, migration/recovery foundations, operation control/history, catalogue projection/provenance, complete-parent transactions, recoverable marker coordination, lifecycle reconciliation, identity-preserving reconstruction, and the metadata contract are complete; final acceptance remains.
+- **Phase 1 — Database ingestion parity and catalogue integrity:** complete in `0.2.0`. Scanner characterization, migration/recovery foundations, operation control/history, catalogue projection/provenance, complete-parent transactions, recoverable marker coordination, lifecycle reconciliation, identity-preserving reconstruction, the metadata contract, and final release verification are complete.
 - **Phase 2 — Catalogue management UI:** planned.
 - **Phase 3 — Read-only WooCommerce mapping and comparison:** planned.
 - **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.
 
-Phase 1 remains unreleased until every approved milestone and final publication gate has passed.
+Phase 1 is the current catalogue-integrity release. Future work must continue to treat its scanner contract and database/recovery behavior as protected baselines.
 
 ## Phase 1 execution plan
 
@@ -23,7 +23,7 @@ The approved Phase 1 work remains divided into Milestones 0–10:
 7. Reconcile variations and missing/restored products, including shared collection updates. **Complete.**
 8. Add identity-preserving reconstruction distinct from intentional full regeneration. **Complete.**
 9. Formalize the complete metadata contract, schemas, examples, and in-app guidance. **Complete.**
-10. Complete all acceptance, migration, reconstruction, source-boundary, Docker, publication, and documentation checks.
+10. Complete all acceptance, migration, reconstruction, source-boundary, Docker, publication, and documentation checks. **Complete.**
 
 Milestones 4–9 must not publish, replace, or modify any Docker Hub tag. Final publication belongs exclusively to Milestone 10 after all preceding acceptance criteria pass.
 

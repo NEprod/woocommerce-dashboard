@@ -2,13 +2,13 @@
 
 Image repository: `neprod/woocommerce-dashboard`
 
-Phase 0 publishes the equivalent tags `phase-0`, `0.1.0`, and `latest`. The immutable version tag is preferred for deployment.
+Phase 1 publishes the equivalent multi-platform tags `phase-1`, `0.2.0`, and `latest`. The immutable version tag is preferred for deployment. Historical Phase 0 tags `phase-0` and `0.1.0` remain unchanged.
 
 ## Build
 
 ```bash
-docker build -t neprod/woocommerce-dashboard:phase-0 .
-docker tag neprod/woocommerce-dashboard:phase-0 neprod/woocommerce-dashboard:0.1.0
+docker build -t neprod/woocommerce-dashboard:phase-1 .
+docker tag neprod/woocommerce-dashboard:phase-1 neprod/woocommerce-dashboard:0.2.0
 ```
 
 The image runs as a non-root user with Gunicorn, one worker, four threads, and port `7485`. One worker and one application replica are required because scan progress, background threads, and the catalogue mutation lock are process-local. Persistent operation rows support diagnosis but are not a distributed mutex.
@@ -24,7 +24,7 @@ Copy `.env.example` to the ignored `.env` and set:
 - `OUTPUT_FOLDER_HOST`: generated output directory mounted at `/output`.
 
 ```bash
-IMAGE_TAG=0.1.0 docker compose up -d
+IMAGE_TAG=0.2.0 docker compose up -d
 ```
 
 Application settings stored through the UI must use container paths (`/catalogue` and `/output`), not host paths.
@@ -45,11 +45,11 @@ For recovery, stop the container and use a one-off container with the same insta
 
 Automatic startup migration is approved only for the documented single-worker Phase 1 runtime. A future multi-worker or multi-replica deployment must run migrations as a separate, single-owner deployment step before application replicas start.
 
-## Later Unraid deployment
+## Unraid deployment boundary
 
-Deployment to Unraid is outside Phase 0. A later deployment should pull the immutable tag, map persistent appdata to `/app/instance`, map catalogue/output paths explicitly, inject secrets at runtime, retain one worker, and verify backups before enabling scans.
+Server-specific deployment remains outside Phase 1. An Unraid deployment should pull the immutable `0.2.0` tag, map persistent appdata to `/app/instance`, map catalogue/output paths explicitly, inject secrets at runtime, retain one worker, and verify backups before enabling scans.
 
-The Phase 0 image is a reproducible baseline, not a production-readiness declaration.
+The Phase 1 image supplies both target architectures, but publication does not replace deployment-specific backup, mount, secret, and operational validation.
 
 ## Phase 1 multi-platform publication
 

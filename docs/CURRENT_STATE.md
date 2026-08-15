@@ -1,6 +1,6 @@
 # Current State
 
-This document records the Phase 0 baseline established from two read-only audits. Phase 0 deliberately documents rather than fixes existing operational limitations.
+This document records the completed Phase 1 (`0.2.0`) catalogue-integrity release. Phase 1 builds on the Phase 0 baseline without changing protected scanner row semantics.
 
 ## Startup and setup
 
