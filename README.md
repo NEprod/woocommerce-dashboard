@@ -1,8 +1,12 @@
 # WooCommerce Dashboard
 
+<p align="center">
+  <img src="app/static/assets/img/woocommerce-dashboard-logo.svg" width="520" alt="WooCommerce Dashboard logo">
+</p>
+
 WooCommerce Dashboard is a local Flask application that scans a structured product catalogue, resolves shared and product-specific JSON metadata, prepares WooCommerce-compatible product rows, and ingests the currently supported subset into SQLite for a web interface.
 
-Phase 0 (`0.1.0`) established the secure, documented, tested, and containerised baseline. Phase 1 (`0.2.0`) makes SQLite a complete, recoverable projection of resolved scanner output while preserving the protected scanner contract.
+Phase 0 (`0.1.0`) established the secure, documented, tested, and containerised baseline. Phase 1 (`0.2.2`) makes SQLite a complete, recoverable projection of resolved scanner output while preserving the protected scanner contract and adds a reusable Unraid installation template.
 
 ## Current capabilities
 
@@ -42,10 +46,14 @@ docker compose up -d
 
 The container listens on port `7485`, runs Gunicorn with one worker and four threads, and expects persistent instance, catalogue, and output mounts. Never bake a live `.env`, database, catalogue, or generated output into the image. Full guidance is in [Docker](docs/DOCKER.md).
 
+The canonical persistent mappings are `/app/instance` for `site.db` and application backups, `/catalogue` for authored catalogue and scanner identity state, and `/output` for generated files. Unraid users should start with the tracked [Unraid template](unraid/my-woocommerce-dashboard.xml) and [installation guide](docs/UNRAID.md).
+
 ## Project links
 
 - Source: <https://github.com/NEprod/woocommerce-dashboard>
 - Container: <https://hub.docker.com/r/neprod/woocommerce-dashboard>
+
+Suggested Docker Hub overview: “WooCommerce Dashboard is a self-hosted Flask application for resolving a filesystem product catalogue into a recoverable SQLite projection and WooCommerce-compatible rows. It includes transactional ingestion, marker recovery, reconstruction, metadata schemas, and multi-platform Unraid-compatible images.”
 
 ## Documentation
 
@@ -61,4 +69,5 @@ The container listens on port `7485`, runs Gunicorn with one worker and four thr
 - [Decisions](docs/DECISIONS.md)
 - [Development](docs/DEVELOPMENT.md)
 - [Docker](docs/DOCKER.md)
+- [Unraid](docs/UNRAID.md)
 - [Security](docs/SECURITY.md)

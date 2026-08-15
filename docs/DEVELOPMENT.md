@@ -17,7 +17,8 @@ Use placeholder/fabricated directories and keep `DISCORD_ENABLED=false`. Applica
 ```bash
 python -m compileall app tests
 pytest
-docker build -t neprod/woocommerce-dashboard:phase-0 .
+docker build -t neprod/woocommerce-dashboard:development .
+python -c "import xml.etree.ElementTree as ET; ET.parse('unraid/my-woocommerce-dashboard.xml')"
 ```
 
 Migration tests construct a frozen, synthetic Phase 0 database in a temporary directory. They must cover fresh initialization, adoption, repeated upgrade, backup, injected failure, restore, and post-restore use. Never substitute a local or archived database. Operational procedures are in [Database Migrations](MIGRATIONS.md).
@@ -51,6 +52,12 @@ Runtime resources live under `app/resources/product_info`; test-only fixtures do
 not belong there. See [product_info.json Contract](PRODUCT_INFO.md).
 
 Tests must create temporary directories and SQLite databases. Fixtures under `tests/fixtures` must be fictional and contain no copied commercial catalogue text, customer information, live SKU, local personal path, credential, or webhook. Tests must never use the live `.env`, `instance/site.db`, catalogue, output folder, Discord, WooCommerce, WordPress, or internet.
+
+Deployment-contract tests parse the tracked Unraid XML, verify every template
+static reference, and recreate the application against one temporary instance
+directory to prove `site.db` plus migration/reconstruction backups persist. Docker
+replacement verification must likewise use temporary `/app/instance`, `/catalogue`,
+and `/output` mounts and must never point at live Unraid or local data.
 
 ## Git workflow
 
