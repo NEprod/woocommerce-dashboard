@@ -61,7 +61,17 @@ and `/output` mounts and must never point at live Unraid or local data.
 
 ## Git workflow
 
-Use phase-specific branches when appropriate, focused commits, and annotated phase/release tags. Before every commit and push:
+Phase 2 uses the long-lived `develop` branch. Every approved milestone is a
+focused commit pushed to `origin/develop`; milestone work is not merged to
+`main` and final tags are not created until the Phase 2 release gate. Do not
+force-push or remove the development branch without explicit approval.
+
+Milestone UI tests must cover authenticated route safety, neutral branding,
+local assets, keyboard navigation, focus return, representative responsive
+breakpoints, and absence of horizontal viewport overflow. Browser checks use a
+temporary database and fabricated account only.
+
+Before every commit and push:
 
 1. Review `git status --short --ignored`.
 2. Review the exact staged file list and diff.
@@ -70,3 +80,8 @@ Use phase-specific branches when appropriate, focused commits, and annotated pha
 5. Run compile checks and pytest.
 6. Build and validate the image using temporary mounts only.
 7. Confirm no production application behavior was changed incidentally.
+
+For Phase 2 Milestones 1–8, publish the approved immutable
+`phase-2-m<N>` multi-platform image and update `develop` from the same build
+result. Both tags must share one manifest containing `linux/amd64` and
+`linux/arm64`. Stable and historical tags remain untouched.

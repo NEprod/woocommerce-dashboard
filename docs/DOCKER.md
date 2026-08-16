@@ -4,6 +4,11 @@ Image repository: `neprod/woocommerce-dashboard`
 
 Phase 1 deployment polish publishes the equivalent multi-platform tags `phase-1`, `0.2.3`, and `latest`. The immutable `0.2.3` tag is preferred for deployment. Historical version tags remain unchanged.
 
+Phase 2 milestone builds are development images. Each approved Milestone 1–8
+publishes one immutable `phase-2-m<N>` tag and updates the moving `develop` tag
+from the same Buildx result. Stable `latest`, `phase-1`, `0.2.3`, and every
+historical tag remain unchanged until the explicitly approved final release.
+
 ## Build
 
 ```bash
@@ -83,6 +88,23 @@ An Unraid deployment should pull the immutable `0.2.3` tag, set `PUID=99`, `PGID
 The Phase 1 image supplies both target architectures, but publication does not replace deployment-specific backup, mount, secret, and operational validation.
 
 ## Multi-platform publication
+
+For a Phase 2 milestone, publish both tags in one build, for example:
+
+```bash
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --tag neprod/woocommerce-dashboard:phase-2-m1 \
+  --tag neprod/woocommerce-dashboard:develop \
+  --push .
+```
+
+The immutable milestone tag and `develop` must share one manifest digest. Test
+both architectures with separate temporary instance, catalogue, and output
+mounts. Milestone routes, Gunicorn startup, migration head `0004_lifecycle`,
+SQLite integrity, and image-content exclusions must pass before the milestone
+is reported. A separate Unraid development container must never share writable
+storage with the stable deployment.
 
 The published Phase 0 image was built on Apple Silicon and its manifest does not provide `linux/amd64`, so it is not usable by the target Unraid server. Do not overwrite `phase-0` or `0.1.0` to correct that historical image. Immutable version tags `0.2.0` and `0.2.1` also remain historical release records.
 

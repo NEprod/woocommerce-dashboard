@@ -48,3 +48,22 @@ No new source-of-truth or schema design decision is made here.
     upsell/cross-sell spellings are documented and warned but not normalized.
     Unknown collection types and every characterized scanner discrepancy remain
     unchanged pending an explicit contract decision.
+
+## Phase 2 approved constraints
+
+1. **Phase 2 is a presentation and workflow phase.** Scanner resolution, SKU
+   allocation, database projection, migrations, reconstruction, marker recovery,
+   and operation semantics remain protected.
+2. **Visual identity is centralized and project-owned.** Semantic CSS variables
+   derive from the WooCommerce Dashboard logo palette. Local Bootstrap,
+   application JavaScript, and an original SVG symbol set replace runtime CDN
+   dependencies and business-specific styling.
+3. **Incomplete modules identify themselves honestly.** Safe `Planned` pages
+   replace missing templates and never claim Woo, order, automation, analytics,
+   collection, settings, or operation functionality before its approved
+   milestone.
+4. **Responsive navigation follows one information architecture.** Desktop and
+   mobile navigation expose the same grouped destinations with keyboard focus,
+   focus return, reduced-motion support, and no hover-only actions.
+5. **Folder enumeration requires authentication.** The existing setup folder
+   picker remains an administrator workflow and is not a public route.

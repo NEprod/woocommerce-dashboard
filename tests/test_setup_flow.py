@@ -74,12 +74,12 @@ def test_setup_referenced_local_assets_exist(setup_app):
     response = client.get("/setup")
     assert response.status_code == 200
     assert b"/static/assets/img/woocommerce-dashboard-logo.svg" in response.data
-    assert b"/static/assets/img/favicon/tlc-icon-32.png" in response.data
+    assert b"/static/assets/img/favicon/favicon-32x32.png" in response.data
     assert (
         client.get("/static/assets/img/woocommerce-dashboard-logo.svg").status_code
         == 200
     )
     assert (
-        client.get("/static/assets/img/favicon/tlc-icon-32.png").status_code
+        client.get("/static/assets/img/favicon/favicon-32x32.png").status_code
         == 200
     )

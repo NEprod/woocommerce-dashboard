@@ -16,7 +16,18 @@ Flask web UI
 
 `app.create_app()` is the application factory. It initializes SQLAlchemy, login management, CSRF protection, routes, and the database tables. `run.py` is both the development entry point and Gunicorn import target.
 
-All HTTP routes currently live in a single blueprint in `app/routes.py`. Jinja templates and bundled Bootstrap/Volt assets provide the UI.
+All HTTP routes currently live in a single blueprint in `app/routes.py`. Jinja
+templates provide the UI over bundled Bootstrap assets. The Phase 2 shell uses
+one semantic-token stylesheet, project-owned SVG symbols, and a small local
+JavaScript controller; it does not require Bootstrap, jQuery, fonts, or icons
+from a public CDN at runtime.
+
+The authenticated navigation groups Dashboard, Catalogue, Operations,
+Metadata, System, and Future workspaces. Incomplete workspaces use one shared
+`Planned` template and never imply that a backend integration exists. Legacy
+route aliases redirect to an appropriate safe workspace. The existing Products
+table is temporarily served from canonical `/products` until its dedicated
+Phase 2 milestone.
 
 ## Scanner
 

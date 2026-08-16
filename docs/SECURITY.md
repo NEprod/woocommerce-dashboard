@@ -30,5 +30,8 @@ This is a personal project baseline. Report suspected vulnerabilities privately 
   save a generated `SECRET_KEY` or Discord webhook into tracked/shared XML.
 - Keep catalogue operation scopes concise. Operation history must redact credential-like keys and errors and must not store full metadata payloads.
 - Pending marker envelopes may contain only the established `.scanned` payload and bounded coordination fields; never add authored JSON, credentials, webhooks, or resolved database rows.
+- Filesystem folder browsing is an authenticated administrator setup function.
+  `/folder-picker` must never be exposed anonymously, and its responses must not
+  be repurposed as a public filesystem API.
 
 If a credential may have entered Git history or an image layer, rotate it first; removing the text afterward is not sufficient.

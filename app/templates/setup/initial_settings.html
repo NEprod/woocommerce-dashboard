@@ -1,24 +1,25 @@
 {% extends "layouts/base-fullscreen.html" %}
+{% from 'includes/icons.html' import icon %}
 {% block title %}Initial Folder Setup{% endblock %}
 
 {% block content %}
-<main class="vh-100 d-flex align-items-center justify-content-center">
+<main id="main-content" class="auth-page" tabindex="-1">
   <div class="container">
     <div class="row justify-content-center align-items-center">
       <div class="col-lg-10">
 
-        <div class="row g-0 rounded overflow-hidden shadow-lg" style="min-height: 500px;">
+        <div class="row g-0 auth-shell">
           
           <!-- LEFT PANEL -->
-          <div class="col-md-5 d-none d-md-flex flex-column justify-content-center align-items-center text-dark bg-warning p-4">
+          <div class="col-md-5 d-none d-md-flex auth-brand-panel">
             <img src="{{ url_for('static', filename='assets/img/woocommerce-dashboard-logo.svg') }}" class="mb-3" style="width: 240px; max-width: 100%; height: auto;" alt="WooCommerce Dashboard logo">
             <h5 class="fw-bold mb-0">Let’s Get Started</h5>
             <h3 class="fw-bold text-uppercase">Folder Setup</h3>
           </div>
 
           <!-- RIGHT PANEL -->
-          <div class="col-md-7 bg-dark text-light p-5">
-            <h2 class="tlc-heading mb-3">Initial Folder Setup</h2>
+          <div class="col-md-7 auth-form-panel">
+            <h2 class="h2 mb-3">Initial Folder Setup</h2>
             <p class="text-muted small mb-4">Set the folders and image URL used for your product manager.</p>
 
             <form method="POST">
@@ -28,8 +29,8 @@
                 <label for="product_folder">Main Product Folder</label>
                 <div class="input-group">
                   {{ form.product_folder(class="form-control", id="product_folder", placeholder="e.g. /products") }}
-                  <button type="button" class="btn-tlc" onclick="openFolderPicker('product_folder')">
-                    <i class="fas fa-folder-open"></i>
+                  <button type="button" class="btn btn-primary" onclick="openFolderPicker('product_folder')" aria-label="Choose product folder">
+                    {{ icon('folder') }}
                   </button>
                 </div>
               </div>
@@ -38,8 +39,8 @@
                 <label for="output_folder">Output Folder for Images</label>
                 <div class="input-group">
                   {{ form.output_folder(class="form-control", id="output_folder", placeholder="e.g. /web_images") }}
-                  <button type="button" class="btn-tlc" onclick="openFolderPicker('output_folder')">
-                    <i class="fas fa-folder-open"></i>
+                  <button type="button" class="btn btn-primary" onclick="openFolderPicker('output_folder')" aria-label="Choose image output folder">
+                    {{ icon('folder') }}
                   </button>
                 </div>
               </div>
@@ -50,7 +51,7 @@
               </div>
 
               <div class="d-grid">
-                {{ form.submit(class="btn btn-tlc") }}
+                {{ form.submit(class="btn btn-primary") }}
               </div>
             </form>
 
@@ -81,66 +82,84 @@
 
       <div class="modal-footer border-top-0">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button id="selectFolderBtn" type="button" class="btn btn-tlc" disabled>Select This Folder</button>
+        <button id="selectFolderBtn" type="button" class="btn btn-primary" disabled>Select This Folder</button>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-  let currentFolderPath = "/";
   let selectedFolderPath = "";
+  let targetFolderInput = "";
 
   function openFolderPicker(targetInputId) {
-    $("#folderPickerModal").data("targetInput", targetInputId);
+    targetFolderInput = targetInputId;
     selectedFolderPath = "";
+    document.getElementById("selectFolderBtn").disabled = true;
     loadFolderList("/");
-    $("#folderPickerModal").modal("show");
-    $("#selectFolderBtn").prop("disabled", true);
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("folderPickerModal")).show();
   }
 
-  function loadFolderList(path) {
-    currentFolderPath = path;
-    $("#folderList").empty();
-
-    $.getJSON(`/folder-picker?path=${encodeURIComponent(path)}`, (data) => {
+  async function loadFolderList(path) {
+    const list = document.getElementById("folderList");
+    const selectButton = document.getElementById("selectFolderBtn");
+    list.replaceChildren();
+    selectButton.disabled = true;
+    try {
+      const response = await fetch(`/folder-picker?path=${encodeURIComponent(path)}`);
+      if (!response.ok) throw new Error("Folder list unavailable");
+      const data = await response.json();
       const parts = data.current_path.split("/").filter(Boolean);
-      let breadcrumbHTML = `<span class="me-2 text-warning">📁</span><a href="#" onclick="loadFolderList('/')">root</a>`;
+      const breadcrumb = document.getElementById("breadcrumbNav");
+      breadcrumb.replaceChildren();
+
+      function addBreadcrumb(label, destination) {
+        const link = document.createElement("a");
+        link.href = "#";
+        link.textContent = label;
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          loadFolderList(destination);
+        });
+        if (breadcrumb.childNodes.length) breadcrumb.append(" / ");
+        breadcrumb.appendChild(link);
+      }
+
+      addBreadcrumb("root", "/");
       let accumulatedPath = "";
       parts.forEach((part) => {
         accumulatedPath += "/" + part;
-        breadcrumbHTML += ` / <a href="#" onclick="loadFolderList('${accumulatedPath}')">${part}</a>`;
+        addBreadcrumb(part, accumulatedPath);
       });
-      $("#breadcrumbNav").html(breadcrumbHTML);
 
       data.folders.forEach((folderPath) => {
         const folderName = folderPath.split("/").pop();
-        const item = $(`
-          <a href="#" class="list-group-item list-group-item-action bg-dark text-light">
-            <i class="fas fa-folder me-2 text-warning"></i>${folderName}
-          </a>
-        `);
-        item.on("click", (e) => {
-          e.preventDefault();
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "list-group-item list-group-item-action text-start";
+        item.textContent = `Folder: ${folderName}`;
+        item.addEventListener("click", () => {
           loadFolderList(folderPath);
         });
-        $("#folderList").append(item);
+        list.appendChild(item);
       });
 
       selectedFolderPath = data.current_path;
-      $("#selectFolderBtn").prop("disabled", false);
-    }).fail(() => {
-      $("#folderList").append(`<div class="text-danger">Failed to load folders.</div>`);
-      $("#selectFolderBtn").prop("disabled", true);
-    });
+      selectButton.disabled = false;
+    } catch (error) {
+      const message = document.createElement("div");
+      message.className = "alert alert-danger";
+      message.textContent = "Failed to load folders.";
+      list.appendChild(message);
+      selectButton.disabled = true;
+    }
   }
 
-  $(document).ready(() => {
-    $("#selectFolderBtn").on("click", () => {
-      const inputId = $("#folderPickerModal").data("targetInput");
-      if (inputId && selectedFolderPath) {
-        $(`#${inputId}`).val(selectedFolderPath);
-        $("#folderPickerModal").modal("hide");
+  document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("selectFolderBtn").addEventListener("click", () => {
+      if (targetFolderInput && selectedFolderPath) {
+        document.getElementById(targetFolderInput).value = selectedFolderPath;
+        bootstrap.Modal.getInstance(document.getElementById("folderPickerModal")).hide();
       }
     });
   });

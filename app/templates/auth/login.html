@@ -1,24 +1,26 @@
 {% extends "layouts/base-fullscreen.html" %}
+{% from 'includes/icons.html' import icon %}
 {% block title %} Sign In {% endblock %}
 
 {% block content %}
-<main class="vh-100 d-flex align-items-center justify-content-center">
+<main id="main-content" class="auth-page" tabindex="-1">
   <div class="container">
     <div class="row justify-content-center align-items-center">
       <div class="col-lg-10">
 
-        <div class="row g-0 rounded overflow-hidden shadow-lg" style="min-height: 500px;">
+        <div class="row g-0 auth-shell">
 
           <!-- LEFT PANEL: Welcome -->
-          <div class="col-md-5 d-none d-md-flex flex-column justify-content-center align-items-center text-dark bg-warning p-4">
+          <div class="col-md-5 d-none d-md-flex auth-brand-panel">
             <img src="{{ url_for('static', filename='assets/img/woocommerce-dashboard-logo.svg') }}" class="mb-3" style="width: 240px; max-width: 100%; height: auto;" alt="WooCommerce Dashboard logo">
             <h5 class="fw-bold mb-0">Welcome Back</h5>
-            <h3 class="fw-bold text-uppercase">Tender Loving Creations</h3>
+            <h3 class="fw-bold text-uppercase">WooCommerce Dashboard</h3>
+            <p class="small text-muted mt-3 mb-0">Independent local catalogue management.</p>
           </div>
 
           <!-- RIGHT PANEL: Login Form -->
-          <div class="col-md-7 bg-dark text-light p-5">
-            <h2 class="tlc-heading mb-3">Sign In to your dashboard</h2>
+          <div class="col-md-7 auth-form-panel">
+            <h2 class="h2 mb-3">Sign in to your dashboard</h2>
             <p class="text-muted small mb-4">Please enter your credentials to continue.</p>
 
             {% with messages = get_flashed_messages(with_categories=true) %}
@@ -38,7 +40,7 @@
               <div class="form-group mb-4">
                 <label for="username">Username</label>
                 <div class="input-group">
-                  <span class="input-group-text"><i class="fas fa-user"></i></span>
+                  <span class="input-group-text">{{ icon('user') }}</span>
                   {{ form.username(class="form-control", id="username", placeholder="Enter username") }}
                 </div>
               </div>
@@ -46,7 +48,7 @@
               <div class="form-group mb-4">
                 <label for="password">Password</label>
                 <div class="input-group">
-                  <span class="input-group-text"><i class="fas fa-lock"></i></span>
+                  <span class="input-group-text">{{ icon('lock') }}</span>
                   {{ form.password(class="form-control", id="password", placeholder="Password") }}
                 </div>
               </div>
@@ -62,7 +64,7 @@
               </div>
 
               <div class="d-grid">
-                {{ form.submit(class="btn btn-tlc") }}
+                {{ form.submit(class="btn btn-primary") }}
               </div>
             </form>
 

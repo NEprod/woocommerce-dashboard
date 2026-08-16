@@ -91,8 +91,9 @@ def dashboard():
 @main.route("/products")
 @login_required
 def products():
-    # The table UI fetches from /api/products
-    return render_template("products.html")
+    # Milestone 1 keeps the established catalogue table while making the
+    # canonical Products route safe. The catalogue redesign begins later.
+    return render_template("edit_products.html")
 
 
 @main.route("/api/edit_products")
@@ -821,52 +822,134 @@ def initial_scan_done(run_id):
 @main.route("/web-sync", methods=["GET"])
 @login_required
 def web_sync_page():
-    return render_template("setup/web_sync.html")
+    return redirect(url_for("main.woo_sync"))
 
 
-# ---------- Other pages ----------
+# ---------- Application workspaces ----------
+
+
+def _render_planned(title, section, description, *, primary=None):
+    primary_label, primary_url = primary or (None, None)
+    return render_template(
+        "planned.html",
+        title=title,
+        section=section,
+        description=description,
+        primary_label=primary_label,
+        primary_url=primary_url,
+    )
+
+
+@main.route("/collections")
+@login_required
+def collections():
+    return _render_planned(
+        "Collections",
+        "Catalogue",
+        "Browse collection health, defaults, products, and variations together.",
+        primary=("View Products", url_for("main.products")),
+    )
 
 
 @main.route("/scanner")
 @login_required
 def scanner():
-    return render_template("scanner.html")
+    return _render_planned(
+        "Scanner workspace",
+        "Operations",
+        "A unified workspace for catalogue scans and their progress.",
+        primary=("Open existing scanner", url_for("main.initial_scan_page")),
+    )
+
+
+@main.route("/operations")
+@login_required
+def operations():
+    return _render_planned(
+        "Operation History",
+        "Operations",
+        "Review catalogue operations, outcomes, failures, and recovery state.",
+        primary=("Open existing scanner", url_for("main.initial_scan_page")),
+    )
+
+
+@main.route("/woo-sync")
+@login_required
+def woo_sync():
+    return _render_planned(
+        "Woo Sync",
+        "Future",
+        "WooCommerce connection and publishing workflows are planned for a future phase.",
+    )
 
 
 @main.route("/sync")
 @login_required
 def sync():
-    return render_template("sync.html")
+    return redirect(url_for("main.woo_sync"))
 
 
 @main.route("/orders")
 @login_required
 def orders():
-    return render_template("orders.html")
+    return _render_planned(
+        "Orders",
+        "Future",
+        "Order management will be introduced only after a verified WooCommerce integration.",
+    )
+
+
+@main.route("/website-automation")
+@login_required
+def website_automation():
+    return _render_planned(
+        "Website Automation",
+        "Future",
+        "Website automation is intentionally outside the current local catalogue workflow.",
+    )
+
+
+@main.route("/analytics")
+@login_required
+def analytics():
+    return _render_planned(
+        "Analytics",
+        "Future",
+        "Analytics will be added when authoritative business data becomes available.",
+    )
 
 
 @main.route("/pos")
 @login_required
 def pos():
-    return render_template("pos.html")
+    return _render_planned(
+        "Point of Sale",
+        "Future",
+        "Point-of-sale functionality is not part of the current catalogue release.",
+    )
 
 
 @main.route("/tools")
 @login_required
 def tools():
-    return render_template("tools.html")
+    return redirect(url_for("main.settings"))
 
 
 @main.route("/site")
 @login_required
 def site_manager():
-    return render_template("site.html")
+    return redirect(url_for("main.website_automation"))
 
 
 @main.route("/settings")
 @login_required
 def settings():
-    return render_template("settings.html")
+    return _render_planned(
+        "Settings",
+        "System",
+        "Review local catalogue paths and connection readiness from one safe workspace.",
+        primary=("Open initial settings", url_for("main.initial_settings")),
+    )
 
 
 # ---------- Auth ----------
@@ -976,10 +1059,11 @@ def initial_settings():
 
 @main.route("/signup", methods=["GET", "POST"])
 def signup():
-    return render_template("auth/login.html")
+    return redirect(url_for("main.login" if User.query.first() else "main.setup"))
 
 
 @main.route("/folder-picker")
+@login_required
 def folder_picker():
     path = request.args.get("path", "/")
     try:

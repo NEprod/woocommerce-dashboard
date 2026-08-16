@@ -8,6 +8,12 @@ WooCommerce Dashboard is a local Flask application that scans a structured produ
 
 Phase 0 (`0.1.0`) established the secure, documented, tested, and containerised baseline. Phase 1 (`0.2.3`) makes SQLite a complete, recoverable projection of resolved scanner output while preserving the protected scanner contract and adds a reusable Unraid installation template.
 
+Phase 2 development takes place on `develop`. Its first milestone introduces a
+neutral, responsive WooCommerce Dashboard shell with centralized design tokens,
+local project-owned UI assets, accessible grouped navigation, and explicit safe
+pages for workspaces that are not available yet. The released Phase 1 scanner
+and persistence contracts remain unchanged.
+
 ## Current capabilities
 
 - First-user and scanner-folder setup.

@@ -1,55 +1,22 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
+  <title>{% block title %}Dashboard{% endblock %} | WooCommerce Dashboard</title>
   {% include 'includes/head.html' %}
+  {% block stylesheets %}{% endblock %}
 </head>
-<body>
+<body class="app-body">
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  {% include 'includes/navbar.html' %}
 
-  <!-- NAVIGATION (full-width background, centered content) -->
-  <nav class="navbar navbar-expand-lg bg-charcoal-slate border-bottom border-rustic-oak fixed-top z-3">
-    <div class="container-xl">
-      {% include 'includes/navbar.html' %}
-    </div>
-  </nav>
-
-  <!-- PAGE CONTENT -->
-  <main class="py-4">
-    <div class="container-xl px-3">
+  <main id="main-content" class="app-main" tabindex="-1">
+    <div class="app-shell">
       {% block content %}{% endblock %}
     </div>
   </main>
 
-  <!-- FOOTER (full-width background, centered content) -->
-
-      {% include 'includes/footer.html' %}
-
-
+  {% include 'includes/footer.html' %}
   {% include 'includes/scripts.html' %}
   {% block javascripts %}{% endblock %}
-  <script>
-    document.addEventListener("DOMContentLoaded", function () {
-      const navbarToggler = document.querySelector('.navbar-toggler');
-      const openIcon = navbarToggler.querySelector('.open-icon');
-      const closeIcon = navbarToggler.querySelector('.close-icon');
-      const navbarCollapse = document.getElementById('tlcNavbar');
-
-      // Toggle body class on button click (optional for offcanvas scroll control)
-      navbarToggler.addEventListener('click', function () {
-        document.body.classList.toggle('offcanvas-open');
-      });
-
-      // Bootstrap native event: menu opened
-      navbarCollapse.addEventListener('shown.bs.collapse', function () {
-        openIcon.classList.add('d-none');
-        closeIcon.classList.remove('d-none');
-      });
-
-      // Bootstrap native event: menu closed
-      navbarCollapse.addEventListener('hidden.bs.collapse', function () {
-        closeIcon.classList.add('d-none');
-        openIcon.classList.remove('d-none');
-      });
-    });
-  </script>
 </body>
 </html>

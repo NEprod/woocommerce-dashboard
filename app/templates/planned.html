@@ -1,0 +1,26 @@
+{% extends "layouts/base.html" %}
+{% from 'includes/icons.html' import icon %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">{{ section }}</p>
+    <h1 class="page-title">{{ title }}</h1>
+    <p class="page-lede">{{ description }}</p>
+  </div>
+</header>
+
+<section class="app-card planned-card" aria-labelledby="planned-heading">
+  <span class="status-pill"><span class="status-dot"></span> Planned</span>
+  <h2 class="h3 mt-4" id="planned-heading">A dedicated {{ title }} experience is coming later.</h2>
+  <p class="text-muted mb-4">
+    This workspace is not available in this release. The route is ready and safe,
+    but no unfinished integration or operation is being presented as functional.
+  </p>
+  {% if primary_url %}
+  <a class="btn btn-primary" href="{{ primary_url }}">{{ primary_label }}</a>
+  {% endif %}
+  <a class="btn btn-app-secondary ms-2" href="{{ url_for('main.dashboard') }}">Open Dashboard</a>
+</section>
+{% endblock %}

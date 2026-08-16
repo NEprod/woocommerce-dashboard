@@ -1,6 +1,6 @@
 # Current State
 
-This document records the completed Phase 1 (`0.2.0`) catalogue-integrity release. Phase 1 builds on the Phase 0 baseline without changing protected scanner row semantics.
+This document records the completed Phase 1 (`0.2.3`) catalogue-integrity release and the current Phase 2 development baseline. Phase 1 builds on the Phase 0 baseline without changing protected scanner row semantics.
 
 ## Startup and setup
 
@@ -56,7 +56,19 @@ The real catalogue and database are never part of the repository or container im
 
 ## Web UI
 
-Authentication, initial settings, the initial scan screen, `/edit_products`, raw JSON viewing, and the JSON editor exist. The dashboard is a placeholder. Routes for Products, scanner, sync, orders, POS, tools, site, settings, and web sync refer to missing templates.
+Authentication, initial settings, the initial scan screen, Products catalogue
+table, raw JSON viewing, JSON editor, and metadata reference exist. The
+dashboard remains a placeholder pending Phase 2 Milestone 3, and the catalogue
+table remains the pre-Phase-2 implementation pending Milestone 4.
+
+Phase 2 Milestone 1 adds an original responsive application shell based on
+semantic design tokens and the project logo palette. Bootstrap, application
+JavaScript, and the project-owned SVG icon sprite are served locally without a
+runtime CDN dependency. Desktop navigation and an accessible mobile off-canvas
+menu expose the approved information architecture. Workspaces not implemented
+yet render explicit `Planned` pages instead of missing templates or misleading
+functionality. Legacy route aliases resolve safely. The setup folder browser is
+authenticated.
 
 ## Database projection
 
@@ -85,7 +97,9 @@ WooCommerce-compatible rows and future Woo ID columns exist, but there is no liv
 
 - Multi-worker or multi-replica catalogue mutation is not supported; the lock is process-local.
 - Scan progress is process-local and non-durable.
-- Several routes are incomplete because templates are absent.
+- Dashboard, Collections, unified Scanner/Operations, Settings, and future
+  modules intentionally show availability-aware placeholders until their
+  approved Phase 2 milestones are implemented.
 
 The protected scanner discrepancies and intentional full-scan semantics remain
 unchanged.

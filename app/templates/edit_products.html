@@ -46,17 +46,22 @@
 <script>
 (function(){
   const tableBody = document.querySelector("#productsTable tbody");
+  const iconSprite = "{{ url_for('static', filename='assets/img/icons/app-icons.svg') }}";
   let currentProductForOverride = null;
   let pickerState = { root: "", path: "", rel: "", selectedRel: "" };
+
+  function appIcon(name) {
+    return `<svg class="app-icon" aria-hidden="true"><use href="${iconSprite}#icon-${name}"></use></svg>`;
+  }
 
   function faFileLink(ok, url, title) {
     if (!ok) {
       return `<span class="text-muted" title="${title} missing">
-                <i class="fa-regular fa-file"></i>
+                ${appIcon("file")}
               </span>`;
     }
     return `<a href="${url}" target="_blank" rel="noopener" title="${title}">
-              <i class="fa-solid fa-file-lines"></i>
+              ${appIcon("file")}
             </a>`;
   }
 
@@ -99,7 +104,7 @@
                     data-product-id="${r.id}"
                     data-sku="${r.sku}"
                     title="Delete override JSON">
-              <i class="fa-solid fa-circle-xmark"></i>
+              ${appIcon("trash")}
             </button>` : ``}
         </div>
       `;

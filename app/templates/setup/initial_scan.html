@@ -2,14 +2,14 @@
 {% block title %}Initial Scan{% endblock %}
 
 {% block content %}
-<main class="vh-100 d-flex align-items-center justify-content-center">
+<main id="main-content" class="auth-page" tabindex="-1">
   <div class="container">
     <div class="row justify-content-center align-items-center">
       <div class="col-lg-10">
 
-        <div class="row g-0 rounded overflow-hidden shadow-lg" style="min-height: 500px;">
+        <div class="row g-0 auth-shell">
           <!-- LEFT PANEL -->
-          <div class="col-md-5 d-none d-md-flex flex-column justify-content-center align-items-center text-dark bg-warning p-4">
+          <div class="col-md-5 d-none d-md-flex auth-brand-panel">
             <img src="{{ url_for('static', filename='assets/img/woocommerce-dashboard-logo.svg') }}"
                  class="mb-3" style="width: 240px; max-width: 100%; height: auto;" alt="WooCommerce Dashboard logo">
             <h5 class="fw-bold mb-0">Let’s Get Started</h5>
@@ -17,7 +17,7 @@
           </div>
 
           <!-- RIGHT PANEL -->
-          <div class="col-md-7 bg-dark text-light p-5">
+          <div class="col-md-7 auth-form-panel">
 
             <!-- Jinja → data-* so JS stays clean -->
             <div id="scanCfg"
@@ -28,7 +28,7 @@
                  data-have-settings="{{ 1 if (settings and settings.product_folder and settings.output_folder and settings.url_prefix) else 0 }}">
             </div>
 
-            <h2 class="tlc-heading mb-3">Initial Scan</h2>
+            <h2 class="h2 mb-3">Initial Scan</h2>
             <p class="text-muted small mb-3">Choose the identity-safe action for the detected catalogue state.</p>
 
             <div class="alert {{ 'alert-danger' if not setup_state.safe_to_run else 'alert-info' }} small">
@@ -70,7 +70,7 @@
 
             <!-- Controls -->
             <div class="d-flex flex-wrap gap-2 mb-3">
-              <button id="startBtn" class="btn btn-tlc btn-sm"
+              <button id="startBtn" class="btn btn-primary btn-sm"
                       {% if not setup_state.safe_to_run or setup_state.recommended_action == 'reconstruction' %}disabled{% endif %}>
                 Process new catalogue
               </button>
