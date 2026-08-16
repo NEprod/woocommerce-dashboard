@@ -19,6 +19,13 @@ This is a personal project baseline. Report suspected vulnerabilities privately 
 - Mount `/app/instance`, `/catalogue`, and `/output` read/write from explicit host
   directories. Keep catalogue/output outside appdata and back up the instance and
   catalogue separately at an understood consistency point.
+- The production container begins as root only inside the entrypoint so it can
+  validate `PUID`/`PGID`, prepare `/app/instance`, and correct its application-owned
+  state. `gosu` then replaces it with the non-root Gunicorn process before application
+  import or migrations. UID/GID zero and malformed identity values are rejected.
+- Recursive ownership correction is limited to `/app/instance`. Catalogue and
+  output contents are never recursively chowned automatically; grant the configured
+  identity explicit host-side access and inspect exact paths before changing ownership.
 - Unraid templates must contain only placeholders and harmless defaults. Never
   save a generated `SECRET_KEY` or Discord webhook into tracked/shared XML.
 - Keep catalogue operation scopes concise. Operation history must redact credential-like keys and errors and must not store full metadata payloads.

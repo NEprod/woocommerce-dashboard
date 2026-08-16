@@ -11,6 +11,9 @@ services:
       - .env
     environment:
       FLASK_ENV: production
+      PUID: "${PUID:-100}"
+      PGID: "${PGID:-100}"
+      UMASK: "${UMASK:-002}"
     volumes:
       - "${INSTANCE_FOLDER_HOST}:/app/instance"
       - "${PRODUCT_FOLDER_HOST}:/catalogue"

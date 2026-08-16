@@ -1,6 +1,6 @@
 # Unraid Installation and Persistence
 
-Use `neprod/woocommerce-dashboard:0.2.2` for a pinned Phase 1 installation. The
+Use `neprod/woocommerce-dashboard:0.2.3` for a pinned Phase 1 installation. The
 image supports `linux/amd64` for Unraid and `linux/arm64` for Apple Silicon. It
 runs as a non-root user with one Gunicorn worker, four threads, and container
 port `7485`.
@@ -12,7 +12,7 @@ currently claimed to be listed in Community Applications.
 
 ## Required container settings
 
-- Repository: `neprod/woocommerce-dashboard:0.2.2`
+- Repository: `neprod/woocommerce-dashboard:0.2.3`
 - Network: `bridge`
 - Container port: `7485/tcp`; default host port: `7485`
 - WebUI: `http://[IP]:[PORT:7485]/`
@@ -43,6 +43,21 @@ Existing installations rely on `/app/instance/site.db`; changing either path can
 make a populated installation appear new.
 
 ## Environment
+
+Use these Unraid ownership defaults:
+
+```text
+PUID=99
+PGID=100
+UMASK=002
+```
+
+`PUID` is the UID used by the application process, `PGID` is its primary GID,
+and `UMASK` controls permissions for new files. Unraid commonly uses `99:100`.
+The image must consume these variables; adding them to XML alone cannot change a
+fixed container user. This image starts as root only for entrypoint permission
+preparation, then uses `gosu` to run application import, migrations, Gunicorn,
+and its worker as the configured non-root identity.
 
 `SECRET_KEY` is required. Generate a strong value on a trusted shell and paste
 only the result into the Unraid variable:
@@ -79,7 +94,7 @@ image/container definition. Reusing the same three mounts preserves the database
 catalogue identities, and output. Startup migrates `/app/instance/site.db` to the
 current migration head before Gunicorn accepts traffic.
 
-Pin `0.2.2` for repeatable deployments. `phase-1` and `latest` track newer
+Pin `0.2.3` for repeatable deployments. `phase-1` and `latest` track newer
 compatible publications and therefore change over time. Verify backups and read
 release notes before moving a pinned installation.
 
@@ -119,10 +134,24 @@ this release.
 ## Troubleshooting
 
 - Inspect the Unraid Docker log for Gunicorn startup and migration errors.
+- For `sqlite3.OperationalError: unable to open database file`, stop the
+  container and inspect numeric ownership with:
+
+  ```bash
+  ls -ldn /mnt/user/appdata/woocommerce-dashboard/instance
+  chown -R 99:100 /mnt/user/appdata/woocommerce-dashboard/instance
+  chmod -R u+rwX,g+rwX /mnt/user/appdata/woocommerce-dashboard/instance
+  ```
+
+  Confirm the exact application-owned path before changing it. If custom
+  `PUID`/`PGID` values are configured, substitute those numeric values.
 - A setup screen after an upgrade usually indicates the wrong or unwritable
   `/app/instance` mount. Confirm `site.db` exists on the host before continuing.
 - Permission errors involving markers or indexes mean `/catalogue` is not
-  writable.
+  writable. The entrypoint checks this mount and warns, but does not recursively
+  chown catalogue contents or block the initial setup page.
 - Missing generated images usually indicate an incorrect `/output` mapping.
+- Changing `PUID` or `PGID` requires matching access on every mounted share.
+  `/output` is checked like `/catalogue` and is not recursively chowned.
 - Preserve `/app/instance/backups/` when diagnosing migration or reconstruction
   failures; do not repeatedly recreate the container with a different mount.
