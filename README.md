@@ -6,7 +6,7 @@
 
 WooCommerce Dashboard is a local Flask application that scans a structured product catalogue, resolves shared and product-specific JSON metadata, prepares WooCommerce-compatible product rows, and ingests the currently supported subset into SQLite for a web interface.
 
-Phase 0 (`0.1.0`) established the secure, documented, tested, and containerised baseline. Phase 1 (`0.2.2`) makes SQLite a complete, recoverable projection of resolved scanner output while preserving the protected scanner contract and adds a reusable Unraid installation template.
+Phase 0 (`0.1.0`) established the secure, documented, tested, and containerised baseline. Phase 1 (`0.2.3`) makes SQLite a complete, recoverable projection of resolved scanner output while preserving the protected scanner contract and adds a reusable Unraid installation template.
 
 ## Current capabilities
 
@@ -44,7 +44,7 @@ docker compose build
 docker compose up -d
 ```
 
-The container listens on port `7485`, runs Gunicorn with one worker and four threads, and expects persistent instance, catalogue, and output mounts. Never bake a live `.env`, database, catalogue, or generated output into the image. Full guidance is in [Docker](docs/DOCKER.md).
+The container listens on port `7485`, runs Gunicorn with one worker and four threads, and expects persistent instance, catalogue, and output mounts. Generic Docker defaults preserve UID/GID `100:100`; Unraid should set `PUID=99`, `PGID=100`, and `UMASK=002`. The entrypoint prepares permissions and then runs Gunicorn non-root through `gosu`. Never bake a live `.env`, database, catalogue, or generated output into the image. Full guidance is in [Docker](docs/DOCKER.md).
 
 The canonical persistent mappings are `/app/instance` for `site.db` and application backups, `/catalogue` for authored catalogue and scanner identity state, and `/output` for generated files. Unraid users should start with the tracked [Unraid template](unraid/my-woocommerce-dashboard.xml) and [installation guide](docs/UNRAID.md).
 

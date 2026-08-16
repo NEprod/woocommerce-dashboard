@@ -48,7 +48,7 @@ def test_unraid_template_has_safe_supported_contract():
     root = ET.parse(TEMPLATE).getroot()
     assert root.tag == "Container"
     assert root.findtext("Name") == "WooCommerce Dashboard"
-    assert root.findtext("Repository") == "neprod/woocommerce-dashboard:0.2.2"
+    assert root.findtext("Repository") == "neprod/woocommerce-dashboard:0.2.3"
     assert root.findtext("Registry") == (
         "https://hub.docker.com/r/neprod/woocommerce-dashboard"
     )
