@@ -8,6 +8,9 @@ Phase 2 milestone builds are development images. Each approved Milestone 1–8
 publishes one immutable `phase-2-m<N>` tag and updates the moving `develop` tag
 from the same Buildx result. Stable `latest`, `phase-1`, `0.2.3`, and every
 historical tag remain unchanged until the explicitly approved final release.
+The approved Milestone 1 visual-correction build uses the immutable exception
+`phase-2-m1.1`; it must share its manifest digest with `develop` and must not
+overwrite `phase-2-m1`.
 
 ## Build
 

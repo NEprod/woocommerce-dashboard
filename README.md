@@ -11,8 +11,10 @@ Phase 0 (`0.1.0`) established the secure, documented, tested, and containerised 
 Phase 2 development takes place on `develop`. Its first milestone introduces a
 neutral, responsive WooCommerce Dashboard shell with centralized design tokens,
 local project-owned UI assets, accessible grouped navigation, and explicit safe
-pages for workspaces that are not available yet. The released Phase 1 scanner
-and persistence contracts remain unchanged.
+pages for workspaces that are not available yet. Milestone 1.1 refines that
+shell around a charcoal, warm-white, and bright-lime system with accessible
+table and JSON-editor contrast; the existing project logo remains unchanged.
+The released Phase 1 scanner and persistence contracts remain unchanged.
 
 ## Current capabilities
 

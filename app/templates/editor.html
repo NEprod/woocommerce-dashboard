@@ -1,6 +1,12 @@
 {% extends "layouts/base.html" %}
 {% block content %}
-<h2 class="mb-3">Edit {{ kind|title }} JSON — {{ product.sku }}</h2>
+<header class="page-header">
+  <div>
+    <p class="eyebrow">Metadata editor</p>
+    <h1 class="page-title">Edit {{ kind|title }} JSON</h1>
+    <p class="page-lede">{{ product.sku }}</p>
+  </div>
+</header>
 
 <div class="mb-2 small text-muted">
   Path: <code id="jsonPath">{{ json_path or 'Not created yet' }}</code>
@@ -163,19 +169,19 @@
   <!-- Attributes JSON -->
   <div class="mt-3">
     <label class="form-label">Attributes (JSON)</label>
-    <textarea class="form-control" name="attributes" rows="5" placeholder='{"Size":["A4","A3"]}'></textarea>
+    <textarea class="form-control code-editor" name="attributes" rows="5" spellcheck="false" placeholder='{"Size":["A4","A3"]}'></textarea>
   </div>
 
   <!-- Image Attributes JSON -->
   <div class="mt-3">
     <label class="form-label">Image Attributes (JSON)</label>
-    <textarea class="form-control" name="image_attributes" rows="3" placeholder='["Style","Size"]'></textarea>
+    <textarea class="form-control code-editor" name="image_attributes" rows="3" spellcheck="false" placeholder='["Style","Size"]'></textarea>
   </div>
 
   <!-- Variation Modifiers JSON -->
   <div class="mt-3">
     <label class="form-label">Variation Modifiers (JSON)</label>
-    <textarea class="form-control" name="variation_modifiers" rows="5" placeholder='{"Size=A3":{"price":"12.99"}}'></textarea>
+    <textarea class="form-control code-editor" name="variation_modifiers" rows="5" spellcheck="false" placeholder='{"Size=A3":{"price":"12.99"}}'></textarea>
   </div>
 
   <!-- Meta -->

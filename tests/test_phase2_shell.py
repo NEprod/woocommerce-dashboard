@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import pytest
 
@@ -158,11 +159,25 @@ def test_design_tokens_and_project_owned_icon_sprite_are_centralized():
 
     for token in (
         "--color-canvas",
+        "--color-navigation",
         "--color-surface",
         "--color-surface-raised",
+        "--color-surface-hover",
         "--color-primary",
+        "--color-primary-hover",
         "--color-accent",
+        "--color-warning",
+        "--color-danger",
         "--color-text",
+        "--color-text-secondary",
+        "--color-border",
+        "--color-code-background",
+        "--color-code-text",
+        "--color-table-header",
+        "--color-table-row",
+        "--color-table-row-alt",
+        "--color-table-row-hover",
+        "--color-table-selected",
         "--space-1",
         "--radius-card",
         "--focus-ring",
@@ -175,6 +190,86 @@ def test_design_tokens_and_project_owned_icon_sprite_are_centralized():
     assert "tlcNavbar" not in templates
     assert icon_sprite.is_file()
     assert shell_script.is_file()
+
+
+def _hex_rgb(value):
+    return tuple(int(value[index : index + 2], 16) / 255 for index in (1, 3, 5))
+
+
+def _relative_luminance(value):
+    channels = tuple(
+        channel / 12.92
+        if channel <= 0.04045
+        else ((channel + 0.055) / 1.055) ** 2.4
+        for channel in _hex_rgb(value)
+    )
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
+def _contrast_ratio(first, second):
+    lighter, darker = sorted(
+        (_relative_luminance(first), _relative_luminance(second)), reverse=True
+    )
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def test_table_and_code_tokens_have_accessible_contrast():
+    stylesheet = (ROOT / "app/static/assets/css/custom.css").read_text(
+        encoding="utf-8"
+    )
+    variables = dict(
+        re.findall(r"(--[\w-]+):\s*(#[0-9a-fA-F]{6});", stylesheet)
+    )
+
+    for background in (
+        "--color-table-header",
+        "--color-table-row",
+        "--color-table-row-alt",
+        "--color-table-row-hover",
+        "--color-table-selected",
+    ):
+        assert _contrast_ratio(
+            variables["--color-text"], variables[background]
+        ) >= 7
+        assert _contrast_ratio(
+            variables["--color-text-secondary"], variables[background]
+        ) >= 4.5
+
+    assert _contrast_ratio(
+        variables["--color-code-text"], variables["--color-code-background"]
+    ) >= 7
+
+
+def test_json_editors_and_metadata_examples_use_dedicated_code_classes():
+    editor = (ROOT / "app/templates/editor.html").read_text(encoding="utf-8")
+    metadata = (ROOT / "app/templates/metadata_reference.html").read_text(
+        encoding="utf-8"
+    )
+
+    for field in ("attributes", "image_attributes", "variation_modifiers"):
+        assert re.search(
+            rf'<textarea class="[^"]*code-editor[^"]*" name="{field}"', editor
+        )
+    assert metadata.count("code-block") >= 2
+
+
+def test_visual_correction_avoids_broad_background_overrides_and_inline_colors():
+    stylesheet = (ROOT / "app/static/assets/css/custom.css").read_text(
+        encoding="utf-8"
+    )
+    assert ".bg-dark, .bg-white, .bg-warning" not in stylesheet
+
+    for relative_path in (
+        "app/templates/edit_products.html",
+        "app/templates/editor.html",
+        "app/templates/metadata_reference.html",
+        "app/templates/setup/initial_scan.html",
+        "app/templates/setup/initial_settings.html",
+    ):
+        template = (ROOT / relative_path).read_text(encoding="utf-8")
+        assert not re.search(
+            r'style="[^"]*(?:color|background)\s*:', template, re.IGNORECASE
+        ), relative_path
 
 
 def test_default_notification_branding_is_application_neutral():

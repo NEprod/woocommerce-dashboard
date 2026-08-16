@@ -1,12 +1,13 @@
 {% extends "layouts/base.html" %}
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+<header class="page-header">
   <div>
-    <h2 class="mb-1">product_info.json Metadata Reference</h2>
-    <p class="text-muted mb-0">The current authored metadata contract, including active, ignored, legacy, and planned behavior.</p>
+    <p class="eyebrow">Catalogue reference</p>
+    <h1 class="page-title">product_info.json Metadata Reference</h1>
+    <p class="page-lede">The current authored metadata contract, including active, ignored, legacy, and planned behavior.</p>
   </div>
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('main.edit_products') }}">Back to editors</a>
-</div>
+</header>
 
 <div class="alert alert-warning small">
   <strong>Known unchanged behavior:</strong>
@@ -29,19 +30,20 @@
       <button class="btn btn-outline-primary btn-sm template-button" data-template="{{ name }}">{{ name.replace('-', ' ')|title }}</button>
     {% endfor %}
   </div>
-  <pre id="templateView" class="bg-light border rounded p-3 small mb-0">Select a template to view it.</pre>
+  <pre id="templateView" class="code-block small mb-0">Select a template to view it.</pre>
 </section>
 
 <section class="card p-3 mb-4">
   <h3 class="h5">Complete all-fields example</h3>
   <p class="small text-muted">Ignored and legacy fields appear here for reference; the status table below is authoritative about what works.</p>
-  <pre class="bg-light border rounded p-3 small">{{ examples['complete'] | tojson(indent=2) }}</pre>
+  <pre class="code-block small mb-0">{{ examples['complete'] | tojson(indent=2) }}</pre>
 </section>
 
 <section>
   <h3 class="h5">Field inventory</h3>
-  <div class="table-responsive">
-    <table class="table table-sm table-striped align-middle small">
+  <div class="table-panel">
+    <div class="table-responsive">
+      <table class="table table-sm table-striped table-hover align-middle small">
       <thead>
         <tr>
           <th>Key</th><th>Classification</th><th>Type / units</th>
@@ -66,7 +68,8 @@
         </tr>
         {% endfor %}
       </tbody>
-    </table>
+      </table>
+    </div>
   </div>
 </section>
 {% endblock %}

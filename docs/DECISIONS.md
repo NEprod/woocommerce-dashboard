@@ -55,7 +55,8 @@ No new source-of-truth or schema design decision is made here.
    allocation, database projection, migrations, reconstruction, marker recovery,
    and operation semantics remain protected.
 2. **Visual identity is centralized and project-owned.** Semantic CSS variables
-   derive from the WooCommerce Dashboard logo palette. Local Bootstrap,
+   use a charcoal, warm-white, lime-primary system that complements the existing
+   unchanged WooCommerce Dashboard logo. Local Bootstrap,
    application JavaScript, and an original SVG symbol set replace runtime CDN
    dependencies and business-specific styling.
 3. **Incomplete modules identify themselves honestly.** Safe `Planned` pages

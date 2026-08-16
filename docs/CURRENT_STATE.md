@@ -62,13 +62,23 @@ dashboard remains a placeholder pending Phase 2 Milestone 3, and the catalogue
 table remains the pre-Phase-2 implementation pending Milestone 4.
 
 Phase 2 Milestone 1 adds an original responsive application shell based on
-semantic design tokens and the project logo palette. Bootstrap, application
+semantic design tokens. Bootstrap, application
 JavaScript, and the project-owned SVG icon sprite are served locally without a
 runtime CDN dependency. Desktop navigation and an accessible mobile off-canvas
 menu expose the approved information architecture. Workspaces not implemented
 yet render explicit `Planned` pages instead of missing templates or misleading
 functionality. Legacy route aliases resolve safely. The setup folder browser is
 authenticated.
+
+Milestone 1.1 corrects the rendered visual system after browser review. The
+canvas and raised surfaces are neutral charcoal rather than navy, warm off-white
+text and light-grey secondary text remain readable across every table state,
+bright lime is the primary action/focus colour, teal is restrained to supporting
+accents, and amber is reserved for warnings. JSON textareas, metadata examples,
+and scanner logs use an opaque near-black code surface with dedicated text,
+caret, selection, placeholder, and focus styling. Broad Bootstrap background
+overrides were removed in favour of semantic component classes. The original
+project logo is not redesigned.
 
 ## Database projection
 

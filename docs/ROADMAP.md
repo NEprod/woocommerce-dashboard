@@ -6,6 +6,9 @@
   establishes the semantic design system, neutral branding, responsive
   navigation shell, local UI assets, authenticated folder browser, and safe
   placeholder/compatibility routes without changing the scanner or schema.
+  Milestone 1.1 refines contrast and reference-style alignment with charcoal
+  surfaces, warm-white text, lime actions, accessible tables, and dedicated
+  code/editor states without changing the logo or application behavior.
 - **Phase 3 — Read-only WooCommerce mapping and comparison:** planned.
 - **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.
@@ -17,6 +20,8 @@ Phase 1 is the current catalogue-integrity release. Future work must continue to
 Phase 2 uses sequential approval gates on the long-lived `develop` branch:
 
 1. Design system, neutral branding, navigation shell, local assets, safe routes.
+   Milestone 1.1 is a visual correction within this completed scope and is not
+   the start of Milestone 2.
 2. Setup completion and unified operation-progress presentation foundation.
 3. Catalogue health dashboard.
 4. Products browser with collection grouping and lazy variation previews.
