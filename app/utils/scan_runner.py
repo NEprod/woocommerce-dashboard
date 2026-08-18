@@ -164,8 +164,13 @@ def make_logger(run_id):
     q = _runs[run_id]["queue"]
 
     def log(msg, level="INFO"):
+        normalized_level = level.upper()
+        if normalized_level == "WARN":
+            _runs[run_id]["warnings"] = _runs[run_id].get("warnings", 0) + 1
+        elif normalized_level == "ERROR":
+            _runs[run_id]["errors"] = _runs[run_id].get("errors", 0) + 1
         prefix = {"INFO": "[ℹ️]", "WARN": "[⚠️]", "ERROR": "[❌]"}.get(
-            level.upper(), "[ℹ️]"
+            normalized_level, "[ℹ️]"
         )
         line = f"{time.strftime('%H:%M:%S')} {prefix} {msg}"
         q.put(line)
@@ -221,7 +226,12 @@ def start_scan(
             "finished_at": None,
         },
         "operation_id": operation_id,
+        "operation_type": operation_type or _operation_type_for_scan(scan_mode),
         "scope": operation_scope,
+        "stage": "queued",
+        "current_item": None,
+        "warnings": 0,
+        "errors": 0,
     }
     thread = threading.Thread(
         target=_scan_thread,
@@ -270,6 +280,7 @@ def _scan_thread(
         variations_restored = 0
         try:
             log = make_logger(run_id)
+            _runs[run_id]["stage"] = "preparing"
 
             settings = Settings.query.first()
             if not settings:
@@ -324,6 +335,8 @@ def _scan_thread(
             all_rows = []
             for idx, name in enumerate(folders, start=1):
                 folder_path = plan.collection_paths[idx - 1]
+                _runs[run_id]["stage"] = "scanning"
+                _runs[run_id]["current_item"] = name
                 log(f"📂 Scanning: {folder_path}")
                 try:
                     rows = scan_collection(
@@ -357,11 +370,19 @@ def _scan_thread(
                         scan_complete = False
                     log(f"❌ Error in {name}: {e}", level="ERROR")
                 _runs[run_id]["done"] = idx
+                _runs[run_id]["summary"]["collections_processed"] = idx
 
             _runs[run_id]["summary"]["new_rows"] = len(all_rows)
-            _runs[run_id]["summary"]["finished_at"] = datetime.utcnow().isoformat()
+            _runs[run_id]["summary"]["products_resolved"] = sum(
+                row.get("Type") in ("simple", "variable") for row in all_rows
+            )
+            _runs[run_id]["summary"]["variations_processed"] = sum(
+                row.get("Type") == "variation" for row in all_rows
+            )
 
             # Ingest → DB
+            _runs[run_id]["stage"] = "ingesting"
+            _runs[run_id]["current_item"] = None
             try:
                 summary = ingest_rows_to_db(
                     all_rows, log=log, operation_id=operation_id
@@ -382,6 +403,7 @@ def _scan_thread(
             database_succeeded = summary.get("products_created", 0) + summary.get(
                 "products_updated", 0
             )
+            _runs[run_id]["stage"] = "finalizing"
             marker_outcome = finalize_ingested_markers(
                 scan_folder, operation_id, log=log
             )
@@ -453,6 +475,9 @@ def _scan_thread(
                 operation_status = "failed"
             else:
                 operation_status = "succeeded"
+            _runs[run_id]["stage"] = (
+                "completed" if operation_status == "succeeded" else operation_status
+            )
             if products_failed:
                 if operation_recovery_state not in (None, "none"):
                     operation_error = (
@@ -469,12 +494,25 @@ def _scan_thread(
             products_failed = products_attempted - products_succeeded
             make_logger(run_id)(f"❌ Critical error: {e}", level="ERROR")
             _runs[run_id]["status"] = "error"
+            _runs[run_id]["stage"] = "failed"
+            _runs[run_id]["current_item"] = None
             # 🔔 Discord: failed
             try:
                 notify_scan_failed(scan_mode, str(e))
             except Exception:
                 pass
         finally:
+            if _runs[run_id]["status"] == "error":
+                _runs[run_id]["stage"] = "failed"
+                _runs[run_id]["current_item"] = None
+            _runs[run_id]["summary"]["finished_at"] = datetime.utcnow().isoformat()
+            _runs[run_id]["summary"].update(
+                {
+                    "products_attempted": products_attempted,
+                    "products_succeeded": products_succeeded,
+                    "products_failed": products_failed,
+                }
+            )
             try:
                 finish_catalogue_operation(
                     operation_id,
@@ -510,9 +548,55 @@ def stream_lines(run_id, timeout=15):
 
 
 def get_progress(run_id):
+    run = _runs[run_id]
+    total = run["total"]
+    done = run["done"]
+    summary = run["summary"]
+    products = summary.get("products_attempted", summary.get("products_resolved", 0))
+    failures = summary.get("products_failed", run.get("errors", 0))
+    started_at = summary.get("started_at")
+    finished_at = summary.get("finished_at")
+    elapsed_seconds = 0
+    if started_at:
+        try:
+            started = datetime.fromisoformat(started_at)
+            finished = (
+                datetime.fromisoformat(finished_at) if finished_at else datetime.now()
+            )
+            elapsed_seconds = max(0, int((finished - started).total_seconds()))
+        except (TypeError, ValueError):
+            elapsed_seconds = 0
     return {
-        "total": _runs[run_id]["total"],
-        "done": _runs[run_id]["done"],
-        "status": _runs[run_id]["status"],
-        "summary": _runs[run_id]["summary"],
+        # Frozen compatibility keys used by existing scan clients.
+        "total": total,
+        "done": done,
+        "status": run["status"],
+        "summary": summary,
+        # Normalized, observational presentation contract for Phase 2 clients.
+        "operation": {
+            "id": run.get("operation_id"),
+            "type": run.get("operation_type"),
+            "status": run["status"],
+            "stage": run.get("stage", "working"),
+            "current_item": run.get("current_item"),
+            "scope": run.get("scope", {}),
+        },
+        "progress": {
+            "completed": done,
+            "total": total,
+            "percent": round((done / total) * 100) if total else 0,
+            "unit": "collections",
+        },
+        "timing": {
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "elapsed_seconds": elapsed_seconds,
+        },
+        "counts": {
+            "collections": summary.get("collections_processed", done),
+            "products": products,
+            "variations": summary.get("variations_processed", 0),
+            "warnings": run.get("warnings", 0),
+            "failures": failures,
+        },
     }

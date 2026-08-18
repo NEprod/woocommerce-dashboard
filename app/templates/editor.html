@@ -482,10 +482,8 @@
 
       const runId = out.run_id;
       const modalEl = document.getElementById("scanModal");
-      const logEl = modalEl.querySelector(".scan-log");
-      const progEl = modalEl.querySelector(".scan-progress");
-      logEl.textContent = "";
-      progEl.textContent = "Starting...";
+      const progressView = window.OperationProgress.create(modalEl.querySelector("[data-operation-progress]"));
+      progressView.begin(KIND === 'shared' ? 'shared_collection_update' : 'product_update');
       const modal = new bootstrap.Modal(modalEl);
       modal.show();
 
@@ -495,21 +493,18 @@
 
       const evtSrc = new EventSource(streamUrl);
       evtSrc.onmessage = (ev) => {
-        logEl.textContent += ev.data + "\n";
-        logEl.scrollTop = logEl.scrollHeight;
+        progressView.appendLog(ev.data);
       };
 
       const intv = setInterval(async () => {
         const r = await fetch(progressUrl);
         const js = await r.json();
+        progressView.update(js);
         if (js.status === "done" || js.status === "error") {
           clearInterval(intv);
           evtSrc.close();
-          progEl.textContent = js.status.toUpperCase();
           // optional "done" callback
           fetch(doneUrl).catch(()=>{});
-        } else {
-          progEl.textContent = `${js.done}/${js.total} (${js.status})`;
         }
       }, 1000);
     });

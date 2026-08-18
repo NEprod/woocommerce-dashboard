@@ -77,6 +77,22 @@ where they clarify hierarchy. JSON textareas, metadata examples, scanner logs,
 table group headers, mobile navigation, and honest summary panels retain a
 purposeful dark treatment. The original project logo is not redesigned.
 
+Phase 2 Milestone 2 completes the local setup journey without redirecting away
+from its result. Initial append/full scans and identity-preserving
+reconstruction now finish on an honest summary with projection totals,
+warnings, failures, and routes to Dashboard, Products, or the operation detail
+already present on the page. A shared accessible operation-progress component
+is used by setup and existing product metadata updates.
+
+The scan runner's process-local progress payload retains its Phase 1 keys and
+adds presentation-only operation type, stage, current collection, elapsed time,
+collection/product/variation counts, warnings, and failures. These observations
+do not change scanner selection, row resolution, operation locking, marker
+coordination, ingestion, or persistent operation history. Reconstruction
+remains synchronous in Phase 2 and publishes the same normalized completion
+shape only after its existing controlled operation returns. Durable progress,
+background reconstruction, and the full Operations workspace remain deferred.
+
 ## Database projection
 
 - The active path populates Collection → Product → Variation for all three exact collection types.
@@ -104,7 +120,7 @@ WooCommerce-compatible rows and future Woo ID columns exist, but there is no liv
 
 - Multi-worker or multi-replica catalogue mutation is not supported; the lock is process-local.
 - Scan progress is process-local and non-durable.
-- Dashboard, Collections, unified Scanner/Operations, Settings, and future
+- Dashboard, Collections, detailed Scanner/Operations history, Settings, and future
   modules intentionally show availability-aware placeholders until their
   approved Phase 2 milestones are implemented.
 

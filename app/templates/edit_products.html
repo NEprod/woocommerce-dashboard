@@ -151,29 +151,24 @@
   // --- Scan modal helpers (re-using initial_* SSE endpoints) ---
   function openScanModal(runId) {
     const modalEl = document.getElementById("scanModal");
-    const logEl = modalEl.querySelector(".scan-log");
-    const progEl = modalEl.querySelector(".scan-progress");
-    logEl.textContent = "";
-    progEl.textContent = "Starting...";
+    const progressView = window.OperationProgress.create(modalEl.querySelector("[data-operation-progress]"));
+    progressView.begin('product_update');
 
     const modal = new bootstrap.Modal(modalEl);
     modal.show();
 
     const evtSrc = new EventSource(`{{ url_for('main.initial_scan_stream', run_id='__ID__') }}`.replace("__ID__", runId));
     evtSrc.onmessage = (ev) => {
-      logEl.textContent += ev.data + "\n";
-      logEl.scrollTop = logEl.scrollHeight;
+      progressView.appendLog(ev.data);
     };
     const interval = setInterval(async () => {
       const r = await fetch(`{{ url_for('main.initial_scan_progress', run_id='__ID__') }}`.replace("__ID__", runId));
       const js = await r.json();
+      progressView.update(js);
       if (js.status === "done" || js.status === "error") {
         clearInterval(interval);
         evtSrc.close();
-        progEl.textContent = js.status.toUpperCase();
         await loadTable();
-      } else {
-        progEl.textContent = `${js.done}/${js.total} (${js.status})`;
       }
     }, 1000);
   }

@@ -1,4 +1,5 @@
 {% extends "layouts/base-fullscreen.html" %}
+{% from 'includes/_operation_progress.html' import operation_progress %}
 {% block title %}Initial Scan{% endblock %}
 
 {% block content %}
@@ -16,7 +17,7 @@
           </div>
 
           <!-- RIGHT PANEL -->
-          <div class="col-md-7 auth-form-panel">
+          <div class="col-md-7 auth-form-panel setup-scan-panel">
 
             <!-- Jinja → data-* so JS stays clean -->
             <div id="scanCfg"
@@ -54,16 +55,10 @@
 
             <!-- Settings summary -->
             <div class="card p-3 mb-3">
-              <div class="row">
-                <div class="col-md-4">
-                  <div><strong>Product folder:</strong> <span class="text-secondary">{{ settings.product_folder or "-" }}</span></div>
-                </div>
-                <div class="col-md-4">
-                  <div><strong>Image output folder:</strong> <span class="text-secondary">{{ settings.output_folder or "-" }}</span></div>
-                </div>
-                <div class="col-md-4">
-                  <div><strong>URL prefix:</strong> <span class="text-secondary">{{ settings.url_prefix or "-" }}</span></div>
-                </div>
+              <div class="setup-settings-summary">
+                <div><strong>Product folder</strong><span class="text-secondary">{{ settings.product_folder or "-" }}</span></div>
+                <div><strong>Image output folder</strong><span class="text-secondary">{{ settings.output_folder or "-" }}</span></div>
+                <div><strong>URL prefix</strong><span class="text-secondary">{{ settings.url_prefix or "-" }}</span></div>
               </div>
             </div>
 
@@ -77,7 +72,6 @@
                       {% if not setup_state.safe_to_run or setup_state.code == 'new_catalogue' %}disabled{% endif %}>
                 Rebuild catalogue index
               </button>
-              <a id="continueBtn" class="btn btn-outline-secondary btn-sm d-none d-flex align-items-center justify-content-center" href="{{ url_for('main.dashboard') }}">Continue to Dashboard</a>
             </div>
 
             <div class="border border-danger rounded p-3 mb-3 small">
@@ -93,14 +87,30 @@
               </button>
             </div>
 
-            <!-- Progress -->
-            <div class="progress mb-2" style="height: 10px;">
-              <div id="scanProgress" class="progress-bar app-progress-bar" role="progressbar" style="width: 0%" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
-            </div>
-            <div class="text-muted mb-3" id="progressLabel">0/0 scanned — Elapsed: 00:00</div>
+            {{ operation_progress('setupOperationProgress', 'Catalogue setup operation') }}
 
-            <!-- Log -->
-            <div class="logbox" id="logBox" style="max-height: 300px;"></div>
+            <section id="setupCompletion" class="setup-completion d-none" tabindex="-1" aria-labelledby="setupCompletionTitle">
+              <div class="setup-completion-heading">
+                <span class="setup-completion-icon" aria-hidden="true">✓</span>
+                <div>
+                  <p class="eyebrow">Setup complete</p>
+                  <h3 id="setupCompletionTitle">Your catalogue workspace is ready</h3>
+                  <p id="setupCompletionMessage">The selected operation completed using the existing catalogue identities and scanner behavior.</p>
+                </div>
+              </div>
+              <dl class="setup-completion-metrics" aria-label="Catalogue setup summary">
+                <div><dt>Collections processed</dt><dd data-completion-count="collections">0</dd></div>
+                <div><dt>Parent products</dt><dd data-completion-count="products">0</dd></div>
+                <div><dt>Variations</dt><dd data-completion-count="variations">0</dd></div>
+                <div><dt>Warnings</dt><dd data-completion-count="warnings">0</dd></div>
+                <div><dt>Failures</dt><dd data-completion-count="failures">0</dd></div>
+              </dl>
+              <div class="setup-completion-actions">
+                <a class="btn btn-primary" href="{{ url_for('main.dashboard') }}">Open Dashboard</a>
+                <a class="btn btn-outline-secondary" href="{{ url_for('main.products') }}">View Products</a>
+                <a id="operationDetailsLink" class="btn btn-ghost" href="#setupOperationProgress">View Operation Details</a>
+              </div>
+            </section>
 
           </div>
         </div>
@@ -113,35 +123,44 @@
 
 {% block javascripts %}
 <script>
-  // Pure JS: no Jinja inside this block
   let runId = null;
-  let startTime = null;
   let sse = null;
   let pollTimer = null;
+  let progressView = null;
+  const initialDisabled = {};
 
-  function pad(n){ return n < 10 ? '0' + n : '' + n; }
-  function formatElapsed(ms){
-    const s = Math.floor(ms/1000);
-    const m = Math.floor(s/60);
-    const r = s % 60;
-    return pad(m) + ':' + pad(r);
-  }
-  function setProgress(done, total){
-    const pct = total ? Math.round((done/total)*100) : 0;
-    const bar = document.getElementById('scanProgress');
-    bar.style.width = pct + '%';
-    bar.setAttribute('aria-valuenow', pct);
-  }
   function appendLogLine(text){
-    const box = document.getElementById('logBox');
-    const p = document.createElement('div');
-    p.textContent = timeStamp() + ' ' + text;
-    box.appendChild(p);
-    box.scrollTop = box.scrollHeight;
+    if (progressView) progressView.appendLog(timeStamp() + ' ' + text);
   }
   function timeStamp(){
     const d = new Date();
     return d.toTimeString().slice(0,8);
+  }
+
+  function setControlsDisabled(disabled){
+    ['startBtn', 'reconstructBtn', 'fullBtn'].forEach(id => {
+      const button = document.getElementById(id);
+      if (button) button.disabled = disabled ? true : Boolean(initialDisabled[id]);
+    });
+  }
+
+  function showCompletion(payload){
+    const completion = document.getElementById('setupCompletion');
+    const counts = payload.counts || {};
+    const catalogue = payload.catalogue || {};
+    ['collections', 'products', 'variations', 'warnings', 'failures'].forEach(name => {
+      const target = completion.querySelector(`[data-completion-count="${name}"]`);
+      if (target) target.textContent = catalogue[name] ?? counts[name] ?? 0;
+    });
+    const failures = Number(counts.failures || 0);
+    const warnings = Number(counts.warnings || 0);
+    document.getElementById('setupCompletionMessage').textContent = failures
+      ? 'The operation finished with failures that need review. Successfully committed catalogue work remains available.'
+      : warnings
+        ? 'The catalogue operation completed with warnings. Review the operation details before continuing.'
+        : 'The catalogue operation completed successfully. Choose where you would like to continue.';
+    completion.classList.remove('d-none');
+    completion.focus({preventScroll: true});
   }
 
   function startScan(mode){
@@ -169,18 +188,23 @@
     })
     .then(data => {
       runId = data.run_id;
-      startTime = Date.now();
+      progressView.begin(mode);
+      setControlsDisabled(true);
       streamLogs();
       startProgressPoll();
-      document.getElementById('startBtn').disabled = true;
     })
-    .catch(err => appendLogLine(`[❌] ${err.message || 'Error starting scan'}`));
+    .catch(err => {
+      const message = err.message || 'Error starting scan';
+      progressView.fail(message);
+      appendLogLine(`[❌] ${message}`);
+      setControlsDisabled(false);
+    });
   }
 
   function reconstructCatalogue(){
     const cfg = document.getElementById('scanCfg');
-    const button = document.getElementById('reconstructBtn');
-    button.disabled = true;
+    progressView.begin('reconstruction');
+    setControlsDisabled(true);
     appendLogLine('[ℹ️] Validating the complete catalogue before reconstruction…');
     fetch(cfg.dataset.reconstructUrl, {
       method: 'POST',
@@ -194,10 +218,20 @@
     })
     .then(data => {
       appendLogLine(`[✅] Catalogue index rebuilt. Backup: ${data.backup || 'not created'}`);
-      document.getElementById('continueBtn').classList.remove('d-none');
+      const payload = data.progress || {
+        operation: {id: data.operation_id, type: 'reconstruction', status: data.status, stage: data.status === 'succeeded' ? 'completed' : data.status},
+        progress: {completed: data.collections || 0, total: data.collections || 0, percent: 100, unit: 'collections'},
+        counts: {collections: data.collections || 0, products: data.products || 0, variations: 0, warnings: 0, failures: data.status === 'succeeded' ? 0 : 1},
+        catalogue: data.catalogue || {}
+      };
+      progressView.update(payload);
+      showCompletion(payload);
     })
-    .catch(err => appendLogLine(`[❌] ${err.message}`))
-    .finally(() => { button.disabled = false; });
+    .catch(err => {
+      progressView.fail(err.message);
+      appendLogLine(`[❌] ${err.message}`);
+    })
+    .finally(() => { setControlsDisabled(false); });
   }
 
   function streamLogs(){
@@ -213,24 +247,18 @@
   function startProgressPoll(){
     const cfg = document.getElementById('scanCfg');
     const template = cfg.dataset.progressUrlTemplate;
-    const label = document.getElementById('progressLabel');
-
     pollTimer = setInterval(() => {
       const url = template.replace('__RUN__', runId);
       fetch(url)
         .then(r => r.json())
         .then(j => {
-          const done = j.done || 0;
-          const total = j.total || 0;
-          setProgress(done, total);
-          const elapsed = formatElapsed(Date.now() - startTime);
-          label.textContent = `${done}/${total} scanned — Elapsed: ${elapsed}`;
+          progressView.update(j);
 
           if (j.status === 'done' || j.status === 'error') {
             clearInterval(pollTimer);
             if (sse) sse.close();
-            document.getElementById('continueBtn').classList.remove('d-none');
-            document.getElementById('startBtn').disabled = false;
+            if (j.status === 'done') showCompletion(j);
+            setControlsDisabled(false);
           }
         })
         .catch(() => { /* ignore transient polling errors */ });
@@ -239,6 +267,10 @@
 
   // init
   (function init(){
+    progressView = window.OperationProgress.create(document.getElementById('setupOperationProgress'));
+    ['startBtn', 'reconstructBtn', 'fullBtn'].forEach(id => {
+      initialDisabled[id] = document.getElementById(id).disabled;
+    });
     const cfg = document.getElementById('scanCfg');
     const haveSettings = cfg.dataset.haveSettings === '1';
     const startBtn = document.getElementById('startBtn');

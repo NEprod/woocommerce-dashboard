@@ -32,8 +32,11 @@ from app.forms import (
 from app.models import (
     User,
     Settings,
+    CatalogueOperation,
+    Collection,
     Product,
     ProductAsset,
+    Variation,
 )
 from app.utils.token_utils import generate_reset_token, verify_reset_token
 from app.utils.scan_runner import start_scan, stream_lines, get_progress, _runs
@@ -72,6 +75,15 @@ def _operation_conflict(error):
         ),
         409,
     )
+
+
+def _catalogue_summary_counts():
+    """Read-only projection totals used by setup completion presentation."""
+    return {
+        "collections": Collection.query.count(),
+        "products": Product.query.count(),
+        "variations": Variation.query.count(),
+    }
 
 # ---------- Dashboard ----------
 
@@ -793,6 +805,51 @@ def catalogue_reconstruct():
         "recovery_required": result.recovery_required,
         "error": result.error,
     }
+    catalogue = _catalogue_summary_counts()
+    operation_row = db.session.get(CatalogueOperation, result.operation_id)
+    elapsed_seconds = 0
+    if operation_row and operation_row.started_at:
+        operation_finished = operation_row.finished_at or datetime.now()
+        elapsed_seconds = max(
+            0, int((operation_finished - operation_row.started_at).total_seconds())
+        )
+    failures = 0 if result.status == "succeeded" else 1
+    payload["catalogue"] = catalogue
+    payload["progress"] = {
+        "operation": {
+            "id": result.operation_id,
+            "type": "reconstruction",
+            "status": result.status,
+            "stage": "completed" if result.status == "succeeded" else result.status,
+            "current_item": None,
+            "scope": {"scope_kind": "catalogue", "identity_mode": "preserve"},
+        },
+        "progress": {
+            "completed": result.collections,
+            "total": result.collections,
+            "percent": 100,
+            "unit": "collections",
+        },
+        "timing": {
+            "started_at": (
+                operation_row.started_at.isoformat() if operation_row else None
+            ),
+            "finished_at": (
+                operation_row.finished_at.isoformat()
+                if operation_row and operation_row.finished_at
+                else None
+            ),
+            "elapsed_seconds": elapsed_seconds,
+        },
+        "counts": {
+            "collections": result.collections,
+            "products": result.products,
+            "variations": catalogue["variations"],
+            "warnings": int(result.recovery_required),
+            "failures": failures,
+        },
+        "catalogue": catalogue,
+    }
     return jsonify(payload), (200 if result.status == "succeeded" else 409)
 
 
@@ -809,7 +866,10 @@ def initial_scan_stream(run_id):
 def initial_scan_progress(run_id):
     if run_id not in _runs:
         return jsonify({"error": "unknown run"}), 404
-    return jsonify(get_progress(run_id))
+    payload = get_progress(run_id)
+    if payload["status"] in {"done", "error"}:
+        payload["catalogue"] = _catalogue_summary_counts()
+    return jsonify(payload)
 
 
 @main.route("/initial-scan/done/<run_id>")

@@ -70,3 +70,9 @@ No new source-of-truth or schema design decision is made here.
    hover-only actions.
 5. **Folder enumeration requires authentication.** The existing setup folder
    picker remains an administrator workflow and is not a public route.
+6. **Unified progress is a presentation contract, not new operation authority.**
+   Phase 2 retains the established process-local run store and persistent
+   operation-history semantics. Normalized stages, current collection, elapsed
+   time, and counts are observations for shared UI components; they do not
+   change scanner ordering, create durable live progress, or make synchronous
+   reconstruction asynchronous.

@@ -536,6 +536,11 @@ def test_reconstruction_route_is_authenticated_and_reports_safe_paths(
     payload = response.get_json()
     assert payload["status"] == "succeeded"
     assert payload["backup"].startswith("backups/")
+    assert payload["progress"]["operation"]["type"] == "reconstruction"
+    assert payload["progress"]["operation"]["stage"] == "completed"
+    assert payload["progress"]["counts"]["failures"] == 0
+    assert payload["catalogue"]["products"] == payload["products"]
+    assert payload["catalogue"]["variations"] >= 1
     assert str(catalogue.parent) not in json.dumps(payload)
 
 

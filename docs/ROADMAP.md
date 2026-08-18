@@ -24,6 +24,9 @@ Phase 2 uses sequential approval gates on the long-lived `develop` branch:
    Milestone 1.1 is a visual correction within this completed scope and is not
    the start of Milestone 2.
 2. Setup completion and unified operation-progress presentation foundation.
+   **Complete on `develop`.** Setup retains its completion summary and next
+   actions; existing scan/update surfaces share a normalized, accessible live
+   presentation over the protected process-local runner state.
 3. Catalogue health dashboard.
 4. Products browser with collection grouping and lazy variation previews.
 5. Product detail and metadata provenance experience.

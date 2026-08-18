@@ -38,6 +38,14 @@ Before ordinary selection, the thread recovers any `.scanned.pending` whose reco
 
 Run state and mutual exclusion are process-local. Persistent operation rows provide history and interrupted-run diagnosis, not a distributed lock. This is why the Phase 1 container remains limited to one Gunicorn worker and one application replica. See [Catalogue Operation Control](CATALOGUE_OPERATIONS.md).
 
+Phase 2 exposes a backward-compatible presentation view over that existing
+process-local state. Legacy `total`, `done`, `status`, and `summary` fields
+remain intact; normalized operation, progress, timing, and count objects drive
+one shared accessible component across setup and metadata-triggered updates.
+The added stage/current-item fields are observational only. They neither add a
+queue nor persist live progress, and reconstruction remains the existing
+synchronous controlled operation.
+
 ## Persistence
 
 SQLite stores users, settings, the complete emitted parent/variation row projection, exact Collection → Product → Variation relationships, images, attributes, taxonomy, JSON provenance, operation history, and dormant integration-oriented models. Product folders, authored JSON, scanner markers, and SKU counters remain independent filesystem state.
