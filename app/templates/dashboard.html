@@ -1,22 +1,128 @@
 {% extends "layouts/base.html" %}
 {% from 'includes/icons.html' import icon %}
 {% block content %}
-<header class="page-header">
+<header class="page-header dashboard-header">
   <div>
-    <p class="eyebrow">Overview</p>
+    <p class="eyebrow">Catalogue overview</p>
     <h1 class="page-title">Dashboard</h1>
-    <p class="page-lede">A clear starting point for the catalogue tools already available in this release.</p>
+    <p class="page-lede">Current health, scanner state, and recent changes from the local catalogue projection.</p>
   </div>
+  <p class="dashboard-generated">Updated {{ dashboard.generated_at.strftime('%d %b %Y, %H:%M') }} UTC</p>
 </header>
 
-<section class="feature-panel" aria-labelledby="dashboard-start-heading">
-  <span class="status-pill"><span class="status-dot"></span> Foundation ready</span>
-  <h2 class="h3 mt-4" id="dashboard-start-heading">Your catalogue workspace</h2>
-  <p class="text-muted mb-4">Live analytics are reserved for a later milestone. Use the current projection, scanner workspace, or authored metadata reference without presenting sample figures as real data.</p>
-  <div class="d-flex flex-wrap gap-2">
-    <a class="btn btn-light" href="{{ url_for('main.products') }}">{{ icon('box') }} Open Products</a>
-    <a class="btn btn-outline-light" href="{{ url_for('main.scanner') }}">{{ icon('scanner') }} Open Scanner</a>
-    <a class="btn btn-outline-light" href="{{ url_for('main.metadata_reference') }}">{{ icon('book') }} Metadata Reference</a>
+<section class="dashboard-stats" aria-label="Catalogue summary">
+  {% set cards = [
+    ('collection', 'Collections', dashboard.summary.collections),
+    ('box', 'Parent products', dashboard.summary.products),
+    ('chart', 'Variations', dashboard.summary.variations),
+    ('box', 'Active products', dashboard.summary.active_products),
+    ('scanner', 'Missing products', dashboard.summary.missing_products),
+    ('file', 'Products with overrides', dashboard.summary.overrides)
+  ] %}
+  {% for icon_name, label, value in cards %}
+  <article class="dashboard-stat-card">
+    <span class="dashboard-stat-icon">{{ icon(icon_name) }}</span>
+    <div><p>{{ label }}</p><strong>{{ value }}</strong></div>
+  </article>
+  {% endfor %}
+</section>
+
+<section class="dashboard-feature-grid" aria-label="Catalogue and scanner health">
+  <article class="feature-panel catalogue-health-panel" aria-labelledby="catalogue-health-title">
+    <div class="dashboard-panel-heading">
+      <div><p class="eyebrow">Projection status</p><h2 id="catalogue-health-title">Catalogue Health</h2></div>
+      <span class="status-pill{% if dashboard.health.missing_items %} is-warning{% endif %}"><span class="status-dot"></span>{{ dashboard.health.label }}</span>
+    </div>
+    {% if dashboard.health.total_items %}
+    <div class="catalogue-health-summary">
+      <div class="health-score"><strong>{{ dashboard.health.availability_percent }}%</strong><span>Catalogue availability</span></div>
+      <div class="health-detail">
+        <progress value="{{ dashboard.health.active_items }}" max="{{ dashboard.health.total_items }}">{{ dashboard.health.availability_percent }}%</progress>
+        <dl class="dark-metric-list">
+          <div><dt>Active items</dt><dd>{{ dashboard.health.active_items }}</dd></div>
+          <div><dt>Missing items</dt><dd>{{ dashboard.health.missing_items }}</dd></div>
+          <div><dt>Total projected</dt><dd>{{ dashboard.health.total_items }}</dd></div>
+        </dl>
+      </div>
+    </div>
+    <p class="dashboard-panel-note">Availability combines active parent products and variations in SQLite.</p>
+    {% else %}
+    <div class="dashboard-dark-empty">
+      <h3>No catalogue projection yet</h3><p>Run the initial scan to build the local catalogue projection.</p>
+      <a class="btn btn-light" href="{{ url_for('main.initial_scan_page') }}">{{ icon('scanner') }} Run Initial Scan</a>
+    </div>
+    {% endif %}
+  </article>
+
+  <article class="feature-panel scanner-activity-panel" aria-labelledby="scanner-activity-title">
+    <div class="dashboard-panel-heading">
+      <div><p class="eyebrow">Operation state</p><h2 id="scanner-activity-title">Scanner Activity</h2></div>
+      {% if dashboard.scanner.active %}<span class="status-pill"><span class="status-dot"></span>Running</span>{% else %}<span class="status-pill is-neutral"><span class="status-dot"></span>Idle</span>{% endif %}
+    </div>
+    {% if dashboard.scanner.active %}
+    <div class="scanner-current"><strong>{{ dashboard.scanner.active.label }}</strong><span>Operation in progress</span></div>
+    {% else %}
+    <div class="scanner-current"><strong>No scan is running</strong><span>The operation lock is currently idle.</span></div>
+    {% endif %}
+    <dl class="scanner-counts" aria-label="Latest eight recorded operations">
+      <div><dt>Succeeded</dt><dd>{{ dashboard.scanner.recent_counts.succeeded }}</dd></div>
+      <div><dt>Failed</dt><dd>{{ dashboard.scanner.recent_counts.failed }}</dd></div>
+      <div><dt>Partial</dt><dd>{{ dashboard.scanner.recent_counts.partial }}</dd></div>
+      <div><dt>Recovery</dt><dd>{{ dashboard.scanner.recent_counts.recovery_required }}</dd></div>
+    </dl>
+    <div class="scanner-footer"><span>WooCommerce: <strong>{{ dashboard.woo_status }}</strong></span><a class="btn btn-outline-light btn-sm" href="{{ url_for('main.scanner') }}">Open Scanner</a></div>
+  </article>
+</section>
+
+<section class="dashboard-support-grid" aria-label="Catalogue review">
+  <article class="app-card dashboard-list-card" aria-labelledby="recent-changes-title">
+    <div class="dashboard-card-heading"><h2 id="recent-changes-title">Recent Changes</h2><a href="{{ url_for('main.operations') }}">View operations</a></div>
+    {% if dashboard.recent_operations %}
+    <ol class="dashboard-activity-list">
+      {% for operation in dashboard.recent_operations[:5] %}
+      <li><span class="activity-marker is-{{ operation.status }}" aria-hidden="true"></span><div><strong>{{ operation.label }}</strong><span>{{ operation.started_at.strftime('%d %b, %H:%M') }}</span></div><span class="compact-status is-{{ operation.status }}">{{ operation.status|replace('_', ' ')|title }}</span></li>
+      {% endfor %}
+    </ol>
+    {% else %}<div class="dashboard-card-empty"><strong>No operations recorded</strong><span>Completed scanner operations will appear here.</span></div>{% endif %}
+  </article>
+
+  <article class="app-card dashboard-list-card" aria-labelledby="attention-title">
+    <div class="dashboard-card-heading"><h2 id="attention-title">Needs Attention</h2></div>
+    {% set attention = dashboard.attention %}
+    {% if attention.missing_products or attention.missing_variations or attention.metadata_issues or attention.failed_operations or attention.recovery_required %}
+    <ul class="attention-list">
+      {% if attention.missing_products %}<li><span>Missing products</span><strong>{{ attention.missing_products }}</strong></li>{% endif %}
+      {% if attention.missing_variations %}<li><span>Missing variations</span><strong>{{ attention.missing_variations }}</strong></li>{% endif %}
+      {% if attention.metadata_issues %}<li><span>Metadata gaps</span><strong>{{ attention.metadata_issues }}</strong></li>{% endif %}
+      {% if attention.failed_operations %}<li><span>Failed or incomplete operations</span><strong>{{ attention.failed_operations }}</strong></li>{% endif %}
+      {% if attention.recovery_required %}<li><span>Recovery required</span><strong>{{ attention.recovery_required }}</strong></li>{% endif %}
+    </ul>
+    {% else %}<div class="dashboard-card-empty"><strong>No current attention signals</strong><span>The projected catalogue has no recorded gaps or operation failures.</span></div>{% endif %}
+  </article>
+
+  <article class="app-card dashboard-list-card" aria-labelledby="metadata-issues-title">
+    <div class="dashboard-card-heading"><h2 id="metadata-issues-title">Metadata Issues</h2></div>
+    <div class="metadata-total"><strong>{{ dashboard.metadata_issues.total }}</strong><span>field groups incomplete</span></div>
+    <dl class="metadata-issue-list">
+      <div><dt>Missing descriptions</dt><dd>{{ dashboard.metadata_issues.missing_descriptions }}</dd></div>
+      <div><dt>Missing images</dt><dd>{{ dashboard.metadata_issues.missing_images }}</dd></div>
+      <div><dt>Missing SEO metadata</dt><dd>{{ dashboard.metadata_issues.missing_seo }}</dd></div>
+    </dl>
+    <p class="dashboard-card-note">Derived from active parent-product fields in the local projection.</p>
+  </article>
+</section>
+
+<section class="table-panel recent-products" aria-labelledby="recent-products-title">
+  <div class="table-panel-header"><div><p class="eyebrow">Local projection</p><h2 id="recent-products-title">Recent Products</h2></div><a class="btn btn-outline-light btn-sm" href="{{ url_for('main.products') }}">View Products</a></div>
+  {% if dashboard.recent_products %}
+  <div class="table-responsive dashboard-desktop-products">
+    <table class="table align-middle"><thead><tr><th scope="col">Product</th><th scope="col">Collection</th><th scope="col">SKU</th><th scope="col">Type</th><th scope="col">Variations</th><th scope="col">Status</th><th scope="col">Updated</th></tr></thead>
+      <tbody>{% for product in dashboard.recent_products %}<tr><td><strong>{{ product.title }}</strong>{% if product.has_override %}<span class="compact-status is-override">Override</span>{% endif %}</td><td>{{ product.collection }}</td><td><code>{{ product.sku }}</code></td><td>{{ product.product_type|title }}</td><td>{{ product.variation_count }}</td><td><span class="compact-status is-{{ product.catalogue_status }}">{{ product.catalogue_status|title }}</span></td><td>{{ product.updated_at.strftime('%d %b %Y, %H:%M') if product.updated_at else 'Not recorded' }}</td></tr>{% endfor %}</tbody>
+    </table>
   </div>
+  <div class="dashboard-mobile-products" aria-label="Recently updated products">
+    {% for product in dashboard.recent_products %}<article><div><strong>{{ product.title }}</strong><code>{{ product.sku }}</code></div><span class="compact-status is-{{ product.catalogue_status }}">{{ product.catalogue_status|title }}</span><dl><div><dt>Collection</dt><dd>{{ product.collection }}</dd></div><div><dt>Variations</dt><dd>{{ product.variation_count }}</dd></div></dl></article>{% endfor %}
+  </div>
+  {% else %}<div class="empty-state"><strong>No projected products yet</strong><p>Run the initial scan to populate the dashboard.</p><a class="btn btn-primary" href="{{ url_for('main.initial_scan_page') }}">Run Initial Scan</a></div>{% endif %}
 </section>
 {% endblock %}

@@ -15,6 +15,9 @@ pages for workspaces that are not available yet. The approved design-system
 reconciliation makes `docs/DESIGN_SYSTEM.md` authoritative: warm-white canvas
 and floating white cards dominate, while deep slate is reserved for navigation,
 group headers, progress, and code surfaces. Lime and teal remain restrained.
+The current `develop` Dashboard presents genuine catalogue health, scanner
+state, recent operations, attention signals, and recently updated products from
+the local projection without fabricated analytics.
 The released Phase 1 scanner and persistence contracts remain unchanged.
 
 ## Current capabilities

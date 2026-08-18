@@ -56,6 +56,7 @@ from app.product_info import (
     load_template,
     validate_product_info,
 )
+from app.dashboard import build_dashboard_data
 
 main = Blueprint("main", __name__)
 
@@ -94,7 +95,7 @@ def dashboard():
         return redirect(url_for("main.setup"))
     if not current_user.is_authenticated:
         return redirect(url_for("main.login"))
-    return render_template("dashboard.html")
+    return render_template("dashboard.html", dashboard=build_dashboard_data())
 
 
 # ---------- Products page + API ----------

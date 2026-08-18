@@ -46,6 +46,13 @@ The added stage/current-item fields are observational only. They neither add a
 queue nor persist live progress, and reconstruction remains the existing
 synchronous controlled operation.
 
+The authenticated Dashboard is composed by `app/dashboard.py`. Its queries are
+read-only views over Collection, Product, Variation, ProductImage, and
+CatalogueOperation records, supplemented by the existing process-local active
+operation observation. The route does not cache, migrate, reconcile, or mutate
+catalogue state. Summary and completeness values are derived at request time;
+recent lists are deliberately bounded.
+
 ## Persistence
 
 SQLite stores users, settings, the complete emitted parent/variation row projection, exact Collection → Product → Variation relationships, images, attributes, taxonomy, JSON provenance, operation history, and dormant integration-oriented models. Product folders, authored JSON, scanner markers, and SKU counters remain independent filesystem state.

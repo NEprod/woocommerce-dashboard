@@ -58,8 +58,7 @@ The real catalogue and database are never part of the repository or container im
 
 Authentication, initial settings, the initial scan screen, Products catalogue
 table, raw JSON viewing, JSON editor, and metadata reference exist. The
-dashboard remains a placeholder pending Phase 2 Milestone 3, and the catalogue
-table remains the pre-Phase-2 implementation pending Milestone 4.
+catalogue table remains the pre-Phase-2 implementation pending Milestone 4.
 
 Phase 2 Milestone 1 adds an original responsive application shell based on
 semantic design tokens. Bootstrap, application
@@ -93,6 +92,17 @@ remains synchronous in Phase 2 and publishes the same normalized completion
 shape only after its existing controlled operation returns. Durable progress,
 background reconstruction, and the full Operations workspace remain deferred.
 
+Phase 2 Milestone 3 replaces the Dashboard placeholder with a read-only
+catalogue-health view derived from the existing SQLite projection,
+`CatalogueOperation` history, and the process-local operation state. It reports
+real collection, parent-product, variation, active/missing, override, metadata
+gap, recent-operation, and recently updated-product facts. Catalogue
+availability is the share of projected parent products and variations whose
+`catalogue_status` is `active`; metadata gaps are simple field-completeness
+signals for active parents, not schema validation. Empty databases have honest
+initial-scan actions. The Dashboard does not invent trends, sales, users, or a
+WooCommerce connection, and does not add persistence or scanner side effects.
+
 ## Database projection
 
 - The active path populates Collection → Product → Variation for all three exact collection types.
@@ -120,9 +130,9 @@ WooCommerce-compatible rows and future Woo ID columns exist, but there is no liv
 
 - Multi-worker or multi-replica catalogue mutation is not supported; the lock is process-local.
 - Scan progress is process-local and non-durable.
-- Dashboard, Collections, detailed Scanner/Operations history, Settings, and future
-  modules intentionally show availability-aware placeholders until their
-  approved Phase 2 milestones are implemented.
+- Collections, detailed Scanner/Operations history, Settings, and future modules
+  intentionally show availability-aware placeholders until their approved
+  Phase 2 milestones are implemented.
 
 The protected scanner discrepancies and intentional full-scan semantics remain
 unchanged.

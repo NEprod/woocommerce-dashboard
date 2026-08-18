@@ -10,6 +10,9 @@
   reconciliation replaces its dark-first styling with the canonical light-first
   system, permanent sidebar/mobile shell, accessible tables, and dedicated dark
   hierarchy/code states without changing application behavior.
+  Milestone 2 completes setup-result and shared operation-progress presentation.
+  Milestone 3 adds the genuine read-only catalogue-health Dashboard over the
+  existing projection and operation records.
 - **Phase 3 — Read-only WooCommerce mapping and comparison:** planned.
 - **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.
@@ -27,7 +30,9 @@ Phase 2 uses sequential approval gates on the long-lived `develop` branch:
    **Complete on `develop`.** Setup retains its completion summary and next
    actions; existing scan/update surfaces share a normalized, accessible live
    presentation over the protected process-local runner state.
-3. Catalogue health dashboard.
+3. Catalogue health dashboard. **Complete on `develop`.** Genuine projection,
+   metadata-completeness, operation, attention, and recent-product data replace
+   the placeholder without adding analytics or persistence.
 4. Products browser with collection grouping and lazy variation previews.
 5. Product detail and metadata provenance experience.
 6. Collections browser and collection workflows.
