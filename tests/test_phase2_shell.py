@@ -94,12 +94,41 @@ def test_shell_uses_neutral_branding_local_assets_and_accessible_navigation(
     assert 'class="skip-link"' in html
     assert 'id="appNavigation"' in html
     assert 'aria-controls="appNavigation"' in html
+    assert 'class="app-sidebar"' in html
+    assert 'class="mobile-bottom-nav"' in html
+    assert 'aria-label="Mobile primary navigation"' in html
+    assert 'data-sidebar-toggle' in html
     assert 'aria-label="Primary navigation"' in html
     assert "Catalogue" in html
     assert "Operations" in html
     assert "Metadata" in html
     assert "System" in html
     assert "Future" in html
+    assert "account-avatar" not in html
+
+
+@pytest.mark.parametrize(
+    ("route", "label"),
+    (("/", "Dashboard"), ("/products", "Products"), ("/scanner", "Scanner"), ("/operations", "Operations")),
+)
+def test_navigation_exposes_active_destination_to_assistive_technology(
+    authenticated_client, route, label
+):
+    html = authenticated_client.get(route).get_data(as_text=True)
+    assert re.search(
+        rf'<a[^>]+class="[^"]*is-active[^"]*"[^>]+aria-current="page"[^>]*>.*?{label}',
+        html,
+        re.DOTALL,
+    )
+
+
+def test_login_uses_light_first_split_shell_without_mockup_only_controls(shell_app):
+    html = shell_app.test_client().get("/login").get_data(as_text=True)
+    assert "auth-brand-panel" in html
+    assert "auth-form-panel" in html
+    assert "Username" in html
+    for unsupported in ("Sign in with Google", "Create account", "Notifications", "Export"):
+        assert unsupported not in html
 
 
 def test_planned_pages_are_professional_and_do_not_claim_live_features(
@@ -159,30 +188,34 @@ def test_design_tokens_and_project_owned_icon_sprite_are_centralized():
 
     for token in (
         "--color-canvas",
-        "--color-navigation",
-        "--color-surface",
-        "--color-surface-raised",
-        "--color-surface-hover",
-        "--color-primary",
-        "--color-primary-hover",
-        "--color-accent",
-        "--color-warning",
-        "--color-danger",
-        "--color-text",
+        "--color-surface-primary",
+        "--color-surface-secondary",
+        "--color-surface-elevated",
+        "--color-surface-dark",
+        "--color-surface-dark-hover",
+        "--color-text-primary",
         "--color-text-secondary",
+        "--color-text-inverse",
+        "--color-lime",
+        "--color-lime-soft",
+        "--color-lime-ink",
+        "--color-teal",
+        "--color-warning",
+        "--color-error",
         "--color-border",
-        "--color-code-background",
+        "--color-code-surface",
         "--color-code-text",
-        "--color-table-header",
-        "--color-table-row",
-        "--color-table-row-alt",
-        "--color-table-row-hover",
-        "--color-table-selected",
         "--space-1",
-        "--radius-card",
+        "--space-12",
+        "--radius-card-large",
+        "--radius-mobile-nav",
         "--focus-ring",
     ):
         assert token in stylesheet
+
+    assert "color-scheme: light" in stylesheet
+    assert "--color-canvas: #F6F5F1" in stylesheet
+    assert "--color-surface-dark: #10262D" in stylesheet
 
     assert "--tlc-" not in stylesheet
     assert ".btn-tlc" not in stylesheet
@@ -221,22 +254,16 @@ def test_table_and_code_tokens_have_accessible_contrast():
         re.findall(r"(--[\w-]+):\s*(#[0-9a-fA-F]{6});", stylesheet)
     )
 
-    for background in (
-        "--color-table-header",
-        "--color-table-row",
-        "--color-table-row-alt",
-        "--color-table-row-hover",
-        "--color-table-selected",
-    ):
+    for background in ("--color-canvas", "--color-surface-primary", "--color-surface-secondary"):
         assert _contrast_ratio(
-            variables["--color-text"], variables[background]
+            variables["--color-text-primary"], variables[background]
         ) >= 7
         assert _contrast_ratio(
             variables["--color-text-secondary"], variables[background]
         ) >= 4.5
 
     assert _contrast_ratio(
-        variables["--color-code-text"], variables["--color-code-background"]
+        variables["--color-code-text"], variables["--color-code-surface"]
     ) >= 7
 
 

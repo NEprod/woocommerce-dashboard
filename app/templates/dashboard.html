@@ -1,4 +1,22 @@
 {% extends "layouts/base.html" %}
+{% from 'includes/icons.html' import icon %}
 {% block content %}
-  <h1>Hello, world</h1>
+<header class="page-header">
+  <div>
+    <p class="eyebrow">Overview</p>
+    <h1 class="page-title">Dashboard</h1>
+    <p class="page-lede">A clear starting point for the catalogue tools already available in this release.</p>
+  </div>
+</header>
+
+<section class="feature-panel" aria-labelledby="dashboard-start-heading">
+  <span class="status-pill"><span class="status-dot"></span> Foundation ready</span>
+  <h2 class="h3 mt-4" id="dashboard-start-heading">Your catalogue workspace</h2>
+  <p class="text-muted mb-4">Live analytics are reserved for a later milestone. Use the current projection, scanner workspace, or authored metadata reference without presenting sample figures as real data.</p>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-light" href="{{ url_for('main.products') }}">{{ icon('box') }} Open Products</a>
+    <a class="btn btn-outline-light" href="{{ url_for('main.scanner') }}">{{ icon('scanner') }} Open Scanner</a>
+    <a class="btn btn-outline-light" href="{{ url_for('main.metadata_reference') }}">{{ icon('book') }} Metadata Reference</a>
+  </div>
+</section>
 {% endblock %}

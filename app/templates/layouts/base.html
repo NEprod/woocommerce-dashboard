@@ -7,15 +7,27 @@
 </head>
 <body class="app-body">
   <a class="skip-link" href="#main-content">Skip to main content</a>
-  {% include 'includes/navbar.html' %}
-
-  <main id="main-content" class="app-main" tabindex="-1">
-    <div class="app-shell">
-      {% block content %}{% endblock %}
+  <div class="app-frame">
+    {% include 'includes/navbar.html' %}
+    <div class="app-workspace">
+      <header class="app-utility-header">
+        <a class="app-mobile-brand" href="{{ url_for('main.dashboard') }}">
+          <img src="{{ url_for('static', filename='assets/img/woocommerce-dashboard-icon.png') }}" alt="">
+          <span>WooCommerce Dashboard</span>
+        </a>
+        <div class="app-account-summary">
+          <span>Signed in as <strong>{{ current_user.username }}</strong></span>
+          <a class="btn btn-ghost btn-sm" href="{{ url_for('main.logout') }}">Sign out</a>
+        </div>
+      </header>
+      <main id="main-content" class="app-main" tabindex="-1">
+        <div class="app-content">
+          {% block content %}{% endblock %}
+        </div>
+      </main>
+      {% include 'includes/footer.html' %}
     </div>
-  </main>
-
-  {% include 'includes/footer.html' %}
+  </div>
   {% include 'includes/scripts.html' %}
   {% block javascripts %}{% endblock %}
 </body>

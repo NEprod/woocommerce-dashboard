@@ -6,9 +6,10 @@
   establishes the semantic design system, neutral branding, responsive
   navigation shell, local UI assets, authenticated folder browser, and safe
   placeholder/compatibility routes without changing the scanner or schema.
-  Milestone 1.1 refines contrast and reference-style alignment with charcoal
-  surfaces, warm-white text, lime actions, accessible tables, and dedicated
-  code/editor states without changing the logo or application behavior.
+  Milestone 1.1 established the interim contrast baseline. The approved design
+  reconciliation replaces its dark-first styling with the canonical light-first
+  system, permanent sidebar/mobile shell, accessible tables, and dedicated dark
+  hierarchy/code states without changing application behavior.
 - **Phase 3 — Read-only WooCommerce mapping and comparison:** planned.
 - **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.

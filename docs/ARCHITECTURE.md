@@ -22,8 +22,9 @@ one semantic-token stylesheet, project-owned SVG symbols, and a small local
 JavaScript controller; it does not require Bootstrap, jQuery, fonts, or icons
 from a public CDN at runtime.
 
-The authenticated navigation groups Dashboard, Catalogue, Operations,
-Metadata, System, and Future workspaces. Incomplete workspaces use one shared
+The authenticated shell uses a desktop sidebar, tablet icon rail, mobile primary
+bottom navigation, and a secondary More drawer. Navigation groups Dashboard,
+Catalogue, Scanner/Operations, Metadata, System, and Future workspaces. Incomplete workspaces use one shared
 `Planned` template and never imply that a backend integration exists. Legacy
 route aliases redirect to an appropriate safe workspace. The existing Products
 table is temporarily served from canonical `/products` until its dedicated
