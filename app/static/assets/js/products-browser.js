@@ -4,6 +4,8 @@
   const browser = document.querySelector("[data-products-browser]");
   if (!browser) return;
 
+  const overrideClient = window.ProductsOverrideClient;
+
   const groupsTarget = browser.querySelector("[data-products-groups]");
   const loadingState = browser.querySelector("[data-products-loading]");
   const errorState = browser.querySelector("[data-products-error]");
@@ -27,7 +29,18 @@
   }
 
   function replaceId(template, id) {
-    return template.replace(/\/0(?:\/|$)/, `/${id}/`);
+    return overrideClient.routeUrl(template, id, window.location.href);
+  }
+
+  async function requestOverrideJson(url, options) {
+    return overrideClient.requestJson(window.fetch.bind(window), url, options);
+  }
+
+  function showOverrideFeedback(message) {
+    const feedback = document.querySelector("[data-override-feedback]");
+    if (!feedback) return;
+    feedback.textContent = message || "";
+    feedback.hidden = !message;
   }
 
   function formatDate(value) {
@@ -364,10 +377,9 @@
   function matchingRegions(productId) { return Array.from(browser.querySelectorAll(`[data-variation-region="${productId}"]`)); }
 
   async function openFolderPicker(productId, rel) {
-    const endpoint = replaceId(browser.dataset.overrideFoldersUrl, productId) + (rel ? `?rel=${encodeURIComponent(rel)}` : "");
-    const response = await fetch(endpoint);
-    const output = await response.json();
-    if (!response.ok || output.error) throw new Error(output.message || output.error || "Folder list could not be loaded.");
+    const endpoint = new URL(replaceId(browser.dataset.overrideFoldersUrl, productId));
+    if (rel) endpoint.searchParams.set("rel", rel);
+    const output = await requestOverrideJson(endpoint.href, {headers: {"Accept": "application/json"}});
     pickerState = { productId: productId, selectedRel: "" };
     document.getElementById("folderBreadcrumb").textContent = output.path;
     const list = document.getElementById("folderList");
@@ -433,8 +445,11 @@
       await loadVariations(productId, trigger.closest("[data-variation-region]"), action === "view-all-variations"); return;
     }
     if (action === "create-override") {
-      try { await openFolderPicker(productId, ""); bootstrap.Modal.getOrCreateInstance(document.getElementById("overrideModal")).show(); }
-      catch (error) { window.alert(error.message); }
+      const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("overrideModal"));
+      showOverrideFeedback("");
+      modal.show();
+      try { await openFolderPicker(productId, ""); }
+      catch (error) { showOverrideFeedback(error.message || overrideClient.messages.unexpected); }
       return;
     }
     if (action === "delete-override") {
@@ -458,19 +473,33 @@
   browser.querySelector("[data-products-retry]").addEventListener("click", loadProducts);
   const chooseButton = document.getElementById("chooseFolderBtn");
   chooseButton.addEventListener("click", async function () {
-    if (!pickerState.selectedRel) return;
+    if (!pickerState.selectedRel || chooseButton.dataset.submitting === "true") return;
+    chooseButton.dataset.submitting = "true";
     chooseButton.disabled = true;
     chooseButton.setAttribute("aria-busy", "true");
+    showOverrideFeedback("");
+    let navigating = false;
     try {
-      const response = await fetch(replaceId(browser.dataset.overrideCreateUrl, pickerState.productId), {
+      const output = await requestOverrideJson(replaceId(browser.dataset.overrideCreateUrl, pickerState.productId), {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rel: pickerState.selectedRel })
       });
-      if (response.redirected) { window.location.assign(response.url); return; }
-      const output = await response.json();
-      if (!response.ok || output.error) throw new Error(output.message || output.error || "Override creation failed.");
-      if (output.edit_url) window.location.assign(output.edit_url);
-    } catch (error) { window.alert(error.message); chooseButton.disabled = false; }
-    finally { chooseButton.removeAttribute("aria-busy"); }
+      const destination = overrideClient.editorDestination(
+        output.edit_url,
+        browser.dataset.overrideEditorUrl,
+        pickerState.productId,
+        window.location.href
+      );
+      window.location.assign(destination);
+      navigating = true;
+    } catch (error) {
+      showOverrideFeedback(error.message || overrideClient.messages.unexpected);
+    } finally {
+      chooseButton.removeAttribute("aria-busy");
+      if (!navigating) {
+        delete chooseButton.dataset.submitting;
+        chooseButton.disabled = !pickerState.selectedRel;
+      }
+    }
   });
 
   loadProducts();

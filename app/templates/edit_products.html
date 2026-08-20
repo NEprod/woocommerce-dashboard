@@ -70,6 +70,7 @@
          data-variations-url="{{ url_for('main.api_product_variations', product_id=0) }}"
          data-override-folders-url="{{ url_for('main.api_override_folders', product_id=0) }}"
          data-override-create-url="{{ url_for('main.api_override_create', product_id=0) }}"
+         data-override-editor-url="{{ url_for('main.product_edit', product_id=0, label='override') }}"
          data-override-delete-url="{{ url_for('main.api_delete_override', product_id=0) }}"
          data-progress-url="{{ url_for('main.initial_scan_progress', run_id='__RUN_ID__') }}"
          data-stream-url="{{ url_for('main.initial_scan_stream', run_id='__RUN_ID__') }}">
@@ -106,6 +107,7 @@
     </div>
     <div class="modal-body">
       <p class="text-muted">Choose an existing product folder beneath the configured catalogue root.</p>
+      <div class="alert alert-danger" data-override-feedback role="alert" hidden></div>
       <div id="folderBreadcrumb" class="small mb-2 text-muted"></div>
       <ul id="folderList" class="list-group"></ul>
     </div>
@@ -114,4 +116,7 @@
 </div>
 {% endblock %}
 
-{% block javascripts %}<script src="{{ url_for('static', filename='assets/js/products-browser.js') }}"></script>{% endblock %}
+{% block javascripts %}
+<script src="{{ url_for('static', filename='assets/js/override-client.js') }}"></script>
+<script src="{{ url_for('static', filename='assets/js/products-browser.js') }}"></script>
+{% endblock %}

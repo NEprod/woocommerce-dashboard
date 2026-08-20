@@ -241,7 +241,52 @@ def test_override_create_template_prevents_duplicate_browser_submission():
     browser_script = Path("app/static/assets/js/products-browser.js").read_text(
         encoding="utf-8"
     )
+    client_script = Path("app/static/assets/js/override-client.js").read_text(
+        encoding="utf-8"
+    )
     assert "products-browser.js" in template
     assert 'chooseButton.disabled = true' in browser_script
     assert 'chooseButton.setAttribute("aria-busy", "true")' in browser_script
-    assert "if (response.redirected)" in browser_script
+    assert 'chooseButton.dataset.submitting === "true"' in browser_script
+    assert "ProductsOverrideClient" in browser_script
+    assert "requestOverrideJson" in browser_script
+    assert "editorDestination" in browser_script
+    assert "async function readJson" in client_script
+
+
+def test_override_create_404_does_not_create_a_file_or_operation(override_workflow):
+    workflow = override_workflow
+    response = workflow["client"].post(
+        "/api/override/create/999999", json={"rel": "Product 1"}
+    )
+
+    assert response.status_code == 404
+    with workflow["app"].app_context():
+        assert CatalogueOperation.query.count() == 0
+        assert ProductAsset.query.filter_by(kind="info", label="override").count() == 0
+    assert not (workflow["collection_root"] / "Product 1" / "product_info.json").exists()
+    assert workflow["calls"] == []
+
+
+def test_override_create_conflict_does_not_duplicate_file_or_operation(
+    override_workflow,
+):
+    workflow = override_workflow
+    first_id, second_id = workflow["product_ids"][:2]
+    first = workflow["client"].post(
+        f"/api/override/create/{first_id}", json={"rel": "Product 1"}
+    )
+    assert first.status_code == 200
+
+    conflict = workflow["client"].post(
+        f"/api/override/create/{second_id}", json={"rel": "Product 2"}
+    )
+    assert conflict.status_code == 409
+    assert conflict.get_json()["error"] == "catalogue_operation_active"
+    with workflow["app"].app_context():
+        assert CatalogueOperation.query.count() == 1
+        assert ProductAsset.query.filter_by(
+            product_id=second_id, kind="info", label="override"
+        ).count() == 0
+    assert not (workflow["collection_root"] / "Product 2" / "product_info.json").exists()
+    assert len(workflow["calls"]) == 1
