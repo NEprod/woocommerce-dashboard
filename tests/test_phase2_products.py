@@ -3,6 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from app import create_app, db
 from app.models import (
@@ -10,6 +11,7 @@ from app.models import (
     Product,
     ProductAsset,
     ProductImage,
+    Settings,
     User,
     Variation,
     VariationAttribute,
@@ -21,6 +23,13 @@ from config import Config
 def products_app(tmp_path):
     database = tmp_path / "instance" / "site.db"
     database.parent.mkdir()
+    catalogue = tmp_path / "catalogue"
+    variable_folder = catalogue / "Fictional Cards" / "Variable"
+    simple_folder = catalogue / "Fictional Cards" / "Simple"
+    gift_folder = catalogue / "Fictional Gifts" / "Missing"
+    for folder in (variable_folder, simple_folder, gift_folder):
+        folder.mkdir(parents=True)
+    Image.new("RGB", (20, 16), "lime").save(variable_folder / "fictional-card.png")
     original_uri = Config.SQLALCHEMY_DATABASE_URI
     Config.SQLALCHEMY_DATABASE_URI = f"sqlite:///{database}"
     try:
@@ -47,7 +56,11 @@ def products_app(tmp_path):
                 shared_json_path="/fixture/gifts/product_info.json",
                 source_relpath="Fictional Gifts",
             )
-            db.session.add_all([user, cards, gifts])
+            settings = Settings(
+                product_folder=str(catalogue),
+                output_folder=str(tmp_path / "output"),
+            )
+            db.session.add_all([user, cards, gifts, settings])
             db.session.flush()
 
             now = datetime.now()
@@ -63,6 +76,7 @@ def products_app(tmp_path):
                 meta_title="Fictional metadata",
                 meta_description="Fictional metadata description.",
                 image_url="https://example.invalid/fictional-card.webp",
+                source_relpath="Fictional Cards/Variable",
                 override_json_path="/fixture/cards/variable/product_info.json",
                 local_updated_at=now,
             )
@@ -77,6 +91,7 @@ def products_app(tmp_path):
                 description=None,
                 meta_title=None,
                 meta_description=None,
+                source_relpath="Fictional Cards/Simple",
                 local_updated_at=now - timedelta(hours=1),
             )
             missing = Product(
@@ -85,6 +100,7 @@ def products_app(tmp_path):
                 title="Missing Fictional Gift",
                 product_type="simple",
                 catalogue_status="missing",
+                source_relpath="Fictional Gifts/Missing",
                 local_updated_at=now - timedelta(days=1),
             )
             db.session.add_all([variable, simple, missing])

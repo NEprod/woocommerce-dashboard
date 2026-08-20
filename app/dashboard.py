@@ -4,16 +4,20 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from flask import g, has_request_context
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import joinedload, selectinload
 
 from app import db
-from app.catalogue_images import primary_image_alt, product_thumbnail_url
+from app.catalogue_images import (
+    primary_image_alt,
+    product_thumbnail_url,
+    resolve_product_catalogue_image,
+)
 from app.models import (
     CatalogueOperation,
     Collection,
     Product,
-    ProductImage,
     Variation,
 )
 from app.utils.operation_control import get_active_operation
@@ -58,19 +62,38 @@ def metadata_issue_condition(issue_key):
             _blank(Product.description),
         )
     if issue_key == "missing_image":
-        return and_(
-            active_product,
-            _blank(Product.image_url),
-            ~select(ProductImage.id)
-            .where(ProductImage.product_id == Product.id)
-            .exists(),
-        )
+        return and_(active_product, Product.id.in_(_missing_image_product_ids()))
     if issue_key == "missing_seo":
         return and_(
             active_product,
             or_(_blank(Product.meta_title), _blank(Product.meta_description)),
         )
     raise KeyError(issue_key)
+
+
+def _missing_image_product_ids():
+    """Return active parents with no safe, resolvable parent or variation source."""
+
+    cache_key = "_missing_catalogue_image_product_ids"
+    if has_request_context() and hasattr(g, cache_key):
+        return getattr(g, cache_key)
+    products = (
+        Product.query.options(
+            selectinload(Product.images),
+            selectinload(Product.variations).selectinload(Variation.images),
+            selectinload(Product.variations).selectinload(Variation.attributes),
+        )
+        .filter_by(catalogue_status="active")
+        .all()
+    )
+    result = tuple(
+        product.id
+        for product in products
+        if resolve_product_catalogue_image(product) is None
+    )
+    if has_request_context():
+        setattr(g, cache_key, result)
+    return result
 
 
 def _operation_view(operation):
@@ -185,7 +208,12 @@ def build_dashboard_data():
     )
     product_rows = (
         db.session.query(Product, variation_count.label("variation_count"))
-        .options(joinedload(Product.collection), selectinload(Product.images))
+        .options(
+            joinedload(Product.collection),
+            selectinload(Product.images),
+            selectinload(Product.variations).selectinload(Variation.images),
+            selectinload(Product.variations).selectinload(Variation.attributes),
+        )
         .order_by(Product.local_updated_at.desc(), Product.id.desc())
         .limit(6)
         .all()

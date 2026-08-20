@@ -10,7 +10,12 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import joinedload, selectinload
 
 from app import db
-from app.catalogue_images import primary_image_alt, product_thumbnail_url
+from app.catalogue_images import (
+    primary_image_alt,
+    product_thumbnail_url,
+    variation_image_alt,
+    variation_thumbnail_url,
+)
 from app.dashboard import METADATA_ISSUE_DEFINITIONS, metadata_issue_condition
 from app.models import Collection, Product, ProductAsset, Variation
 
@@ -260,6 +265,8 @@ def build_products_data(filters):
             joinedload(Product.collection),
             selectinload(Product.assets),
             selectinload(Product.images),
+            selectinload(Product.variations).selectinload(Variation.images),
+            selectinload(Product.variations).selectinload(Variation.attributes),
         )
         .outerjoin(Collection, Product.collection_id == Collection.id)
         .order_by(
@@ -351,7 +358,10 @@ def build_products_data(filters):
 def build_variation_data(product, *, include_all=False):
     query = (
         Variation.query.filter_by(product_id=product.id)
-        .options(selectinload(Variation.attributes))
+        .options(
+            selectinload(Variation.attributes),
+            selectinload(Variation.images),
+        )
         .order_by(Variation.sku.asc(), Variation.id.asc())
     )
     total = query.count()
@@ -377,6 +387,8 @@ def build_variation_data(product, *, include_all=False):
                 "price": _money(price),
                 "stock_quantity": variation.stock_quantity,
                 "catalogue_status": variation.catalogue_status or "active",
+                "thumbnail": variation_thumbnail_url(variation),
+                "thumbnail_alt": variation_image_alt(variation),
                 "metadata_source": parent_source,
                 "updated_at": (
                     variation.local_updated_at.isoformat()

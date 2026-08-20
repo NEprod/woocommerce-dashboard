@@ -66,10 +66,11 @@
     return text("span", `catalogue-pill is-${kind}`, label);
   }
 
-  function thumbnail(product) {
+  function thumbnail(product, extraClass) {
     const frame = document.createElement("span");
-    frame.className = "product-thumbnail";
-    const fallback = text("span", "product-thumbnail-fallback", (product.title || "P").trim().slice(0, 1).toUpperCase());
+    frame.className = `product-thumbnail${extraClass ? ` ${extraClass}` : ""}`;
+    const fallbackLabel = product.title || product.sku || "P";
+    const fallback = text("span", "product-thumbnail-fallback", fallbackLabel.trim().slice(0, 1).toUpperCase());
     fallback.setAttribute("aria-hidden", "true");
     frame.appendChild(fallback);
     if (product.thumbnail) {
@@ -276,7 +277,11 @@
     payload.items.forEach(function (variation) {
       const row = document.createElement("article");
       row.className = "variation-preview-row";
-      row.appendChild(text("code", "variation-sku", variation.sku || "Not set"));
+      const identity = document.createElement("div");
+      identity.className = "variation-identity";
+      identity.appendChild(thumbnail(variation, "variation-thumbnail"));
+      identity.appendChild(text("code", "variation-sku", variation.sku || "Not set"));
+      row.appendChild(identity);
       const attributes = document.createElement("div");
       attributes.className = "variation-attributes";
       if (variation.attributes.length) {

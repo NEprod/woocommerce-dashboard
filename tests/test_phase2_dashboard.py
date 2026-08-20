@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from app import create_app, db
 from app.models import (
@@ -10,6 +11,7 @@ from app.models import (
     Product,
     ProductAsset,
     ProductImage,
+    Settings,
     User,
     Variation,
 )
@@ -23,6 +25,13 @@ ROOT = Path(__file__).resolve().parents[1]
 def dashboard_app(tmp_path):
     database = tmp_path / "instance" / "site.db"
     database.parent.mkdir()
+    catalogue = tmp_path / "catalogue"
+    active_folder = catalogue / "Fictional Cards" / "Active"
+    incomplete_folder = catalogue / "Fictional Cards" / "Incomplete"
+    missing_folder = catalogue / "Fictional Gifts" / "Missing"
+    for folder in (active_folder, incomplete_folder, missing_folder):
+        folder.mkdir(parents=True)
+    Image.new("RGB", (20, 16), "lime").save(active_folder / "card.png")
     original_uri = Config.SQLALCHEMY_DATABASE_URI
     Config.SQLALCHEMY_DATABASE_URI = f"sqlite:///{database}"
     try:
@@ -49,7 +58,11 @@ def dashboard_app(tmp_path):
                 shared_json_path="/fixture/gifts/product_info.json",
                 source_relpath="Fictional Gifts",
             )
-            db.session.add_all([user, first, second])
+            settings = Settings(
+                product_folder=str(catalogue),
+                output_folder=str(tmp_path / "output"),
+            )
+            db.session.add_all([user, first, second, settings])
             db.session.flush()
 
             now = datetime.now()
@@ -64,6 +77,7 @@ def dashboard_app(tmp_path):
                 meta_title="Fictional Card",
                 meta_description="Fictional metadata.",
                 image_url="https://example.invalid/card.webp",
+                source_relpath="Fictional Cards/Active",
                 override_json_path="/fixture/cards/card/product_info.json",
                 local_updated_at=now,
             )
@@ -78,6 +92,7 @@ def dashboard_app(tmp_path):
                 meta_title=None,
                 meta_description=None,
                 image_url=None,
+                source_relpath="Fictional Cards/Incomplete",
                 local_updated_at=now - timedelta(hours=1),
             )
             missing = Product(
@@ -86,6 +101,7 @@ def dashboard_app(tmp_path):
                 title="Missing Gift",
                 product_type="simple",
                 catalogue_status="missing",
+                source_relpath="Fictional Gifts/Missing",
                 local_updated_at=now - timedelta(days=1),
             )
             db.session.add_all([active, incomplete, missing])
@@ -309,6 +325,8 @@ def test_zero_metadata_issue_rows_are_not_links(dashboard_app):
     app, _database = dashboard_app
     with app.app_context():
         product = Product.query.filter_by(sku="CARD-002").one()
+        source = Path(Settings.query.one().product_folder) / product.source_relpath
+        Image.new("RGB", (20, 16), "teal").save(source / "complete.png")
         product.short_description = "Complete description"
         product.meta_title = "Complete title"
         product.meta_description = "Complete SEO description"

@@ -62,13 +62,24 @@ existing metadata editor, raw-source, override creation, and override deletion
 routes remain the action authority.
 
 Products and Dashboard thumbnails use the authenticated opaque route
-`/catalogue-images/products/<id>`. SQLite continues to store the scanner's
-Woo-facing image URL and portable product source path rather than image bytes.
-`app/catalogue_images.py` resolves the ordered primary reference beneath that
-product's directory in the configured catalogue mount, including the scanner's
-source-extension-to-`.webp` URL mapping. Resolution rejects traversal,
-symlink escape, unsupported or invalid files, and never returns catalogue paths
-to the browser. Missing or unreadable sources remain presentation fallbacks.
+`/catalogue-images/products/<id>`; expanded variation previews use
+`/catalogue-images/variations/<id>`. SQLite continues to store the scanner's
+Woo-facing image URL and portable source provenance rather than image bytes.
+For UI display, files beneath the configured catalogue mount are authoritative;
+emitted URLs are filename hints because uploader conversion can change the
+extension to `.webp` and may change the upload name.
+
+`app/catalogue_images.py` follows scanner-supported folders only. Parent
+resolution uses the ordered primary gallery mapping, the product shortcut,
+remaining ordered parent images, recorded `.scanned.images_used`, then safe
+direct-folder discovery. If no parent source resolves, the first ordered valid
+variation image becomes the parent thumbnail. Variation routes preserve their
+own Single Variable image-attribute folder identity and fall back to the parent
+only when necessary; Variable Collection variations retain the scanner's shared
+parent-image behavior. PNG, JPG, JPEG, and WebP sources are accepted
+case-insensitively by extension. Traversal, symlink escape, unsupported and
+invalid files are rejected, and catalogue paths are never returned to the
+browser.
 
 ## Persistence
 

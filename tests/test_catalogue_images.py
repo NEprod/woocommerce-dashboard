@@ -17,6 +17,12 @@ def catalogue_image_app(tmp_path):
     container_folder = catalogue / "Fictional Cards" / "Container Product"
     product_folder.mkdir(parents=True)
     container_folder.mkdir(parents=True)
+    missing_folder = catalogue / "Fictional Cards" / "Missing Product"
+    unsupported_folder = catalogue / "Fictional Cards" / "Unsupported Product"
+    unreadable_folder = catalogue / "Fictional Cards" / "Unreadable Product"
+    traversal_folder = catalogue / "Fictional Cards" / "Traversal Product"
+    for folder in (missing_folder, unsupported_folder, unreadable_folder, traversal_folder):
+        folder.mkdir(parents=True)
     instance.mkdir()
 
     Image.new("RGB", (24, 18), "lime").save(
@@ -26,13 +32,14 @@ def catalogue_image_app(tmp_path):
     Image.new("RGB", (20, 20), "navy").save(
         container_folder / "container image.jpg"
     )
-    (product_folder / "unsupported.svg").write_text(
+    (unsupported_folder / "unsupported.svg").write_text(
         '<svg xmlns="http://www.w3.org/2000/svg"></svg>', encoding="utf-8"
     )
-    (product_folder / "unreadable.jpg").write_text("not an image", encoding="utf-8")
+    (unreadable_folder / "unreadable.jpg").write_text("not an image", encoding="utf-8")
     outside = tmp_path / "outside"
     outside.mkdir()
     Image.new("RGB", (20, 20), "red").save(outside / "secret.png")
+    (traversal_folder / "secret.png").symlink_to(outside / "secret.png")
 
     database = instance / "site.db"
     original_uri = Config.SQLALCHEMY_DATABASE_URI
@@ -96,7 +103,7 @@ def catalogue_image_app(tmp_path):
                 title="Missing Image Product",
                 product_type="simple",
                 catalogue_status="active",
-                source_relpath="Fictional Cards/Variable Product",
+                source_relpath="Fictional Cards/Missing Product",
                 image_url="https://uploads.invalid/missing.webp",
                 local_updated_at=now - timedelta(minutes=2),
             )
@@ -106,7 +113,7 @@ def catalogue_image_app(tmp_path):
                 title="Unsupported Image Product",
                 product_type="simple",
                 catalogue_status="active",
-                source_relpath="Fictional Cards/Variable Product",
+                source_relpath="Fictional Cards/Unsupported Product",
                 image_url="https://uploads.invalid/unsupported.svg",
                 local_updated_at=now - timedelta(minutes=3),
             )
@@ -116,7 +123,7 @@ def catalogue_image_app(tmp_path):
                 title="Unreadable Image Product",
                 product_type="simple",
                 catalogue_status="active",
-                source_relpath="Fictional Cards/Variable Product",
+                source_relpath="Fictional Cards/Unreadable Product",
                 image_url="https://uploads.invalid/unreadable.webp",
                 local_updated_at=now - timedelta(minutes=4),
             )
@@ -126,7 +133,7 @@ def catalogue_image_app(tmp_path):
                 title="Traversal Product",
                 product_type="simple",
                 catalogue_status="active",
-                source_relpath="Fictional Cards/Variable Product",
+                source_relpath="Fictional Cards/Traversal Product",
                 image_url="/catalogue/../outside/secret.png",
                 local_updated_at=now - timedelta(minutes=5),
             )

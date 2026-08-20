@@ -128,11 +128,22 @@ is expanded. Desktop uses grouped relational rows, while tablet and mobile use
 collection-preserving product cards. This milestone adds no model, migration,
 scanner, ingestion, marker, SKU, or filesystem behavior.
 
-The Milestone 4 image-display follow-up serves genuine primary source images
-from the mounted catalogue through an authenticated product-ID route. Products
-and Dashboard Recent Products share the same square crop and safe fallback.
-Woo-facing image references remain ordinary SQLite text; source image bytes are
-not copied to SQLite, `/app/instance`, or the production image.
+The Milestone 4 image-display follow-up serves genuine source images from the
+mounted catalogue through authenticated opaque product and variation routes.
+The catalogue file is authoritative; Woo-facing `.webp` URLs are hints and may
+differ from the source extension or name. Simple and variable parent thumbnails
+follow scanner image order, then safe folder discovery. A variable parent with
+no usable parent image uses its first ordered valid variation source, while an
+expanded variation keeps its variation-specific source and uses the parent only
+as a fallback. Products and Dashboard Recent Products share the same safe
+fallback presentation.
+
+The Dashboard and Products "Missing images" signal means an active parent has
+no safe, resolvable source image on either the parent or any variation. It does
+not treat a missing emitted URL as proof that source imagery is absent, and it
+does not invent variation-level completeness diagnostics. Woo-facing image
+references remain ordinary SQLite text; source image bytes are not copied to
+SQLite, `/app/instance`, or the production image.
 
 ## Database projection
 

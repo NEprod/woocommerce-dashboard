@@ -69,7 +69,10 @@ from app.products_browser import (
 from app.utils.atomic_files import atomic_write_json, atomic_write_text
 from app.utils.backup_retention import create_metadata_backup
 from app.utils.temporary_cleanup import cleanup_metadata_temporaries
-from app.catalogue_images import resolve_product_catalogue_image
+from app.catalogue_images import (
+    resolve_product_catalogue_image,
+    resolve_variation_catalogue_image,
+)
 
 main = Blueprint("main", __name__)
 
@@ -168,10 +171,14 @@ def api_products():
 @main.route("/api/products/<int:product_id>/variations")
 @login_required
 def api_product_variations(product_id):
-    product = Product.query.options(selectinload(Product.assets)).filter_by(
-        id=product_id,
-        product_type="variable",
-    ).first_or_404()
+    product = (
+        Product.query.options(
+            selectinload(Product.assets),
+            selectinload(Product.images),
+        )
+        .filter_by(id=product_id, product_type="variable")
+        .first_or_404()
+    )
     return jsonify(
         build_variation_data(
             product,
@@ -185,12 +192,44 @@ def api_product_variations(product_id):
 def catalogue_product_image(product_id):
     """Serve one projected product's primary source image from the catalogue."""
 
-    product = Product.query.options(selectinload(Product.images)).filter_by(
-        id=product_id
-    ).first_or_404()
+    product = (
+        Product.query.options(
+            selectinload(Product.images),
+            selectinload(Product.variations).selectinload(Variation.images),
+            selectinload(Product.variations).selectinload(Variation.attributes),
+        )
+        .filter_by(id=product_id)
+        .first_or_404()
+    )
     image_path = resolve_product_catalogue_image(product)
     if image_path is None:
         abort(404)
+    return _catalogue_image_response(image_path)
+
+
+@main.route("/catalogue-images/variations/<int:variation_id>")
+@login_required
+def catalogue_variation_image(variation_id):
+    """Serve a variation-specific source image with parent fallback."""
+
+    variation = (
+        Variation.query.options(
+            selectinload(Variation.images),
+            selectinload(Variation.attributes),
+            selectinload(Variation.product).selectinload(Product.images),
+        )
+        .filter_by(id=variation_id)
+        .first_or_404()
+    )
+    image_path = resolve_variation_catalogue_image(variation)
+    if image_path is None:
+        abort(404)
+    return _catalogue_image_response(image_path)
+
+
+def _catalogue_image_response(image_path):
+    """Apply the same private, sniff-resistant policy to catalogue images."""
+
     response = send_file(image_path, conditional=True, max_age=3600)
     response.cache_control.public = False
     response.cache_control.private = True
