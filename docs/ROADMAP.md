@@ -12,7 +12,10 @@
   hierarchy/code states without changing application behavior.
   Milestone 2 completes setup-result and shared operation-progress presentation.
   Milestone 3 adds the genuine read-only catalogue-health Dashboard over the
-  existing projection and operation records.
+  existing projection and operation records. Milestone 4 replaces the legacy
+  flat catalogue table with the genuine collection-grouped Products browser,
+  URL-backed supported filters, server-side parent pagination, and lazy
+  variation previews.
 - **Phase 3 — Read-only WooCommerce mapping and comparison:** planned.
 - **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.
@@ -34,6 +37,10 @@ Phase 2 uses sequential approval gates on the long-lived `develop` branch:
    metadata-completeness, operation, attention, and recent-product data replace
    the placeholder without adding analytics or persistence.
 4. Products browser with collection grouping and lazy variation previews.
+   **Complete on `develop`.** The browser derives counts, lifecycle, pricing,
+   images, provenance, and timestamps from the existing projection. Variable
+   detail is fetched only on expansion; no scanner or persistence contract is
+   changed.
 5. Product detail and metadata provenance experience.
 6. Collections browser and collection workflows.
 7. Scanner workspace and operation history UI.

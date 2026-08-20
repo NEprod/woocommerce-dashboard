@@ -76,3 +76,9 @@ No new source-of-truth or schema design decision is made here.
    time, and counts are observations for shared UI components; they do not
    change scanner ordering, create durable live progress, or make synchronous
    reconstruction asynchronous.
+7. **Products browsing is a read-only projection view.** Collection grouping,
+   supported URL filters, parent pagination, price ranges, source labels, and
+   lazy variation previews are derived from existing Phase 1 records. They do
+   not duplicate scanner resolution, reinterpret authored JSON, or introduce a
+   new persistence contract. Metadata mutation continues through the existing
+   editor and controlled update routes.

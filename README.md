@@ -17,7 +17,10 @@ and floating white cards dominate, while deep slate is reserved for navigation,
 group headers, progress, and code surfaces. Lime and teal remain restrained.
 The current `develop` Dashboard presents genuine catalogue health, scanner
 state, recent operations, attention signals, and recently updated products from
-the local projection without fabricated analytics.
+the local projection without fabricated analytics. Its Products workspace now
+groups genuine parent products by collection, preserves supported Dashboard
+issue filters, paginates parent results, and loads projected variation details
+only when requested.
 The released Phase 1 scanner and persistence contracts remain unchanged.
 
 ## Current capabilities

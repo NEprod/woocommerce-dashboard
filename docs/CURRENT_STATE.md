@@ -69,9 +69,8 @@ The real catalogue and database are never part of the repository or container im
 
 ## Web UI
 
-Authentication, initial settings, the initial scan screen, Products catalogue
-table, raw JSON viewing, JSON editor, and metadata reference exist. The
-catalogue table remains the pre-Phase-2 implementation pending Milestone 4.
+Authentication, initial settings, the initial scan screen, collection-grouped
+Products browser, raw JSON viewing, JSON editor, and metadata reference exist.
 
 Phase 2 Milestone 1 adds an original responsive application shell based on
 semantic design tokens. Bootstrap, application
@@ -115,6 +114,19 @@ availability is the share of projected parent products and variations whose
 signals for active parents, not schema validation. Empty databases have honest
 initial-scan actions. The Dashboard does not invent trends, sales, users, or a
 WooCommerce connection, and does not add persistence or scanner side effects.
+
+Phase 2 Milestone 4 replaces the flat Products table with a read-only,
+collection-grouped browser over the existing SQLite projection. Collection
+headers report filtered parent, variation, active/missing, and last-update
+facts. Parent rows show genuine type, SKU, projected price/range, lifecycle,
+thumbnail/fallback, metadata provenance, variation count, timestamp, and the
+existing metadata actions. Title/SKU, collection, type, lifecycle, metadata
+source, and Dashboard metadata-issue filters are URL-backed and parent results
+are paginated on the server. Variation attributes, price, stock quantity,
+lifecycle, provenance, and timestamps are fetched only when a variable parent
+is expanded. Desktop uses grouped relational rows, while tablet and mobile use
+collection-preserving product cards. This milestone adds no model, migration,
+scanner, ingestion, marker, SKU, or filesystem behavior.
 
 ## Database projection
 

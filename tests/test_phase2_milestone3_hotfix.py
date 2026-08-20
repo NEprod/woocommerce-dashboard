@@ -238,6 +238,10 @@ def test_meaningful_override_save_preserves_existing_update_contract(
 
 def test_override_create_template_prevents_duplicate_browser_submission():
     template = Path("app/templates/edit_products.html").read_text(encoding="utf-8")
-    assert 'chooseButton.disabled = true' in template
-    assert 'chooseButton.setAttribute("aria-busy", "true")' in template
-    assert "if (response.redirected)" in template
+    browser_script = Path("app/static/assets/js/products-browser.js").read_text(
+        encoding="utf-8"
+    )
+    assert "products-browser.js" in template
+    assert 'chooseButton.disabled = true' in browser_script
+    assert 'chooseButton.setAttribute("aria-busy", "true")' in browser_script
+    assert "if (response.redirected)" in browser_script

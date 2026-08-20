@@ -19,7 +19,7 @@ from flask import (
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.exceptions import BadRequest
 from werkzeug.security import check_password_hash, generate_password_hash
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import selectinload
 
 from app import db, csrf
 from app.forms import (
@@ -59,7 +59,11 @@ from app.product_info import (
 from app.dashboard import (
     METADATA_ISSUE_DEFINITIONS,
     build_dashboard_data,
-    metadata_issue_condition,
+)
+from app.products_browser import (
+    build_products_data,
+    build_variation_data,
+    parse_products_filters,
 )
 from app.utils.atomic_files import atomic_write_json, atomic_write_text
 from app.utils.backup_retention import create_metadata_backup
@@ -111,115 +115,76 @@ def dashboard():
 @main.route("/products")
 @login_required
 def products():
-    # Milestone 1 keeps the established catalogue table while making the
-    # canonical Products route safe. The catalogue redesign begins later.
-    issue_key = request.args.get("issue", "").strip()
-    if issue_key and issue_key not in METADATA_ISSUE_DEFINITIONS:
-        raise BadRequest("Unsupported metadata issue filter")
+    try:
+        filters = parse_products_filters(request.args)
+    except ValueError as error:
+        raise BadRequest(str(error)) from error
+    issue_key = filters["issue"]
     issue_filter = None
     if issue_key:
         issue_filter = {
             "key": issue_key,
             "label": METADATA_ISSUE_DEFINITIONS[issue_key]["label"],
         }
-    return render_template("edit_products.html", issue_filter=issue_filter)
+    collections = Collection.query.order_by(Collection.name.asc()).all()
+    return render_template(
+        "edit_products.html",
+        issue_filter=issue_filter,
+        products_filters=filters,
+        product_collections=collections,
+    )
 
 
 @main.route("/api/edit_products")
 @login_required
 def api_products():
-    """
-    Returns products with flags + paths for shared/override info JSON
-    and a derived collection name based on the JSON file path.
-    """
-    Shared = aliased(ProductAsset)
-    Override = aliased(ProductAsset)
-    issue_key = request.args.get("issue", "").strip()
-    if issue_key and issue_key not in METADATA_ISSUE_DEFINITIONS:
-        raise BadRequest("Unsupported metadata issue filter")
-    issue_filter = None
-    if issue_key:
-        issue_filter = {
+    try:
+        filters = parse_products_filters(request.args)
+    except ValueError as error:
+        raise BadRequest(str(error)) from error
+    payload = build_products_data(filters)
+    issue_key = filters["issue"]
+    payload["filter"] = (
+        {
             "key": issue_key,
             "label": METADATA_ISSUE_DEFINITIONS[issue_key]["label"],
         }
-
-    q = (
-        db.session.query(
-            Product.id,
-            Product.sku,
-            Product.title,
-            Product.product_type,
-            Product.collection_type,
-            Collection.name.label("collection_name"),
-            Shared.id.label("shared_id"),
-            Shared.path.label("shared_path"),
-            Override.id.label("override_id"),
-            Override.path.label("override_path"),
-        )
-        .outerjoin(Collection, Product.collection_id == Collection.id)
-        .outerjoin(
-            Shared,
-            (Shared.product_id == Product.id)
-            & (Shared.kind == "info")
-            & (Shared.label == "shared"),
-        )
-        .outerjoin(
-            Override,
-            (Override.product_id == Product.id)
-            & (Override.kind == "info")
-            & (Override.label == "override"),
-        )
-        .order_by(Product.sku.asc())
+        if issue_key
+        else None
     )
     if issue_key:
-        q = q.filter(metadata_issue_condition(issue_key))
-
-    rows = []
-    for r in q.all():
-        chosen_path = r.shared_path or r.override_path or ""
-        collection_name = r.collection_name or ""
-        if chosen_path:
-            try:
-                collection_name = collection_name or os.path.basename(
-                    os.path.dirname(chosen_path)
-                )
-            except Exception:
-                collection_name = ""
-
-        rows.append(
-            {
-                "id": r.id,
-                "sku": r.sku,
-                "title": r.title,
-                "type": "variable" if r.product_type == "variable" else "simple",
-                "collection": collection_name,
-                "shared_present": bool(r.shared_id),
-                "override_present": bool(r.override_id),
-                "shared_path": r.shared_path or "",
-                "override_path": r.override_path or "",
-                "issue": (
-                    {
-                        **issue_filter,
-                        "entity_type": "parent_product",
-                        "variation_sku": None,
-                        "variation_attributes": [],
-                    }
-                    if issue_filter
-                    else None
-                ),
+        for item in payload["items"]:
+            item["issue"] = {
+                **payload["filter"],
+                "entity_type": "parent_product",
+                "variation_sku": None,
+                "variation_attributes": [],
             }
-        )
+    return jsonify(payload)
 
-    return jsonify({"items": rows, "filter": issue_filter})
+
+@main.route("/api/products/<int:product_id>/variations")
+@login_required
+def api_product_variations(product_id):
+    product = Product.query.options(selectinload(Product.assets)).filter_by(
+        id=product_id,
+        product_type="variable",
+    ).first_or_404()
+    return jsonify(
+        build_variation_data(
+            product,
+            include_all=request.args.get("all") == "1",
+        )
+    )
 
 
 # ---------- Editor routes used by Products page ----------
 @main.route("/edit_products")
 @login_required
 def edit_products():
-    # The table UI fetches from /api/products
-    return render_template("edit_products.html")
+    # Preserve the established compatibility route while keeping one canonical
+    # URL-backed Products browser state.
+    return redirect(url_for("main.products", **request.args))
 
 
 @main.route("/edit_products/<int:product_id>/edit/<label>")

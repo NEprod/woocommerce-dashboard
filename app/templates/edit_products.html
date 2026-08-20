@@ -1,301 +1,117 @@
 {% extends "layouts/base.html" %}
+{% from 'includes/icons.html' import icon %}
+{% block title %}Products{% endblock %}
 {% block content %}
-<header class="page-header">
+<header class="page-header products-page-header">
   <div>
     <p class="eyebrow">Catalogue</p>
     <h1 class="page-title">Products</h1>
-    <p class="page-lede">Review projected products and manage their shared or product-level metadata.</p>
+    <p class="page-lede">Browse the local scanner projection by collection, then review product identity and metadata.</p>
   </div>
 </header>
 
+<section class="products-summary" aria-label="Catalogue summary" data-products-summary>
+  {% for key, icon_name, label in [
+    ('collections', 'folder', 'Collections'),
+    ('products', 'box', 'Parent products'),
+    ('variations', 'scanner', 'Variations'),
+    ('active', 'check', 'Active products'),
+    ('missing', 'alert', 'Missing products'),
+    ('metadata_issues', 'file', 'Needs attention')
+  ] %}
+  <article class="products-stat-card">
+    <span class="products-stat-icon">{{ icon(icon_name) }}</span>
+    <div><p>{{ label }}</p><strong data-summary-value="{{ key }}">—</strong></div>
+  </article>
+  {% endfor %}
+</section>
+
+<form class="products-toolbar" method="get" action="{{ url_for('main.products') }}" aria-label="Product catalogue filters">
+  {% if issue_filter %}<input type="hidden" name="issue" value="{{ issue_filter.key }}">{% endif %}
+  <label class="products-search">
+    <span class="visually-hidden">Search product title or SKU</span>
+    {{ icon('search') }}
+    <input type="search" name="q" value="{{ products_filters.q }}" placeholder="Search title or SKU…" autocomplete="off">
+  </label>
+  <label><span class="visually-hidden">Collection</span><select name="collection" aria-label="Collection">
+    <option value="">All collections</option>
+    {% for collection in product_collections %}<option value="{{ collection.id }}"{% if products_filters.collection == collection.id %} selected{% endif %}>{{ collection.name }}</option>{% endfor %}
+  </select></label>
+  <label><span class="visually-hidden">Product type</span><select name="type" aria-label="Product type">
+    <option value="">All product types</option>
+    <option value="simple"{% if products_filters.type == 'simple' %} selected{% endif %}>Simple</option>
+    <option value="variable"{% if products_filters.type == 'variable' %} selected{% endif %}>Variable</option>
+  </select></label>
+  <label><span class="visually-hidden">Catalogue status</span><select name="status" aria-label="Catalogue status">
+    <option value="">All statuses</option>
+    <option value="active"{% if products_filters.status == 'active' %} selected{% endif %}>Active</option>
+    <option value="missing"{% if products_filters.status == 'missing' %} selected{% endif %}>Missing</option>
+  </select></label>
+  <label><span class="visually-hidden">Metadata source</span><select name="source" aria-label="Metadata source">
+    <option value="">All metadata sources</option>
+    <option value="override"{% if products_filters.source == 'override' %} selected{% endif %}>Product override</option>
+    <option value="shared"{% if products_filters.source == 'shared' %} selected{% endif %}>Shared only</option>
+    <option value="none"{% if products_filters.source == 'none' %} selected{% endif %}>No metadata</option>
+  </select></label>
+  <button class="btn btn-light products-filter-submit" type="submit">Apply filters</button>
+  <a class="btn btn-ghost products-clear-filters" href="{{ url_for('main.products') }}">Clear</a>
+</form>
+
 {% if issue_filter %}
-<section class="alert alert-info d-flex align-items-center justify-content-between gap-3" role="status" aria-label="Active metadata issue filter">
-  <div><strong>{{ issue_filter.label }}</strong><span class="d-block">Showing active parent products in the local catalogue with this metadata gap.</span></div>
-  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.products') }}">Clear filter</a>
+<section class="products-filter-notice" role="status" aria-label="Active metadata issue filter">
+  <span class="products-filter-notice-icon">{{ icon('alert') }}</span>
+  <div><strong>{{ issue_filter.label }}</strong><span>Showing active parent products in the local catalogue with this metadata gap.</span></div>
+  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.products') }}">Clear issue filter</a>
 </section>
 {% endif %}
 
-<div class="table-panel">
-  <div class="table-panel-header">
-    <div><p class="eyebrow text-light mb-1">Current projection</p><h2>Catalogue products</h2></div>
-    <span id="productCount" class="status-pill" aria-live="polite">Loading products</span>
+<section id="products-browser" class="products-browser" aria-label="Collection-grouped product catalogue" aria-busy="true"
+         data-products-browser data-api-url="{{ url_for('main.api_products') }}"
+         data-variations-url="{{ url_for('main.api_product_variations', product_id=0) }}"
+         data-override-folders-url="{{ url_for('main.api_override_folders', product_id=0) }}"
+         data-override-create-url="{{ url_for('main.api_override_create', product_id=0) }}"
+         data-override-delete-url="{{ url_for('main.api_delete_override', product_id=0) }}"
+         data-progress-url="{{ url_for('main.initial_scan_progress', run_id='__RUN_ID__') }}"
+         data-stream-url="{{ url_for('main.initial_scan_stream', run_id='__RUN_ID__') }}">
+  <div class="products-state products-loading" data-products-loading role="status">
+    <span class="products-loading-spinner" aria-hidden="true"></span>
+    <div><strong>Loading catalogue</strong><span>Preparing collection and parent-product information.</span></div>
   </div>
-  <div class="table-responsive">
-    <table id="productsTable" class="table table-striped table-hover align-middle">
-    <thead class="table-light">
-      <tr>
-        <th>SKU</th>
-        <th>Title</th>
-        <th>Type</th>
-        <th>Collection</th>
-        <th class="text-center">Shared</th>
-        <th class="text-center">Override</th>
-        {% if issue_filter %}<th>Issue</th>{% endif %}
-        <th class="text-center">Actions</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-    </table>
+  <div class="products-state products-error" data-products-error role="alert" hidden>
+    <span class="products-state-icon">{{ icon('alert') }}</span>
+    <div><strong>Products could not be loaded</strong><span data-products-error-message>The catalogue remains unchanged. Retry when ready.</span></div>
+    <button class="btn btn-sm btn-outline-primary" type="button" data-products-retry>Retry</button>
   </div>
-</div>
+  <div class="products-state" data-products-empty hidden>
+    <span class="products-state-icon">{{ icon('box') }}</span>
+    <div><strong>No projected products yet</strong><span>Run an Initial Scan to populate the local catalogue projection.</span></div>
+    <a class="btn btn-primary" href="{{ url_for('main.initial_scan_page') }}">Open Initial Scan</a>
+  </div>
+  <div class="products-state" data-products-filtered-empty hidden>
+    <span class="products-state-icon">{{ icon('search') }}</span>
+    <div><strong>No products match this view</strong><span>Adjust or clear the active search and filters.</span></div>
+    <a class="btn btn-outline-primary" href="{{ url_for('main.products') }}">Clear filters</a>
+  </div>
+  <div class="products-groups" data-products-groups></div>
+  <nav class="products-pagination" data-products-pagination aria-label="Product catalogue pages" hidden></nav>
+</section>
 
 {% include 'includes/_scan_modal.html' %}
 
-<!-- Create Override Modal (restricted folder picker) -->
-<div class="modal fade" id="overrideModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Choose override folder</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"
-                aria-label="Close"></button>
-      </div>
-      <div class="modal-body">
-        <div id="folderBreadcrumb" class="small mb-2 text-muted"></div>
-        <ul id="folderList" class="list-group"></ul>
-      </div>
-      <div class="modal-footer">
-        <button id="chooseFolderBtn" class="btn btn-primary" disabled>Create here</button>
-      </div>
+<div class="modal fade" id="overrideModal" tabindex="-1" aria-labelledby="overrideModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header">
+      <div><p class="eyebrow">Product metadata</p><h2 class="modal-title h5" id="overrideModalTitle">Choose override folder</h2></div>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
     </div>
-  </div>
+    <div class="modal-body">
+      <p class="text-muted">Choose an existing product folder beneath the configured catalogue root.</p>
+      <div id="folderBreadcrumb" class="small mb-2 text-muted"></div>
+      <ul id="folderList" class="list-group"></ul>
+    </div>
+    <div class="modal-footer"><button id="chooseFolderBtn" class="btn btn-primary" disabled>Create override here</button></div>
+  </div></div>
 </div>
 {% endblock %}
 
-{% block javascripts %}
-<script>
-(function(){
-  const tableBody = document.querySelector("#productsTable tbody");
-  const productPageState = {{ {'issue': issue_filter.key if issue_filter else none}|tojson }};
-  const iconSprite = "{{ url_for('static', filename='assets/img/icons/app-icons.svg') }}";
-  let currentProductForOverride = null;
-  let pickerState = { root: "", path: "", rel: "", selectedRel: "" };
-
-  function appIcon(name) {
-    return `<svg class="app-icon" aria-hidden="true"><use href="${iconSprite}#icon-${name}"></use></svg>`;
-  }
-
-  function faFileLink(ok, url, title) {
-    if (!ok) {
-      return `<span class="text-muted" title="${title} missing">
-                ${appIcon("file")}
-              </span>`;
-    }
-    return `<a href="${url}" target="_blank" rel="noopener" title="${title}">
-              ${appIcon("file")}
-            </a>`;
-  }
-
-  function renderRows(items) {
-    tableBody.innerHTML = "";
-    document.getElementById("productCount").textContent = `${items.length} ${items.length === 1 ? "product" : "products"}`;
-    if (!items.length) {
-      const emptyRow = document.createElement("tr");
-      emptyRow.innerHTML = `<td class="empty-state" colspan="${productPageState.issue ? 8 : 7}">No projected products match this view.</td>`;
-      tableBody.appendChild(emptyRow);
-      return;
-    }
-    items.forEach(r => {
-      const sharedRawUrl = r.shared_present
-        ? "{{ url_for('main.open_info_asset', product_id=0, label='shared') }}".replace("0","" + r.id)
-        : "#";
-      const overrideRawUrl = r.override_present
-        ? "{{ url_for('main.open_info_asset', product_id=0, label='override') }}".replace("0","" + r.id)
-        : "#";
-
-      const editSharedUrl = r.shared_present
-        ? "{{ url_for('main.product_edit', product_id=0, label='shared') }}".replace("0","" + r.id)
-        : null;
-      const editOverrideUrl = r.override_present
-        ? "{{ url_for('main.product_edit', product_id=0, label='override') }}".replace("0","" + r.id)
-        : null;
-
-      const sharedCell = `
-        <div class="text-center">
-          ${faFileLink(r.shared_present, sharedRawUrl, "Shared product_info.json")}
-        </div>`;
-
-      const overrideCell = `
-        <div class="text-center">
-          ${faFileLink(r.override_present, overrideRawUrl, "Override product_info.json")}
-        </div>`;
-
-      const actions = `
-        <div class="text-center text-nowrap">
-          ${editSharedUrl ? `<a class="btn btn-sm btn-outline-primary me-1" href="${editSharedUrl}">Edit Shared</a>`
-                          : `<button class="btn btn-sm btn-outline-secondary me-1" disabled>No Shared</button>`}
-          ${editOverrideUrl ? `<a class="btn btn-sm btn-outline-primary me-1" href="${editOverrideUrl}">Edit Override</a>`
-                            : `<button class="btn btn-sm btn-outline-secondary me-1" data-action="create-override" data-product-id="${r.id}" title="Create override">Create Override</button>`}
-          ${r.override_present ? `
-            <button class="btn btn-sm btn-outline-danger"
-                    data-action="delete-override"
-                    data-product-id="${r.id}"
-                    data-sku="${r.sku}"
-                    title="Delete override JSON">
-              ${appIcon("trash")}
-            </button>` : ``}
-        </div>
-      `;
-
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td class="text-nowrap">${r.sku}</td>
-        <td>${r.title || ""}</td>
-        <td class="text-capitalize">${r.type || ""}</td>
-        <td>${r.collection || ""}</td>
-        <td>${sharedCell}</td>
-        <td>${overrideCell}</td>
-        ${productPageState.issue ? `<td><span class="compact-status is-override">${r.issue ? r.issue.label : "Metadata issue"}</span></td>` : ""}
-        <td>${actions}</td>
-      `;
-      tableBody.appendChild(tr);
-    });
-  }
-
-  async function loadTable() {
-    const params = new URLSearchParams();
-    if (productPageState.issue) params.set("issue", productPageState.issue);
-    const endpoint = "{{ url_for('main.api_products') }}" + (params.size ? `?${params}` : "");
-    const res = await fetch(endpoint);
-    const data = await res.json();
-    renderRows(data.items || []);
-  }
-
-  // --- Scan modal helpers (re-using initial_* SSE endpoints) ---
-  function openScanModal(runId) {
-    const modalEl = document.getElementById("scanModal");
-    const progressView = window.OperationProgress.create(modalEl.querySelector("[data-operation-progress]"));
-    progressView.begin('product_update');
-
-    const modal = new bootstrap.Modal(modalEl);
-    modal.show();
-
-    const evtSrc = new EventSource(`{{ url_for('main.initial_scan_stream', run_id='__ID__') }}`.replace("__ID__", runId));
-    evtSrc.onmessage = (ev) => {
-      progressView.appendLog(ev.data);
-    };
-    const interval = setInterval(async () => {
-      const r = await fetch(`{{ url_for('main.initial_scan_progress', run_id='__ID__') }}`.replace("__ID__", runId));
-      const js = await r.json();
-      progressView.update(js);
-      if (js.status === "done" || js.status === "error") {
-        clearInterval(interval);
-        evtSrc.close();
-        await loadTable();
-      }
-    }, 1000);
-  }
-
-  // --- Override folder picker ---
-  async function openFolderPicker(productId, rel) {
-    const url = `{{ url_for('main.api_override_folders', product_id=0) }}`.replace("0", String(productId))
-               + (rel ? ("?rel=" + encodeURIComponent(rel)) : "");
-    const res = await fetch(url);
-    const out = await res.json();
-    if (out.error) { alert(out.message || out.error); return; }
-
-    pickerState.root = out.root;
-    pickerState.path = out.path;
-    pickerState.rel  = out.rel;
-    pickerState.selectedRel = "";
-
-    document.getElementById("folderBreadcrumb").textContent = out.path;
-    const list = document.getElementById("folderList");
-    list.innerHTML = "";
-
-    if (out.rel) {
-      const liUp = document.createElement("li");
-      liUp.className = "list-group-item list-group-item-action";
-      liUp.textContent = "⬆️ Up";
-      liUp.onclick = () => {
-        const parentRel = out.rel.split("/").slice(0, -1).join("/");
-        openFolderPicker(productId, parentRel);
-      };
-      list.appendChild(liUp);
-    }
-
-    out.folders.forEach(name => {
-      const li = document.createElement("li");
-      li.className = "list-group-item list-group-item-action";
-      li.textContent = name;
-      li.onclick = () => {
-        document.querySelectorAll("#folderList .active").forEach(el => el.classList.remove("active"));
-        li.classList.add("active");
-        pickerState.selectedRel = out.rel ? (out.rel + "/" + name) : name;
-        document.getElementById("chooseFolderBtn").disabled = false;
-      };
-      li.ondblclick = () => {
-        const nextRel = out.rel ? (out.rel + "/" + name) : name;
-        openFolderPicker(productId, nextRel);
-      };
-      list.appendChild(li);
-    });
-
-    const chooseButton = document.getElementById("chooseFolderBtn");
-    chooseButton.onclick = async () => {
-      if (!pickerState.selectedRel) return;
-      chooseButton.disabled = true;
-      chooseButton.setAttribute("aria-busy", "true");
-      try {
-        const response = await fetch(`{{ url_for('main.api_override_create', product_id=0) }}`.replace("0", String(productId)), {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({rel: pickerState.selectedRel})
-        });
-        if (response.redirected) {
-          window.location.assign(response.url);
-          return;
-        }
-        const contentType = response.headers.get("content-type") || "";
-        if (!contentType.includes("application/json")) {
-          throw new Error(`Override creation returned HTTP ${response.status}. Please sign in again and retry.`);
-        }
-        const result = await response.json();
-        if (!response.ok || result.error) {
-          throw new Error(result.message || result.error || `Override creation returned HTTP ${response.status}.`);
-        }
-        bootstrap.Modal.getInstance(document.getElementById("overrideModal")).hide();
-        if (result.edit_url) window.location.assign(result.edit_url);
-      } catch (error) {
-        alert(error.message || "Unable to create the override.");
-      } finally {
-        chooseButton.removeAttribute("aria-busy");
-        chooseButton.disabled = !pickerState.selectedRel;
-      }
-    };
-  }
-
-  // Handle actions
-  tableBody.addEventListener("click", async (e) => {
-    const btn = e.target.closest("button[data-action]");
-    if (!btn) return;
-    const action = btn.dataset.action;
-
-    if (action === "delete-override") {
-      const sku = btn.dataset.sku;
-      const productId = btn.dataset.productId;
-      if (!confirm(`Delete override JSON for ${sku}?`)) return;
-
-      const res = await fetch(`{{ url_for('main.api_delete_override', product_id=0) }}`.replace("0", String(productId)), {
-        method: "POST",
-        headers: {"Content-Type":"application/json"}
-      });
-      const out = await res.json();
-      if (out.error) { alert(out.message || out.error); return; }
-      if (out.run_id) openScanModal(out.run_id);
-      else await loadTable();
-    }
-
-    if (action === "create-override") {
-      currentProductForOverride = btn.dataset.productId;
-      const modal = new bootstrap.Modal(document.getElementById('overrideModal'));
-      await openFolderPicker(currentProductForOverride, "");
-      modal.show();
-    }
-  });
-
-  // Initial load
-  loadTable();
-})();
-</script>
-{% endblock %}
+{% block javascripts %}<script src="{{ url_for('static', filename='assets/js/products-browser.js') }}"></script>{% endblock %}

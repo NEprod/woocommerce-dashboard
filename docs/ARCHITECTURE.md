@@ -26,9 +26,7 @@ The authenticated shell uses a desktop sidebar, tablet icon rail, mobile primary
 bottom navigation, and a secondary More drawer. Navigation groups Dashboard,
 Catalogue, Scanner/Operations, Metadata, System, and Future workspaces. Incomplete workspaces use one shared
 `Planned` template and never imply that a backend integration exists. Legacy
-route aliases redirect to an appropriate safe workspace. The existing Products
-table is temporarily served from canonical `/products` until its dedicated
-Phase 2 milestone.
+route aliases redirect to an appropriate safe workspace.
 
 ## Scanner
 
@@ -52,6 +50,16 @@ CatalogueOperation records, supplemented by the existing process-local active
 operation observation. The route does not cache, migrate, reconcile, or mutate
 catalogue state. Summary and completeness values are derived at request time;
 recent lists are deliberately bounded.
+
+The authenticated Products browser is composed by `app/products_browser.py`.
+`/api/edit_products` remains the backward-compatible parent endpoint while
+adding collection groups, genuine summary facts, supported URL filters, and
+server-side pagination. Correlated aggregate queries provide variation counts
+and price ranges without loading child rows. The separate authenticated
+`/api/products/<id>/variations` endpoint loads ordered variation attributes and
+other projected child facts only after expansion. Both paths are read-only;
+existing metadata editor, raw-source, override creation, and override deletion
+routes remain the action authority.
 
 ## Persistence
 
