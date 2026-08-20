@@ -211,7 +211,9 @@ def build_dashboard_data():
         db.session.query(Product, variation_count.label("variation_count"))
         .options(
             joinedload(Product.collection),
+            selectinload(Product.assets),
             selectinload(Product.images),
+            selectinload(Product.variations).selectinload(Variation.assets),
             selectinload(Product.variations).selectinload(Variation.images),
             selectinload(Product.variations).selectinload(Variation.attributes),
         )

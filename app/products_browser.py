@@ -269,6 +269,7 @@ def build_products_data(filters):
             joinedload(Product.collection),
             selectinload(Product.assets),
             selectinload(Product.images),
+            selectinload(Product.variations).selectinload(Variation.assets),
             selectinload(Product.variations).selectinload(Variation.images),
             selectinload(Product.variations).selectinload(Variation.attributes),
         )

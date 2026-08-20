@@ -542,14 +542,18 @@ def scan_single_variable(
 
     # image fallback if no images in parent folder adds images from style to parent
     parent_folder = os.path.join(base_folder, "parent")
-    if os.path.exists(parent_folder):
+    if os.path.isdir(parent_folder):
         log("🖼️ Using 'parent/' folder for parent images", level="INFO")
-        parent_image_names = process_images(parent_folder, image_output_folder, log=log)
+        parent_image_names = process_images(
+            parent_folder, image_output_folder, log=log, deterministic=True
+        )
     else:
         fallback_style = attr_map[image_attrs[0]][0]
         parent_folder = os.path.join(base_folder, fallback_style)
         log(f"🖼️ Using '{fallback_style}' for parent images", level="WARN")
-        parent_image_names = process_images(parent_folder, image_output_folder, log=log)
+        parent_image_names = process_images(
+            parent_folder, image_output_folder, log=log, deterministic=True
+        )
 
     parent_image_urls = get_image_csv_urls(parent_image_names, url_prefix)
     all_rows.append(build_variable_parent(merged, parent_image_urls))
@@ -570,7 +574,9 @@ def scan_single_variable(
     for i, v_attrs in enumerate(variations):
         log(f"🔎 Resolving image path for {v_attrs} → {base_folder}", level="WARN")
         base_path = os.path.join(base_folder, v_attrs[image_attrs[0]])
-        style_images = process_images(base_path, image_output_folder, log=log)
+        style_images = process_images(
+            base_path, image_output_folder, log=log, deterministic=True
+        )
 
         for attr in image_attrs[1:]:
             if attr in v_attrs:
@@ -578,7 +584,10 @@ def scan_single_variable(
                 if os.path.exists(sub_path):
                     log(f"   ↳ Adding images from: {sub_path}")
                     extra_images = process_images(
-                        sub_path, image_output_folder, log=log
+                        sub_path,
+                        image_output_folder,
+                        log=log,
+                        deterministic=True,
                     )
                     style_images.extend(extra_images)
 
@@ -601,7 +610,9 @@ def scan_single_variable(
             override_sku=v_sku,
         )
         all_rows.append(row)
-        resolved_variations.append({"attributes": v_attrs, "sku": v_sku})
+        resolved_variations.append(
+            {"attributes": v_attrs, "sku": v_sku, "images_used": style_images}
+        )
 
     # Save .scanned data with variation count
     if not preserve_existing_marker or not (

@@ -76,7 +76,17 @@ direct-folder discovery. If no parent source resolves, the first ordered valid
 variation image becomes the parent thumbnail. Variation routes preserve their
 own Single Variable image-attribute folder identity and fall back to the parent
 only when necessary; Variable Collection variations retain the scanner's shared
-parent-image behavior. PNG, JPG, JPEG, and WebP sources are accepted
+parent-image behavior.
+
+Single Variable collections reserve `parent/` at the collection root for the
+parent primary/gallery set. Configured image-attribute names define variation
+directory depth in order; `parent/` is excluded from that hierarchy. Ingestion
+keeps the scanner-generated website URLs and positions in `ProductImage` and
+`VariationImage`, and records confined portable source identities as image
+`ProductAsset` rows. UI resolution prefers those persisted source identities,
+then compatible marker/URL discovery, and uses a variation preview only when no
+usable genuine parent source remains.
+PNG, JPG, JPEG, and WebP sources are accepted
 case-insensitively by extension. Traversal, symlink escape, unsupported and
 invalid files are rejected, and catalogue paths are never returned to the
 browser.

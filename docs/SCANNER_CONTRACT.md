@@ -29,6 +29,16 @@ row-emission contracts characterized below.
 
 `attributes` define variation dimensions. The scanner creates the Cartesian product of attribute values. `variation_modifiers` select effective price, sale price, weight, and dimensions by exact or most-specific partial attribute key. Image attributes select folders for Single Variable variation images.
 
+For a `Single Variable` collection, `parent/` is a reserved directory directly
+under the collection root. It is a sibling of the first configured
+`image_attributes` directory level and is never an attribute value. With
+`image_attributes: ["Style", "Size"]`, variation images are resolved through
+`Style/Size/`, in that configured order; files directly inside `parent/` are
+owned only by the parent product. Supported image names are ordered
+case-insensitively by filename (with the original filename as the stable
+tie-breaker). The first successfully processed parent file is primary and the
+remaining files are gallery images.
+
 ## Local state
 
 - `.scanned` records processed state, parent SKU, title, used images, timestamp, and variation SKU mappings.
@@ -70,7 +80,12 @@ If SQLite does not commit, the pending envelope and previous `.scanned` remain, 
 
 For variable products, variation counter updates still occur while variations are built. SQLite and filesystem state still cannot share one transaction. Counters may advance and processed images may remain after a failure; recovery deliberately reuses the pending identity instead of attempting destructive rollback.
 
-The final `.scanned` payload and matching rules remain unchanged. Clean append/update/full selection and SKU behavior remain unchanged; only a recovery retry may reuse `.scanned.pending` so an interrupted product does not receive a second identity.
+The top-level `.scanned` identity and matching rules remain unchanged. Single
+Variable variation entries may add their ordered `images_used` source names;
+older entries without that optional member remain valid. Clean
+append/update/full selection and SKU behavior remain unchanged; only a recovery
+retry may reuse `.scanned.pending` so an interrupted product does not receive a
+second identity.
 
 ## Characterised discrepancies awaiting separate decisions
 
@@ -82,7 +97,10 @@ The following behavior is deliberately protected as the current contract and is 
 - An unknown `collection_type` passes the current minimal validation and produces no rows because no scanner branch matches it.
 - The editor uses `upsell_ids` and `cross_sell_ids`, while the row builder consumes `upsells` and `crosssells`.
 - Woo parent and variation rows expose at most five attribute slots.
-- `.scanned.images_used` records source image filenames; emitted row URLs can refer to converted output filenames.
+- `.scanned.images_used` records ordered parent source image filenames; emitted
+  row URLs can refer to converted output filenames. Single Variable variation
+  entries may also include `images_used`; older markers without that optional
+  member remain valid and retain their SKU matching semantics.
 
 These discrepancies require explicit future scanner-contract decisions. Phase 1 persists only values that reach the approved emitted projection.
 

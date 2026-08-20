@@ -135,7 +135,14 @@ differ from the source extension or name. Simple and variable parent thumbnails
 follow scanner image order, then safe folder discovery. A variable parent with
 no usable parent image uses its first ordered valid variation source, while an
 expanded variation keeps its variation-specific source and uses the parent only
-as a fallback. Products and Dashboard Recent Products share the same safe
+as a fallback.
+
+Single Variable parent media is discovered from the reserved collection-root
+`parent/` directory. Parent and variation ownership stays separate in markers,
+emitted rows, ordered URL galleries, portable source assets, reconstruction,
+and authenticated UI previews. Generated output files are not required for UI
+resolution after ingestion.
+Products and Dashboard Recent Products share the same safe
 fallback presentation.
 
 The Dashboard and Products "Missing images" signal means an active parent has

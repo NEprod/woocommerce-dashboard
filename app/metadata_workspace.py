@@ -253,6 +253,8 @@ def variation_page(product_id: int, page=1, per_page=24):
         query.options(
             selectinload(Variation.images),
             selectinload(Variation.attributes),
+            selectinload(Variation.assets),
+            selectinload(Variation.product).selectinload(Product.assets),
             selectinload(Variation.product).selectinload(Product.images),
         )
         .offset((page - 1) * per_page)
@@ -298,6 +300,18 @@ def product_workspace(product: Product):
         "main.catalogue_product_gallery_image",
         {"product_id": product.id},
     )
+    primary_preview = next(
+        (image for image in parent_images if image.get("preview_url")), None
+    )
+    if primary_preview is None:
+        for variation in variation_data["items"]:
+            primary_preview = next(
+                (image for image in variation["images"] if image.get("preview_url")),
+                None,
+            )
+            if primary_preview:
+                primary_preview = {**primary_preview, "variation_fallback": True}
+                break
     return {
         "product": product,
         "shared": shared_source,
@@ -306,6 +320,7 @@ def product_workspace(product: Product):
         "publishing_intent": publishing_intent,
         "comparison": metadata_comparison(shared_source["data"], override_data, resolved),
         "parent_images": parent_images,
+        "primary_preview": primary_preview,
         "variations": variation_data["items"],
         "variation_pagination": variation_data["pagination"],
         "price_min": _money(minimum),

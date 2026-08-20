@@ -210,19 +210,9 @@ def _parent_directories(product: Product, context, metadata: dict) -> list[Path]
     parent_folder = product_folder / "parent"
     if parent_folder.is_dir():
         return [parent_folder]
-    image_attributes = metadata.get("image_attributes")
-    attributes = metadata.get("attributes")
-    if (
-        isinstance(image_attributes, list)
-        and image_attributes
-        and isinstance(attributes, dict)
-    ):
-        values = attributes.get(image_attributes[0])
-        if isinstance(values, list) and values and isinstance(values[0], str):
-            parts = _portable_parts(values[0])
-            if parts and len(parts) == 1:
-                return [product_folder / parts[0]]
-    return [product_folder]
+    # Attribute folders are variation-owned. They are considered only by the
+    # explicit variation fallback after genuine parent sources are exhausted.
+    return []
 
 
 def _variation_directories(variation: Variation, context, metadata: dict) -> list[Path]:
@@ -365,6 +355,7 @@ def _ordered_sources(
     product_folder: Path,
     catalogue_root: Path,
     marker_names=(),
+    persisted_sources=(),
 ) -> list[Path | None]:
     """Map projected URL order to confined source files without trusting URL suffixes."""
 
@@ -397,10 +388,11 @@ def _ordered_sources(
             resolved[unresolved] = path
 
     marker_names = list(marker_names)
+    persisted_sources = list(persisted_sources)
     for index, reference in enumerate(references):
-        selected = None
+        selected = persisted_sources[index] if index < len(persisted_sources) else None
         if index < len(marker_names):
-            selected = _resolve_named_source(
+            selected = selected or _resolve_named_source(
                 marker_names[index], directories, product_folder, catalogue_root
             )
         if selected is None:
@@ -420,6 +412,33 @@ def _ordered_sources(
             ):
                 fill_or_add(path.resolve())
     return resolved
+
+
+def _persisted_asset_sources(owner, catalogue_root, product_folder):
+    # Callers that render catalogue lists intentionally avoid relationship
+    # lazy loads; their marker/URL fallback remains available without N+1 work.
+    if "assets" not in owner.__dict__:
+        return []
+    assets = [
+        asset
+        for asset in owner.assets
+        if asset.kind == "image"
+        and (
+            (hasattr(owner, "product_id") and asset.variation_id == owner.id)
+            or (not hasattr(owner, "product_id") and asset.variation_id is None)
+        )
+    ]
+    assets.sort(key=lambda asset: (asset.label or "", asset.id or 0))
+    sources = []
+    for asset in assets:
+        parts = _portable_parts(asset.source_relpath)
+        candidate = catalogue_root.joinpath(*parts) if parts else Path(asset.path)
+        sources.append(
+            candidate.resolve()
+            if _valid_image(candidate, product_folder, catalogue_root)
+            else None
+        )
+    return sources
 
 
 def _source_reference(path: Path, catalogue_root: Path) -> str:
@@ -501,6 +520,7 @@ def product_image_diagnostics(product: Product) -> list[dict]:
         product_folder,
         catalogue_root,
         _marker_images(product_folder, catalogue_root),
+        _persisted_asset_sources(product, catalogue_root, product_folder),
     )
     invalid_sources = [
         _first_invalid(
@@ -510,7 +530,12 @@ def product_image_diagnostics(product: Product) -> list[dict]:
         )
         for reference in references
     ]
-    if references and not any(sources) and not any(invalid_sources):
+    if not references and not any(sources):
+        corrupt = _discover_first_invalid(directories, product_folder, catalogue_root)
+        if corrupt:
+            sources = [None]
+            invalid_sources = [corrupt]
+    elif references and not any(sources) and not any(invalid_sources):
         invalid_sources[0] = _discover_first_invalid(
             directories, product_folder, catalogue_root
         )
@@ -540,7 +565,13 @@ def variation_image_diagnostics(
     if variation.image_url and variation.image_url not in references:
         references.insert(0, variation.image_url)
     sources = _ordered_sources(
-        references, directories, product_folder, catalogue_root
+        references,
+        directories,
+        product_folder,
+        catalogue_root,
+        persisted_sources=_persisted_asset_sources(
+            variation, catalogue_root, product_folder
+        ),
     )
     invalid_sources = [
         _first_invalid(
@@ -623,6 +654,13 @@ def _resolve_parent_only(product: Product, context) -> Path | None:
     directories = _parent_directories(product, context, metadata)
     marker_images = _marker_images(product_folder, catalogue_root)
     images = _ordered_product_images(product)
+    persisted_sources = _persisted_asset_sources(
+        product, catalogue_root, product_folder
+    )
+
+    for source in persisted_sources:
+        if source:
+            return source
 
     if images:
         position = images[0].position if images[0].position is not None else 0
@@ -671,6 +709,11 @@ def _resolve_variation_only(variation: Variation, context) -> Path | None:
     metadata = _scanner_layout(variation.product, context)
     directories = _variation_directories(variation, context, metadata)
     images = _ordered_variation_images(variation)
+    for source in _persisted_asset_sources(
+        variation, catalogue_root, product_folder
+    ):
+        if source:
+            return source
     if images:
         selected = _resolve_reference(images[0].url, directories, product_folder, catalogue_root)
         if selected:

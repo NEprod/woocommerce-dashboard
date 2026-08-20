@@ -47,6 +47,10 @@ Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the P
 - `ProductAttribute`: emitted parent attribute definitions, values, visibility/global flags, and position.
 - `Variation`: child of Product with complete emitted row JSON, portable source provenance, canonical emitted-attribute identity, normalized SKU/price/dimension/image fields, lifecycle state, and future Woo fields.
 - `ProductImage` / `VariationImage`: ordered Woo-facing image URL galleries.
+- `ProductAsset(kind="image")`: portable catalogue-relative source identity for
+  scanner-owned parent and variation images. The absolute `path` remains a
+  runtime locator; `source_relpath` is the portable identity. Image assets never
+  point into the generated output directory and never contain image binaries.
   They contain references, not binary data. UI image display resolves those
   hints against each row's portable catalogue source provenance; mounted source
   files remain authoritative when upload extensions or filenames differ.

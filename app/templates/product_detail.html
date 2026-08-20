@@ -26,13 +26,14 @@
 <section class="product-detail-hero" aria-label="Parent product summary">
   <article class="product-identity-card">
     <div class="product-detail-primary-image">
-      {% if workspace.parent_images and workspace.parent_images[0].preview_url %}
-      <img src="{{ workspace.parent_images[0].preview_url }}" alt="{{ workspace.parent_images[0].alt_text or product.title }}" loading="eager">
+      {% if workspace.primary_preview and workspace.primary_preview.preview_url %}
+      <img src="{{ workspace.primary_preview.preview_url }}" alt="{{ workspace.primary_preview.alt_text or product.title }}" loading="eager">
       {% else %}<span class="product-image-fallback" aria-hidden="true">{{ icon('box') }}</span>{% endif %}
     </div>
     <div class="product-identity-copy">
       <span class="catalogue-pill is-{{ product.catalogue_status }}">Catalogue state: {{ product.catalogue_status|title }}</span>
       <p class="product-context-label">Parent product</p>
+      {% if workspace.primary_preview and workspace.primary_preview.variation_fallback %}<span class="catalogue-pill is-shared">Parent fallback from variation</span>{% endif %}
       <h2>{{ product.title }}</h2>
       <code>{{ product.sku }}</code>
       <dl class="product-key-facts">
