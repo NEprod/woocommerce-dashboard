@@ -15,6 +15,7 @@ from flask import (
     Response,
     current_app,
     send_file,
+    abort,
 )
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.exceptions import BadRequest
@@ -68,6 +69,7 @@ from app.products_browser import (
 from app.utils.atomic_files import atomic_write_json, atomic_write_text
 from app.utils.backup_retention import create_metadata_backup
 from app.utils.temporary_cleanup import cleanup_metadata_temporaries
+from app.catalogue_images import resolve_product_catalogue_image
 
 main = Blueprint("main", __name__)
 
@@ -176,6 +178,24 @@ def api_product_variations(product_id):
             include_all=request.args.get("all") == "1",
         )
     )
+
+
+@main.route("/catalogue-images/products/<int:product_id>")
+@login_required
+def catalogue_product_image(product_id):
+    """Serve one projected product's primary source image from the catalogue."""
+
+    product = Product.query.options(selectinload(Product.images)).filter_by(
+        id=product_id
+    ).first_or_404()
+    image_path = resolve_product_catalogue_image(product)
+    if image_path is None:
+        abort(404)
+    response = send_file(image_path, conditional=True, max_age=3600)
+    response.cache_control.public = False
+    response.cache_control.private = True
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 # ---------- Editor routes used by Products page ----------

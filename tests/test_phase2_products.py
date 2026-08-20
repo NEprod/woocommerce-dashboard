@@ -225,7 +225,7 @@ def test_products_api_groups_collections_and_reports_genuine_counts(products_cli
     assert variable["variation_count"] == 2
     assert variable["price"] == {"minimum": "10.00", "maximum": "15.00"}
     assert variable["metadata_source"] == "override"
-    assert variable["thumbnail"] == "https://example.invalid/fictional-card.webp"
+    assert variable["thumbnail"] == f"/catalogue-images/products/{variable['id']}"
     assert "variations" not in variable
 
 

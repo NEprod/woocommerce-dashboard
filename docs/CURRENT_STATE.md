@@ -128,6 +128,12 @@ is expanded. Desktop uses grouped relational rows, while tablet and mobile use
 collection-preserving product cards. This milestone adds no model, migration,
 scanner, ingestion, marker, SKU, or filesystem behavior.
 
+The Milestone 4 image-display follow-up serves genuine primary source images
+from the mounted catalogue through an authenticated product-ID route. Products
+and Dashboard Recent Products share the same square crop and safe fallback.
+Woo-facing image references remain ordinary SQLite text; source image bytes are
+not copied to SQLite, `/app/instance`, or the production image.
+
 ## Database projection
 
 - The active path populates Collection → Product → Variation for all three exact collection types.

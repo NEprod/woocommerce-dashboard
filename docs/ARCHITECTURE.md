@@ -61,6 +61,15 @@ other projected child facts only after expansion. Both paths are read-only;
 existing metadata editor, raw-source, override creation, and override deletion
 routes remain the action authority.
 
+Products and Dashboard thumbnails use the authenticated opaque route
+`/catalogue-images/products/<id>`. SQLite continues to store the scanner's
+Woo-facing image URL and portable product source path rather than image bytes.
+`app/catalogue_images.py` resolves the ordered primary reference beneath that
+product's directory in the configured catalogue mount, including the scanner's
+source-extension-to-`.webp` URL mapping. Resolution rejects traversal,
+symlink escape, unsupported or invalid files, and never returns catalogue paths
+to the browser. Missing or unreadable sources remain presentation fallbacks.
+
 ## Persistence
 
 SQLite stores users, settings, the complete emitted parent/variation row projection, exact Collection → Product → Variation relationships, images, attributes, taxonomy, JSON provenance, operation history, and dormant integration-oriented models. Product folders, authored JSON, scanner markers, and SKU counters remain independent filesystem state.

@@ -10,6 +10,7 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import joinedload, selectinload
 
 from app import db
+from app.catalogue_images import primary_image_alt, product_thumbnail_url
 from app.dashboard import METADATA_ISSUE_DEFINITIONS, metadata_issue_condition
 from app.models import Collection, Product, ProductAsset, Variation
 
@@ -159,9 +160,7 @@ def _product_view(product, variation_count, minimum_price, maximum_price):
 
     edit_label = "override" if override_present else "shared" if shared_present else None
     view_label = edit_label
-    thumbnail = product.image_url
-    if not thumbnail and product.images:
-        thumbnail = product.images[0].url
+    thumbnail = product_thumbnail_url(product)
 
     row = {
         "id": product.id,
@@ -185,7 +184,7 @@ def _product_view(product, variation_count, minimum_price, maximum_price):
             product.override_json_path or "",
         ),
         "thumbnail": thumbnail,
-        "thumbnail_alt": product.images[0].alt_text if product.images else product.title,
+        "thumbnail_alt": primary_image_alt(product),
         "updated_at": product.local_updated_at.isoformat() if product.local_updated_at else None,
         "has_metadata_issue": bool(
             (not product.short_description and not product.description)

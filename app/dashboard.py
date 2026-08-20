@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app import db
+from app.catalogue_images import primary_image_alt, product_thumbnail_url
 from app.models import (
     CatalogueOperation,
     Collection,
@@ -184,7 +185,7 @@ def build_dashboard_data():
     )
     product_rows = (
         db.session.query(Product, variation_count.label("variation_count"))
-        .options(joinedload(Product.collection))
+        .options(joinedload(Product.collection), selectinload(Product.images))
         .order_by(Product.local_updated_at.desc(), Product.id.desc())
         .limit(6)
         .all()
@@ -199,7 +200,8 @@ def build_dashboard_data():
             "collection": product.collection.name if product.collection else "Unassigned",
             "variation_count": count,
             "updated_at": product.local_updated_at,
-            "image_url": product.image_url,
+            "thumbnail": product_thumbnail_url(product),
+            "thumbnail_alt": primary_image_alt(product),
             "has_override": bool(product.override_json_path),
         }
         for product, count in product_rows

@@ -39,5 +39,10 @@ This is a personal project baseline. Report suspected vulnerabilities privately 
 - Filesystem folder browsing is an authenticated administrator setup function.
   `/folder-picker` must never be exposed anonymously, and its responses must not
   be repurposed as a public filesystem API.
+- Catalogue thumbnails are served only through the authenticated opaque
+  `/catalogue-images/products/<id>` route. The resolver is confined to the
+  configured catalogue root and projected product folder, rejects traversal and
+  symlink escape, validates supported image content, and never exposes authored
+  host/container paths or provides a general-purpose file-download endpoint.
 
 If a credential may have entered Git history or an image layer, rotate it first; removing the text afterward is not sufficient.

@@ -1,6 +1,19 @@
 (function () {
   "use strict";
   document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll("[data-catalogue-thumbnail]").forEach(function (frame) {
+      const image = frame.querySelector("img");
+      if (!image) return;
+      function loaded() { frame.classList.add("has-image"); }
+      function failed() { image.remove(); frame.classList.remove("has-image"); }
+      image.addEventListener("load", loaded);
+      image.addEventListener("error", failed);
+      if (image.complete) {
+        if (image.naturalWidth) loaded();
+        else failed();
+      }
+    });
+
     const navigation = document.getElementById("appNavigation");
     if (navigation) {
       navigation.querySelectorAll("a[href]").forEach(function (link) {

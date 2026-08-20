@@ -56,7 +56,9 @@
   function thumbnail(product) {
     const frame = document.createElement("span");
     frame.className = "product-thumbnail";
-    frame.appendChild(text("span", "product-thumbnail-fallback", (product.title || "P").trim().slice(0, 1).toUpperCase()));
+    const fallback = text("span", "product-thumbnail-fallback", (product.title || "P").trim().slice(0, 1).toUpperCase());
+    fallback.setAttribute("aria-hidden", "true");
+    frame.appendChild(fallback);
     if (product.thumbnail) {
       const image = document.createElement("img");
       image.src = product.thumbnail;
