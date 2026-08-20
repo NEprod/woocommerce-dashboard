@@ -149,6 +149,7 @@ a:hover { color: var(--color-lime-hover); }
 .dashboard-stat-card:nth-child(5) .dashboard-stat-icon { background: var(--color-warning-soft); color: var(--color-warning-ink); }
 .dashboard-stat-card p { margin: 0; color: var(--color-text-secondary); font-size: 11px; line-height: 1.35; }
 .dashboard-stat-card strong { display: block; margin-top: var(--space-2); color: var(--color-text-primary); font-size: 24px; font-weight: 750; font-variant-numeric: tabular-nums; line-height: 1; }
+.dashboard-summary-note { margin: calc(-1 * var(--space-2)) 0 var(--space-5); color: var(--color-text-muted); font-size: 11px; }
 .dashboard-feature-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5); margin-bottom: var(--space-5); }
 .catalogue-health-panel, .scanner-activity-panel { min-height: 344px; }
 .dashboard-panel-heading, .dashboard-card-heading, .scanner-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); }
@@ -156,8 +157,8 @@ a:hover { color: var(--color-lime-hover); }
 .dashboard-panel-heading h2 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.015em; }
 .status-pill.is-warning { background: var(--color-warning-soft); color: var(--color-warning-ink); }
 .status-pill.is-neutral { background: rgba(248,250,248,.12); color: var(--color-text-inverse); }
-.catalogue-health-summary { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(220px, 1.3fr); align-items: center; gap: var(--space-8); margin-top: var(--space-8); }
-.health-score { display: flex; min-height: 154px; flex-direction: column; align-items: center; justify-content: center; border: 12px solid var(--color-lime); border-radius: 50%; text-align: center; }
+.catalogue-health-summary { display: grid; grid-template-columns: minmax(132px, 176px) minmax(220px, 1fr); align-items: center; gap: var(--space-8); margin-top: var(--space-8); }
+.health-score { display: flex; width: clamp(132px, 100%, 176px); min-height: 0; aspect-ratio: 1 / 1; flex-direction: column; align-items: center; justify-content: center; justify-self: center; border: 12px solid var(--color-lime); border-radius: 50%; text-align: center; }
 .health-score strong { font-size: 38px; font-weight: 750; line-height: 1; }
 .health-score span { margin-top: var(--space-2); color: rgba(248,250,248,.7); font-size: 11px; }
 .health-detail progress { width: 100%; height: 8px; overflow: hidden; border: 0; border-radius: var(--radius-pill); background: rgba(248,250,248,.14); }
@@ -206,7 +207,10 @@ a:hover { color: var(--color-lime-hover); }
 .metadata-total strong { font-size: 42px; font-weight: 750; line-height: 1; }
 .metadata-total span { color: var(--color-text-muted); font-size: 11px; }
 .metadata-issue-list { margin: 0; }
-.metadata-issue-list > div { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-3) 0; border-bottom: var(--border-subtle); }
+.metadata-issue-list > div { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-3) 0; border-bottom: var(--border-subtle); }
+.metadata-issue-list > div.is-actionable:hover dt { color: var(--color-teal); text-decoration: underline; text-underline-offset: 3px; }
+.metadata-issue-list > div.is-actionable a { color: inherit; text-decoration: none; }
+.metadata-issue-list > div.is-actionable a::after { position: absolute; inset: 0; content: ""; }
 .metadata-issue-list dt { color: var(--color-text-secondary); font-size: 12px; font-weight: 500; }
 .metadata-issue-list dd { margin: 0; font-weight: 700; }
 .dashboard-card-note { margin: var(--space-4) 0 0; color: var(--color-text-muted); font-size: 10px; }
@@ -384,7 +388,7 @@ code { color: var(--color-lime-ink); font-family: var(--font-mono); }
   .catalogue-health-panel, .scanner-activity-panel { min-height: 0; }
   .dashboard-panel-heading, .scanner-footer { align-items: flex-start; flex-direction: column; }
   .catalogue-health-summary { grid-template-columns: 1fr; }
-  .health-score { width: 154px; margin-inline: auto; }
+  .health-score { max-width: 154px; margin-inline: auto; }
   .scanner-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-list-card { min-height: 0; }
   .dashboard-desktop-products { display: none; }

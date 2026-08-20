@@ -8,6 +8,7 @@ from app.models import (
     CatalogueOperation,
     Collection,
     Product,
+    ProductAsset,
     ProductImage,
     User,
     Variation,
@@ -89,6 +90,22 @@ def dashboard_app(tmp_path):
             )
             db.session.add_all([active, incomplete, missing])
             db.session.flush()
+            db.session.add_all(
+                [
+                    ProductAsset(
+                        product_id=active.id,
+                        path="/fixture/cards/product_info.json",
+                        kind="info",
+                        label="shared",
+                    ),
+                    ProductAsset(
+                        product_id=incomplete.id,
+                        path="/fixture/cards/product_info.json",
+                        kind="info",
+                        label="shared",
+                    ),
+                ]
+            )
             db.session.add(ProductImage(product_id=active.id, url=active.image_url))
             db.session.add_all(
                 [
@@ -179,7 +196,11 @@ def test_dashboard_data_uses_only_projection_and_operation_records(dashboard_app
     assert data["health"]["active_items"] == 4
     assert data["health"]["missing_items"] == 2
     assert data["health"]["availability_percent"] == 67
-    assert data["metadata_issues"] == {
+    assert {
+        key: value
+        for key, value in data["metadata_issues"].items()
+        if key != "categories"
+    } == {
         "missing_descriptions": 1,
         "missing_images": 1,
         "missing_seo": 1,
@@ -229,6 +250,90 @@ def test_dashboard_route_renders_real_sections_without_unsupported_claims(
     assert 'aria-labelledby="scanner-activity-title"' in html
     assert '<table' in html
     assert '<th scope="col"' in html
+
+
+def test_dashboard_active_wording_is_explicitly_local(dashboard_client):
+    html = dashboard_client.get("/").get_data(as_text=True)
+
+    assert "Active in Catalogue" in html
+    assert "active products in the local scanned catalogue" in html
+    assert "Active Products" not in html
+    assert "synced to WooCommerce" not in html
+    assert "published in WooCommerce" not in html
+
+
+@pytest.mark.parametrize(
+    "issue, label",
+    [
+        ("missing_description", "Missing descriptions"),
+        ("missing_image", "Missing images"),
+        ("missing_seo", "Missing SEO metadata"),
+    ],
+)
+def test_dashboard_metadata_issue_links_filter_products(
+    dashboard_client, issue, label
+):
+    dashboard_html = dashboard_client.get("/").get_data(as_text=True)
+    assert f'/products?issue={issue}' in dashboard_html
+    assert f'View 1 product with {label.lower()}' in dashboard_html
+
+    page = dashboard_client.get(f"/products?issue={issue}")
+    assert page.status_code == 200
+    page_html = page.get_data(as_text=True)
+    assert label in page_html
+    assert "Showing active parent products in the local catalogue" in page_html
+    assert issue in page_html
+
+    response = dashboard_client.get(f"/api/edit_products?issue={issue}")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["filter"] == {"key": issue, "label": label}
+    assert len(payload["items"]) == 1
+    item = payload["items"][0]
+    assert item["sku"] == "CARD-002"
+    assert item["title"] == "Incomplete Card"
+    assert item["collection"] == "Fictional Cards"
+    assert item["issue"] == {
+        "key": issue,
+        "label": label,
+        "entity_type": "parent_product",
+        "variation_sku": None,
+        "variation_attributes": [],
+    }
+    assert item["shared_present"] is True
+    editor = dashboard_client.get(f"/edit_products/{item['id']}/edit/shared")
+    assert editor.status_code == 200
+
+
+def test_zero_metadata_issue_rows_are_not_links(dashboard_app):
+    app, _database = dashboard_app
+    with app.app_context():
+        product = Product.query.filter_by(sku="CARD-002").one()
+        product.short_description = "Complete description"
+        product.meta_title = "Complete title"
+        product.meta_description = "Complete SEO description"
+        product.image_url = "https://example.invalid/complete.webp"
+        db.session.commit()
+        user_id = User.query.one().id
+
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session["_user_id"] = str(user_id)
+        session["_fresh"] = True
+    html = client.get("/").get_data(as_text=True)
+
+    assert "Missing descriptions</dt><dd>0</dd>" in html
+    assert "Missing images</dt><dd>0</dd>" in html
+    assert "Missing SEO metadata</dt><dd>0</dd>" in html
+    assert "/products?issue=" not in html
+
+
+def test_unknown_products_issue_filter_is_rejected(dashboard_client):
+    assert dashboard_client.get("/products?issue=unsupported").status_code == 400
+    assert (
+        dashboard_client.get("/api/edit_products?issue=unsupported").status_code
+        == 400
+    )
 
 
 def test_empty_dashboard_is_honest_and_actionable(dashboard_app):
@@ -293,3 +398,8 @@ def test_dashboard_styles_define_responsive_feature_and_empty_states():
     ):
         assert selector in stylesheet
     assert "@media (max-width: 767.98px)" in stylesheet
+    health_rule = stylesheet.split(".health-score {", 1)[1].split("}", 1)[0]
+    assert "aspect-ratio: 1 / 1" in health_rule
+    assert "width: clamp(" in health_rule
+    assert "min-height: 0" in health_rule
+    assert "justify-self: center" in health_rule

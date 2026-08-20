@@ -8,6 +8,13 @@
   </div>
 </header>
 
+{% if issue_filter %}
+<section class="alert alert-info d-flex align-items-center justify-content-between gap-3" role="status" aria-label="Active metadata issue filter">
+  <div><strong>{{ issue_filter.label }}</strong><span class="d-block">Showing active parent products in the local catalogue with this metadata gap.</span></div>
+  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.products') }}">Clear filter</a>
+</section>
+{% endif %}
+
 <div class="table-panel">
   <div class="table-panel-header">
     <div><p class="eyebrow text-light mb-1">Current projection</p><h2>Catalogue products</h2></div>
@@ -23,6 +30,7 @@
         <th>Collection</th>
         <th class="text-center">Shared</th>
         <th class="text-center">Override</th>
+        {% if issue_filter %}<th>Issue</th>{% endif %}
         <th class="text-center">Actions</th>
       </tr>
     </thead>
@@ -58,6 +66,7 @@
 <script>
 (function(){
   const tableBody = document.querySelector("#productsTable tbody");
+  const productPageState = {{ {'issue': issue_filter.key if issue_filter else none}|tojson }};
   const iconSprite = "{{ url_for('static', filename='assets/img/icons/app-icons.svg') }}";
   let currentProductForOverride = null;
   let pickerState = { root: "", path: "", rel: "", selectedRel: "" };
@@ -82,7 +91,7 @@
     document.getElementById("productCount").textContent = `${items.length} ${items.length === 1 ? "product" : "products"}`;
     if (!items.length) {
       const emptyRow = document.createElement("tr");
-      emptyRow.innerHTML = '<td class="empty-state" colspan="7">No projected products are available yet.</td>';
+      emptyRow.innerHTML = `<td class="empty-state" colspan="${productPageState.issue ? 8 : 7}">No projected products match this view.</td>`;
       tableBody.appendChild(emptyRow);
       return;
     }
@@ -136,6 +145,7 @@
         <td>${r.collection || ""}</td>
         <td>${sharedCell}</td>
         <td>${overrideCell}</td>
+        ${productPageState.issue ? `<td><span class="compact-status is-override">${r.issue ? r.issue.label : "Metadata issue"}</span></td>` : ""}
         <td>${actions}</td>
       `;
       tableBody.appendChild(tr);
@@ -143,7 +153,10 @@
   }
 
   async function loadTable() {
-    const res = await fetch("{{ url_for('main.api_products') }}");
+    const params = new URLSearchParams();
+    if (productPageState.issue) params.set("issue", productPageState.issue);
+    const endpoint = "{{ url_for('main.api_products') }}" + (params.size ? `?${params}` : "");
+    const res = await fetch(endpoint);
     const data = await res.json();
     renderRows(data.items || []);
   }
@@ -218,22 +231,37 @@
       list.appendChild(li);
     });
 
-    document.getElementById("chooseFolderBtn").onclick = async () => {
+    const chooseButton = document.getElementById("chooseFolderBtn");
+    chooseButton.onclick = async () => {
       if (!pickerState.selectedRel) return;
-      const res2 = await fetch(`{{ url_for('main.api_override_create', product_id=0) }}`.replace("0", String(productId)), {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({rel: pickerState.selectedRel})
-      });
-      const out2 = await res2.json();
-      if (out2.error) { alert(out2.message || out2.error); return; }
-      bootstrap.Modal.getInstance(document.getElementById('overrideModal')).hide();
-
-      // Start streaming scan logs
-      if (out2.run_id) openScanModal(out2.run_id);
-
-      // Jump to the editor for that override immediately
-      if (out2.edit_url) window.location = out2.edit_url;
+      chooseButton.disabled = true;
+      chooseButton.setAttribute("aria-busy", "true");
+      try {
+        const response = await fetch(`{{ url_for('main.api_override_create', product_id=0) }}`.replace("0", String(productId)), {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({rel: pickerState.selectedRel})
+        });
+        if (response.redirected) {
+          window.location.assign(response.url);
+          return;
+        }
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+          throw new Error(`Override creation returned HTTP ${response.status}. Please sign in again and retry.`);
+        }
+        const result = await response.json();
+        if (!response.ok || result.error) {
+          throw new Error(result.message || result.error || `Override creation returned HTTP ${response.status}.`);
+        }
+        bootstrap.Modal.getInstance(document.getElementById("overrideModal")).hide();
+        if (result.edit_url) window.location.assign(result.edit_url);
+      } catch (error) {
+        alert(error.message || "Unable to create the override.");
+      } finally {
+        chooseButton.removeAttribute("aria-busy");
+        chooseButton.disabled = !pickerState.selectedRel;
+      }
     };
   }
 

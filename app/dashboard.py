@@ -26,9 +26,50 @@ OPERATION_LABELS = {
     "reconstruction": "Catalogue reconstruction",
 }
 
+METADATA_ISSUE_DEFINITIONS = {
+    "missing_description": {
+        "label": "Missing descriptions",
+        "count_key": "missing_descriptions",
+    },
+    "missing_image": {
+        "label": "Missing images",
+        "count_key": "missing_images",
+    },
+    "missing_seo": {
+        "label": "Missing SEO metadata",
+        "count_key": "missing_seo",
+    },
+}
+
 
 def _blank(column):
     return or_(column.is_(None), func.trim(column) == "")
+
+
+def metadata_issue_condition(issue_key):
+    """Return the active-parent condition used by dashboard issue counts."""
+
+    active_product = Product.catalogue_status == "active"
+    if issue_key == "missing_description":
+        return and_(
+            active_product,
+            _blank(Product.short_description),
+            _blank(Product.description),
+        )
+    if issue_key == "missing_image":
+        return and_(
+            active_product,
+            _blank(Product.image_url),
+            ~select(ProductImage.id)
+            .where(ProductImage.product_id == Product.id)
+            .exists(),
+        )
+    if issue_key == "missing_seo":
+        return and_(
+            active_product,
+            or_(_blank(Product.meta_title), _blank(Product.meta_description)),
+        )
+    raise KeyError(issue_key)
 
 
 def _operation_view(operation):
@@ -78,22 +119,14 @@ def build_dashboard_data():
         ).count(),
     }
 
-    active_products = Product.catalogue_status == "active"
     missing_descriptions = Product.query.filter(
-        active_products,
-        _blank(Product.short_description),
-        _blank(Product.description),
+        metadata_issue_condition("missing_description")
     ).count()
     missing_images = Product.query.filter(
-        active_products,
-        _blank(Product.image_url),
-        ~select(ProductImage.id)
-        .where(ProductImage.product_id == Product.id)
-        .exists(),
+        metadata_issue_condition("missing_image")
     ).count()
     missing_seo = Product.query.filter(
-        active_products,
-        or_(_blank(Product.meta_title), _blank(Product.meta_description)),
+        metadata_issue_condition("missing_seo")
     ).count()
     metadata_issues = {
         "missing_descriptions": missing_descriptions,
@@ -101,6 +134,14 @@ def build_dashboard_data():
         "missing_seo": missing_seo,
         "total": missing_descriptions + missing_images + missing_seo,
     }
+    metadata_issues["categories"] = [
+        {
+            "key": key,
+            "label": definition["label"],
+            "count": metadata_issues[definition["count_key"]],
+        }
+        for key, definition in METADATA_ISSUE_DEFINITIONS.items()
+    ]
 
     total_items = summary["products"] + summary["variations"]
     active_items = summary["active_products"] + summary["active_variations"]

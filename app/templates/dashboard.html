@@ -15,7 +15,7 @@
     ('collection', 'Collections', dashboard.summary.collections),
     ('box', 'Parent products', dashboard.summary.products),
     ('chart', 'Variations', dashboard.summary.variations),
-    ('box', 'Active products', dashboard.summary.active_products),
+    ('box', 'Active in Catalogue', dashboard.summary.active_products),
     ('scanner', 'Missing products', dashboard.summary.missing_products),
     ('file', 'Products with overrides', dashboard.summary.overrides)
   ] %}
@@ -26,6 +26,7 @@
   </article>
   {% endfor %}
 </section>
+<p class="dashboard-summary-note">Active in Catalogue counts active products in the local scanned catalogue; it does not indicate WooCommerce publication or sync state.</p>
 
 <section class="dashboard-feature-grid" aria-label="Catalogue and scanner health">
   <article class="feature-panel catalogue-health-panel" aria-labelledby="catalogue-health-title">
@@ -39,8 +40,8 @@
       <div class="health-detail">
         <progress value="{{ dashboard.health.active_items }}" max="{{ dashboard.health.total_items }}">{{ dashboard.health.availability_percent }}%</progress>
         <dl class="dark-metric-list">
-          <div><dt>Active items</dt><dd>{{ dashboard.health.active_items }}</dd></div>
-          <div><dt>Missing items</dt><dd>{{ dashboard.health.missing_items }}</dd></div>
+          <div><dt>Active catalogue items</dt><dd>{{ dashboard.health.active_items }}</dd></div>
+          <div><dt>Missing catalogue items</dt><dd>{{ dashboard.health.missing_items }}</dd></div>
           <div><dt>Total projected</dt><dd>{{ dashboard.health.total_items }}</dd></div>
         </dl>
       </div>
@@ -104,9 +105,9 @@
     <div class="dashboard-card-heading"><h2 id="metadata-issues-title">Metadata Issues</h2></div>
     <div class="metadata-total"><strong>{{ dashboard.metadata_issues.total }}</strong><span>field groups incomplete</span></div>
     <dl class="metadata-issue-list">
-      <div><dt>Missing descriptions</dt><dd>{{ dashboard.metadata_issues.missing_descriptions }}</dd></div>
-      <div><dt>Missing images</dt><dd>{{ dashboard.metadata_issues.missing_images }}</dd></div>
-      <div><dt>Missing SEO metadata</dt><dd>{{ dashboard.metadata_issues.missing_seo }}</dd></div>
+      {% for issue in dashboard.metadata_issues.categories %}
+      <div{% if issue.count %} class="is-actionable"{% endif %}>{% if issue.count %}<dt><a href="{{ url_for('main.products', issue=issue.key) }}" aria-label="View {{ issue.count }} product{% if issue.count != 1 %}s{% endif %} with {{ issue.label|lower }}">{{ issue.label }}</a></dt><dd>{{ issue.count }}</dd>{% else %}<dt>{{ issue.label }}</dt><dd>0</dd>{% endif %}</div>
+      {% endfor %}
     </dl>
     <p class="dashboard-card-note">Derived from active parent-product fields in the local projection.</p>
   </article>

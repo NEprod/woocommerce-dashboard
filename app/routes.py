@@ -56,7 +56,12 @@ from app.product_info import (
     load_template,
     validate_product_info,
 )
-from app.dashboard import build_dashboard_data
+from app.dashboard import (
+    METADATA_ISSUE_DEFINITIONS,
+    build_dashboard_data,
+    metadata_issue_condition,
+)
+from app.utils.atomic_files import atomic_write_json, atomic_write_text
 
 main = Blueprint("main", __name__)
 
@@ -106,7 +111,16 @@ def dashboard():
 def products():
     # Milestone 1 keeps the established catalogue table while making the
     # canonical Products route safe. The catalogue redesign begins later.
-    return render_template("edit_products.html")
+    issue_key = request.args.get("issue", "").strip()
+    if issue_key and issue_key not in METADATA_ISSUE_DEFINITIONS:
+        raise BadRequest("Unsupported metadata issue filter")
+    issue_filter = None
+    if issue_key:
+        issue_filter = {
+            "key": issue_key,
+            "label": METADATA_ISSUE_DEFINITIONS[issue_key]["label"],
+        }
+    return render_template("edit_products.html", issue_filter=issue_filter)
 
 
 @main.route("/api/edit_products")
@@ -118,6 +132,15 @@ def api_products():
     """
     Shared = aliased(ProductAsset)
     Override = aliased(ProductAsset)
+    issue_key = request.args.get("issue", "").strip()
+    if issue_key and issue_key not in METADATA_ISSUE_DEFINITIONS:
+        raise BadRequest("Unsupported metadata issue filter")
+    issue_filter = None
+    if issue_key:
+        issue_filter = {
+            "key": issue_key,
+            "label": METADATA_ISSUE_DEFINITIONS[issue_key]["label"],
+        }
 
     q = (
         db.session.query(
@@ -126,11 +149,13 @@ def api_products():
             Product.title,
             Product.product_type,
             Product.collection_type,
+            Collection.name.label("collection_name"),
             Shared.id.label("shared_id"),
             Shared.path.label("shared_path"),
             Override.id.label("override_id"),
             Override.path.label("override_path"),
         )
+        .outerjoin(Collection, Product.collection_id == Collection.id)
         .outerjoin(
             Shared,
             (Shared.product_id == Product.id)
@@ -145,14 +170,18 @@ def api_products():
         )
         .order_by(Product.sku.asc())
     )
+    if issue_key:
+        q = q.filter(metadata_issue_condition(issue_key))
 
     rows = []
     for r in q.all():
         chosen_path = r.shared_path or r.override_path or ""
-        collection_name = ""
+        collection_name = r.collection_name or ""
         if chosen_path:
             try:
-                collection_name = os.path.basename(os.path.dirname(chosen_path))
+                collection_name = collection_name or os.path.basename(
+                    os.path.dirname(chosen_path)
+                )
             except Exception:
                 collection_name = ""
 
@@ -167,10 +196,20 @@ def api_products():
                 "override_present": bool(r.override_id),
                 "shared_path": r.shared_path or "",
                 "override_path": r.override_path or "",
+                "issue": (
+                    {
+                        **issue_filter,
+                        "entity_type": "parent_product",
+                        "variation_sku": None,
+                        "variation_attributes": [],
+                    }
+                    if issue_filter
+                    else None
+                ),
             }
         )
 
-    return jsonify({"items": rows})
+    return jsonify({"items": rows, "filter": issue_filter})
 
 
 # ---------- Editor routes used by Products page ----------
@@ -633,6 +672,33 @@ def api_override_create(product_id):
     if not os.path.isdir(abs_path):
         return jsonify({"error": "folder does not exist"}), 400
 
+    existing_override = (
+        ProductAsset.query.filter_by(
+            product_id=p.id, kind="info", label="override"
+        )
+        .order_by(ProductAsset.id.desc())
+        .first()
+    )
+    if existing_override and existing_override.path:
+        existing_path = os.path.realpath(existing_override.path)
+        try:
+            existing_is_safe = os.path.commonpath(
+                [root_real, existing_path]
+            ) == root_real
+        except ValueError:
+            existing_is_safe = False
+        if existing_is_safe and os.path.isfile(existing_path):
+            return jsonify(
+                {
+                    "ok": True,
+                    "created": False,
+                    "run_id": None,
+                    "edit_url": url_for(
+                        "main.product_edit", product_id=p.id, label="override"
+                    ),
+                }
+            )
+
     try:
         operation = acquire_catalogue_operation(
             "product_update", {"sku": p.sku, "kind": "override_create"}
@@ -644,8 +710,7 @@ def api_override_create(product_id):
     try:
         if not os.path.exists(json_path):
             os.makedirs(abs_path, exist_ok=True)
-            with open(json_path, "w", encoding="utf-8") as f:
-                json.dump({}, f, ensure_ascii=False, indent=2)
+            atomic_write_json(json_path, {})
 
         ProductAsset.query.filter_by(
             product_id=p.id, kind="info", label="override"
@@ -664,8 +729,7 @@ def api_override_create(product_id):
 
         # Touch .update
         try:
-            with open(os.path.join(abs_path, ".update"), "w") as f:
-                f.write("1")
+            atomic_write_text(os.path.join(abs_path, ".update"), "1")
         except Exception:
             pass
 
@@ -683,7 +747,9 @@ def api_override_create(product_id):
         finish_catalogue_operation(operation.id, status="failed", error=error)
         return jsonify({"error": "failed to create override"}), 500
 
-    return jsonify({"ok": True, "run_id": run_id, "edit_url": edit_url})
+    return jsonify(
+        {"ok": True, "created": True, "run_id": run_id, "edit_url": edit_url}
+    )
 
 
 # ---------- Raw file open (debug / preview) ----------
