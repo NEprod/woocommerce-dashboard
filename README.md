@@ -21,6 +21,13 @@ the local projection without fabricated analytics. Its Products workspace now
 groups genuine parent products by collection, preserves supported Dashboard
 issue filters, paginates parent results, and loads projected variation details
 only when requested.
+Product Detail now presents the resolved parent/variation workspace, metadata
+provenance, ordered catalogue image diagnostics, and read-only stored website
+URLs. Guided editors preserve the real ownership model: one collection document
+supplies shared defaults and an optional partial product override stores only
+intentional differences. Advanced JSON remains available as an explicit expert
+mode, and every save continues through the protected backup, atomic-write, and
+scanner update workflow.
 The released Phase 1 scanner and persistence contracts remain unchanged.
 
 ## Current capabilities

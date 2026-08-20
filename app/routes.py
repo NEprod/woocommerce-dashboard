@@ -20,7 +20,7 @@ from flask import (
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.exceptions import BadRequest
 from werkzeug.security import check_password_hash, generate_password_hash
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app import db, csrf
 from app.forms import (
@@ -70,8 +70,17 @@ from app.utils.atomic_files import atomic_write_json, atomic_write_text
 from app.utils.backup_retention import create_metadata_backup
 from app.utils.temporary_cleanup import cleanup_metadata_temporaries
 from app.catalogue_images import (
+    product_image_diagnostics,
     resolve_product_catalogue_image,
     resolve_variation_catalogue_image,
+    variation_image_diagnostics,
+)
+from app.metadata_workspace import (
+    affected_products_page,
+    editor_workspace,
+    metadata_source,
+    product_workspace,
+    variation_page,
 )
 
 main = Blueprint("main", __name__)
@@ -187,6 +196,66 @@ def api_product_variations(product_id):
     )
 
 
+@main.route("/products/<int:product_id>")
+@login_required
+def product_detail(product_id):
+    product = (
+        Product.query.options(
+            joinedload(Product.collection),
+            selectinload(Product.assets),
+            selectinload(Product.images),
+            selectinload(Product.categories),
+            selectinload(Product.tags),
+            selectinload(Product.attributes),
+        )
+        .filter_by(id=product_id)
+        .first_or_404()
+    )
+    return render_template("product_detail.html", workspace=product_workspace(product))
+
+
+@main.route("/api/products/<int:product_id>/detail-variations")
+@login_required
+def api_product_detail_variations(product_id):
+    product = Product.query.filter_by(id=product_id, product_type="variable").first_or_404()
+    try:
+        page = max(1, int(request.args.get("page", "1")))
+    except ValueError as error:
+        raise BadRequest("Invalid variation page") from error
+    return jsonify(variation_page(product.id, page=page, per_page=24))
+
+
+@main.route("/collections/<int:collection_id>/metadata")
+@login_required
+def collection_metadata_edit(collection_id):
+    collection = db.get_or_404(Collection, collection_id)
+    product = (
+        Product.query.options(joinedload(Product.collection))
+        .filter_by(collection_id=collection.id)
+        .order_by(Product.title.asc(), Product.id.asc())
+        .first()
+    )
+    if product is None:
+        abort(404)
+    return render_template(
+        "metadata_editor.html", workspace=editor_workspace(product, "shared")
+    )
+
+
+@main.route("/api/collections/<int:collection_id>/affected-products")
+@login_required
+def api_collection_affected_products(collection_id):
+    collection = db.get_or_404(Collection, collection_id)
+    try:
+        page = max(1, int(request.args.get("page", "1")))
+        per_page = int(request.args.get("per_page", "12"))
+    except ValueError as error:
+        raise BadRequest("Invalid affected-product pagination") from error
+    if per_page not in {1, 6, 12, 24}:
+        per_page = 12
+    return jsonify(affected_products_page(collection, page, per_page))
+
+
 @main.route("/catalogue-images/products/<int:product_id>")
 @login_required
 def catalogue_product_image(product_id):
@@ -207,6 +276,24 @@ def catalogue_product_image(product_id):
     return _catalogue_image_response(image_path)
 
 
+@main.route("/catalogue-images/products/<int:product_id>/gallery/<int:index>")
+@login_required
+def catalogue_product_gallery_image(product_id, index):
+    product = (
+        Product.query.options(
+            selectinload(Product.images),
+            selectinload(Product.variations).selectinload(Variation.images),
+            selectinload(Product.variations).selectinload(Variation.attributes),
+        )
+        .filter_by(id=product_id)
+        .first_or_404()
+    )
+    rows = product_image_diagnostics(product)
+    if index < 0 or index >= len(rows) or not rows[index].get("path"):
+        abort(404)
+    return _catalogue_image_response(rows[index]["path"])
+
+
 @main.route("/catalogue-images/variations/<int:variation_id>")
 @login_required
 def catalogue_variation_image(variation_id):
@@ -225,6 +312,24 @@ def catalogue_variation_image(variation_id):
     if image_path is None:
         abort(404)
     return _catalogue_image_response(image_path)
+
+
+@main.route("/catalogue-images/variations/<int:variation_id>/gallery/<int:index>")
+@login_required
+def catalogue_variation_gallery_image(variation_id, index):
+    variation = (
+        Variation.query.options(
+            selectinload(Variation.images),
+            selectinload(Variation.attributes),
+            selectinload(Variation.product).selectinload(Product.images),
+        )
+        .filter_by(id=variation_id)
+        .first_or_404()
+    )
+    rows = variation_image_diagnostics(variation)
+    if index < 0 or index >= len(rows) or not rows[index].get("path"):
+        abort(404)
+    return _catalogue_image_response(rows[index]["path"])
 
 
 def _catalogue_image_response(image_path):
@@ -257,14 +362,35 @@ def product_edit(product_id, label):
     if label not in ("shared", "override"):
         return "invalid label", 400
 
-    p = db.get_or_404(Product, product_id)
-    asset = (
-        ProductAsset.query.filter_by(product_id=p.id, kind="info", label=label)
-        .order_by(ProductAsset.id.desc())
-        .first()
+    p = (
+        Product.query.options(
+            joinedload(Product.collection),
+            selectinload(Product.images),
+            selectinload(Product.variations).selectinload(Variation.images),
+            selectinload(Product.variations).selectinload(Variation.attributes),
+        )
+        .filter_by(id=product_id)
+        .first_or_404()
     )
-    json_path = asset.path if (asset and asset.path) else ""
-    return render_template("editor.html", product=p, kind=label, json_path=json_path)
+    workspace = editor_workspace(p, label)
+    return render_template("metadata_editor.html", workspace=workspace)
+
+
+@main.route("/api/metadata/validate", methods=["POST"])
+@login_required
+@csrf.exempt
+def metadata_validate():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "invalid_json", "valid": False}), 400
+    kind = payload.get("kind")
+    data = payload.get("data")
+    if kind not in {"shared", "override"}:
+        return jsonify({"error": "invalid kind", "valid": False}), 400
+    result = validate_product_info(
+        data, "collection" if kind == "shared" else "override"
+    )
+    return jsonify(result.to_dict()), 200 if result.valid else 400
 
 
 def _deep_merge(dst, src):
@@ -343,9 +469,26 @@ def product_save_json(sku):
         return jsonify({"error": "request body must be a JSON object"}), 400
     kind = (payload.get("kind") or "").lower()
     new_data = payload.get("data", {})
+    replace_document = payload.get("replace") is True
 
     if kind not in ("shared", "override"):
         return jsonify({"error": "invalid kind"}), 400
+
+    active_operation = get_active_operation()
+    if active_operation is not None:
+        return (
+            jsonify(
+                {
+                    "error": "catalogue_operation_active",
+                    "message": (
+                        f"Another catalogue operation ({active_operation['operation_type']}) "
+                        "is already active."
+                    ),
+                    "active_operation": active_operation,
+                }
+            ),
+            409,
+        )
 
     submitted_validation = validate_product_info(new_data, "override")
     if not submitted_validation.valid:
@@ -366,8 +509,22 @@ def product_save_json(sku):
     if not asset or not asset.path:
         return jsonify({"error": f"{kind} JSON not present for this product"}), 400
 
-    target = asset.path
+    source = metadata_source(p, kind)
+    target = str(source["path"]) if source["path"] else asset.path
     folder = os.path.dirname(target)
+
+    settings = Settings.query.first()
+    catalogue_root = os.path.realpath(settings.product_folder or "") if settings else ""
+    target_real = os.path.realpath(target)
+    try:
+        target_allowed = (
+            catalogue_root
+            and os.path.commonpath([catalogue_root, target_real]) == catalogue_root
+        )
+    except ValueError:
+        target_allowed = False
+    if not target_allowed:
+        return jsonify({"error": "metadata source path not allowed"}), 403
 
     cleanup_metadata_temporaries(
         target, operation_active=lambda: get_active_operation() is not None
@@ -403,7 +560,7 @@ def product_save_json(sku):
             )
 
     # Merge + prune
-    merged = _deep_merge(existing.copy(), new_data)
+    merged = new_data.copy() if replace_document else _deep_merge(existing.copy(), new_data)
     merged = _prune(merged)
     validation = validate_product_info(
         merged, "collection" if kind == "shared" else "override"

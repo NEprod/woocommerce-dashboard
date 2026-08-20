@@ -41,7 +41,11 @@ Phase 2 uses sequential approval gates on the long-lived `develop` branch:
    images, provenance, and timestamps from the existing projection. Variable
    detail is fetched only on expansion; no scanner or persistence contract is
    changed.
-5. Product detail and metadata provenance experience.
+5. Product detail and metadata provenance experience. **Complete on `develop`.**
+   Resolved read-only Product Detail, collection-scoped guided metadata editing,
+   intentional partial product overrides, explicit Advanced JSON, ordered image
+   diagnostics, and bounded affected-product/variation loading all reuse the
+   existing save and scanner update authority.
 6. Collections browser and collection workflows.
 7. Scanner workspace and operation history UI.
 8. Settings, accessibility, responsive refinement, and future placeholders.

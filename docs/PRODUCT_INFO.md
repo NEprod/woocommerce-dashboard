@@ -112,6 +112,31 @@ The editor keeps invalid textarea content in place for correction. Templates loa
 into the form without saving. The normal override template is `{}` rather than a
 copy of every possible field.
 
+## Phase 2 source editors and resolved detail
+
+The guided Collection Metadata Editor changes the authoritative collection
+document and clearly reports that every inheriting product may be affected. The
+guided Product Override Editor changes only the selected product's optional
+partial document. Collection defaults are displayed beside override and
+resolved values, but inherited defaults are never flattened into an override.
+An override field is persisted only when explicitly enabled; disabling it
+removes that authored key and reveals the inherited result.
+
+Advanced JSON is an explicit expert mode for the same authored source, not a
+third metadata layer. It validates through this module's existing schemas and
+uses the same atomic save, backup, and catalogue-update pipeline as guided mode.
+Unknown forward-compatible keys are preserved by guided saves. Formatting is
+user-triggered and does not change scanner resolution semantics.
+
+Product Detail is a resolved, read-only view. It does not edit SQLite or imply
+that each product owns a complete JSON document. Product and variation images
+belong to their source folders and projected image records. Catalogue-relative
+source identity and stored final website URLs may be displayed, but image bytes
+remain outside SQLite and `/app/instance`. `/output` is temporary user-managed
+upload staging and is neither persisted as image identity nor used for preview.
+Future Woo synchronization must use the already stored final URLs directly; the
+current app does not upload or convert media.
+
 ## Known unchanged discrepancies
 
 Milestone 9 documents but does not correct these scanner contracts:

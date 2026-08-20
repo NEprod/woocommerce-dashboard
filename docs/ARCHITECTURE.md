@@ -81,6 +81,28 @@ case-insensitively by extension. Traversal, symlink escape, unsupported and
 invalid files are rejected, and catalogue paths are never returned to the
 browser.
 
+`app/metadata_workspace.py` is the read-only composition boundary for Product
+Detail and metadata source editors. It resolves collection and override JSON by
+portable catalogue-relative identity, confines reads beneath the configured
+catalogue root, applies the protected `merge_product_json()` behavior, and
+presents collection/override/resolved comparisons without mutating the
+projection. `/products/<id>` is the canonical Product Detail route;
+`/collections/<id>/metadata` edits the shared source and the established
+`/edit_products/<id>/edit/<label>` compatibility route opens the same guided
+editor. The old save endpoint remains the only write authority.
+
+Gallery routes extend the opaque authenticated image interface with a bounded
+ordered index for product- and variation-owned sources. They recalculate each
+confined mapping and never accept a filesystem path from the request. Stored
+website URLs remain read-only diagnostics. A parent preview fallback shown for
+a variation is explicitly labelled and never creates a variation image URL.
+
+Product Detail loads at most 24 variation children initially. Further detail
+uses `/api/products/<id>/detail-variations`; collection editor previews use the
+paginated `/api/collections/<id>/affected-products`. Relationships required by
+each page are select-in loaded so page size, rather than catalogue size, bounds
+work and avoids per-row database access.
+
 ## Persistence
 
 SQLite stores users, settings, the complete emitted parent/variation row projection, exact Collection → Product → Variation relationships, images, attributes, taxonomy, JSON provenance, operation history, and dormant integration-oriented models. Product folders, authored JSON, scanner markers, and SKU counters remain independent filesystem state.

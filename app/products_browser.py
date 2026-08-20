@@ -164,7 +164,6 @@ def _product_view(product, variation_count, minimum_price, maximum_price):
         minimum = maximum = _effective_price(product.regular_price, product.sale_price)
 
     edit_label = "override" if override_present else "shared" if shared_present else None
-    view_label = edit_label
     thumbnail = product_thumbnail_url(product)
 
     row = {
@@ -198,14 +197,15 @@ def _product_view(product, variation_count, minimum_price, maximum_price):
             or not product.meta_description
         )
         and product.catalogue_status == "active",
-        "view_url": (
-            url_for("main.open_info_asset", product_id=product.id, label=view_label)
-            if view_label
-            else None
-        ),
+        "view_url": url_for("main.product_detail", product_id=product.id),
         "edit_url": (
             url_for("main.product_edit", product_id=product.id, label=edit_label)
             if edit_label
+            else None
+        ),
+        "collection_edit_url": (
+            url_for("main.collection_metadata_edit", collection_id=product.collection_id)
+            if product.collection_id and shared_present
             else None
         ),
     }

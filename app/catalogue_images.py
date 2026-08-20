@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -311,6 +312,31 @@ def _first_valid(candidates, product_folder: Path, catalogue_root: Path) -> Path
     return None
 
 
+def _first_invalid(candidates, product_folder: Path, catalogue_root: Path) -> Path | None:
+    """Return a confined image candidate that exists but cannot be served safely."""
+
+    seen = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            resolved = candidate.resolve(strict=True)
+        except (OSError, RuntimeError):
+            continue
+        if not (
+            resolved.is_file()
+            and _within(resolved, catalogue_root)
+            and _within(resolved, product_folder)
+            and resolved.suffix.lower() in SUPPORTED_IMAGE_SUFFIXES
+        ):
+            continue
+        if not _valid_image(resolved, product_folder, catalogue_root):
+            return resolved
+    return None
+
+
 def _discover_first(directories: list[Path], product_folder: Path, catalogue_root: Path):
     candidates = (
         path
@@ -319,6 +345,250 @@ def _discover_first(directories: list[Path], product_folder: Path, catalogue_roo
         if path.suffix.lower() in SUPPORTED_IMAGE_SUFFIXES
     )
     return _first_valid(candidates, product_folder, catalogue_root)
+
+
+def _discover_first_invalid(
+    directories: list[Path], product_folder: Path, catalogue_root: Path
+) -> Path | None:
+    candidates = (
+        path
+        for directory in directories
+        for path in _directory_files(directory)
+        if path.suffix.lower() in SUPPORTED_IMAGE_SUFFIXES
+    )
+    return _first_invalid(candidates, product_folder, catalogue_root)
+
+
+def _ordered_sources(
+    references,
+    directories: list[Path],
+    product_folder: Path,
+    catalogue_root: Path,
+    marker_names=(),
+) -> list[Path | None]:
+    """Map projected URL order to confined source files without trusting URL suffixes."""
+
+    resolved: list[Path | None] = []
+    seen: set[str] = set()
+
+    def append_aligned(path):
+        if path is None:
+            resolved.append(None)
+            return
+        key = str(path)
+        if key in seen:
+            resolved.append(None)
+            return
+        seen.add(key)
+        resolved.append(path)
+
+    def fill_or_add(path):
+        if path is None:
+            return
+        key = str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        try:
+            unresolved = resolved.index(None)
+        except ValueError:
+            resolved.append(path)
+        else:
+            resolved[unresolved] = path
+
+    marker_names = list(marker_names)
+    for index, reference in enumerate(references):
+        selected = None
+        if index < len(marker_names):
+            selected = _resolve_named_source(
+                marker_names[index], directories, product_folder, catalogue_root
+            )
+        if selected is None:
+            selected = _resolve_reference(
+                reference, directories, product_folder, catalogue_root
+            )
+        append_aligned(selected)
+
+    for name in marker_names:
+        fill_or_add(
+            _resolve_named_source(name, directories, product_folder, catalogue_root)
+        )
+    for directory in directories:
+        for path in _directory_files(directory):
+            if path.suffix.lower() in SUPPORTED_IMAGE_SUFFIXES and _valid_image(
+                path, product_folder, catalogue_root
+            ):
+                fill_or_add(path.resolve())
+    return resolved
+
+
+def _source_reference(path: Path, catalogue_root: Path) -> str:
+    return path.relative_to(catalogue_root).as_posix()
+
+
+def _diagnostic_rows(
+    *,
+    owner: str,
+    references,
+    sources: list[Path | None],
+    catalogue_root: Path,
+    alt_values=(),
+    attributes=(),
+    fallback=False,
+    invalid_sources=(),
+):
+    references = list(references)
+    alt_values = list(alt_values)
+    invalid_sources = list(invalid_sources)
+    rows = []
+    for index in range(max(len(references), len(sources))):
+        source = sources[index] if index < len(sources) else None
+        stored_url = references[index] if index < len(references) else None
+        invalid_source = (
+            invalid_sources[index] if index < len(invalid_sources) else None
+        )
+        if source and stored_url:
+            state = "source_and_url"
+        elif source:
+            state = "source_only"
+        elif invalid_source:
+            state = "source_corrupt"
+        else:
+            state = "url_only"
+        rows.append(
+            {
+                "index": index,
+                "owner": owner,
+                "role": "primary" if index == 0 else "gallery",
+                "position": index,
+                "stored_url": stored_url,
+                "source_reference": (
+                    _source_reference(source or invalid_source, catalogue_root)
+                    if source or invalid_source
+                    else None
+                ),
+                "source_exists": source is not None,
+                "source_present": source is not None or invalid_source is not None,
+                "content_type": (
+                    mimetypes.guess_type(source.name)[0] if source else None
+                ),
+                "state": "inherited_fallback" if fallback else state,
+                "fallback": fallback,
+                "alt_text": alt_values[index] if index < len(alt_values) else "",
+                "attributes": list(attributes),
+                "path": source,
+            }
+        )
+    return rows
+
+
+def product_image_diagnostics(product: Product) -> list[dict]:
+    """Return ordered, portable parent image diagnostics for UI presentation."""
+
+    context = _source_context(product)
+    if not context:
+        return []
+    catalogue_root, product_folder, _source_parts = context
+    metadata = _scanner_layout(product, context)
+    directories = _parent_directories(product, context, metadata)
+    images = _ordered_product_images(product)
+    references = [image.url for image in images]
+    if product.image_url and product.image_url not in references:
+        references.insert(0, product.image_url)
+    sources = _ordered_sources(
+        references,
+        directories,
+        product_folder,
+        catalogue_root,
+        _marker_images(product_folder, catalogue_root),
+    )
+    invalid_sources = [
+        _first_invalid(
+            _reference_candidates(reference, directories, product_folder, catalogue_root),
+            product_folder,
+            catalogue_root,
+        )
+        for reference in references
+    ]
+    if references and not any(sources) and not any(invalid_sources):
+        invalid_sources[0] = _discover_first_invalid(
+            directories, product_folder, catalogue_root
+        )
+    return _diagnostic_rows(
+        owner="parent product",
+        references=references,
+        sources=sources,
+        catalogue_root=catalogue_root,
+        alt_values=[image.alt_text or "" for image in images],
+        invalid_sources=invalid_sources,
+    )
+
+
+def variation_image_diagnostics(
+    variation: Variation, *, include_parent_fallback: bool = True
+) -> list[dict]:
+    """Return ordered variation-owned images and an explicit preview fallback."""
+
+    context = _source_context(variation.product)
+    if not context:
+        return []
+    catalogue_root, product_folder, _source_parts = context
+    metadata = _scanner_layout(variation.product, context)
+    directories = _variation_directories(variation, context, metadata)
+    images = _ordered_variation_images(variation)
+    references = [image.url for image in images]
+    if variation.image_url and variation.image_url not in references:
+        references.insert(0, variation.image_url)
+    sources = _ordered_sources(
+        references, directories, product_folder, catalogue_root
+    )
+    invalid_sources = [
+        _first_invalid(
+            _reference_candidates(reference, directories, product_folder, catalogue_root),
+            product_folder,
+            catalogue_root,
+        )
+        for reference in references
+    ]
+    if references and not any(sources) and not any(invalid_sources):
+        invalid_sources[0] = _discover_first_invalid(
+            directories, product_folder, catalogue_root
+        )
+    attributes = [
+        {"name": attribute.name, "value": attribute.value}
+        for attribute in sorted(
+            variation.attributes,
+            key=lambda item: (
+                item.position if item.position is not None else 2**31,
+                item.id or 0,
+            ),
+        )
+    ]
+    rows = _diagnostic_rows(
+        owner=f"variation {variation.sku}",
+        references=references,
+        sources=sources,
+        catalogue_root=catalogue_root,
+        alt_values=[image.alt_text or "" for image in images],
+        attributes=attributes,
+        invalid_sources=invalid_sources,
+    )
+    if rows or not include_parent_fallback:
+        return rows
+    parent_rows = product_image_diagnostics(variation.product)
+    if not parent_rows:
+        return []
+    parent = dict(parent_rows[0])
+    parent.update(
+        {
+            "owner": f"variation {variation.sku}",
+            "role": "preview fallback",
+            "state": "inherited_fallback",
+            "fallback": True,
+            "attributes": attributes,
+        }
+    )
+    return [parent]
 
 
 def _resolve_named_source(

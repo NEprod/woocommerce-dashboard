@@ -145,6 +145,34 @@ does not invent variation-level completeness diagnostics. Woo-facing image
 references remain ordinary SQLite text; source image bytes are not copied to
 SQLite, `/app/instance`, or the production image.
 
+Phase 2 Milestone 5 adds an authenticated resolved Product Detail workspace and
+guided source editors without changing metadata ownership. Product Detail is
+read-only: it combines the SQLite parent/variation projection with the
+collection metadata source, optional partial product override, bounded relevant
+operation history, and catalogue-backed image diagnostics. Parent identity is
+shown before ordered variation children. Large variation sets render 24 at a
+time and load further pages on demand.
+
+Collection Metadata editing targets the one collection-level
+`product_info.json` that may affect several products. Its affected-product
+preview is bounded and paginated. Product Override editing targets only the
+optional partial document for one product; inherited collection values remain
+visible but are written only when the user explicitly enables an override.
+Removing an enabled override field reveals its inherited value, and `{}`
+remains a valid minimal override. Both editors default to guided contract-aware
+fields and expose a deliberate Advanced JSON mode with parsing, formatting,
+search, line numbers, highlighted preview, schema validation, duplicate-save
+protection, and unsaved-change warnings.
+
+Every save still uses the established validation, operation lock, collision-safe
+metadata backup, atomic replacement, `.update`/shared-refresh orchestration, and
+scanner projection workflow. Product and variation rows are never edited as the
+authoritative source. Source references shown in the UI are catalogue-relative;
+absolute host/container paths and temporary `/output` identities are not shown.
+Ordered parent and variation image diagnostics keep ownership distinct and show
+the stored final website URL as read-only text. The app does not upload,
+convert, regenerate, or remotely verify images.
+
 ## Database projection
 
 - The active path populates Collection → Product → Variation for all three exact collection types.

@@ -146,7 +146,9 @@ def test_create_override_is_authenticated_and_reaches_editor(override_workflow):
     assert json.loads(target.read_text(encoding="utf-8")) == {}
     editor = workflow["client"].get(body["edit_url"])
     assert editor.status_code == 200
-    assert str(target) in editor.get_data(as_text=True)
+    editor_html = editor.get_data(as_text=True)
+    assert "Fictional Collection/Product 1/product_info.json" in editor_html
+    assert str(target) not in editor_html
     raw = workflow["client"].get(f"/assets/info/{product_id}/override")
     assert raw.status_code == 200
     assert raw.get_json() == {}

@@ -89,24 +89,23 @@
     const actions = document.createElement("div");
     actions.className = "product-actions";
     if (product.view_url) {
-      const view = text("a", "btn btn-sm btn-outline-primary", "View");
+      const view = text("a", "btn btn-sm btn-outline-primary", "View Product");
       view.href = product.view_url;
-      view.target = "_blank";
-      view.rel = "noopener";
       actions.appendChild(view);
     } else {
       const view = button("View", "btn btn-sm btn-outline-secondary");
       view.disabled = true;
       actions.appendChild(view);
     }
-    if (product.edit_url) {
-      const edit = text("a", "btn btn-sm btn-primary", "Edit metadata");
-      edit.href = product.edit_url;
-      actions.appendChild(edit);
-    } else {
-      const edit = button("Edit metadata", "btn btn-sm btn-outline-secondary");
-      edit.disabled = true;
-      actions.appendChild(edit);
+    if (product.collection_edit_url) {
+      const collectionEdit = text("a", "btn btn-sm btn-primary", "Edit Collection Metadata");
+      collectionEdit.href = product.collection_edit_url;
+      actions.appendChild(collectionEdit);
+    }
+    if (product.override_present && product.edit_url) {
+      const overrideEdit = text("a", "btn btn-sm btn-outline-primary", "Edit Product Override");
+      overrideEdit.href = product.edit_url;
+      actions.appendChild(overrideEdit);
     }
     if (!product.override_present) {
       const create = button("Create override", "btn btn-sm btn-ghost");
