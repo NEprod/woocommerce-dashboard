@@ -66,6 +66,11 @@ only the result into the Unraid variable:
 openssl rand -hex 32
 ```
 
+**Before updating the development container to the storage-hardening image,
+confirm that its `SECRET_KEY` field contains a stable generated value.** The new
+image intentionally refuses missing values, `dev-secret`, `changeme`, and obvious
+example placeholders. It never prints or saves the supplied value.
+
 Discord is disabled by default with `DISCORD_ENABLED=false`. Optional supported
 variables are `DISCORD_DEFAULT_USERNAME`, `DISCORD_DEFAULT_AVATAR_URL`,
 `DISCORD_WEBHOOK_SCANS_INFO`, `DISCORD_WEBHOOK_SCANS_ERRORS`,
@@ -82,6 +87,20 @@ variables are `DISCORD_DEFAULT_USERNAME`, `DISCORD_DEFAULT_AVATAR_URL`,
 5. Complete `/setup`, then enter the container paths `/catalogue` and `/output`
    in initial settings.
 6. Review the initial-scan classification before starting any catalogue action.
+
+## Docker log retention
+
+Compose users receive the project policy automatically. For an Unraid container,
+add the equivalent Docker options in **Extra Parameters**:
+
+```text
+--log-driver local --log-opt max-size=10m --log-opt max-file=5 --log-opt compress=true
+```
+
+This retains five 10 MiB stdout/stderr files with compression where supported,
+an approximate 50 MiB pre-compression ceiling. If the Unraid host centrally
+manages Docker log rotation, verify that its effective policy is at least as
+strict and do not configure duplicate application file logging.
 
 Reconstruction preserves existing marker/SKU identities while rebuilding the
 database projection. Intentional full regeneration retains the protected
@@ -119,6 +138,11 @@ instance directory with ownership/permissions suitable for the container user,
 then start the pinned image. For an individual database backup, use the controlled
 restore procedure in [Database Migrations](MIGRATIONS.md); never replace SQLite
 while Gunicorn is running.
+
+The application bounds its own backup history as documented in
+[Storage and Retention](STORAGE_RETENTION.md). This does not replace an Unraid
+appdata/catalogue backup. `/app/instance/backups` is restricted to mode `0700`
+and database backups remain `0600`.
 
 ## Template use
 

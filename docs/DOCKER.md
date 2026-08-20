@@ -21,6 +21,11 @@ docker tag neprod/woocommerce-dashboard:phase-1 neprod/woocommerce-dashboard:0.2
 
 The container initially starts as root only to validate `PUID`, `PGID`, and `UMASK`, adjust the existing `app` account, and prepare mounted application state. It then uses the packaged `gosu` binary with `exec`; application import, migrations, the Gunicorn master, and its worker all run as the configured non-root UID/GID. Generic Docker defaults preserve the previous `100:100` identity and `UMASK=002`. One worker and one application replica are required because scan progress, background threads, and the catalogue mutation lock are process-local. Persistent operation rows support diagnosis but are not a distributed mutex.
 
+Production startup rejects a missing or recognizable placeholder `SECRET_KEY`.
+Supply one stable strong value through the runtime environment before updating a
+deployment; the application neither generates nor persists it. Reusing the same
+value preserves existing login sessions across restarts.
+
 Gunicorn imports the application before accepting requests. That startup applies Alembic migrations to `/app/instance/site.db`. A matching unversioned Phase 0 database is backed up under `/app/instance/backups` before adoption; backups never default to disposable container storage such as `/tmp`. A failed or unknown migration prevents the worker from starting. Keep the instance mount writable by the container user and preserve its backup files until the upgraded application has been validated.
 
 ## Compose
@@ -58,6 +63,10 @@ Back up the instance/database and filesystem catalogue together with an understo
 
 Never bake `.env`, SQLite, product folders, markers, generated images, exports, logs, or backups into the image. The mounted instance directory contains the live database plus migration and reconstruction backups, so the instance mount itself must be included in operational backups and have space for unique reconstruction snapshots.
 
+Application-created retention, secure modes, and narrow temporary cleanup are
+defined in [Storage and Retention](STORAGE_RETENTION.md). The instance backup
+directory is mode `0700` and verified SQLite backups remain mode `0600`.
+
 The production image includes `app/resources/product_info` because collection and
 override schemas, the field inventory, fictional examples, and editor templates
 are runtime help/validation resources. They contain no catalogue data. Test files
@@ -73,6 +82,15 @@ Automatic startup migration is approved only for the documented single-worker Ph
 Setting `PUID`/`PGID` in Compose or an Unraid template only works because this image consumes them in its entrypoint. The entrypoint validates non-zero numeric IDs and a valid octal umask, updates the existing `app` account, creates `/app/instance/backups`, and deliberately corrects ownership recursively only beneath the application-owned `/app/instance`. Existing `site.db` and backup contents are preserved.
 
 The `/catalogue` and `/output` mount roots may have their ownership adjusted non-recursively, but their contents are never recursively chowned at startup. A write probe emits an actionable container-path warning if either is unavailable; the initial setup page may still load, while scanning still requires both paths to be read/write. Failure to prepare or write `/app/instance` stops startup immediately.
+
+## Container logs
+
+The application does not add persistent file logs under `/app/instance`.
+Gunicorn continues to emit stdout/stderr. Compose selects Docker's `local`
+logging driver with `max-size=10m`, `max-file=5`, and compression: approximately
+50 MiB per container before compression. This is host-side Docker configuration,
+not an application-enforced limit. Unraid deployments must apply the equivalent
+container settings described in [Unraid Installation](UNRAID.md).
 
 Inspect numeric ownership on a Linux host with `ls -ldn`. For the documented Unraid instance path:
 

@@ -58,6 +58,17 @@ if [ "${1:-}" = "--validate-config" ]; then
     exit 0
 fi
 
+case "${SECRET_KEY:-}" in
+    ""|dev-secret|development-secret|changeme|change-me|secret|your-secret-key)
+        fail "SECRET_KEY is required and must be set to a non-placeholder value"
+        ;;
+esac
+case "$(printf '%s' "${SECRET_KEY}" | tr '[:upper:]' '[:lower:]')" in
+    *example*|*placeholder*|*replace-me*|*replace_with*|*replace-with*)
+        fail "SECRET_KEY is required and must be set to a non-placeholder value"
+        ;;
+esac
+
 if [ "$(id -u)" -ne 0 ]; then
     fail "startup preparation requires root; the application is dropped to PUID:PGID before launch"
 fi
@@ -91,6 +102,9 @@ fi
 mkdir -p /catalogue /output
 if ! chown -R "${PUID}:${PGID}" /app/instance; then
     fail "could not assign /app/instance to configured PUID ${PUID} and PGID ${PGID}"
+fi
+if ! chmod 0700 /app/instance/backups; then
+    fail "could not secure /app/instance/backups with mode 0700"
 fi
 
 for runtime_path in /catalogue /output; do

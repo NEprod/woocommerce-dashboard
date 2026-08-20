@@ -38,6 +38,12 @@ The default backup directory is derived from the active database path: a databas
 
 Already-current and fresh databases do not create migration backups. Backups are runtime data and must not be committed or baked into the image.
 
+The backup directory is enforced as mode `0700` and completed SQLite backups as
+mode `0600`. Retention always preserves the newest verified backup for each
+migration transition and the newest overall recovery point; additional
+unprotected migration backups are capped at 20. A failed migration marks its
+backup as recovery-related before reporting the persistent path.
+
 Identity-preserving reconstruction uses the same verified backup mechanism, with
 a unique name such as
 `site.reconstruction-0004_lifecycle-to-reconstruction.TIMESTAMP.UNIQUE.sqlite3`.

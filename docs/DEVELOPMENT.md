@@ -23,6 +23,13 @@ python -c "import xml.etree.ElementTree as ET; ET.parse('unraid/my-woocommerce-d
 
 Migration tests construct a frozen, synthetic Phase 0 database in a temporary directory. They must cover fresh initialization, adoption, repeated upgrade, backup, injected failure, restore, and post-restore use. Never substitute a local or archived database. Operational procedures are in [Database Migrations](MIGRATIONS.md).
 
+Storage-hardening tests set an explicit test-only `SECRET_KEY` before application
+imports and use only temporary instance/catalogue/output directories. They cover
+secure backup modes, central redaction, memory and database operation retention,
+backup count/age floors, narrow stale-temporary cleanup, Docker logging limits,
+and runtime image boundaries. Never weaken production key validation to simplify
+tests.
+
 Operation-control tests use temporary databases and fictional paths. They must prove conflict rejection before mutation, success and exception cleanup, sanitized persistent errors, notification-failure cleanup, and startup interruption recovery. Resetting the process-local test lock is allowed only in isolated tests. See [Catalogue Operation Control](CATALOGUE_OPERATIONS.md).
 
 Projection tests must use emitted fictional rows and temporary catalogue mounts. They must prove exact collection types and relationships, lossless parent/variation row storage, normalized field parity, portable relative provenance across mount changes, and preservation of existing Product, Variation, and Woo placeholder IDs. They must not alter scanner fixtures to conceal a row-builder discrepancy.

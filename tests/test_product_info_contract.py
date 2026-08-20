@@ -350,5 +350,7 @@ def test_runtime_resources_are_in_image_context_and_tests_are_not_copied():
     assert (root / "app/resources/product_info/schemas/collection.schema.json").is_file()
     assert (root / "app/resources/product_info/schemas/override.schema.json").is_file()
     assert (root / "app/resources/product_info/field_inventory.json").is_file()
-    assert "COPY --chown=app:app app ./app" in (root / "Dockerfile").read_text()
+    assert "COPY --chown=root:root --chmod=0555 app ./app" in (
+        root / "Dockerfile"
+    ).read_text()
     assert "COPY --chown=app:app tests" not in (root / "Dockerfile").read_text()

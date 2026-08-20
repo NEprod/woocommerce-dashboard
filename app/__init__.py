@@ -13,8 +13,12 @@ csrf = CSRFProtect()
 
 
 def create_app():
+    from .security import validate_secret_key
+
+    secret_key = validate_secret_key()
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_object(Config)
+    app.config["SECRET_KEY"] = secret_key
 
     app.config["DISCORD_WEBHOOK_URL"] = os.getenv("DISCORD_WEBHOOK_URL", "")
     app.config["DISCORD_ENABLED"] = (

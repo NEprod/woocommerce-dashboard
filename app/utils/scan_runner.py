@@ -2,10 +2,12 @@
 import os
 import time
 import threading
+from collections import deque
 from dataclasses import dataclass
 from flask import url_for
 from datetime import datetime
-from queue import Queue, Empty
+from itertools import count
+from queue import Empty
 
 from app.models import Settings
 from app.utils.json_utils import load_json, validate_json
@@ -24,7 +26,10 @@ from app.utils.marker_recovery import (
 from app.utils.operation_control import (
     acquire_catalogue_operation,
     finish_catalogue_operation,
+    register_operation_reference,
+    unregister_operation_reference,
 )
+from app.utils.redaction import redact_diagnostic, runtime_redaction_paths
 from app.utils.reconciliation import (
     authoritative_scope,
     reconcile_authoritative_products,
@@ -32,6 +37,103 @@ from app.utils.reconciliation import (
 
 # In-memory progress store
 _runs = {}
+_runs_lock = threading.RLock()
+_run_sequence = count()
+COMPLETED_RUN_LIMIT = 20
+LOG_LINE_LIMIT = 2000
+LOG_BYTE_LIMIT = 2 * 1024 * 1024
+LOG_TRUNCATION_MARKER = "[⚠️] Earlier log output was truncated to retain the newest entries."
+
+
+class BoundedLogQueue:
+    """A Queue-compatible newest-first bounded transport for SSE log lines."""
+
+    def __init__(self, *, max_lines=LOG_LINE_LIMIT, max_bytes=LOG_BYTE_LIMIT):
+        self.max_lines = max_lines
+        self.max_bytes = max_bytes
+        self._items = deque()
+        self._bytes = 0
+        self._condition = threading.Condition()
+
+    @staticmethod
+    def _size(value):
+        return len(str(value).encode("utf-8"))
+
+    def put(self, value):
+        item = str(value)
+        marker_size = self._size(LOG_TRUNCATION_MARKER)
+        if self._size(item) + marker_size > self.max_bytes:
+            allowance = max(0, self.max_bytes - marker_size)
+            item = item.encode("utf-8")[-allowance:].decode("utf-8", errors="ignore")
+        with self._condition:
+            if self._items and self._items[0] == LOG_TRUNCATION_MARKER:
+                self._items.popleft()
+                self._bytes -= marker_size
+            self._items.append(item)
+            self._bytes += self._size(item)
+            truncated = False
+            while self._items and (
+                len(self._items) > max(1, self.max_lines - 1)
+                or self._bytes + marker_size > self.max_bytes
+            ):
+                removed = self._items.popleft()
+                self._bytes -= self._size(removed)
+                truncated = True
+            if truncated:
+                self._items.appendleft(LOG_TRUNCATION_MARKER)
+                self._bytes += marker_size
+            self._condition.notify()
+
+    def get(self, timeout=None):
+        with self._condition:
+            if timeout is None:
+                while not self._items:
+                    self._condition.wait()
+            else:
+                deadline = time.monotonic() + timeout
+                while not self._items:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise Empty
+                    self._condition.wait(remaining)
+            item = self._items.popleft()
+            self._bytes -= self._size(item)
+            return item
+
+    def get_nowait(self):
+        return self.get(timeout=0)
+
+    def empty(self):
+        with self._condition:
+            return not self._items
+
+    def qsize(self):
+        with self._condition:
+            return len(self._items)
+
+
+def _run_is_protected(run):
+    if run.get("status") not in {"done", "error"}:
+        return True
+    return run.get("recovery_state") not in (None, "none")
+
+
+def _prune_completed_runs():
+    removed_operation_ids = []
+    with _runs_lock:
+        completed = [
+            (run_id, run)
+            for run_id, run in _runs.items()
+            if not _run_is_protected(run)
+        ]
+        completed.sort(key=lambda item: (item[1].get("sequence", 0), item[0]))
+        for run_id, run in completed[:-COMPLETED_RUN_LIMIT]:
+            _runs.pop(run_id, None)
+            if run.get("operation_id"):
+                removed_operation_ids.append(run["operation_id"])
+    for operation_id in removed_operation_ids:
+        unregister_operation_reference(operation_id)
+    return len(removed_operation_ids)
 
 
 @dataclass(frozen=True)
@@ -161,18 +263,23 @@ def build_scan_scope(scan_folder, scan_mode, *, collection_relpath=None):
 
 
 def make_logger(run_id):
-    q = _runs[run_id]["queue"]
+    with _runs_lock:
+        q = _runs[run_id]["queue"]
 
     def log(msg, level="INFO"):
         normalized_level = level.upper()
-        if normalized_level == "WARN":
-            _runs[run_id]["warnings"] = _runs[run_id].get("warnings", 0) + 1
-        elif normalized_level == "ERROR":
-            _runs[run_id]["errors"] = _runs[run_id].get("errors", 0) + 1
+        with _runs_lock:
+            run = _runs[run_id]
+            if normalized_level == "WARN":
+                run["warnings"] = run.get("warnings", 0) + 1
+            elif normalized_level == "ERROR":
+                run["errors"] = run.get("errors", 0) + 1
+            paths = run.get("redaction_paths")
         prefix = {"INFO": "[ℹ️]", "WARN": "[⚠️]", "ERROR": "[❌]"}.get(
             normalized_level, "[ℹ️]"
         )
-        line = f"{time.strftime('%H:%M:%S')} {prefix} {msg}"
+        safe_message = redact_diagnostic(msg, paths=paths)
+        line = f"{time.strftime('%H:%M:%S')} {prefix} {safe_message}"
         q.put(line)
 
     return log
@@ -214,25 +321,30 @@ def start_scan(
             )
         operation_id = lease.id
 
-    _runs[run_id] = {
-        "total": 0,
-        "done": 0,
-        "status": "running",
-        "queue": Queue(),
-        "summary": {
-            "new_rows": 0,
-            "folders": 0,
-            "started_at": datetime.utcnow().isoformat(),
-            "finished_at": None,
-        },
-        "operation_id": operation_id,
-        "operation_type": operation_type or _operation_type_for_scan(scan_mode),
-        "scope": operation_scope,
-        "stage": "queued",
-        "current_item": None,
-        "warnings": 0,
-        "errors": 0,
-    }
+    with _runs_lock:
+        _runs[run_id] = {
+            "total": 0,
+            "done": 0,
+            "status": "running",
+            "queue": BoundedLogQueue(),
+            "summary": {
+                "new_rows": 0,
+                "folders": 0,
+                "started_at": datetime.utcnow().isoformat(),
+                "finished_at": None,
+            },
+            "operation_id": operation_id,
+            "operation_type": operation_type or _operation_type_for_scan(scan_mode),
+            "scope": operation_scope,
+            "stage": "queued",
+            "current_item": None,
+            "warnings": 0,
+            "errors": 0,
+            "sequence": next(_run_sequence),
+            "recovery_state": "none",
+        }
+    register_operation_reference(operation_id)
+    _prune_completed_runs()
     thread = threading.Thread(
         target=_scan_thread,
         args=(
@@ -248,6 +360,9 @@ def start_scan(
     try:
         thread.start()
     except Exception as error:
+        unregister_operation_reference(operation_id)
+        with _runs_lock:
+            _runs.pop(run_id, None)
         with app.app_context():
             finish_catalogue_operation(operation_id, status="failed", error=error)
         raise
@@ -292,6 +407,12 @@ def _scan_thread(
             scan_folder = settings.product_folder or ""
             image_folder = settings.output_folder or ""
             url_prefix = settings.url_prefix or ""
+            with _runs_lock:
+                _runs[run_id]["redaction_paths"] = runtime_redaction_paths(
+                    catalogue=scan_folder,
+                    output=image_folder,
+                    instance=app.instance_path,
+                )
 
             if not (scan_folder and image_folder and url_prefix):
                 _runs[run_id]["status"] = "error"
@@ -513,6 +634,7 @@ def _scan_thread(
                     "products_failed": products_failed,
                 }
             )
+            _runs[run_id]["recovery_state"] = operation_recovery_state or "none"
             try:
                 finish_catalogue_operation(
                     operation_id,
@@ -533,6 +655,7 @@ def _scan_thread(
                     f"Operation history finalisation failed: {finish_error}",
                     level="ERROR",
                 )
+            _prune_completed_runs()
 
 
 def stream_lines(run_id, timeout=15):

@@ -8,6 +8,12 @@ This document records the completed Phase 1 (`0.2.3`) catalogue-integrity releas
 
 A new installation follows `/` → `/setup` → `/initial-settings` → `/initial-scan`. Setup creates the initial administrator and stores the product root, output root, and public image URL prefix. The initial-scan screen classifies the configured catalogue as new, requiring reconstruction, ready, or ambiguous. It shows collection/product/marker/projection counts and enables only a safe recommended action.
 
+Production startup requires an explicitly supplied non-placeholder `SECRET_KEY`.
+The application never generates or persists it. `/app/instance`, `/catalogue`,
+and `/output` remain three separate required mounts; storage, backup, operation,
+temporary-file, and Docker-log limits are documented in
+[Storage and Retention](STORAGE_RETENTION.md).
+
 ## Scanner modes
 
 - **append** processes products without `.scanned` and products carrying `.update`.
@@ -29,6 +35,13 @@ The scanner supports exact collection types `Simple`, `Variable Collection`, and
 ## Operation control
 
 Append, product update, shared collection update, full, and reconstruction operation types share a non-blocking process-local lock. A conflicting request receives HTTP `409` with the active operation type and identifier before it changes catalogue files. Operation history is persistent and records bounded diagnostic fields and lifecycle counts; startup marks unfinished rows interrupted and requiring review. This control is intentionally limited to the documented single-worker, single-replica runtime.
+
+Routine successful history is retained for at least 180 days and the newest
+1,000 entries; resolved failure history is retained for at least 365 days.
+Active, pending, unresolved-recovery, and newest-per-type records are protected.
+Process memory retains 20 ordinary completed runs, while active/recovery runs and
+their completion summaries remain protected. Each live log queue is bounded to
+2,000 lines and approximately 2 MiB.
 
 Ordinary scan ingestion adds one operation item per emitted parent. Successful items are committed with their parent transaction. A failed parent is rolled back and receives a separate sanitized failed item; the operation becomes `partial` when other parents succeeded or `failed` when none did.
 

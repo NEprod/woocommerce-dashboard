@@ -62,6 +62,8 @@ from app.dashboard import (
     metadata_issue_condition,
 )
 from app.utils.atomic_files import atomic_write_json, atomic_write_text
+from app.utils.backup_retention import create_metadata_backup
+from app.utils.temporary_cleanup import cleanup_metadata_temporaries
 
 main = Blueprint("main", __name__)
 
@@ -343,6 +345,10 @@ def product_save_json(sku):
     target = asset.path
     folder = os.path.dirname(target)
 
+    cleanup_metadata_temporaries(
+        target, operation_active=lambda: get_active_operation() is not None
+    )
+
     # Load existing JSON (if any)
     existing = {}
     if os.path.exists(target):
@@ -428,21 +434,16 @@ def product_save_json(sku):
         os.makedirs(folder, exist_ok=True)
 
         # Backup
-        ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         try:
             if os.path.exists(target):
-                with open(target, "rb") as rf, open(
-                    f"{target}.bak.{ts}", "wb"
-                ) as wf:
-                    wf.write(rf.read())
+                create_metadata_backup(target)
         except Exception:
             pass
 
         # Atomic write
-        tmp = f"{target}.tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(merged, f, ensure_ascii=False, indent=4)
-        os.replace(tmp, target)
+        atomic_write_text(
+            target, json.dumps(merged, ensure_ascii=False, indent=4)
+        )
 
         # Product overrides retain ordinary marker selection. Shared metadata is
         # handled by an explicit exhaustive collection refresh instead.

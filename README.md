@@ -45,7 +45,12 @@ pytest
 python run.py
 ```
 
-Replace placeholders in `.env` locally and keep Discord disabled during development unless notifications are intentionally being tested. Application startup applies versioned SQLite migrations, so use an isolated instance directory for safety. Existing unversioned Phase 0 databases are backed up and adopted only when their schema matches the frozen baseline. See [Database Migrations](docs/MIGRATIONS.md).
+Replace the `SECRET_KEY` and path placeholders in `.env` before startup and keep
+Discord disabled during development unless notifications are intentionally being
+tested. Missing or recognizable placeholder secret keys are rejected. Application
+startup applies versioned SQLite migrations, so use an isolated instance directory
+for safety. Existing unversioned Phase 0 databases are backed up and adopted only
+when their schema matches the frozen baseline. See [Database Migrations](docs/MIGRATIONS.md).
 
 ## Docker
 
@@ -76,6 +81,7 @@ Suggested Docker Hub overview: “WooCommerce Dashboard is a self-hosted Flask a
 - [Data Model](docs/DATA_MODEL.md)
 - [Database Migrations](docs/MIGRATIONS.md)
 - [Catalogue Operation Control](docs/CATALOGUE_OPERATIONS.md)
+- [Storage and Retention](docs/STORAGE_RETENTION.md)
 - [Phase 1 Acceptance](docs/PHASE_1_ACCEPTANCE.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Decisions](docs/DECISIONS.md)
