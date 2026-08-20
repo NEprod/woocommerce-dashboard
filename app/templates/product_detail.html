@@ -31,7 +31,7 @@
       {% else %}<span class="product-image-fallback" aria-hidden="true">{{ icon('box') }}</span>{% endif %}
     </div>
     <div class="product-identity-copy">
-      <span class="catalogue-pill is-{{ product.catalogue_status }}">{{ product.catalogue_status|title }}</span>
+      <span class="catalogue-pill is-{{ product.catalogue_status }}">Catalogue state: {{ product.catalogue_status|title }}</span>
       <p class="product-context-label">Parent product</p>
       <h2>{{ product.title }}</h2>
       <code>{{ product.sku }}</code>
@@ -41,8 +41,13 @@
         <div><dt>Variations</dt><dd>{{ workspace.variation_pagination.total }}</dd></div>
         <div><dt>Price</dt><dd>{% if workspace.price_min %}£{{ workspace.price_min }}{% if workspace.price_max != workspace.price_min %}–£{{ workspace.price_max }}{% endif %}{% else %}Not set{% endif %}</dd></div>
         <div><dt>Updated</dt><dd>{{ product.local_updated_at.strftime('%d %b %Y, %H:%M') if product.local_updated_at else 'Not recorded' }}</dd></div>
-        <div><dt>Publishing</dt><dd>{{ 'Live' if product.published else 'Not live' }}</dd></div>
+        <div><dt>Catalogue state</dt><dd>{{ product.catalogue_status|title }}</dd></div>
+        <div><dt>Publishing intent</dt><dd><span class="catalogue-pill is-intent-{{ workspace.publishing_intent.state }}">{{ workspace.publishing_intent.label }}</span></dd></div>
+        <div><dt>Resolved live value</dt><dd><code>{{ workspace.publishing_intent.value_text }}</code></dd></div>
+        <div><dt>Publishing intent source</dt><dd>{{ workspace.publishing_intent.source }}</dd></div>
+        <div><dt>Inheritance</dt><dd>{{ workspace.publishing_intent.inheritance }}</dd></div>
       </dl>
+      <p class="publishing-intent-note">Future WooCommerce publishing intent only. Woo sync is not implemented, so this does not report current remote publication state.</p>
     </div>
   </article>
 

@@ -159,7 +159,11 @@
     row.appendChild(text("code", "product-sku", product.sku || "Not set"));
     row.appendChild(pill(product.type === "variable" ? "Variable" : "Simple", "neutral"));
     row.appendChild(text("span", "product-price", formatPrice(product.price)));
-    row.appendChild(pill(product.catalogue_status === "missing" ? "Missing" : "Active", product.catalogue_status));
+    const stateCell = document.createElement("div");
+    stateCell.className = "product-state-stack";
+    stateCell.appendChild(pill(product.catalogue_status === "missing" ? "Missing" : "Active", product.catalogue_status));
+    stateCell.appendChild(pill(product.publishing_intent_label, `intent-${product.publishing_intent}`));
+    row.appendChild(stateCell);
     const variationCell = document.createElement("div");
     variationCell.appendChild(variationToggle(product, false));
     row.appendChild(variationCell);
@@ -198,6 +202,7 @@
     facts.className = "product-mobile-facts";
     facts.appendChild(labelledFact("Type", pill(product.type === "variable" ? "Variable" : "Simple", "neutral")));
     facts.appendChild(labelledFact("Price", text("span", "product-price", formatPrice(product.price))));
+    facts.appendChild(labelledFact("Publishing intent", pill(product.publishing_intent_label, `intent-${product.publishing_intent}`)));
     facts.appendChild(labelledFact("Metadata", pill(sourceLabel(product.metadata_source), product.metadata_source)));
     facts.appendChild(labelledFact("Updated", text("time", "product-updated", formatDate(product.updated_at))));
     card.appendChild(facts);
@@ -226,7 +231,7 @@
     header.appendChild(trigger);
     const facts = document.createElement("div");
     facts.className = "collection-facts";
-    facts.appendChild(text("span", "collection-active-count", `${group.active_count} Active`));
+    facts.appendChild(text("span", "collection-active-count", `${group.active_count} Active in catalogue`));
     facts.appendChild(text("span", "collection-missing-count", `${group.missing_count} Missing`));
     facts.appendChild(text("time", "", `Updated ${formatDate(group.last_updated)}`));
     header.appendChild(facts);
@@ -241,7 +246,7 @@
     const columns = document.createElement("div");
     columns.className = "product-column-headings";
     columns.setAttribute("role", "row");
-    ["Product", "SKU", "Type", "Price", "Status", "Variations", "Metadata", "Updated", "Actions"].forEach(function (label) {
+    ["Product", "SKU", "Type", "Price", "Catalogue state", "Variations", "Metadata", "Updated", "Actions"].forEach(function (label) {
       const cell = text("span", "", label);
       cell.setAttribute("role", "columnheader");
       columns.appendChild(cell);

@@ -20,6 +20,7 @@ from app.models import (
     Product,
     Variation,
 )
+from app.publishing import projected_publishing_intent
 from app.utils.operation_control import get_active_operation
 
 
@@ -231,6 +232,7 @@ def build_dashboard_data():
             "thumbnail": product_thumbnail_url(product),
             "thumbnail_alt": primary_image_alt(product),
             "has_override": bool(product.override_json_path),
+            "publishing_intent": projected_publishing_intent(product.published),
         }
         for product, count in product_rows
     ]

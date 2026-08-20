@@ -18,6 +18,7 @@ from app.catalogue_images import (
 )
 from app.dashboard import METADATA_ISSUE_DEFINITIONS, metadata_issue_condition
 from app.models import Collection, Product, ProductAsset, Variation
+from app.publishing import projected_publishing_intent
 
 
 SUPPORTED_PRODUCT_TYPES = {"simple", "variable"}
@@ -165,6 +166,7 @@ def _product_view(product, variation_count, minimum_price, maximum_price):
 
     edit_label = "override" if override_present else "shared" if shared_present else None
     thumbnail = product_thumbnail_url(product)
+    publishing_intent = projected_publishing_intent(product.published)
 
     row = {
         "id": product.id,
@@ -174,6 +176,8 @@ def _product_view(product, variation_count, minimum_price, maximum_price):
         "collection": product.collection.name if product.collection else "Unassigned",
         "collection_id": product.collection_id,
         "catalogue_status": product.catalogue_status or "active",
+        "publishing_intent": publishing_intent["state"],
+        "publishing_intent_label": publishing_intent["compact_label"],
         "variation_count": int(variation_count or 0),
         "price": {"minimum": _money(minimum), "maximum": _money(maximum)},
         "metadata_source": source,

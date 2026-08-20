@@ -633,7 +633,7 @@ The default is a guided, field-based CMS experience. Raw JSON is secondary.
 2. Categories and Tags
 3. Short Description
 4. SEO Metadata
-5. Publishing/Live status
+5. Publishing intent (`live`)
 6. Attributes
 7. Image Attributes
 8. Variation Modifiers
@@ -647,6 +647,13 @@ below, inline validation, and counters where a real limit exists.
 Repeatable data uses rows with explicit Add, Remove, and reorder controls.
 Drag-and-drop must have keyboard alternatives. Do not invent WooCommerce limits
 that are not represented by the protected contract.
+
+Catalogue state and publishing intent must always remain separate. Catalogue
+state (`active`, `missing`, `archived`, or another existing lifecycle value)
+describes the local scanned projection. Publishing intent comes from resolved
+`live`: `true` means Published intent and `false` means Draft intent for future
+WooCommerce synchronization. Until Woo sync exists, the interface must not
+present either value as current remote publication state.
 
 ### Provenance and inheritance
 

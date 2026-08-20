@@ -173,6 +173,14 @@ Ordered parent and variation image diagnostics keep ownership distinct and show
 the stored final website URL as read-only text. The app does not upload,
 convert, regenerate, or remotely verify images.
 
+Local catalogue lifecycle and future publishing intent are presented as
+separate concepts. `Product.catalogue_status` supplies Active, Missing, and
+other existing local lifecycle labels. Resolved metadata `live` supplies
+Published or Draft intent and records whether the value came from a product
+override, collection metadata through inheritance, or the scanner default.
+`Product.published` is the normalized projection of that resolved intent; it is
+not evidence that a product currently exists or is published in WooCommerce.
+
 ## Database projection
 
 - The active path populates Collection → Product → Variation for all three exact collection types.

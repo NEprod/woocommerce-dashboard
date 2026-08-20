@@ -47,8 +47,14 @@
           {% endif %}
           {% endfor %}
           <div class="guided-field" data-field-wrapper="live" {% if not is_shared %}data-override-field="live"{% endif %}>
-            <div class="guided-field-label"><label for="metadata-live">Live state</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="live" {% if 'live' in workspace.override.data %}checked{% endif %}><span>Override this value</span></label>{% endif %}</div>
-            <select id="metadata-live" data-field="live"><option value="">Not set</option><option value="true">Live</option><option value="false">Not live</option></select><p class="field-helper">Authored local publishing flag. This is not remote WooCommerce status.</p><p class="field-error" data-field-error="live" hidden></p>
+            <div class="guided-field-label"><label for="metadata-live">Publishing intent</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="live" {% if 'live' in workspace.override.data %}checked{% endif %}><span>Override collection intent</span></label>{% endif %}</div>
+            <select id="metadata-live" data-field="live"><option value="">Not set — scanner default</option><option value="true">Published — publish when Woo sync is introduced</option><option value="false">Draft — draft when Woo sync is introduced</option></select>
+            {% if is_shared %}
+            <p class="field-helper">Publish when Woo sync is introduced when enabled/true; Draft when Woo sync is introduced when disabled/false. This affects all products that inherit this collection value.</p>
+            {% else %}
+            <p class="field-helper">Inherited collection intent: {{ workspace.collection_publishing_intent.label }}. Leave “Override collection intent” disabled to inherit. Removing this override restores the collection intent. This is future WooCommerce intent, not current remote status.</p>
+            {% endif %}
+            <p class="field-error" data-field-error="live" hidden></p>
           </div>
         </div>
       </section>

@@ -212,6 +212,8 @@ def test_products_javascript_defines_mobile_and_accessible_expansion_hooks():
     assert 'setAttribute("aria-expanded", "false")' in source
     assert 'event.key !== "Escape"' in source
     assert "loadVariations" in source
+    assert "publishing_intent_label" in source
+    assert "Catalogue state" in source
 
 
 def test_products_api_groups_collections_and_reports_genuine_counts(products_client):

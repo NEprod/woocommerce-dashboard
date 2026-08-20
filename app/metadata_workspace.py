@@ -28,6 +28,7 @@ from app.models import (
     Variation,
 )
 from app.product_info import FIELD_BY_KEY, FIELD_INVENTORY, validate_product_info
+from app.publishing import resolved_publishing_intent
 from app.utils.json_utils import merge_product_json
 
 
@@ -181,7 +182,11 @@ def metadata_comparison(shared, override, resolved):
         rows.append(
             {
                 "key": key,
-                "label": key.replace("_", " ").title(),
+                "label": (
+                    "Publishing intent"
+                    if key == "live"
+                    else key.replace("_", " ").title()
+                ),
                 "collection": shared.get(key),
                 "collection_display": _display(shared.get(key)) if shared_set else "Not set",
                 "override": override.get(key),
@@ -270,6 +275,9 @@ def product_workspace(product: Product):
     override_source = metadata_source(product, "override")
     override_data = override_source["data"] if override_source["exists"] else {}
     resolved = resolved_metadata(product, shared_source["data"], override_data)
+    publishing_intent = resolved_publishing_intent(
+        shared_source["data"], override_data, resolved
+    )
     variation_data = variation_page(product.id)
     minimum, maximum = db.session.query(
         func.min(func.coalesce(Variation.sale_price, Variation.regular_price)),
@@ -295,6 +303,7 @@ def product_workspace(product: Product):
         "shared": shared_source,
         "override": override_source,
         "resolved": resolved,
+        "publishing_intent": publishing_intent,
         "comparison": metadata_comparison(shared_source["data"], override_data, resolved),
         "parent_images": parent_images,
         "variations": variation_data["items"],
@@ -320,6 +329,12 @@ def editor_workspace(product: Product, kind: str):
     authored = shared if kind == "shared" else override
     override_data = override["data"] if override["exists"] else {}
     resolved = resolved_metadata(product, shared["data"], override_data)
+    publishing_intent = resolved_publishing_intent(
+        shared["data"], override_data, resolved
+    )
+    collection_publishing_intent = resolved_publishing_intent(
+        shared["data"], {}, shared["data"]
+    )
     product_images = _public_image_rows(
         product_image_diagnostics(product),
         "main.catalogue_product_gallery_image",
@@ -359,6 +374,8 @@ def editor_workspace(product: Product, kind: str):
         "shared": shared,
         "override": override,
         "resolved": resolved,
+        "publishing_intent": publishing_intent,
+        "collection_publishing_intent": collection_publishing_intent,
         "comparison": metadata_comparison(shared["data"], override_data, resolved),
         "fields": EDITOR_FIELDS,
         "affected_total": affected_total,

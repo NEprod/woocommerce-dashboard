@@ -272,7 +272,8 @@ def test_dashboard_active_wording_is_explicitly_local(dashboard_client):
     html = dashboard_client.get("/").get_data(as_text=True)
 
     assert "Active in Catalogue" in html
-    assert "active products in the local scanned catalogue" in html
+    assert "local scanned catalogue lifecycle state" in html
+    assert "current WooCommerce publication" in html
     assert "Active Products" not in html
     assert "synced to WooCommerce" not in html
     assert "published in WooCommerce" not in html

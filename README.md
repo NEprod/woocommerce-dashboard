@@ -28,6 +28,9 @@ supplies shared defaults and an optional partial product override stores only
 intentional differences. Advanced JSON remains available as an explicit expert
 mode, and every save continues through the protected backup, atomic-write, and
 scanner update workflow.
+Catalogue lifecycle labels remain local scanner state. Separately, resolved
+`live` is shown as Published or Draft intent for a future WooCommerce sync; the
+application does not claim that either state currently exists remotely.
 The released Phase 1 scanner and persistence contracts remain unchanged.
 
 ## Current capabilities

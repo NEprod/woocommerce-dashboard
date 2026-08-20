@@ -280,6 +280,43 @@ def test_product_detail_requires_authentication_and_has_controlled_404(milestone
     assert client.get("/products/999999").status_code == 404
 
 
+def test_product_detail_separates_catalogue_state_from_override_publishing_intent(
+    milestone5_client, milestone5_app
+):
+    _app, _catalogue, _database, ids, *_paths = milestone5_app
+    html = milestone5_client.get(f"/products/{ids['variable']}").get_data(
+        as_text=True
+    )
+
+    assert "Catalogue state" in html
+    assert "Active" in html
+    assert "Publishing intent" in html
+    assert "Draft" in html
+    assert "Resolved live value" in html
+    assert "false" in html
+    assert "Publishing intent source" in html
+    assert "Product override" in html
+    assert "Overridden" in html
+    assert "currently published in WooCommerce" not in html
+    assert "Future WooCommerce publishing intent only" in html
+
+
+def test_product_detail_identifies_inherited_collection_publishing_intent(
+    milestone5_client, milestone5_app
+):
+    _app, _catalogue, _database, ids, *_paths = milestone5_app
+    html = milestone5_client.get(f"/products/{ids['simple']}").get_data(
+        as_text=True
+    )
+
+    assert "Publishing intent" in html
+    assert "Published" in html
+    assert "Resolved live value" in html
+    assert "true" in html
+    assert "Collection metadata" in html
+    assert "Inherited" in html
+
+
 def test_variable_product_detail_is_resolved_and_parent_first(milestone5_client, milestone5_app):
     _app, catalogue, _database, ids, *_paths = milestone5_app
     response = milestone5_client.get(f"/products/{ids['variable']}")
@@ -345,6 +382,10 @@ def test_collection_editor_identifies_shared_scope_and_affected_products(milesto
     assert "2 products affected" in html
     assert "Aurora - Fictional Print" in html
     assert "Advanced JSON" in html
+    assert "Publishing intent" in html
+    assert "Publish when Woo sync is introduced" in html
+    assert "Draft when Woo sync is introduced" in html
+    assert "all products that inherit this collection value" in html
     assert str(catalogue) not in html
 
 
@@ -371,7 +412,36 @@ def test_override_editor_distinguishes_authored_inherited_and_resolved_values(mi
     assert "Product Image Context" in html
     assert "PRINT-001-SMALL" in html
     assert "https://uploads.invalid/catalogue/PRINT-001-SMALL.webp" in html
+    assert "Override collection intent" in html
+    assert "Inherited collection intent: Published" in html
+    assert "Removing this override restores the collection intent" in html
     assert str(catalogue) not in html
+
+
+def test_removing_live_override_restores_collection_publishing_intent(
+    milestone5_client, milestone5_app, monkeypatch
+):
+    _app, _catalogue, _database, ids, _shared_path, override_path = milestone5_app
+    monkeypatch.setattr(
+        "app.routes.start_scan",
+        lambda *_args, **kwargs: finish_catalogue_operation(
+            kwargs["operation_id"], status="succeeded"
+        ),
+    )
+
+    response = milestone5_client.post(
+        "/edit_products/PRINT-001/save",
+        json={"kind": "override", "data": {"title": "Aurora"}, "replace": True},
+    )
+    html = milestone5_client.get(f"/products/{ids['variable']}").get_data(
+        as_text=True
+    )
+
+    assert response.status_code == 200
+    assert "live" not in json.loads(override_path.read_text(encoding="utf-8"))
+    assert "Published" in html
+    assert "Collection metadata" in html
+    assert "Inherited" in html
 
 
 def test_advanced_mode_bootstrap_identifies_exact_source_without_host_path(milestone5_client, milestone5_app):
@@ -490,6 +560,39 @@ def test_products_api_points_to_detail_and_correct_source_editor(milestone5_clie
     assert payload["view_url"] == f"/products/{ids['variable']}"
     assert payload["edit_url"] == f"/edit_products/{ids['variable']}/edit/override"
     assert payload["collection_edit_url"] == f"/collections/{ids['collection']}/metadata"
+
+
+def test_products_api_keeps_catalogue_state_separate_from_publishing_intent(
+    milestone5_client, milestone5_app
+):
+    app, *_rest, ids, _shared, _override = milestone5_app
+    with app.app_context():
+        variable = db.session.get(Product, ids["variable"])
+        simple = db.session.get(Product, ids["simple"])
+        variable.published = False
+        simple.published = True
+        db.session.commit()
+
+    items = milestone5_client.get("/api/edit_products").get_json()["items"]
+    values = {item["sku"]: item for item in items}
+
+    assert values["PRINT-001"]["catalogue_status"] == "active"
+    assert values["PRINT-001"]["publishing_intent"] == "draft"
+    assert values["PRINT-001"]["publishing_intent_label"] == "Draft intent"
+    assert values["PRINT-002"]["catalogue_status"] == "active"
+    assert values["PRINT-002"]["publishing_intent"] == "published"
+    assert values["PRINT-002"]["publishing_intent_label"] == "Published intent"
+
+
+def test_dashboard_active_metric_remains_local_and_does_not_claim_remote_publication(
+    milestone5_client,
+):
+    html = milestone5_client.get("/").get_data(as_text=True)
+
+    assert "Active in Catalogue" in html
+    assert "local scanned catalogue lifecycle state" in html
+    assert "does not indicate current WooCommerce publication" in html
+    assert "currently published in WooCommerce" not in html
 
 
 def test_milestone5_pages_do_not_advertise_unsupported_actions(milestone5_client, milestone5_app):

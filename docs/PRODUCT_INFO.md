@@ -59,7 +59,7 @@ shared/override resolution and does not change it.
 | `dimensions` | canonical and active | `{length,width,height}`; millimetres | either | Parent/base variation dimensions; modifiers may replace variation dimensions. |
 | `categories` | canonical and active | string array | either | Additive set-based merge; emits Categories; normalized through Category membership. |
 | `tags` | canonical and active | string array | either | Additive set-based merge; emits Tags; normalized through Tag membership. |
-| `live` | canonical and active | boolean | either | Maps to Published and Product publication status; defaults to live when omitted. |
+| `live` | canonical and active | boolean | either | Future publishing intent: `true` maps to Published and `false` to Draft when Woo sync is introduced; defaults to `true` when omitted. It is not current remote WooCommerce state. |
 | `short_description` | canonical and active | string | either | Emits Short description; stored on Product. |
 | `description` | canonical and active | string | either | Emits Description; stored on Product. |
 | `attributes` | canonical and active | object of non-empty scalar arrays | either | Creates Cartesian variation combinations and parent/variation attributes; Woo-style rows contain only five attribute slots. |
@@ -121,6 +121,12 @@ partial document. Collection defaults are displayed beside override and
 resolved values, but inherited defaults are never flattened into an override.
 An override field is persisted only when explicitly enabled; disabling it
 removes that authored key and reveals the inherited result.
+
+`live` is presented as publishing intent, independently of local catalogue
+lifecycle state. A product-level `live` key overrides the collection intent;
+without that key the product inherits the collection value. The resolved value
+is projected to `Product.published` for future synchronization, but no current
+WooCommerce publication is claimed because Woo sync is not implemented.
 
 Advanced JSON is an explicit expert mode for the same authored source, not a
 third metadata layer. It validates through this module's existing schemas and
