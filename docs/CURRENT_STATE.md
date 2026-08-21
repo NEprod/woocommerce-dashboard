@@ -201,6 +201,11 @@ Detail summarizes the authoritative shared metadata source, affected products,
 image diagnostics, and bounded scoped operation history, and links to Product
 Detail and the existing Collection Metadata Editor. It adds no model or
 migration and performs no collection filesystem mutation. See `COLLECTIONS.md`.
+Collection-facing UI consistently uses the folder basename from portable
+collection provenance as its title. The shared JSON `title` remains product
+metadata, and changing it does not rename a collection or alter its integer route
+identity. Nested duplicate basenames remain distinct and are disambiguated with
+safe relative provenance where needed.
 
 ## Database projection
 

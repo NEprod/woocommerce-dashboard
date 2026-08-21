@@ -38,7 +38,7 @@
       <code>{{ product.sku }}</code>
       <dl class="product-key-facts">
         <div><dt>Type</dt><dd>{{ product.product_type|title }}</dd></div>
-        <div><dt>Collection</dt><dd>{% if product.collection %}<a href="{{ url_for('main.collection_detail', collection_id=product.collection.id) }}">{{ product.collection.name }}</a>{% else %}Unassigned{% endif %}</dd></div>
+        <div><dt>Collection</dt><dd>{% if product.collection %}<a href="{{ url_for('main.collection_detail', collection_id=product.collection.id) }}">{{ workspace.collection_display_name }}</a>{% else %}Unassigned{% endif %}</dd></div>
         <div><dt>Variations</dt><dd>{{ workspace.variation_pagination.total }}</dd></div>
         <div><dt>Price</dt><dd>{% if workspace.price_min %}£{{ workspace.price_min }}{% if workspace.price_max != workspace.price_min %}–£{{ workspace.price_max }}{% endif %}{% else %}Not set{% endif %}</dd></div>
         <div><dt>Updated</dt><dd>{{ product.local_updated_at.strftime('%d %b %Y, %H:%M') if product.local_updated_at else 'Not recorded' }}</dd></div>

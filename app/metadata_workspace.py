@@ -19,6 +19,7 @@ from app.catalogue_images import (
     product_thumbnail_url,
     variation_image_diagnostics,
 )
+from app.collection_identity import collection_display_name
 from app.models import (
     CatalogueOperation,
     CatalogueOperationItem,
@@ -314,6 +315,11 @@ def product_workspace(product: Product):
                 break
     return {
         "product": product,
+        "collection_display_name": (
+            collection_display_name(product.collection)
+            if product.collection
+            else "Unassigned"
+        ),
         "shared": shared_source,
         "override": override_source,
         "resolved": resolved,
@@ -384,6 +390,12 @@ def editor_workspace(product: Product, kind: str):
     ]
     return {
         "product": product,
+        "collection_display_name": (
+            collection_display_name(product.collection)
+            if product.collection
+            else "Unassigned"
+        ),
+        "shared_product_title": shared["data"].get("title"),
         "kind": kind,
         "authored": authored,
         "shared": shared,

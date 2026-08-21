@@ -14,6 +14,7 @@ from app.catalogue_images import (
     product_thumbnail_url,
     resolve_product_catalogue_image,
 )
+from app.collection_identity import collection_display_name
 from app.models import (
     CatalogueOperation,
     Collection,
@@ -228,7 +229,7 @@ def build_dashboard_data():
             "title": product.title,
             "product_type": product.product_type,
             "catalogue_status": product.catalogue_status,
-            "collection": product.collection.name if product.collection else "Unassigned",
+            "collection": collection_display_name(product.collection) if product.collection else "Unassigned",
             "variation_count": count,
             "updated_at": product.local_updated_at,
             "thumbnail": product_thumbnail_url(product),

@@ -7,6 +7,7 @@ from PIL import Image
 from sqlalchemy import event
 
 from app import create_app, db
+from app.collection_identity import collection_display_name, collection_source_provenance
 from app.models import (
     CatalogueOperation,
     Collection,
@@ -23,6 +24,28 @@ from config import Config
 def _image(path, colour="teal"):
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (24, 18), colour).save(path)
+
+
+@pytest.mark.parametrize(
+    ("source_relpath", "shared_json_relpath", "name", "expected", "provenance"),
+    [
+        ("Cards/Birthday/Seasonal", None, "Legacy", "Seasonal", "Cards/Birthday/Seasonal"),
+        (None, "Prints/Christmas/Seasonal/product_info.json", "Legacy", "Seasonal", "Prints/Christmas/Seasonal"),
+        (None, None, "Existing name", "Existing name", None),
+        ("/absolute/private/path", "../escape/product_info.json", "", "Untitled collection", None),
+        ("   ", None, "None", "Untitled collection", None),
+    ],
+)
+def test_collection_display_name_uses_safe_portable_identity(
+    source_relpath, shared_json_relpath, name, expected, provenance
+):
+    collection = Collection(
+        source_relpath=source_relpath,
+        shared_json_relpath=shared_json_relpath,
+        name=name,
+    )
+    assert collection_display_name(collection) == expected
+    assert collection_source_provenance(collection) == provenance
 
 
 @pytest.fixture
@@ -302,6 +325,132 @@ def test_collections_browser_renders_genuine_aggregates_and_safe_identity(
     assert "Create Collection" not in html
 
 
+def test_folder_name_is_the_shared_collection_display_title_everywhere(
+    collections_client, collections_app
+):
+    app, _database, _catalogue, ids = collections_app
+    with app.app_context():
+        product_id = Product.query.filter_by(sku="CARD-001").one().id
+
+    browser = collections_client.get("/collections").get_data(as_text=True)
+    detail = collections_client.get(
+        f"/collections/{ids['Fictional Cards']}"
+    ).get_data(as_text=True)
+    products = collections_client.get("/api/edit_products").get_json()
+    product_detail = collections_client.get(f"/products/{product_id}").get_data(as_text=True)
+    editor = collections_client.get(
+        f"/collections/{ids['Fictional Cards']}/metadata"
+    ).get_data(as_text=True)
+
+    assert f'<a href="/collections/{ids["Fictional Cards"]}">Fictional Cards</a>' in browser
+    assert ">Fictional Greeting Cards</a>" not in browser
+    assert "<h1>Fictional Cards</h1>" in detail
+    assert "Shared product title" in detail
+    assert "Fictional Greeting Cards" in detail
+    assert any(group["name"] == "Fictional Cards" for group in products["groups"])
+    assert f'<a href="/collections/{ids["Fictional Cards"]}">Fictional Cards</a>' in product_detail
+    assert "Collection</dt><dd>Fictional Cards" in editor
+    assert "Shared product title</dt><dd>Fictional Greeting Cards" in editor
+
+
+def test_editing_shared_product_title_does_not_change_collection_identity(
+    collections_client, collections_app
+):
+    app, _database, catalogue, ids = collections_app
+    source = catalogue / "Fictional Cards" / "product_info.json"
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    payload["title"] = "A completely different shared product title"
+    source.write_text(json.dumps(payload), encoding="utf-8")
+
+    browser = collections_client.get("/collections").get_data(as_text=True)
+    detail = collections_client.get(
+        f"/collections/{ids['Fictional Cards']}"
+    ).get_data(as_text=True)
+    assert f'<a href="/collections/{ids["Fictional Cards"]}">Fictional Cards</a>' in browser
+    assert "<h1>Fictional Cards</h1>" in detail
+    assert "Shared product title</dt><dd>A completely different shared product title" in detail
+    assert source.parent.name == "Fictional Cards"
+    with app.app_context():
+        assert db.session.get(Collection, ids["Fictional Cards"]).id == ids["Fictional Cards"]
+        assert Collection.query.filter_by(source_relpath="Fictional Cards").count() == 1
+
+
+def test_nested_duplicate_and_missing_collection_identities_display_safely(
+    collections_client, collections_app
+):
+    app, _database, catalogue, _ids = collections_app
+    with app.app_context():
+        additions = [
+            Collection(
+                name="Legacy Birthday Seasonal",
+                root_path=str(catalogue / "Cards" / "Birthday" / "Seasonal"),
+                sku_prefix="SEASON-BIRTHDAY-",
+                shared_json_path=str(catalogue / "Cards" / "Birthday" / "Seasonal" / "product_info.json"),
+                source_relpath="Cards/Birthday/Seasonal",
+                shared_json_relpath="Cards/Birthday/Seasonal/product_info.json",
+                collection_type="Simple",
+            ),
+            Collection(
+                name="Legacy Christmas Seasonal",
+                root_path=str(catalogue / "Prints" / "Christmas" / "Seasonal"),
+                sku_prefix="SEASON-CHRISTMAS-",
+                shared_json_path=str(catalogue / "Prints" / "Christmas" / "Seasonal" / "product_info.json"),
+                source_relpath="Prints/Christmas/Seasonal",
+                shared_json_relpath="Prints/Christmas/Seasonal/product_info.json",
+                collection_type="Simple",
+            ),
+            Collection(
+                name="",
+                root_path=str(catalogue / "Historical Unknown"),
+                sku_prefix="UNKNOWN-",
+                shared_json_path=str(catalogue / "Historical Unknown" / "product_info.json"),
+                source_relpath=None,
+                shared_json_relpath=None,
+                collection_type="Simple",
+            ),
+        ]
+        db.session.add_all(additions)
+        db.session.commit()
+        added_ids = [item.id for item in additions]
+
+    html = collections_client.get("/collections?per_page=25").get_data(as_text=True)
+    assert html.count(">Seasonal</a>") == 2
+    assert "Cards/Birthday/Seasonal" in html
+    assert "Prints/Christmas/Seasonal" in html
+    assert "Untitled collection" in html
+    assert str(catalogue) not in html
+    for collection_id in added_ids:
+        assert f'/collections/{collection_id}' in html
+
+
+def test_collection_search_and_sort_use_folder_display_name(
+    collections_client,
+):
+    folder_match = collections_client.get("/collections?q=Fictional+Cards").get_data(as_text=True)
+    shared_title_match = collections_client.get("/collections?q=Greeting").get_data(as_text=True)
+    sorted_html = collections_client.get("/collections?sort=name&order=asc").get_data(as_text=True)
+    assert "Fictional Cards" in folder_match
+    assert "Fictional Cards" in shared_title_match
+    names = ["Capital Parent Art", "Fictional Cards", "Fictional Prints"]
+    assert [sorted_html.index(name) for name in names] == sorted(sorted_html.index(name) for name in names)
+
+
+def test_missing_shared_product_title_remains_a_metadata_issue(
+    collections_client, collections_app
+):
+    _app, _database, catalogue, ids = collections_app
+    source = catalogue / "Fictional Cards" / "product_info.json"
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    payload.pop("title")
+    source.write_text(json.dumps(payload), encoding="utf-8")
+    detail = collections_client.get(
+        f"/collections/{ids['Fictional Cards']}"
+    ).get_data(as_text=True)
+    assert "<h1>Fictional Cards</h1>" in detail
+    assert "Shared product title</dt><dd>Not set" in detail
+    assert "Has issues" in detail
+
+
 @pytest.mark.parametrize(
     ("query", "present", "absent"),
     [
@@ -339,7 +488,7 @@ def test_collection_order_is_deterministic_and_identity_is_not_duplicated(
     collections_client,
 ):
     html = collections_client.get("/collections").get_data(as_text=True)
-    names = ["Capital Parent Art", "Fictional Greeting Cards", "Fictional Prints"]
+    names = ["Capital Parent Art", "Fictional Cards", "Fictional Prints"]
     assert html.count('data-collection-card') == 3
     assert [html.index(name) for name in names] == sorted(html.index(name) for name in names)
 

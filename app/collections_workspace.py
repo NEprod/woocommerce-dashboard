@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+from collections import Counter
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
@@ -14,6 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app import db
 from app.catalogue_images import primary_image_alt, projected_image_coverage
+from app.collection_identity import collection_display_name, collection_source_provenance
 from app.dashboard import OPERATION_LABELS
 from app.models import (
     CatalogueOperation,
@@ -151,7 +153,7 @@ def collection_metadata_source(collection, root):
     unsupported = bool(data.get("collection_type")) and data.get("collection_type") not in COLLECTION_TYPES
     completeness = sum(
         not data.get(key)
-        for key in ("short_description", "meta_title", "meta_description")
+        for key in ("title", "short_description", "meta_title", "meta_description")
     )
     if path is None:
         state, label = "missing", "Missing metadata"
@@ -242,6 +244,7 @@ def _aggregate_rows(query_text=""):
 
 def _row_view(row, metadata):
     collection = row[0]
+    display_name = collection_display_name(collection)
     product_count = int(row.product_count or 0)
     published = int(row.published_count or 0)
     draft = int(row.draft_count or 0)
@@ -257,8 +260,10 @@ def _row_view(row, metadata):
     return {
         "collection": collection,
         "id": collection.id,
-        "name": collection.name,
-        "title": metadata["data"].get("title") or collection.name,
+        "name": display_name,
+        "title": display_name,
+        "shared_product_title": metadata["data"].get("title"),
+        "source_provenance": collection_source_provenance(collection),
         "type": collection.collection_type or metadata["data"].get("collection_type") or "Not projected",
         "sku_prefix": collection.sku_prefix,
         "source_reference": metadata["reference"],
@@ -369,6 +374,9 @@ def build_collections_browser(filters):
         _row_view(row, collection_metadata_source(row[0], root))
         for row in rows
     ]
+    display_counts = Counter(item["name"].casefold() for item in items)
+    for item in items:
+        item["show_provenance"] = display_counts[item["name"].casefold()] > 1
     if filters["q"]:
         term = filters["q"].casefold()
         product_collection_ids = {
@@ -387,7 +395,8 @@ def build_collections_browser(filters):
             item
             for item in items
             if term in item["name"].casefold()
-            or term in item["title"].casefold()
+            or term in (item["source_provenance"] or "").casefold()
+            or term in (item["shared_product_title"] or "").casefold()
             or term in (item["sku_prefix"] or "").casefold()
             or item["id"] in product_collection_ids
         ]
@@ -574,7 +583,7 @@ def build_collection_detail(collection, product_pagination):
         metadata_summary={
             "collection_type": metadata.get("collection_type") or collection.collection_type,
             "sku_prefix": metadata.get("sku_prefix") or collection.sku_prefix,
-            "title": metadata.get("title") or collection.name,
+            "shared_product_title": metadata.get("title"),
             "categories_count": len(metadata.get("categories", [])) if isinstance(metadata.get("categories"), list) else 0,
             "tags_count": len(metadata.get("tags", [])) if isinstance(metadata.get("tags"), list) else 0,
             "attributes": metadata.get("attributes") if isinstance(metadata.get("attributes"), dict) else {},

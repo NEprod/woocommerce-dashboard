@@ -14,6 +14,16 @@ authoritative, collection-level `product_info.json` remains the authored shared
 metadata source, sparse product override files remain product-owned, and SQLite
 remains a scanner-generated projection.
 
+The visible collection title is the basename of that portable collection path.
+Nested collections therefore display their final directory component, while the
+full relative path remains provenance and disambiguates duplicate basenames.
+`product_info.json["title"]` is a shared **product** title default, not a
+collection title. Editing it can update inheriting products through the existing
+workflow, but it does not rename the folder, change `Collection.id`, change the
+route, or create another collection. Missing shared product titles remain a
+metadata-health issue. Historical rows without safe portable identity use their
+existing collection name and then the controlled `Untitled collection` fallback.
+
 ## Browser
 
 The browser aggregates projected product and variation counts, local catalogue
@@ -22,6 +32,12 @@ coverage, and last product updates. Search, filters, sorting, and page sizes of
 25, 50, or 100 are server-backed. Ordinary image diagnostics load only products
 for the rendered page; an image filter or issue sort performs the broader check
 needed for an exact result.
+
+Collection-name search and sorting use the shared folder-derived display title;
+search may also match portable provenance and the shared product title. Products
+grouping and filtering, Product Detail, Collection Detail, and Collection
+Metadata Editor all use the same resolver so their collection labels cannot
+drift.
 
 Representative imagery is deterministic: the first valid genuine parent image
 from the ordered eligible products, then another parent candidate, then the

@@ -88,6 +88,7 @@ from app.collections_workspace import (
     parse_collection_filters,
     parse_product_pagination,
 )
+from app.collection_identity import collection_display_name
 
 main = Blueprint("main", __name__)
 
@@ -146,7 +147,11 @@ def products():
             "key": issue_key,
             "label": METADATA_ISSUE_DEFINITIONS[issue_key]["label"],
         }
-    collections = Collection.query.order_by(Collection.name.asc()).all()
+    collections = [
+        {"id": collection.id, "name": collection_display_name(collection)}
+        for collection in Collection.query.order_by(Collection.id.asc()).all()
+    ]
+    collections.sort(key=lambda item: (item["name"].casefold(), item["id"]))
     return render_template(
         "edit_products.html",
         issue_filter=issue_filter,

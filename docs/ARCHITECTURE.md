@@ -126,6 +126,12 @@ the opaque image routes. The filesystem catalogue and collection
 `product_info.json` remain authoritative; this view does not add an authored
 database collection layer.
 
+`app/collection_identity.py` is the presentation boundary for collection names.
+It derives the visible title from the basename of existing portable collection
+provenance, keeps `Collection.id` as route identity, and never treats the shared
+JSON `title` field as a collection title. The latter remains authored shared
+product metadata. This resolver performs no filesystem reads or mutations.
+
 ## Persistence
 
 SQLite stores users, settings, the complete emitted parent/variation row projection, exact Collection → Product → Variation relationships, images, attributes, taxonomy, JSON provenance, operation history, and dormant integration-oriented models. Product folders, authored JSON, scanner markers, and SKU counters remain independent filesystem state.

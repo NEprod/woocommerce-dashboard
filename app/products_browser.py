@@ -16,6 +16,7 @@ from app.catalogue_images import (
     variation_image_alt,
     variation_thumbnail_url,
 )
+from app.collection_identity import collection_display_name
 from app.dashboard import METADATA_ISSUE_DEFINITIONS, metadata_issue_condition
 from app.models import Collection, Product, ProductAsset, Variation
 from app.publishing import projected_publishing_intent
@@ -173,7 +174,7 @@ def _product_view(product, variation_count, minimum_price, maximum_price):
         "sku": product.sku or "",
         "title": product.title or "Untitled product",
         "type": "variable" if product.product_type == "variable" else "simple",
-        "collection": product.collection.name if product.collection else "Unassigned",
+        "collection": collection_display_name(product.collection) if product.collection else "Unassigned",
         "collection_id": product.collection_id,
         "collection_url": (
             url_for("main.collection_detail", collection_id=product.collection_id)
@@ -311,10 +312,19 @@ def build_products_data(filters):
         .group_by(Product.collection_id, Collection.name)
         .all()
     )
+    collection_by_id = {
+        product.collection_id: product.collection
+        for product, _count, _minimum, _maximum in rows
+        if product.collection_id and product.collection
+    }
     stats = {
         collection_id: {
             "id": collection_id,
-            "name": name or "Unassigned",
+            "name": (
+                collection_display_name(collection_by_id[collection_id])
+                if collection_id in collection_by_id
+                else name or "Unassigned"
+            ),
             "detail_url": (
                 url_for("main.collection_detail", collection_id=collection_id)
                 if collection_id
