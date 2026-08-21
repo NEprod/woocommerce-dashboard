@@ -13,6 +13,11 @@ from flask import g, has_request_context
 from PIL import Image, UnidentifiedImageError
 
 from app.models import Product, Settings, Variation
+from app.utils.catalogue_paths import (
+    AmbiguousReservedDirectoryError,
+    find_reserved_directory,
+    is_reserved_directory_name,
+)
 from app.utils.json_utils import merge_product_json
 
 
@@ -207,8 +212,8 @@ def _parent_directories(product: Product, context, metadata: dict) -> list[Path]
     collection_type = product.collection_type or metadata.get("collection_type")
     if collection_type != "Single Variable":
         return [product_folder]
-    parent_folder = product_folder / "parent"
-    if parent_folder.is_dir():
+    parent_folder = find_reserved_directory(product_folder)
+    if parent_folder is not None:
         return [parent_folder]
     # Attribute folders are variation-owned. They are considered only by the
     # explicit variation fallback after genuine parent sources are exhausted.
@@ -226,11 +231,13 @@ def _variation_directories(variation: Variation, context, metadata: dict) -> lis
     values = {attribute.name: attribute.value for attribute in variation.attributes}
     directories = []
     current = product_folder
-    for attribute_name in image_attributes:
+    for index, attribute_name in enumerate(image_attributes):
         value = values.get(attribute_name)
         parts = _portable_parts(value)
         if not parts or len(parts) != 1:
             break
+        if index == 0 and is_reserved_directory_name(parts[0]):
+            return []
         current = current / parts[0]
         directories.append(current)
     return directories
@@ -509,7 +516,10 @@ def product_image_diagnostics(product: Product) -> list[dict]:
         return []
     catalogue_root, product_folder, _source_parts = context
     metadata = _scanner_layout(product, context)
-    directories = _parent_directories(product, context, metadata)
+    try:
+        directories = _parent_directories(product, context, metadata)
+    except AmbiguousReservedDirectoryError:
+        return []
     images = _ordered_product_images(product)
     references = [image.url for image in images]
     if product.image_url and product.image_url not in references:
@@ -651,7 +661,10 @@ def _resolve_reference(
 def _resolve_parent_only(product: Product, context) -> Path | None:
     catalogue_root, product_folder, _source_parts = context
     metadata = _scanner_layout(product, context)
-    directories = _parent_directories(product, context, metadata)
+    try:
+        directories = _parent_directories(product, context, metadata)
+    except AmbiguousReservedDirectoryError:
+        return None
     marker_images = _marker_images(product_folder, catalogue_root)
     images = _ordered_product_images(product)
     persisted_sources = _persisted_asset_sources(

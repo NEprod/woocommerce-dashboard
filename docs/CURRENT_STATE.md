@@ -138,7 +138,10 @@ expanded variation keeps its variation-specific source and uses the parent only
 as a fallback.
 
 Single Variable parent media is discovered from the reserved collection-root
-`parent/` directory. Parent and variation ownership stays separate in markers,
+`parent` directory using case-insensitive recognition (`parent/`, `Parent/`,
+`PARENT/`, or mixed case). Actual source casing is preserved, and multiple
+case-variants are rejected as ambiguous before attribute-folder interpretation.
+Parent and variation ownership stays separate in markers,
 emitted rows, ordered URL galleries, portable source assets, reconstruction,
 and authenticated UI previews. Generated output files are not required for UI
 resolution after ingestion.

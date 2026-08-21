@@ -78,9 +78,11 @@ own Single Variable image-attribute folder identity and fall back to the parent
 only when necessary; Variable Collection variations retain the scanner's shared
 parent-image behavior.
 
-Single Variable collections reserve `parent/` at the collection root for the
-parent primary/gallery set. Configured image-attribute names define variation
-directory depth in order; `parent/` is excluded from that hierarchy. Ingestion
+Single Variable collections reserve the semantic name `parent` at the collection
+root for the parent primary/gallery set. Its directory match is case-insensitive,
+preserves the actual spelling in portable provenance, and rejects multiple
+case-variants as ambiguous. Configured image-attribute names define variation
+directory depth in order; every case-variant of `parent` is excluded from that hierarchy. Ingestion
 keeps the scanner-generated website URLs and positions in `ProductImage` and
 `VariationImage`, and records confined portable source identities as image
 `ProductAsset` rows. UI resolution prefers those persisted source identities,

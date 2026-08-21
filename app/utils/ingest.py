@@ -31,6 +31,7 @@ from app.utils.file_markers import (
     preserve_pending_identity,
 )
 from app.utils.operation_control import sanitize_operation_error
+from app.utils.catalogue_paths import find_reserved_directory, is_reserved_directory_name
 
 # CSV-style keys
 ATTR_NAME_FMT = "Attribute {} name"
@@ -333,20 +334,22 @@ def _source_directories(folder, context, *, attributes=None):
     shared = _load_json_object(context.get("shared_json_path"))
     image_attributes = shared.get("image_attributes")
     if attributes is None:
-        parent = os.path.join(folder, "parent")
-        if os.path.isdir(parent):
-            return [parent]
+        parent = find_reserved_directory(folder)
+        if parent is not None:
+            return [str(parent)]
         return []
     if not isinstance(image_attributes, list):
         return []
     directories = []
     current = folder
-    for name in image_attributes:
+    for index, name in enumerate(image_attributes):
         value = attributes.get(name)
         if not isinstance(value, str) or value in {"", ".", ".."}:
             break
         if os.path.basename(value) != value:
             break
+        if index == 0 and is_reserved_directory_name(value):
+            return []
         current = os.path.join(current, value)
         directories.append(current)
     return directories

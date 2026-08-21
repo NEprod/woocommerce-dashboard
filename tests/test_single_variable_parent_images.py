@@ -15,6 +15,10 @@ from app.models import (
     Variation,
 )
 from app.utils.ingest import ingest_reconstruction_rows, ingest_rows_to_db
+from app.utils.catalogue_paths import (
+    AmbiguousReservedDirectoryError,
+    find_reserved_directory,
+)
 from app.utils.scanner import scan_collection
 from config import Config
 
@@ -53,8 +57,8 @@ def single_variable_projection(tmp_path):
         json.dumps(metadata, indent=2), encoding="utf-8"
     )
     # Deliberately create gallery first: scanner order must not depend on creation order.
-    _image(collection / "parent" / "parent-gallery.jpeg", "JPEG", "teal")
-    _image(collection / "parent" / "parent-primary.PNG", "PNG", "navy")
+    _image(collection / "Parent" / "parent-gallery.jpeg", "JPEG", "teal")
+    _image(collection / "Parent" / "parent-primary.PNG", "PNG", "navy")
     _image(collection / "Hero A" / "A5" / "hero-a-a5-secondary.JPG", "JPEG", "blue")
     _image(collection / "Hero A" / "A5" / "hero-a-a5.png", "PNG", "cyan")
     _image(collection / "Hero A" / "A4" / "hero-a-a4.webp", "WEBP", "purple")
@@ -144,8 +148,8 @@ def test_parent_urls_and_portable_sources_are_projected(single_variable_projecti
             product_id=product.id, variation_id=None, kind="image"
         ).order_by(ProductAsset.label).all()
         assert [asset.source_relpath for asset in parent_assets] == [
-            "SingleVariableFixture/parent/parent-gallery.jpeg",
-            "SingleVariableFixture/parent/parent-primary.PNG",
+            "SingleVariableFixture/Parent/parent-gallery.jpeg",
+            "SingleVariableFixture/Parent/parent-primary.PNG",
         ]
         assert [asset.is_primary for asset in parent_assets] == [True, False]
         assert all(str(state["output"]) not in asset.path for asset in parent_assets)
@@ -243,7 +247,7 @@ def test_parent_corruption_is_diagnostic_and_next_parent_remains_preferred(
     single_variable_projection,
 ):
     state = single_variable_projection
-    corrupt = state["collection"] / "parent" / "parent-gallery.jpeg"
+    corrupt = state["collection"] / "Parent" / "parent-gallery.jpeg"
     corrupt.write_text("not an image", encoding="utf-8")
     with state["app"].app_context():
         product = db.session.get(Product, state["product_id"])
@@ -257,7 +261,7 @@ def test_variation_fallback_is_used_only_after_all_parent_sources_are_unusable(
     single_variable_projection,
 ):
     state = single_variable_projection
-    for source in (state["collection"] / "parent").iterdir():
+    for source in (state["collection"] / "Parent").iterdir():
         source.unlink()
     with state["app"].app_context():
         product = db.session.get(Product, state["product_id"])
@@ -276,3 +280,125 @@ def test_variation_fallback_is_used_only_after_all_parent_sources_are_unusable(
     detail = client.get(f"/products/{state['product_id']}")
     assert detail.status_code == 200
     assert b"Parent fallback from variation" in detail.data
+
+
+@pytest.mark.parametrize("directory_name", ["parent", "Parent", "PARENT", "PaReNt"])
+def test_reserved_parent_directory_is_case_insensitive_and_preserves_source_case(
+    tmp_path, directory_name
+):
+    collection = tmp_path / "catalogue" / "CaseFixture"
+    output = tmp_path / "output"
+    output.mkdir(parents=True)
+    collection.mkdir(parents=True)
+    (collection / "product_info.json").write_text(
+        json.dumps(
+            {
+                "collection_type": "Single Variable",
+                "sku_prefix": "CASE-",
+                "title": "Case Fixture",
+                "price": "12.00",
+                "attributes": {"Style": ["Hero A"], "Size": ["A5"]},
+                "image_attributes": ["Style", "Size"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _image(collection / directory_name / "01-parent.png", "PNG", "navy")
+    _image(collection / directory_name / "02-parent.jpg", "JPEG", "teal")
+    _image(collection / "Hero A" / "A5" / "variation.png", "PNG", "orange")
+
+    rows = scan_collection(
+        str(collection), URL_PREFIX, str(output), log=lambda *_a, **_k: None
+    )
+    marker = json.loads((collection / ".scanned").read_text(encoding="utf-8"))
+    selected = find_reserved_directory(collection, "parent")
+
+    assert selected == collection / directory_name
+    assert selected.name == directory_name
+    assert rows[0]["Images"].split(", ") == [
+        f"{URL_PREFIX}01-parent.webp",
+        f"{URL_PREFIX}02-parent.webp",
+    ]
+    assert marker["images_used"] == ["01-parent.png", "02-parent.jpg"]
+    assert rows[1]["Attribute 1 value(s)"] == "Hero A"
+    assert rows[1]["Attribute 2 value(s)"] == "A5"
+    assert all(
+        row["Attribute 1 value(s)"].casefold() != "parent" for row in rows[1:]
+    )
+
+
+def test_duplicate_reserved_parent_directories_are_rejected_without_host_paths(
+    tmp_path, monkeypatch
+):
+    collection = tmp_path / "catalogue" / "CollisionFixture"
+    collection.mkdir(parents=True)
+    physical = collection / "Parent"
+    physical.mkdir()
+    output = tmp_path / "output"
+    output.mkdir()
+    (collection / "product_info.json").write_text(
+        json.dumps(
+            {
+                "collection_type": "Single Variable",
+                "sku_prefix": "COLLISION-",
+                "title": "Collision Fixture",
+                "price": "12.00",
+                "attributes": {"Style": ["Hero A"], "Size": ["A5"]},
+                "image_attributes": ["Style", "Size"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    entries = [physical, collection / "parent"]
+    original_iterdir = Path.iterdir
+
+    def collision_iterdir(path):
+        if path == collection:
+            return iter(entries)
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", collision_iterdir)
+
+    with pytest.raises(AmbiguousReservedDirectoryError) as raised:
+        find_reserved_directory(collection, "parent")
+
+    message = str(raised.value)
+    assert "Parent" in message and "parent" in message
+    assert str(tmp_path) not in message
+
+    with pytest.raises(AmbiguousReservedDirectoryError) as scan_raised:
+        scan_collection(
+            str(collection), URL_PREFIX, str(output), log=lambda *_a, **_k: None
+        )
+    assert "Parent" in str(scan_raised.value)
+    assert "parent" in str(scan_raised.value)
+    assert str(tmp_path) not in str(scan_raised.value)
+
+
+@pytest.mark.parametrize("reserved_value", ["parent", "Parent", "PARENT", "PaReNt"])
+def test_reserved_parent_name_cannot_be_an_image_attribute_directory(
+    tmp_path, reserved_value
+):
+    collection = tmp_path / "catalogue" / "ReservedAttributeFixture"
+    output = tmp_path / "output"
+    output.mkdir(parents=True)
+    collection.mkdir(parents=True)
+    (collection / "product_info.json").write_text(
+        json.dumps(
+            {
+                "collection_type": "Single Variable",
+                "sku_prefix": "RESERVED-",
+                "title": "Reserved Attribute Fixture",
+                "price": "12.00",
+                "attributes": {"Style": [reserved_value], "Size": ["A5"]},
+                "image_attributes": ["Style", "Size"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _image(collection / reserved_value / "parent-owned.png", "PNG", "navy")
+
+    with pytest.raises(ValueError, match="reserved 'parent' directory name"):
+        scan_collection(
+            str(collection), URL_PREFIX, str(output), log=lambda *_a, **_k: None
+        )

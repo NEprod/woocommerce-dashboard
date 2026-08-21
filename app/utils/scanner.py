@@ -19,6 +19,7 @@ from .file_markers import (
 )
 from .image_tools import process_images, get_image_csv_urls
 from .csv_writer import build_simple_product, build_variable_parent, build_variation_row
+from .catalogue_paths import find_reserved_directory, is_reserved_directory_name
 
 """
 scanner.py
@@ -541,9 +542,13 @@ def scan_single_variable(
     parent_title = merged.get("title") or folder_name
 
     # image fallback if no images in parent folder adds images from style to parent
-    parent_folder = os.path.join(base_folder, "parent")
-    if os.path.isdir(parent_folder):
-        log("🖼️ Using 'parent/' folder for parent images", level="INFO")
+    parent_directory = find_reserved_directory(base_folder)
+    if parent_directory is not None:
+        parent_folder = str(parent_directory)
+        log(
+            f"🖼️ Using '{parent_directory.name}/' folder for parent images",
+            level="INFO",
+        )
         parent_image_names = process_images(
             parent_folder, image_output_folder, log=log, deterministic=True
         )
@@ -573,7 +578,12 @@ def scan_single_variable(
     # fallback to style if variation images are missing
     for i, v_attrs in enumerate(variations):
         log(f"🔎 Resolving image path for {v_attrs} → {base_folder}", level="WARN")
-        base_path = os.path.join(base_folder, v_attrs[image_attrs[0]])
+        first_image_value = v_attrs[image_attrs[0]]
+        if is_reserved_directory_name(first_image_value):
+            raise ValueError(
+                "The first image attribute contains the reserved 'parent' directory name"
+            )
+        base_path = os.path.join(base_folder, first_image_value)
         style_images = process_images(
             base_path, image_output_folder, log=log, deterministic=True
         )

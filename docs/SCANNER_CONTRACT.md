@@ -29,8 +29,13 @@ row-emission contracts characterized below.
 
 `attributes` define variation dimensions. The scanner creates the Cartesian product of attribute values. `variation_modifiers` select effective price, sale price, weight, and dimensions by exact or most-specific partial attribute key. Image attributes select folders for Single Variable variation images.
 
-For a `Single Variable` collection, `parent/` is a reserved directory directly
-under the collection root. It is a sibling of the first configured
+For a `Single Variable` collection, `parent/` is a reserved semantic directory
+directly under the collection root. Recognition is case-insensitive, so existing
+`Parent/`, `PARENT/`, and mixed-case spellings have the same meaning while the
+real on-disk spelling remains in portable source references. More than one
+case-variant in the same collection is an ambiguous catalogue error and is not
+merged. The reserved-name check occurs before image-attribute traversal. It is
+a sibling of the first configured
 `image_attributes` directory level and is never an attribute value. With
 `image_attributes: ["Style", "Size"]`, variation images are resolved through
 `Style/Size/`, in that configured order; files directly inside `parent/` are
