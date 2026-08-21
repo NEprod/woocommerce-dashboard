@@ -61,7 +61,7 @@
       {% if dashboard.scanner.active %}<span class="status-pill"><span class="status-dot"></span>Running</span>{% else %}<span class="status-pill is-neutral"><span class="status-dot"></span>Idle</span>{% endif %}
     </div>
     {% if dashboard.scanner.active %}
-    <div class="scanner-current"><strong>{{ dashboard.scanner.active.label }}</strong><span>Operation in progress</span><a class="btn btn-outline-light btn-sm" href="{{ url_for('main.operation_detail', operation_id=dashboard.scanner.active.id) }}">Open Operation</a></div>
+    <div class="scanner-current"><strong>{{ dashboard.scanner.active.label }}</strong><span>Operation in progress · {{ (dashboard.scanner.active.stage or 'running')|replace('_', ' ')|title }} · {{ dashboard.scanner.active.elapsed_seconds or 0 }}s elapsed{% if dashboard.scanner.active.heartbeat_at %} · activity {{ dashboard.scanner.active.heartbeat_at }}{% endif %}</span><a class="btn btn-outline-light btn-sm" href="{{ url_for('main.operation_detail', operation_id=dashboard.scanner.active.id) }}">Open Operation</a></div>
     {% else %}
     <div class="scanner-current"><strong>No scan is running</strong><span>The operation lock is currently idle.</span></div>
     {% endif %}

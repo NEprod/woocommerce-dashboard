@@ -10,6 +10,12 @@
 6. **Containers use mounted persistence.** `/app/instance`, `/catalogue`, and `/output` are runtime mounts.
 7. **The initial container uses one Gunicorn worker.** Scan state and threads are process-local and SQLite/background work has not been designed for multiple workers. Four threads allow ordinary request concurrency within that single process.
 
+Phase 2 keeps the packaged one-worker mutation runtime, but live scanner
+observation no longer depends on process affinity. Bounded progress, heartbeat,
+counts, logs, and terminal summaries are persisted in the existing operation
+metadata envelope for cross-worker readers. This does not declare catalogue
+mutation ownership or locking safe for a multi-replica deployment.
+
 No new source-of-truth or schema design decision is made here.
 
 ## Phase 1 approved constraints

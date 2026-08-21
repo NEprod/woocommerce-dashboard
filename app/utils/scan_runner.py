@@ -29,6 +29,7 @@ from app.utils.operation_control import (
     register_operation_reference,
     unregister_operation_reference,
 )
+from app.utils.operation_live import persist_live_state, utcnow_iso
 from app.utils.redaction import redact_diagnostic, runtime_redaction_paths
 from app.utils.reconciliation import (
     authoritative_scope,
@@ -45,6 +46,7 @@ LOG_BYTE_LIMIT = 2 * 1024 * 1024
 LOG_TRUNCATION_MARKER = "[⚠️] Earlier log output was truncated to retain the newest entries."
 WARNING_SAMPLE_LIMIT = 20
 COLLECTION_SUMMARY_LIMIT = 25
+LIVE_HEARTBEAT_SECONDS = 5
 
 
 def _row_images(row):
@@ -138,6 +140,8 @@ class BoundedLogQueue:
         self._bytes = 0
         self._history = deque()
         self._history_bytes = 0
+        self._sequence_history = deque()
+        self._next_sequence = 1
         self._condition = threading.Condition()
 
     @staticmethod
@@ -171,6 +175,9 @@ class BoundedLogQueue:
                 self._history.popleft()
                 self._history_bytes -= marker_size
             self._history.append(item)
+            sequence = self._next_sequence
+            self._next_sequence += 1
+            self._sequence_history.append((sequence, item))
             self._history_bytes += self._size(item)
             history_truncated = False
             while self._history and (
@@ -179,6 +186,8 @@ class BoundedLogQueue:
             ):
                 removed = self._history.popleft()
                 self._history_bytes -= self._size(removed)
+                if self._sequence_history:
+                    self._sequence_history.popleft()
                 history_truncated = True
             if history_truncated:
                 self._history.appendleft(LOG_TRUNCATION_MARKER)
@@ -216,6 +225,14 @@ class BoundedLogQueue:
         """Return the bounded chronological history without draining SSE output."""
         with self._condition:
             return list(self._history)
+
+    def sequenced_snapshot(self):
+        with self._condition:
+            entries = []
+            for sequence, line in self._sequence_history:
+                severity = "warning" if "[⚠️]" in line else "error" if "[❌]" in line else "info"
+                entries.append({"sequence": sequence, "severity": severity, "line": line})
+            return entries, self._next_sequence
 
 
 def _run_is_protected(run):
@@ -428,6 +445,7 @@ def start_scan(
         operation_id = lease.id
 
     with _runs_lock:
+        persist_stop = threading.Event()
         _runs[run_id] = {
             "total": 0,
             "done": 0,
@@ -450,9 +468,19 @@ def start_scan(
             "recovery_state": "none",
             "discord": {"state": "pending", "label": "Pending", "events": []},
             "notification_events": set(),
+            "persist_stop": persist_stop,
         }
     register_operation_reference(operation_id)
     _prune_completed_runs()
+    with app.app_context():
+        _persist_run_snapshot(run_id)
+    heartbeat = threading.Thread(
+        target=_heartbeat_loop,
+        args=(app, run_id, persist_stop),
+        daemon=True,
+    )
+    with _runs_lock:
+        _runs[run_id]["heartbeat_thread"] = heartbeat
     thread = threading.Thread(
         target=_scan_thread,
         args=(
@@ -466,8 +494,12 @@ def start_scan(
         daemon=True,
     )
     try:
+        heartbeat.start()
         thread.start()
     except Exception as error:
+        persist_stop.set()
+        if heartbeat.is_alive():
+            heartbeat.join(timeout=LIVE_HEARTBEAT_SECONDS + 1)
         unregister_operation_reference(operation_id)
         with _runs_lock:
             _runs.pop(run_id, None)
@@ -546,6 +578,44 @@ def operation_log_page(operation_id, *, page=1, per_page=50, severity="", search
             "retained": bool(run)}
 
 
+def _persist_run_snapshot(run_id):
+    """Persist one bounded live snapshot for cross-worker readers."""
+
+    with _runs_lock:
+        run = _runs.get(run_id)
+        if not run:
+            return False
+        entries, next_sequence = run["queue"].sequenced_snapshot()
+        progress = get_progress(run_id)
+        latest_message = entries[-1]["line"] if entries else ""
+        state = {
+            "stage": run.get("stage"),
+            "current_item": run.get("current_item"),
+            "latest_message": latest_message,
+            "status": run.get("status"),
+            "progress": progress.get("progress", {}),
+            "counts": progress.get("counts", {}),
+            "summary": _persistable_operation_summary(run.get("summary", {})),
+            "discord": dict(run.get("discord", {})),
+            "heartbeat_at": utcnow_iso(),
+            "next_sequence": next_sequence,
+        }
+        operation_id = run.get("operation_id")
+    return persist_live_state(operation_id, state, entries)
+
+
+def _heartbeat_loop(app, run_id, stop_event):
+    while not stop_event.wait(LIVE_HEARTBEAT_SECONDS):
+        try:
+            with app.app_context():
+                _persist_run_snapshot(run_id)
+        except Exception:
+            # Browser observability must never interrupt scanner execution.
+            with app.app_context():
+                from app import db
+                db.session.rollback()
+
+
 def _scan_thread(
     app,
     run_id,
@@ -570,13 +640,16 @@ def _scan_thread(
         products_restored = 0
         variations_missing = 0
         variations_restored = 0
+        scanner_execution_error = False
         try:
             log = make_logger(run_id)
             _runs[run_id]["stage"] = "preparing"
+            _persist_run_snapshot(run_id)
 
             settings = Settings.query.first()
             if not settings:
-                _runs[run_id]["status"] = "error"
+                scanner_execution_error = True
+                _runs[run_id]["stage"] = "failed"
                 operation_error = "No settings found. Please complete setup first."
                 log(operation_error, level="ERROR")
                 return
@@ -592,7 +665,8 @@ def _scan_thread(
                 )
 
             if not (scan_folder and image_folder and url_prefix):
-                _runs[run_id]["status"] = "error"
+                scanner_execution_error = True
+                _runs[run_id]["stage"] = "failed"
                 operation_error = "Missing scan settings (folders or URL prefix)."
                 log(operation_error, level="ERROR")
                 return
@@ -637,6 +711,7 @@ def _scan_thread(
                 _runs[run_id]["stage"] = "scanning"
                 _runs[run_id]["current_item"] = name
                 log(f"📂 Scanning: {folder_path}")
+                _persist_run_snapshot(run_id)
                 try:
                     rows = scan_collection(
                         folder_path,
@@ -678,6 +753,7 @@ def _scan_thread(
                     log(f"❌ Error in {name}: {e}", level="ERROR")
                 _runs[run_id]["done"] = idx
                 _runs[run_id]["summary"]["collections_processed"] = idx
+                _persist_run_snapshot(run_id)
 
             _runs[run_id]["summary"]["new_rows"] = len(all_rows)
             _runs[run_id]["summary"]["products_resolved"] = sum(
@@ -692,6 +768,7 @@ def _scan_thread(
             # Ingest → DB
             _runs[run_id]["stage"] = "ingesting"
             _runs[run_id]["current_item"] = None
+            _persist_run_snapshot(run_id)
             try:
                 summary = ingest_rows_to_db(
                     all_rows, log=log, operation_id=operation_id
@@ -713,6 +790,7 @@ def _scan_thread(
                 "products_updated", 0
             )
             _runs[run_id]["stage"] = "finalizing"
+            _persist_run_snapshot(run_id)
             marker_outcome = finalize_ingested_markers(
                 scan_folder, operation_id, log=log
             )
@@ -768,7 +846,6 @@ def _scan_thread(
             log(f"📦 Total rows prepared: {len(all_rows)}")
             log("✅ Scan complete.")
             _runs[run_id]["summary"]["warnings"] = _runs[run_id].get("warnings", 0)
-            _runs[run_id]["status"] = "done"
             if products_failed and products_succeeded:
                 operation_status = "partial"
             elif products_failed:
@@ -791,15 +868,19 @@ def _scan_thread(
                     )
 
         except Exception as e:
+            scanner_execution_error = True
             operation_error = e
             products_attempted = max(products_attempted, products_succeeded + 1)
             products_failed = products_attempted - products_succeeded
             make_logger(run_id)(f"❌ Critical error: {e}", level="ERROR")
-            _runs[run_id]["status"] = "error"
             _runs[run_id]["stage"] = "failed"
             _runs[run_id]["current_item"] = None
         finally:
-            if _runs[run_id]["status"] == "error":
+            _runs[run_id]["persist_stop"].set()
+            heartbeat = _runs[run_id].get("heartbeat_thread")
+            if heartbeat and heartbeat is not threading.current_thread():
+                heartbeat.join(timeout=LIVE_HEARTBEAT_SECONDS + 1)
+            if _runs[run_id]["stage"] == "failed":
                 _runs[run_id]["stage"] = "failed"
                 _runs[run_id]["current_item"] = None
             _runs[run_id]["summary"]["finished_at"] = datetime.utcnow().isoformat()
@@ -813,6 +894,11 @@ def _scan_thread(
             _runs[run_id]["summary"].setdefault("warnings", _runs[run_id].get("warnings", 0))
             _runs[run_id]["summary"].update(warning_summary(_runs[run_id]))
             _runs[run_id]["recovery_state"] = operation_recovery_state or "none"
+            try:
+                _persist_run_snapshot(run_id)
+            except Exception:
+                from app import db
+                db.session.rollback()
             try:
                 finish_catalogue_operation(
                     operation_id,
@@ -834,6 +920,7 @@ def _scan_thread(
                     f"Operation history finalisation failed: {finish_error}",
                     level="ERROR",
                 )
+            _runs[run_id]["status"] = "error" if scanner_execution_error else "done"
             elapsed = datetime.utcnow() - start_ts
             mins, secs = divmod(int(elapsed.total_seconds()), 60)
             elapsed_text = f"{mins:02d}:{secs:02d}"
@@ -863,6 +950,11 @@ def _scan_thread(
             if not result[0] and result[1] not in {"disabled", "not configured"}:
                 # Delivery failures are reported separately and never reclassify scan output.
                 make_logger(run_id)(f"Discord terminal notification: {result[1]}", level="INFO")
+            try:
+                _persist_run_snapshot(run_id)
+            except Exception:
+                from app import db
+                db.session.rollback()
             _prune_completed_runs()
 
 

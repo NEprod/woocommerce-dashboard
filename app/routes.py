@@ -45,10 +45,9 @@ from app.utils.scan_runner import (
     start_scan,
     stream_lines,
     get_progress,
-    operation_log_page,
-    operation_run_snapshot,
     _runs,
 )
+from app.utils.operation_live import persisted_live_state, persisted_log_page
 from app.utils.operation_control import (
     CatalogueOperationActive,
     acquire_catalogue_operation,
@@ -1336,32 +1335,62 @@ def operation_status(operation_id):
     if operation is None:
         return jsonify({"error": "operation_not_found"}), 404
     view = operation_view(operation)
-    return jsonify({
+    live = view.get("live") or {}
+    live_payload = {key: value for key, value in live.items() if key != "logs"}
+    response = jsonify({
         "operation": {
             "id": view["id"], "status": view["status"], "status_label": view["status_label"],
+            "type": view["type"], "type_label": view["type_label"],
+            "started_at": view["started_at"].isoformat() if view["started_at"] else None,
             "finished_at": view["finished_at"].isoformat() if view["finished_at"] else None,
-            "recovery_state": view["recovery_state"],
+            "duration": view["duration"], "recovery_state": view["recovery_state"],
+            "attempted": view["attempted"], "succeeded": view["succeeded"],
+            "failed": view["failed"], "missing": view["missing"], "restored": view["restored"],
+            "warning_count": view["warning_count"], "error_count": view["error_count"],
         },
-        "live": operation_run_snapshot(operation.id),
+        "live": live_payload,
+        "last_activity": live.get("heartbeat_at"),
+        "summary": view.get("summary") or {},
+        "warning_summary": view.get("warning_summary") or [],
+        "warning_entries": view.get("warning_entries") or [],
         "discord": view["discord"],
         "terminal": view["status"] in {"succeeded", "partial", "failed", "interrupted"},
     })
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @main.route("/api/operations/<operation_id>/logs")
 @login_required
 def operation_logs(operation_id):
-    if db.session.get(CatalogueOperation, operation_id) is None:
+    operation = db.session.get(CatalogueOperation, operation_id)
+    if operation is None:
         return jsonify({"error": "operation_not_found"}), 404
     try:
         page = int(request.args.get("page", "1"))
         per_page = int(request.args.get("per_page", "50"))
     except ValueError as error:
         raise BadRequest("Invalid log pagination") from error
-    return jsonify(operation_log_page(
-        operation_id, page=page, per_page=per_page,
-        severity=request.args.get("severity", "")[:16], search=request.args.get("q", "")[:100],
-    ))
+    try:
+        after = int(request.args["after"]) if "after" in request.args else None
+    except ValueError as error:
+        raise BadRequest("Invalid log cursor") from error
+    if persisted_live_state(operation) is None and after is None:
+        from app.utils.scan_runner import operation_log_page
+        payload = operation_log_page(
+            operation_id, page=page, per_page=per_page,
+            severity=request.args.get("severity", "")[:16], search=request.args.get("q", "")[:100],
+        )
+    else:
+        payload = persisted_log_page(
+            operation, page=page, per_page=per_page, after=after,
+            severity=request.args.get("severity", "")[:16], search=request.args.get("q", "")[:100],
+        )
+    response = jsonify(payload)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @main.route("/woo-sync")

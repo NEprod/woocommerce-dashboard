@@ -19,7 +19,7 @@ docker build -t neprod/woocommerce-dashboard:phase-1 .
 docker tag neprod/woocommerce-dashboard:phase-1 neprod/woocommerce-dashboard:0.2.3
 ```
 
-The container initially starts as root only to validate `PUID`, `PGID`, and `UMASK`, adjust the existing `app` account, and prepare mounted application state. It then uses the packaged `gosu` binary with `exec`; application import, migrations, the Gunicorn master, and its worker all run as the configured non-root UID/GID. Generic Docker defaults preserve the previous `100:100` identity and `UMASK=002`. One worker and one application replica are required because scan progress, background threads, and the catalogue mutation lock are process-local. Persistent operation rows support diagnosis but are not a distributed mutex.
+The container initially starts as root only to validate `PUID`, `PGID`, and `UMASK`, adjust the existing `app` account, and prepare mounted application state. It then uses the packaged `gosu` binary with `exec`; application import, migrations, the Gunicorn master, and its worker all run as the configured non-root UID/GID. Generic Docker defaults preserve the previous `100:100` identity and `UMASK=002`. The packaged Phase 2 runtime remains one worker and one application replica for catalogue mutation ownership. Live Operation Detail progress, heartbeat, counters, and bounded logs are now persisted in SQLite, so ordinary polling requests do not depend on the scanner-owning thread and are cross-worker readable. A future supported multi-replica mutation runtime still requires a deliberately reviewed distributed lock/runner design.
 
 Production startup rejects a missing or recognizable placeholder `SECRET_KEY`.
 Supply one stable strong value through the runtime environment before updating a

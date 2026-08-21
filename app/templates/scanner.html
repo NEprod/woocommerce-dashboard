@@ -8,7 +8,7 @@
 
 {% if readiness.active %}
 <section class="operation-active-card" aria-labelledby="active-operation-heading">
-  <div><p class="eyebrow">Active operation</p><h2 id="active-operation-heading">{{ readiness.active.operation_type|replace('_', ' ')|title }} is running</h2><p>Only one catalogue operation can run at a time. Opening this page again will not start another.</p></div>
+  <div><p class="eyebrow">Active operation</p><h2 id="active-operation-heading">{{ readiness.active.operation_type|replace('_', ' ')|title }} is running</h2><p>Stage: {{ readiness.active.stage|replace('_', ' ')|title }} · Elapsed: {{ readiness.active.elapsed_seconds or 0 }}s{% if readiness.active.heartbeat_at %} · Latest activity {{ readiness.active.heartbeat_at }}{% endif %}</p><p>Only one catalogue operation can run at a time. Opening this page again will not start another.</p></div>
   <a class="btn btn-accent" href="{{ url_for('main.operation_detail', operation_id=readiness.active.id) }}">Follow progress</a>
 </section>
 {% endif %}
@@ -21,7 +21,7 @@
       <li><span class="readiness-mark" aria-hidden="true">{{ '✓' if readiness.discord.state == 'configured' else '–' }}</span><div><strong>Discord {{ readiness.discord.state|replace('_',' ') }}</strong><small>No webhook value is displayed. Notification delivery never controls scanner success.</small></div></li>
     </ul>
   </section>
-  <aside class="workspace-panel scanner-contract" aria-labelledby="contract-heading"><p class="eyebrow">Protected contract</p><h2 id="contract-heading">What every mode preserves</h2><ul><li>Existing SKU generation and reuse rules</li><li>JSON inheritance and sparse product overrides</li><li>Atomic marker and database coordination</li><li>Parent and variation image ownership</li><li>One process-local operation lock</li></ul><p class="panel-note">Safe cancellation is not implemented. Once started, an operation must reach its existing terminal or recovery state.</p></aside>
+  <aside class="workspace-panel scanner-contract" aria-labelledby="contract-heading"><p class="eyebrow">Protected contract</p><h2 id="contract-heading">What every mode preserves</h2><ul><li>Existing SKU generation and reuse rules</li><li>JSON inheritance and sparse product overrides</li><li>Atomic marker and database coordination</li><li>Parent and variation image ownership</li><li>One authoritative operation lock</li></ul><p class="panel-note">Safe cancellation is not implemented. Once started, an operation must reach its existing terminal or recovery state.</p></aside>
 </div>
 
 <section aria-labelledby="modes-heading"><div class="page-heading compact"><p class="eyebrow">Choose deliberately</p><h2 id="modes-heading">Supported scan modes</h2><p>Only established append, marker-selected update, and intentional full-scan workflows are available here.</p></div>

@@ -148,6 +148,26 @@ def prune_operation_history(*, now=None, protected_ids=None):
 
 
 def get_active_operation() -> dict | None:
+    if has_app_context():
+        row = (
+            CatalogueOperation.query.filter(
+                CatalogueOperation.status.in_({"running", "pending"})
+            )
+            .order_by(CatalogueOperation.started_at.asc())
+            .first()
+        )
+        if row:
+            from app.utils.operation_live import persisted_live_state
+            live = persisted_live_state(row) or {}
+            return {
+                "id": row.id,
+                "operation_type": row.operation_type,
+                "started_at": row.started_at.isoformat() if row.started_at else None,
+                "stage": live.get("stage") or "running",
+                "heartbeat_at": live.get("heartbeat_at"),
+                "current_item": live.get("current_item"),
+                "elapsed_seconds": max(0, int((_utcnow() - row.started_at).total_seconds())) if row.started_at else None,
+            }
     with _state_lock:
         return dict(_active_operation) if _active_operation else None
 
@@ -170,6 +190,21 @@ def acquire_catalogue_operation(operation_type: str, scope=None) -> OperationLea
         "started_at": _utcnow().isoformat(),
     }
     try:
+        # A persisted preflight makes the authoritative lock visible to another
+        # worker even though the production runtime currently uses one worker.
+        existing = (
+            CatalogueOperation.query.filter(
+                CatalogueOperation.status.in_({"running", "pending"})
+            )
+            .order_by(CatalogueOperation.started_at.asc())
+            .first()
+        )
+        if existing:
+            raise CatalogueOperationActive({
+                "id": existing.id,
+                "operation_type": existing.operation_type,
+                "started_at": existing.started_at.isoformat() if existing.started_at else None,
+            })
         row = CatalogueOperation(
             id=operation_id,
             operation_type=operation_type,

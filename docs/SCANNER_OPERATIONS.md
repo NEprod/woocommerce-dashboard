@@ -44,8 +44,9 @@ navigation failure cannot start a second scan or cancel the active one.
 
 Every canonical Scanner start requires explicit confirmation. Full also
 requires a separate catalogue-wide acknowledgement. Client-side duplicate
-click protection is supplementary: the non-blocking process-local lock remains
-authoritative and returns a controlled `409`. Refreshing a GET never starts work.
+click protection is supplementary: the non-blocking mutation lock plus the
+persisted running-operation preflight remain authoritative and return a
+controlled `409`. Refreshing a GET never starts work.
 
 The Phase 1 runtime remains single-worker and single-replica. Safe cancellation
 is not implemented; no Cancel button, process termination, destructive rollback,
@@ -68,35 +69,54 @@ They return to Scanner with the supported mode preselected and still require
 normal confirmation. Starting a retry creates a new operation; original history
 is preserved. Unsupported recovery/cancellation is stated explicitly.
 
-Operation Detail combines persisted history with process-local progress where
-still available. It shows structured start/terminal events, actual counts,
+Operation Detail reads persisted history and a versioned bounded live snapshot.
+It shows structured start/terminal events, actual counts,
 recovery/marker state, affected product/collection links, and Discord summary.
 The existing JSON operation scope now retains a bounded structured terminal
 summary: warning categories/samples and separate parent-image,
-variation-image, total-image, and output-copy counts. Detailed process logs and
-durable Discord attempts are not invented.
+variation-image, total-image, and output-copy counts. Discord attempts remain
+bounded within the same operation snapshot; polling never sends notifications.
 
 ## Progress and logs
 
-Running operations are observed with non-overlapping four-second polling. The
-client stops at a terminal state, backs off after network failure, and never
-starts work or sends notifications. Percentage is shown only when the runner
-knows the collection total; otherwise stage/current item is authoritative.
+Running operations use non-overlapping three-second status/log polling with
+`Cache-Control: no-store`. The scanner persists stage changes and meaningful
+count batches immediately and refreshes a scanner-authored UTC heartbeat every
+five seconds during long stages. A browser request does not fabricate activity.
+Percentage is shown only when the runner knows the collection total; otherwise
+stage, item, honest counts, and an indeterminate presentation are authoritative.
 
-The existing SSE compatibility endpoints remain unchanged. The runner keeps a
-parallel read-only snapshot of the same bounded, already-redacted process log:
+Three consecutive request failures pause automatic polling and expose **Refresh
+live status**. The page explicitly says the scan continues in the background.
+Returning to a visible tab or using the retry action resumes observation without
+starting or cancelling work. Empty log responses mean only that no new line is
+available; they never stop polling. Terminal status and summary are applied in
+place without requiring a page reload or Discord notification.
 
-- maximum 2,000 lines and approximately 2 MiB;
+The existing SSE compatibility endpoints remain unchanged. In addition to the
+2,000-line/2 MiB process queue, each active operation persists a smaller
+cross-worker feed:
+
+- maximum 500 lines and approximately 256 KiB of line text;
 - chronological order;
-- server pages of at most 100 lines (UI default 50);
+- stable monotonically increasing sequence numbers;
+- cursor batches and server pages of at most 100 lines;
 - bounded search and severity filters;
 - text-only browser rendering.
 
-This is not a new log file and is not durable. After restart, persisted summaries
-and items remain while the page reports that process-local lines are no longer
-retained. Redaction covers webhooks, authorization/cookie headers, bearer tokens,
-passwords/secrets, and configured/personal absolute path prefixes while retaining
-useful portable catalogue references.
+If a cursor falls behind retention—or is invalidly ahead—the API returns an
+explicit gap and resumes at the oldest retained sequence. Retrying or refreshing
+does not duplicate a sequence. This is database metadata, not a new log file or
+`/app/instance/logs` directory. It is removed with the operation by existing
+history retention. Redaction covers webhooks, authorization/cookie headers,
+bearer tokens, passwords/secrets, and configured/personal absolute path prefixes
+while retaining useful portable catalogue references.
+
+The browser is never part of scanner execution. Closing a modal, refreshing,
+navigating away, closing the browser, or losing polling connectivity cannot stop
+a scan. Cancellation remains unsupported and only one catalogue mutation may run.
+Scanner and Dashboard active cards also read the persisted running row and live
+snapshot, rather than requiring access to the scanner thread's `_runs` object.
 
 ## Discord audit and policy
 

@@ -15,6 +15,7 @@ from app.database import migration_head
 from app.models import CatalogueOperation, CatalogueOperationItem, Collection, Product, Settings
 from app.utils.discord import configuration_summary
 from app.utils.operation_control import get_active_operation
+from app.utils.operation_live import persisted_live_state
 from app.utils.redaction import redact_diagnostic, runtime_redaction_paths
 
 TERMINAL_STATUSES = {"succeeded", "partial", "failed", "interrupted"}
@@ -98,13 +99,17 @@ def _duration(row):
     return max(0, int((end - row.started_at).total_seconds()))
 
 
-def _live_run(operation_id):
+def _live_run(operation_id, row=None):
+    if row is not None:
+        persisted = persisted_live_state(row)
+        if persisted:
+            return persisted
     from app.utils.scan_runner import operation_run_snapshot
     return operation_run_snapshot(operation_id)
 
 
-def _discord_view(operation_id):
-    run = _live_run(operation_id)
+def _discord_view(operation_id, row=None):
+    run = _live_run(operation_id, row)
     if run and run.get("discord"):
         return run["discord"]
     config = configuration_summary()
@@ -127,7 +132,7 @@ def _presentation_paths():
 def operation_view(row, *, redaction_paths=None):
     scope = _safe_scope(row)
     persisted_summary = scope.get("operation_summary") if isinstance(scope.get("operation_summary"), dict) else {}
-    live = _live_run(row.id)
+    live = _live_run(row.id, row)
     source = scope.get("collection_relpath") or scope.get("source_relpath")
     live_warnings = int((live or {}).get("counts", {}).get("warnings", 0) or 0)
     warning_count = max(live_warnings, int(persisted_summary.get("warnings", 0) or 0))
@@ -146,7 +151,7 @@ def operation_view(row, *, redaction_paths=None):
         "scope": scope, "scope_label": source or scope.get("sku") or "Catalogue",
         "recovery_state": row.recovery_state or "none", "recoverable": row.recovery_state not in (None, "none"),
         "marker_state": row.marker_state, "error": redact_diagnostic(row.error, paths=redaction_paths, limit=1000) if row.error else None,
-        "discord": _discord_view(row.id), "live": live,
+        "discord": _discord_view(row.id, row), "live": live,
         "summary": (live or {}).get("summary") or persisted_summary,
         "warning_summary": ((live or {}).get("summary") or persisted_summary).get("warning_summary", []),
         "warning_entries": ((live or {}).get("summary") or persisted_summary).get("warning_entries", []),
