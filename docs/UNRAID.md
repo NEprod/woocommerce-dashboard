@@ -81,7 +81,7 @@ container restart:
 | Discord Display Name | `DISCORD_DEFAULT_USERNAME` | Variable | `WooCommerce Dashboard` | No | No | `Catalogue Scanner` |
 | Discord Avatar URL | `DISCORD_DEFAULT_AVATAR_URL` | Variable | empty | No | No | `https://example.invalid/avatar.png` |
 | Discord Scanner Updates Webhook | `DISCORD_WEBHOOK_SCANS_INFO` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
-| Discord Scanner Failures Webhook | `DISCORD_WEBHOOK_SCANS_ERRORS` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
+| Discord Scanner Warnings and Failures Webhook | `DISCORD_WEBHOOK_SCANS_ERRORS` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
 | Discord Metadata Updates Webhook | `DISCORD_WEBHOOK_EDITS` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
 | Discord Product Overrides Webhook | `DISCORD_WEBHOOK_OVERRIDES` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
 | Discord Product Ingest Webhook | `DISCORD_WEBHOOK_INGEST` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |

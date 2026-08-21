@@ -106,9 +106,42 @@ def test_confirmed_scanner_start_uses_existing_runner_once(operations_app, monke
     monkeypatch.setattr(routes, "start_scan", lambda app, run_id, **kwargs: calls.append((run_id, kwargs)) or "new-operation-id")
     response = _client(operations_app).post("/scanner/start", json={"mode": "append", "confirm_operation": True})
     assert response.status_code == 202
-    assert response.get_json()["operation_id"] == "new-operation-id"
+    assert response.get_json() == {
+        "ok": True,
+        "operation_id": "new-operation-id",
+        "destination": "/operations/new-operation-id",
+    }
     assert len(calls) == 1
     assert calls[0][1]["scan_mode"] == "append"
+
+
+def test_active_operation_is_visible_after_scanner_refresh(operations_app, monkeypatch):
+    from app import operations_workspace
+
+    monkeypatch.setattr(
+        operations_workspace,
+        "get_active_operation",
+        lambda: {"id": "operation00000000000000000000000", "operation_type": "full", "started_at": "2026-08-21T09:00:00"},
+    )
+    html = _client(operations_app).get("/scanner").get_data(as_text=True)
+    assert "Full is running" in html
+    assert 'href="/operations/operation00000000000000000000000"' in html
+    assert "Follow progress" in html
+
+
+def test_dashboard_links_directly_to_the_same_active_operation(operations_app, monkeypatch):
+    from app import dashboard
+
+    operation_id = "operation00000000000000000000000"
+    monkeypatch.setattr(
+        dashboard,
+        "get_active_operation",
+        lambda: {"id": operation_id, "operation_type": "full", "started_at": "2026-08-21T09:00:00"},
+    )
+    html = _client(operations_app).get("/").get_data(as_text=True)
+    assert "Operation in progress" in html
+    assert f'href="/operations/{operation_id}"' in html
+    assert "Open Operation" in html
 
 
 def test_missing_output_mount_blocks_start_without_exposing_path(operations_app, monkeypatch):
@@ -156,6 +189,28 @@ def test_operation_status_api_is_bounded_and_polling_is_observational(operations
     assert payload["operation"]["status"] == "succeeded"
 
 
+def test_running_operation_duration_uses_utc_not_local_wall_clock(operations_app, monkeypatch):
+    from app import operations_workspace
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 8, 21, 13, 0, 30, tzinfo=tz)
+
+    monkeypatch.setattr(operations_workspace, "datetime", FixedDateTime)
+    with operations_app.app_context(), operations_app.test_request_context("/operations/test"):
+        operation = CatalogueOperation(
+            id="utc-duration-operation",
+            operation_type="full",
+            status="running",
+            scope="{}",
+            started_at=datetime(2026, 8, 21, 13, 0, 0),
+        )
+        db.session.add(operation)
+        db.session.commit()
+        assert operations_workspace.operation_view(operation)["duration"] == 30
+
+
 def test_operation_browser_and_detail_queries_remain_bounded(operations_app):
     statements = []
     with operations_app.app_context():
@@ -182,6 +237,28 @@ def test_navigation_marks_operation_detail_active(operations_app):
     html = _client(operations_app).get("/operations/operation00000000000000000000000").get_data(as_text=True)
     assert 'title="Operations"' in html
     assert 'aria-current="page"' in html
+
+
+def test_persisted_warning_summary_survives_process_memory_loss(operations_app):
+    with operations_app.app_context():
+        operation = db.session.get(CatalogueOperation, "operation00000000000000000000000")
+        operation.status = "partial"
+        scope = json.loads(operation.scope)
+        scope["operation_summary"] = {
+            "warnings": 3,
+            "warning_summary": [{"category": "missing source images", "count": 3, "samples": ["Folder Collection/Product"]}],
+            "parent_images": 2,
+            "variation_images": 4,
+            "total_images": 6,
+            "output_images_copied": 5,
+        }
+        operation.scope = json.dumps(scope)
+        db.session.commit()
+        with operations_app.test_request_context("/operations/operation00000000000000000000000"):
+            view = __import__("app.operations_workspace", fromlist=["operation_view"]).operation_view(operation)
+        assert view["warning_count"] == 3
+        assert view["summary"]["total_images"] == 6
+        assert view["warning_summary"][0]["category"] == "missing source images"
 
 
 def test_large_log_history_is_bounded_paginated_and_chronological(operations_app):

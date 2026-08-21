@@ -170,24 +170,71 @@ def notify_scan_started(mode, collection_count):
     return send_discord_message(embeds=[embed], channels=["scans_info"])
 
 
-def notify_scan_completed(mode, summary, elapsed_text):
-    warnings = int(summary.get("warnings", 0) or 0)
+def _summary_fields(summary):
     fields = []
-    for key in ("folders", "new_rows", "products_created", "products_updated", "variations_created", "variations_updated", "images_copied"):
-        if key in summary:
-            fields.append({"name": key.replace("_", " ").title(), "value": str(summary[key]), "inline": True})
+    labels = (
+        ("collections_processed", "Collections processed"),
+        ("products_created", "Products created"),
+        ("products_updated", "Products updated"),
+        ("products_skipped", "Products skipped"),
+        ("parent_images", "Parent images"),
+        ("variation_images", "Variation images"),
+        ("total_images", "Total images"),
+        ("output_images_copied", "Output images copied"),
+    )
+    for key, label in labels:
+        if key in summary and summary[key] is not None:
+            fields.append({"name": label, "value": str(summary[key]), "inline": True})
+    if "variations_created" in summary or "variations_updated" in summary:
+        affected = int(summary.get("variations_created", 0) or 0) + int(summary.get("variations_updated", 0) or 0)
+        fields.insert(min(4, len(fields)), {"name": "Variations affected", "value": str(affected), "inline": True})
+    elif "variations_processed" in summary:
+        fields.insert(min(4, len(fields)), {"name": "Variations processed", "value": str(summary["variations_processed"]), "inline": True})
+    return fields
+
+
+def _grouped_warning_text(summary):
+    groups = summary.get("warning_summary") or []
+    lines = []
+    represented = 0
+    for group in groups[:5]:
+        count = max(0, int(group.get("count", 0) or 0))
+        if not count:
+            continue
+        represented += count
+        lines.append(f"{count} {group.get('category') or 'other warnings'}")
+    total = max(0, int(summary.get("warnings", 0) or 0))
+    if total > represented:
+        lines.append(f"and {total - represented} additional warnings")
+    return "\n".join(lines) or f"{total} warning(s) recorded"
+
+
+def notify_scan_completed(mode, summary, elapsed_text, *, operation_id=None):
+    warnings = int(summary.get("warnings", 0) or 0)
+    fields = _summary_fields(summary)
     if warnings:
-        fields.append({"name": "Warnings", "value": str(warnings), "inline": True})
+        fields.append({"name": "Warning summary", "value": _grouped_warning_text(summary), "inline": False})
+    collections = summary.get("collection_summaries") or []
+    collection_line = f"\nCollection: **{_truncate(collections[0].get('collection'))}**" if len(collections) == 1 else ""
+    operation_line = f"\nOperation: `{_truncate(operation_id)}`" if operation_id else ""
+    review_line = "\nReview Operations for full details." if warnings else ""
     embed = build_embed(
         "Scan Completed with Warnings" if warnings else "Scan Completed",
-        f"Mode: **{mode}**\nElapsed: **{elapsed_text}**",
+        f"Mode: **{mode}**\nElapsed: **{elapsed_text}**{collection_line}{operation_line}{review_line}",
         COLORS["warn"] if warnings else COLORS["success"], fields,
     )
-    return send_discord_message(embeds=[embed], channels=["scans_info"])
+    return send_discord_message(embeds=[embed], channels=["scans_errors" if warnings else "scans_info"])
 
 
-def notify_scan_failed(mode, error_text):
-    embed = build_embed("Scan Failed", f"Mode: **{mode}**\nError: `{_truncate(error_text)}`", COLORS["error"])
+def notify_scan_failed(mode, error_text, *, summary=None, elapsed_text=None, operation_id=None):
+    summary = summary or {}
+    details = [f"Mode: **{mode}**"]
+    if elapsed_text:
+        details.append(f"Elapsed: **{elapsed_text}**")
+    if operation_id:
+        details.append(f"Operation: `{_truncate(operation_id)}`")
+    details.append(f"Error: `{_truncate(error_text)}`")
+    embed = build_embed("Scan Failed", "\n".join(details), COLORS["error"], _summary_fields(summary))
     return send_discord_message(embeds=[embed], channels=["scans_errors"])
 
 
@@ -207,8 +254,8 @@ def notify_override_created(sku, path=None, *, product=None, collection=None):
         fields.append({"name": "Product", "value": product, "inline": True})
     if collection:
         fields.append({"name": "Collection", "value": collection, "inline": True})
-    embed = build_embed("Product Override Updated", "One product override was created.", COLORS["info"], fields)
-    return send_discord_message(embeds=[embed], channels=["overrides", "edits"])
+    embed = build_embed("Product Override Saved", "One product override was saved.", COLORS["info"], fields)
+    return send_discord_message(embeds=[embed], channels=["overrides"])
 
 
 def notify_override_removed(sku, path=None, *, product=None, collection=None):
@@ -218,19 +265,32 @@ def notify_override_removed(sku, path=None, *, product=None, collection=None):
     if collection:
         fields.append({"name": "Collection", "value": collection, "inline": True})
     embed = build_embed("Product Override Removed", "One product override was removed.", COLORS["warn"], fields)
-    return send_discord_message(embeds=[embed], channels=["overrides", "edits"])
+    return send_discord_message(embeds=[embed], channels=["overrides"])
 
 
-def notify_ingest_product(*, sku, name, product_type, images_count, has_shared, has_override, folder_path, variations_count=None):
+def notify_ingest_product(
+    *, sku, name, product_type, has_shared, has_override, folder_path,
+    images_count=None, parent_images_count=None, variation_images_count=None,
+    total_images_count=None, output_images_copied=None, variations_count=None,
+):
+    if total_images_count is None and images_count is not None:
+        total_images_count = images_count
     fields = [
         {"name": "SKU", "value": f"`{sku}`", "inline": True},
         {"name": "Type", "value": product_type or "-", "inline": True},
-        {"name": "Images", "value": str(images_count), "inline": True},
         {"name": "Shared JSON", "value": "✅" if has_shared else "—", "inline": True},
         {"name": "Override JSON", "value": "✅" if has_override else "—", "inline": True},
     ]
+    for label, value in (
+        ("Parent images", parent_images_count),
+        ("Variation images", variation_images_count),
+        ("Total images", total_images_count),
+        ("Output images copied", output_images_copied),
+    ):
+        if value is not None:
+            fields.append({"name": label, "value": str(value), "inline": True})
     if variations_count is not None:
         fields.append({"name": "Variations", "value": str(variations_count), "inline": True})
     description = f"**Source:** `{_truncate(folder_path)}`" if folder_path else ""
-    embed = build_embed(f"Ingested Product — {name or sku}", description, COLORS["success"] if images_count else COLORS["warn"], fields)
+    embed = build_embed(f"Ingested Product — {name or sku}", description, COLORS["success"] if total_images_count else COLORS["warn"], fields)
     return send_discord_message(embeds=[embed], channels=["ingest"])

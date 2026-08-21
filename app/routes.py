@@ -1,6 +1,7 @@
 # app/routes.py
 import os
 import json
+import re
 import uuid
 from datetime import datetime
 
@@ -1282,10 +1283,19 @@ def scanner_start():
         operation_id = start_scan(current_app._get_current_object(), run_id, scan_mode=mode, scope=scope)
     except CatalogueOperationActive as error:
         return _operation_conflict(error)
+    operation_id = str(operation_id)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", operation_id):
+        current_app.logger.error("Scanner created an operation with an invalid route identifier")
+        return jsonify({
+            "ok": True,
+            "operation_id": operation_id,
+            "destination": None,
+            "message": "Scan started successfully. Open the active operation from Scanner or Dashboard.",
+        }), 202
     return jsonify({
-        "run_id": run_id,
+        "ok": True,
         "operation_id": operation_id,
-        "detail_url": url_for("main.operation_detail", operation_id=operation_id),
+        "destination": url_for("main.operation_detail", operation_id=operation_id),
     }), 202
 
 

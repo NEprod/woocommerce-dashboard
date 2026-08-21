@@ -267,7 +267,9 @@ def test_notification_exception_does_not_leak_operation_lock(
     while get_progress(run_id)["status"] == "running" and time.monotonic() < deadline:
         time.sleep(0.01)
 
-    assert get_progress(run_id)["status"] == "done"
+    progress = get_progress(run_id)
+    assert progress["status"] == "done"
+    assert progress["counts"]["warnings"] == 0
     with operation_app.app_context():
         row = CatalogueOperation.query.one()
         assert row.status == "succeeded"

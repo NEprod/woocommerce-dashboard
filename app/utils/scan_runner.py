@@ -43,6 +43,89 @@ COMPLETED_RUN_LIMIT = 20
 LOG_LINE_LIMIT = 2000
 LOG_BYTE_LIMIT = 2 * 1024 * 1024
 LOG_TRUNCATION_MARKER = "[⚠️] Earlier log output was truncated to retain the newest entries."
+WARNING_SAMPLE_LIMIT = 20
+COLLECTION_SUMMARY_LIMIT = 25
+
+
+def _row_images(row):
+    return [value.strip() for value in str(row.get("Images") or "").split(",") if value.strip()]
+
+
+def image_ownership_summary(rows):
+    """Count unique emitted image ownership records without counting fallbacks twice."""
+
+    parent_refs = []
+    variation_refs = []
+    seen = set()
+    for row in rows:
+        target = variation_refs if row.get("Type") == "variation" else parent_refs
+        for reference in _row_images(row):
+            identity = reference.casefold()
+            if identity in seen:
+                continue
+            seen.add(identity)
+            target.append(reference)
+    parent_count = len(parent_refs)
+    variation_count = len(variation_refs)
+    total = parent_count + variation_count
+    return {
+        "parent_images": parent_count,
+        "variation_images": variation_count,
+        "total_images": total,
+        # Emitted image references originate only from successful process_images calls.
+        "output_images_copied": total,
+    }
+
+
+def _warning_category(message):
+    lowered = message.casefold()
+    categories = (
+        (("missing source image", "no source image", "image missing"), "missing source images"),
+        (("url-only", "url only"), "URL-only images"),
+        (("source-only", "source only"), "source-only images"),
+        (("corrupt", "error processing image", "invalid image"), "corrupt images"),
+        (("metadata", "product_info", "json"), "malformed metadata"),
+        (("skipped", "skip "), "skipped products"),
+        (("recovery", "recover"), "marker recovery"),
+        (("output", "copy"), "output-copy warnings"),
+    )
+    for needles, label in categories:
+        if any(needle in lowered for needle in needles):
+            return label
+    return "other warnings"
+
+
+def warning_summary(run):
+    lines = [
+        line for line in run["queue"].snapshot()
+        if "[⚠️]" in line and LOG_TRUNCATION_MARKER not in line
+    ]
+    grouped = {}
+    entries = []
+    for line in lines:
+        safe = redact_diagnostic(line, paths=run.get("redaction_paths"), limit=240)
+        message = safe.split("[⚠️]", 1)[-1].strip()
+        category = _warning_category(message)
+        bucket = grouped.setdefault(category, {"category": category, "count": 0, "samples": []})
+        bucket["count"] += 1
+        if len(bucket["samples"]) < 2:
+            bucket["samples"].append(message[:160])
+        if len(entries) < WARNING_SAMPLE_LIMIT:
+            entries.append(message)
+    return {
+        "warning_summary": sorted(grouped.values(), key=lambda item: (-item["count"], item["category"])),
+        "warning_entries": entries,
+    }
+
+
+def _persistable_operation_summary(summary):
+    allowed = {
+        "collections_processed", "products_created", "products_updated", "products_failed",
+        "products_skipped", "variations_created", "variations_updated", "variations_processed",
+        "parent_images", "variation_images", "total_images", "output_images_copied",
+        "warnings", "warning_summary", "warning_entries", "collection_summaries",
+    }
+    return {key: summary[key] for key in allowed if key in summary}
 
 
 class BoundedLogQueue:
@@ -537,7 +620,8 @@ def _scan_thread(
             # 🔔 Discord: started
             result = _notify_once(run_id, "scanner_started", lambda: notify_scan_started(scan_mode, len(folders)))
             if not result[0] and result[1] not in {"disabled", "not configured"}:
-                log(f"Discord start notification: {result[1]}", level="WARN")
+                # Notification delivery is operational context, not a scanner warning.
+                log(f"Discord start notification: {result[1]}", level="INFO")
 
             log(f"Scan mode: {scan_mode}")
             log(f"Using product folder: {scan_folder}")
@@ -547,6 +631,7 @@ def _scan_thread(
             log("🔍 Starting scan...")
 
             all_rows = []
+            collection_summaries = []
             for idx, name in enumerate(folders, start=1):
                 folder_path = plan.collection_paths[idx - 1]
                 _runs[run_id]["stage"] = "scanning"
@@ -564,6 +649,14 @@ def _scan_thread(
                         operation_id=operation_id,
                     )
                     all_rows.extend(rows)
+                    image_counts = image_ownership_summary(rows)
+                    if len(collection_summaries) < COLLECTION_SUMMARY_LIMIT:
+                        collection_summaries.append({
+                            "collection": name,
+                            "products": sum(row.get("Type") in ("simple", "variable") for row in rows),
+                            "variations": sum(row.get("Type") == "variation" for row in rows),
+                            **image_counts,
+                        })
                     if plan.authoritative:
                         parent_count = sum(
                             row.get("Type") in ("simple", "variable") for row in rows
@@ -593,6 +686,8 @@ def _scan_thread(
             _runs[run_id]["summary"]["variations_processed"] = sum(
                 row.get("Type") == "variation" for row in all_rows
             )
+            _runs[run_id]["summary"].update(image_ownership_summary(all_rows))
+            _runs[run_id]["summary"]["collection_summaries"] = collection_summaries
 
             # Ingest → DB
             _runs[run_id]["stage"] = "ingesting"
@@ -672,21 +767,14 @@ def _scan_thread(
             log(f"🗄️ DB summary: {summary}")
             log(f"📦 Total rows prepared: {len(all_rows)}")
             log("✅ Scan complete.")
-
-            # 🔔 Discord: completed
-            elapsed = datetime.utcnow() - start_ts
-            mins, secs = divmod(int(elapsed.total_seconds()), 60)
-            elapsed_text = f"{mins:02d}:{secs:02d}"
             _runs[run_id]["summary"]["warnings"] = _runs[run_id].get("warnings", 0)
-            result = _notify_once(run_id, "scanner_completed", lambda: notify_scan_completed(scan_mode, _runs[run_id]["summary"], elapsed_text))
-            if not result[0] and result[1] not in {"disabled", "not configured"}:
-                log(f"Discord completion notification: {result[1]}", level="WARN")
-
             _runs[run_id]["status"] = "done"
             if products_failed and products_succeeded:
                 operation_status = "partial"
             elif products_failed:
                 operation_status = "failed"
+            elif _runs[run_id]["summary"]["warnings"]:
+                operation_status = "partial"
             else:
                 operation_status = "succeeded"
             _runs[run_id]["stage"] = (
@@ -710,8 +798,6 @@ def _scan_thread(
             _runs[run_id]["status"] = "error"
             _runs[run_id]["stage"] = "failed"
             _runs[run_id]["current_item"] = None
-            # 🔔 Discord: failed
-            _notify_once(run_id, "scanner_failed", lambda: notify_scan_failed(scan_mode, str(e)))
         finally:
             if _runs[run_id]["status"] == "error":
                 _runs[run_id]["stage"] = "failed"
@@ -724,6 +810,8 @@ def _scan_thread(
                     "products_failed": products_failed,
                 }
             )
+            _runs[run_id]["summary"].setdefault("warnings", _runs[run_id].get("warnings", 0))
+            _runs[run_id]["summary"].update(warning_summary(_runs[run_id]))
             _runs[run_id]["recovery_state"] = operation_recovery_state or "none"
             try:
                 finish_catalogue_operation(
@@ -739,12 +827,42 @@ def _scan_thread(
                     products_restored=products_restored,
                     variations_missing=variations_missing,
                     variations_restored=variations_restored,
+                    operation_summary=_persistable_operation_summary(_runs[run_id]["summary"]),
                 )
             except Exception as finish_error:
                 make_logger(run_id)(
                     f"Operation history finalisation failed: {finish_error}",
                     level="ERROR",
                 )
+            elapsed = datetime.utcnow() - start_ts
+            mins, secs = divmod(int(elapsed.total_seconds()), 60)
+            elapsed_text = f"{mins:02d}:{secs:02d}"
+            if operation_status == "failed":
+                result = _notify_once(
+                    run_id,
+                    "scanner_failed",
+                    lambda: notify_scan_failed(
+                        scan_mode,
+                        str(operation_error or "Scanner operation failed"),
+                        summary=_runs[run_id]["summary"],
+                        elapsed_text=elapsed_text,
+                        operation_id=operation_id,
+                    ),
+                )
+            else:
+                result = _notify_once(
+                    run_id,
+                    "scanner_completed",
+                    lambda: notify_scan_completed(
+                        scan_mode,
+                        _runs[run_id]["summary"],
+                        elapsed_text,
+                        operation_id=operation_id,
+                    ),
+                )
+            if not result[0] and result[1] not in {"disabled", "not configured"}:
+                # Delivery failures are reported separately and never reclassify scan output.
+                make_logger(run_id)(f"Discord terminal notification: {result[1]}", level="INFO")
             _prune_completed_runs()
 
 

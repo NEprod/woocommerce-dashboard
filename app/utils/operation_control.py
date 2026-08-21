@@ -202,6 +202,7 @@ def finish_catalogue_operation(
     products_restored: int | None = None,
     variations_missing: int | None = None,
     variations_restored: int | None = None,
+    operation_summary: dict | None = None,
 ) -> None:
     global _active_operation
 
@@ -232,6 +233,15 @@ def finish_catalogue_operation(
                 row.marker_state = marker_state
             if recovery_state is not None:
                 row.recovery_state = recovery_state
+            if operation_summary is not None:
+                try:
+                    scope = json.loads(row.scope or "{}")
+                except (TypeError, ValueError):
+                    scope = {}
+                if not isinstance(scope, dict):
+                    scope = {}
+                scope["operation_summary"] = operation_summary
+                row.scope = json.dumps(scope, ensure_ascii=False, separators=(",", ":"))
             db.session.commit()
     except Exception:
         db.session.rollback()

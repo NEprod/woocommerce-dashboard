@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 
 from flask import current_app, url_for
 from sqlalchemy import or_, text
@@ -94,7 +94,7 @@ def _safe_scope(row):
 def _duration(row):
     if not row.started_at:
         return None
-    end = row.finished_at or datetime.now()
+    end = row.finished_at or datetime.now(UTC).replace(tzinfo=None)
     return max(0, int((end - row.started_at).total_seconds()))
 
 
@@ -126,9 +126,11 @@ def _presentation_paths():
 
 def operation_view(row, *, redaction_paths=None):
     scope = _safe_scope(row)
+    persisted_summary = scope.get("operation_summary") if isinstance(scope.get("operation_summary"), dict) else {}
     live = _live_run(row.id)
     source = scope.get("collection_relpath") or scope.get("source_relpath")
     live_warnings = int((live or {}).get("counts", {}).get("warnings", 0) or 0)
+    warning_count = max(live_warnings, int(persisted_summary.get("warnings", 0) or 0))
     status_label = STATUS_LABELS.get(row.status, row.status.title())
     if row.status == "succeeded" and live_warnings:
         status_label = "Completed with warnings"
@@ -139,12 +141,15 @@ def operation_view(row, *, redaction_paths=None):
         "started_at": row.started_at, "finished_at": row.finished_at, "duration": _duration(row),
         "attempted": row.products_attempted, "succeeded": row.products_succeeded,
         "failed": row.products_failed, "missing": row.products_missing, "restored": row.products_restored,
-        "warning_count": max(live_warnings, int(row.status == "partial") + int(row.recovery_state not in (None, "none"))),
+        "warning_count": max(warning_count, int(row.status == "partial") + int(row.recovery_state not in (None, "none"))),
         "error_count": max(int((live or {}).get("counts", {}).get("failures", 0) or 0), row.products_failed + int(bool(row.error))),
         "scope": scope, "scope_label": source or scope.get("sku") or "Catalogue",
         "recovery_state": row.recovery_state or "none", "recoverable": row.recovery_state not in (None, "none"),
         "marker_state": row.marker_state, "error": redact_diagnostic(row.error, paths=redaction_paths, limit=1000) if row.error else None,
         "discord": _discord_view(row.id), "live": live,
+        "summary": (live or {}).get("summary") or persisted_summary,
+        "warning_summary": ((live or {}).get("summary") or persisted_summary).get("warning_summary", []),
+        "warning_entries": ((live or {}).get("summary") or persisted_summary).get("warning_entries", []),
         "detail_url": url_for("main.operation_detail", operation_id=row.id),
     }
 

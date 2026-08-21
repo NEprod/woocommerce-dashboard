@@ -55,6 +55,24 @@ def _first_or_none(csv_img_field: str):
     return parts[0] if parts else None
 
 
+def _notification_image_counts(parent_row, variation_rows):
+    seen = set()
+    parent_count = 0
+    variation_count = 0
+    for reference in _all_images(parent_row.get("Images", "")):
+        identity = reference.casefold()
+        if identity not in seen:
+            seen.add(identity)
+            parent_count += 1
+    for row in variation_rows:
+        for reference in _all_images(row.get("Images", "")):
+            identity = reference.casefold()
+            if identity not in seen:
+                seen.add(identity)
+                variation_count += 1
+    return parent_count, variation_count
+
+
 def _pick(v, default=None):
     return v if v not in (None, "", "None") else default
 
@@ -886,6 +904,9 @@ def _ingest_complete_parent(
         db.session.flush()
     _checkpoint(failure_injector, "operation_item", sku)
 
+    parent_image_count, variation_image_count = _notification_image_counts(
+        parent_row, variation_rows
+    )
     return {
         "sku": product.sku,
         "product_created": product_created,
@@ -897,7 +918,10 @@ def _ingest_complete_parent(
         "notification": {
             "name": fields.get("title"),
             "type": fields.get("product_type"),
-            "images_count": len(_all_images(parent_row.get("Images", ""))),
+            "parent_images_count": parent_image_count,
+            "variation_images_count": variation_image_count,
+            "total_images_count": parent_image_count + variation_image_count,
+            "output_images_copied": parent_image_count + variation_image_count,
             "has_shared": "shared" in info_paths,
             "has_override": "override" in info_paths,
             # Discord receives only portable catalogue identity, never a host path.
@@ -1024,7 +1048,10 @@ def ingest_rows_to_db(
                 sku=sku,
                 name=info["name"],
                 product_type=info["type"],
-                images_count=info["images_count"],
+                parent_images_count=info["parent_images_count"],
+                variation_images_count=info["variation_images_count"],
+                total_images_count=info["total_images_count"],
+                output_images_copied=info["output_images_copied"],
                 has_shared=info["has_shared"],
                 has_override=info["has_override"],
                 folder_path=info["folder_path"],

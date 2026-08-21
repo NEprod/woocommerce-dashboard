@@ -42,11 +42,42 @@ def test_existing_embed_style_and_success_are_preserved(discord_enabled, monkeyp
 
 def test_warning_completion_uses_warning_style(discord_enabled, monkeypatch):
     calls = []
-    monkeypatch.setattr(discord_enabled.requests, "post", lambda url, **kwargs: calls.append(kwargs["json"]) or Response())
-    assert discord_enabled.notify_scan_completed("update", {"warnings": 2}, "00:04")[0]
-    embed = calls[0]["embeds"][0]
+    monkeypatch.setattr(discord_enabled.requests, "post", lambda url, **kwargs: calls.append((url, kwargs["json"])) or Response())
+    summary = {
+        "warnings": 2,
+        "warning_summary": [
+            {"category": "missing source images", "count": 2, "samples": ["Folder/Product"]},
+        ],
+        "collections_processed": 1,
+        "products_created": 1,
+        "parent_images": 2,
+        "variation_images": 5,
+        "total_images": 7,
+        "output_images_copied": 6,
+    }
+    assert discord_enabled.notify_scan_completed("update", summary, "00:04", operation_id="safe-operation")[0]
+    assert calls[0][0].endswith("/error")
+    embed = calls[0][1]["embeds"][0]
     assert embed["title"] == "Scan Completed with Warnings"
     assert embed["color"] == discord_enabled.COLORS["warn"]
+    assert "Review Operations for full details" in embed["description"]
+    fields = {field["name"]: field["value"] for field in embed["fields"]}
+    assert fields["Parent images"] == "2"
+    assert fields["Variation images"] == "5"
+    assert fields["Total images"] == "7"
+    assert fields["Output images copied"] == "6"
+    assert "2 missing source images" in fields["Warning summary"]
+
+
+def test_clean_completion_uses_info_channel_and_omits_unknown_counts(discord_enabled, monkeypatch):
+    calls = []
+    monkeypatch.setattr(discord_enabled.requests, "post", lambda url, **kwargs: calls.append((url, kwargs["json"])) or Response())
+    assert discord_enabled.notify_scan_completed("append", {"warnings": 0, "products_created": 1}, "00:02")[0]
+    assert calls[0][0].endswith("/value")
+    fields = {field["name"] for field in calls[0][1]["embeds"][0]["fields"]}
+    assert "Parent images" not in fields
+    assert "Total images" not in fields
+    assert "Images" not in fields
 
 
 @pytest.mark.parametrize("failure", [requests.Timeout("timeout"), requests.ConnectionError("connection")])
@@ -93,3 +124,21 @@ def test_ingest_event_remains_supported(discord_enabled, monkeypatch):
         sku="FIX-1", name="Fictional", product_type="simple", images_count=1,
         has_shared=True, has_override=False, folder_path="Folder/Product",
     )[0]
+
+
+def test_ingest_event_uses_explicit_image_ownership_counts(discord_enabled, monkeypatch):
+    discord_enabled.WEBHOOKS["ingest"] = "https://discord.com/api/webhooks/test/ingest"
+    payloads = []
+    monkeypatch.setattr(discord_enabled.requests, "post", lambda *a, **k: payloads.append(k["json"]) or Response())
+    assert discord_enabled.notify_ingest_product(
+        sku="FIX-2", name="Variable Fixture", product_type="variable",
+        parent_images_count=2, variation_images_count=4, total_images_count=6,
+        output_images_copied=5, has_shared=True, has_override=True,
+        folder_path="Folder/Variable", variations_count=2,
+    )[0]
+    fields = {field["name"]: field["value"] for field in payloads[0]["embeds"][0]["fields"]}
+    assert fields["Parent images"] == "2"
+    assert fields["Variation images"] == "4"
+    assert fields["Total images"] == "6"
+    assert fields["Output images copied"] == "5"
+    assert "Images" not in fields

@@ -33,6 +33,13 @@ migration head, active operation, and a secret-free Discord summary. Absolute
 host paths and webhook values are never rendered. The same storage and lock
 checks run again server-side when the confirmed POST is made.
 
+A successful start returns `ok`, the exact operation identifier, and the
+server-generated canonical `/operations/<operation-id>` destination. The
+client accepts only a same-origin destination whose route identifier matches
+the returned operation. It presents “Scan started successfully” and a direct
+Open Operation link before navigation, so a malformed response or browser
+navigation failure cannot start a second scan or cancel the active one.
+
 ## Confirmation, locking, retry, and cancellation
 
 Every canonical Scanner start requires explicit confirmation. Full also
@@ -64,8 +71,10 @@ is preserved. Unsupported recovery/cancellation is stated explicitly.
 Operation Detail combines persisted history with process-local progress where
 still available. It shows structured start/terminal events, actual counts,
 recovery/marker state, affected product/collection links, and Discord summary.
-Fields not stored by the schema—such as initiating user, historical warning
-lines, or durable Discord attempts—are not invented.
+The existing JSON operation scope now retains a bounded structured terminal
+summary: warning categories/samples and separate parent-image,
+variation-image, total-image, and output-copy counts. Detailed process logs and
+durable Discord attempts are not invented.
 
 ## Progress and logs
 
@@ -103,10 +112,10 @@ are never reported.
 |---|---|---|
 | Scanner started | `DISCORD_WEBHOOK_SCANS_INFO` | Disabled globally / skipped if empty |
 | Scanner completed cleanly | `DISCORD_WEBHOOK_SCANS_INFO` | Disabled globally / skipped if empty |
-| Scanner completed with warnings | `DISCORD_WEBHOOK_SCANS_INFO` | Distinct warning embed |
+| Scanner completed with warnings | `DISCORD_WEBHOOK_SCANS_ERRORS` | Distinct warning embed with grouped, bounded warning summary |
 | Scanner failed | `DISCORD_WEBHOOK_SCANS_ERRORS` | Redacted failure embed |
 | Collection metadata updated | `DISCORD_WEBHOOK_EDITS` | Skipped if empty |
-| Product override created/updated/removed | `DISCORD_WEBHOOK_OVERRIDES` and `DISCORD_WEBHOOK_EDITS` | Skipped per empty channel |
+| Product override created/updated/removed | `DISCORD_WEBHOOK_OVERRIDES` | Skipped if empty |
 | Product ingested | `DISCORD_WEBHOOK_INGEST` | Existing optional event; empty by default |
 
 There is no separate recovery/interruption message because startup recovery has
@@ -117,8 +126,14 @@ filters, searches, and refreshes never send messages.
 
 Delivery state is shown live while the bounded run remains in memory. After
 restart the page says delivery was not retained rather than claiming Sent or
-Failed. Notification failure remains a warning and never changes scanner or
-database success.
+Failed. Notification failure remains a separate delivery result and never
+changes scanner or database success or its warning count.
+
+Scanner and ingest embeds never use an ambiguous partial `Images` field.
+Counts are derived from unique emitted ownership records and are labelled
+Parent images, Variation images, Total images, and Output images copied. A
+reference repeated through fallback logic is counted once. Unknown counts are
+omitted rather than displayed as a fabricated zero.
 
 Future operational features must consider Discord when work is asynchronous,
 long-running, warning/failure-prone, or requires user action. Low-value
