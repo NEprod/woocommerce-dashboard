@@ -3,6 +3,7 @@
 {% set collection_endpoints = ['main.collections', 'main.collection_detail', 'main.collection_metadata_edit'] %}
 {% set catalogue_endpoints = product_endpoints + collection_endpoints %}
 {% set scanner_endpoints = ['main.scanner', 'main.initial_scan_page'] %}
+{% set operation_endpoints = ['main.operations', 'main.operation_detail'] %}
 
 <aside class="app-sidebar" aria-label="Primary navigation">
   <div class="sidebar-brand">
@@ -19,7 +20,7 @@
     <div class="sidebar-group">
       <p class="sidebar-group-label sidebar-label">Scanner</p>
       <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in scanner_endpoints }}" href="{{ url_for('main.scanner') }}"{% if request.endpoint in scanner_endpoints %} aria-current="page"{% endif %} title="Scanner">{{ icon('scanner') }} <span class="sidebar-label">Scanner</span></a>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint == 'main.operations' }}" href="{{ url_for('main.operations') }}"{% if request.endpoint == 'main.operations' %} aria-current="page"{% endif %} title="Operations">{{ icon('history') }} <span class="sidebar-label">Operations</span></a>
+      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in operation_endpoints }}" href="{{ url_for('main.operations') }}"{% if request.endpoint in operation_endpoints %} aria-current="page"{% endif %} title="Operations">{{ icon('history') }} <span class="sidebar-label">Operations</span></a>
     </div>
     <div class="sidebar-group">
       <p class="sidebar-group-label sidebar-label">Metadata</p>
@@ -41,7 +42,7 @@
   <a class="mobile-primary-link {{ 'is-active' if request.endpoint == 'main.dashboard' }}" href="{{ url_for('main.dashboard') }}"{% if request.endpoint == 'main.dashboard' %} aria-current="page"{% endif %}>{{ icon('dashboard') }}<span>Dashboard</span></a>
   <a class="mobile-primary-link {{ 'is-active' if request.endpoint in product_endpoints }}" href="{{ url_for('main.products') }}"{% if request.endpoint in product_endpoints %} aria-current="page"{% endif %}>{{ icon('box') }}<span>Products</span></a>
   <a class="mobile-primary-link {{ 'is-active' if request.endpoint in scanner_endpoints }}" href="{{ url_for('main.scanner') }}"{% if request.endpoint in scanner_endpoints %} aria-current="page"{% endif %}>{{ icon('scanner') }}<span>Scanner</span></a>
-  <a class="mobile-primary-link {{ 'is-active' if request.endpoint == 'main.operations' }}" href="{{ url_for('main.operations') }}"{% if request.endpoint == 'main.operations' %} aria-current="page"{% endif %}>{{ icon('history') }}<span>Operations</span></a>
+  <a class="mobile-primary-link {{ 'is-active' if request.endpoint in operation_endpoints }}" href="{{ url_for('main.operations') }}"{% if request.endpoint in operation_endpoints %} aria-current="page"{% endif %}>{{ icon('history') }}<span>Operations</span></a>
   <button class="mobile-primary-link" type="button" data-bs-toggle="offcanvas" data-bs-target="#appNavigation" aria-controls="appNavigation" aria-label="Open more navigation">{{ icon('menu') }}<span>More</span></button>
 </nav>
 

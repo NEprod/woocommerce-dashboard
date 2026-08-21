@@ -40,7 +40,14 @@ from app.models import (
     Variation,
 )
 from app.utils.token_utils import generate_reset_token, verify_reset_token
-from app.utils.scan_runner import start_scan, stream_lines, get_progress, _runs
+from app.utils.scan_runner import (
+    start_scan,
+    stream_lines,
+    get_progress,
+    operation_log_page,
+    operation_run_snapshot,
+    _runs,
+)
 from app.utils.operation_control import (
     CatalogueOperationActive,
     acquire_catalogue_operation,
@@ -89,6 +96,19 @@ from app.collections_workspace import (
     parse_product_pagination,
 )
 from app.collection_identity import collection_display_name
+from app.utils.discord import (
+    notify_editor_saved,
+    notify_override_created,
+    notify_override_removed,
+)
+from app.operations_workspace import (
+    SCAN_MODES,
+    operation_detail_workspace,
+    operation_view,
+    operations_browser,
+    parse_operation_filters,
+    scanner_readiness,
+)
 
 main = Blueprint("main", __name__)
 
@@ -656,6 +676,15 @@ def product_save_json(sku):
             scope=operation_scope,
             collection_relpath=collection_relpath,
         )
+        try:
+            collection_name = collection_display_name(p.collection) if p.collection else None
+            if kind == "override":
+                notify_override_created(p.sku, product=p.title, collection=collection_name)
+            else:
+                affected = Product.query.filter_by(collection_id=p.collection_id).count()
+                notify_editor_saved("collection metadata", p.sku, collection=collection_name, affected=affected)
+        except Exception:
+            current_app.logger.warning("Discord metadata notification failed safely")
     except Exception as error:
         finish_catalogue_operation(operation.id, status="failed", error=error)
         return jsonify({"error": "failed to save product metadata"}), 500
@@ -764,6 +793,14 @@ def api_delete_override(product_id):
             scan_mode="update",
             operation_id=operation.id,
         )
+        try:
+            notify_override_removed(
+                p.sku,
+                product=p.title,
+                collection=collection_display_name(p.collection) if p.collection else None,
+            )
+        except Exception:
+            current_app.logger.warning("Discord override notification failed safely")
     except Exception as error:
         db.session.rollback()
         finish_catalogue_operation(operation.id, status="failed", error=error)
@@ -934,6 +971,14 @@ def api_override_create(product_id):
             scan_mode="update",
             operation_id=operation.id,
         )
+        try:
+            notify_override_created(
+                p.sku,
+                product=p.title,
+                collection=collection_display_name(p.collection) if p.collection else None,
+            )
+        except Exception:
+            current_app.logger.warning("Discord override notification failed safely")
         edit_url = url_for("main.product_edit", product_id=p.id, label="override")
     except Exception as error:
         db.session.rollback()
@@ -1187,23 +1232,126 @@ def collection_detail(collection_id):
 @main.route("/scanner")
 @login_required
 def scanner():
-    return _render_planned(
-        "Scanner workspace",
-        "Operations",
-        "A unified workspace for catalogue scans and their progress.",
-        primary=("Open existing scanner", url_for("main.initial_scan_page")),
+    recent = (
+        CatalogueOperation.query.filter(
+            CatalogueOperation.operation_type.in_({"append", "product_update", "full"})
+        )
+        .order_by(CatalogueOperation.started_at.desc(), CatalogueOperation.id.desc())
+        .limit(5)
+        .all()
     )
+    return render_template(
+        "scanner.html",
+        modes=SCAN_MODES,
+        readiness=scanner_readiness(),
+        recent_operations=[operation_view(row) for row in recent],
+        selected_mode=request.args.get("mode", "append"),
+        retry_of=request.args.get("retry_of", "")[:32],
+    )
+
+
+@main.route("/scanner/start", methods=["POST"])
+@login_required
+@csrf.exempt
+def scanner_start():
+    payload = request.get_json(silent=True) or request.form.to_dict()
+    mode = payload.get("mode")
+    if mode not in {item["key"] for item in SCAN_MODES}:
+        return jsonify({"error": "unsupported_scan_mode", "message": "That scan mode is not supported."}), 400
+    confirmed = payload.get("confirm_operation") is True or payload.get("confirm_operation") == "true"
+    if not confirmed:
+        return jsonify({"error": "confirmation_required", "message": "Confirm the selected scan before it starts."}), 400
+    if mode == "full" and not (payload.get("confirm_full_regeneration") is True or payload.get("confirm_full_regeneration") == "true"):
+        return jsonify({"error": "full_confirmation_required", "message": "Full scan requires the additional catalogue-wide confirmation."}), 400
+    readiness = scanner_readiness()
+    if readiness["active"]:
+        return _operation_conflict(CatalogueOperationActive(readiness["active"]))
+    if not readiness["mounts_ready"]:
+        failures = [check["label"] for check in readiness["checks"] if not check["ok"]]
+        return jsonify({"error": "scanner_not_ready", "message": "Required scanner storage or database checks did not pass.", "failures": failures}), 409
+    run_id = uuid.uuid4().hex
+    scope = {"scan_mode": mode, "initiating_source": "scanner_workspace"}
+    retry_of = (payload.get("retry_of") or "")[:32]
+    if retry_of:
+        original = db.session.get(CatalogueOperation, retry_of)
+        expected_mode = {"append": "append", "product_update": "update", "full": "full"}.get(original.operation_type) if original else None
+        if expected_mode != mode or original.status not in {"failed", "partial", "interrupted"}:
+            return jsonify({"error": "unsafe_retry", "message": "This operation cannot be retried through the Scanner workspace."}), 409
+        scope["retry_of"] = original.id
+    try:
+        operation_id = start_scan(current_app._get_current_object(), run_id, scan_mode=mode, scope=scope)
+    except CatalogueOperationActive as error:
+        return _operation_conflict(error)
+    return jsonify({
+        "run_id": run_id,
+        "operation_id": operation_id,
+        "detail_url": url_for("main.operation_detail", operation_id=operation_id),
+    }), 202
 
 
 @main.route("/operations")
 @login_required
 def operations():
-    return _render_planned(
-        "Operation History",
-        "Operations",
-        "Review catalogue operations, outcomes, failures, and recovery state.",
-        primary=("Open existing scanner", url_for("main.initial_scan_page")),
+    try:
+        filters = parse_operation_filters(request.args)
+    except ValueError as error:
+        raise BadRequest(str(error)) from error
+    return render_template("operations.html", workspace=operations_browser(filters))
+
+
+@main.route("/operations/<operation_id>")
+@login_required
+def operation_detail(operation_id):
+    operation = db.session.get(CatalogueOperation, operation_id)
+    if operation is None:
+        abort(404)
+    try:
+        item_page = max(1, int(request.args.get("item_page", "1")))
+    except ValueError as error:
+        raise BadRequest("Invalid operation-item page") from error
+    return render_template(
+        "operation_detail.html",
+        workspace=operation_detail_workspace(
+            operation,
+            item_page=item_page,
+            item_status=request.args.get("item_status", "")[:32],
+        ),
     )
+
+
+@main.route("/api/operations/<operation_id>/status")
+@login_required
+def operation_status(operation_id):
+    operation = db.session.get(CatalogueOperation, operation_id)
+    if operation is None:
+        return jsonify({"error": "operation_not_found"}), 404
+    view = operation_view(operation)
+    return jsonify({
+        "operation": {
+            "id": view["id"], "status": view["status"], "status_label": view["status_label"],
+            "finished_at": view["finished_at"].isoformat() if view["finished_at"] else None,
+            "recovery_state": view["recovery_state"],
+        },
+        "live": operation_run_snapshot(operation.id),
+        "discord": view["discord"],
+        "terminal": view["status"] in {"succeeded", "partial", "failed", "interrupted"},
+    })
+
+
+@main.route("/api/operations/<operation_id>/logs")
+@login_required
+def operation_logs(operation_id):
+    if db.session.get(CatalogueOperation, operation_id) is None:
+        return jsonify({"error": "operation_not_found"}), 404
+    try:
+        page = int(request.args.get("page", "1"))
+        per_page = int(request.args.get("per_page", "50"))
+    except ValueError as error:
+        raise BadRequest("Invalid log pagination") from error
+    return jsonify(operation_log_page(
+        operation_id, page=page, per_page=per_page,
+        severity=request.args.get("severity", "")[:16], search=request.args.get("q", "")[:100],
+    ))
 
 
 @main.route("/woo-sync")

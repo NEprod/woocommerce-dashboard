@@ -900,7 +900,8 @@ def _ingest_complete_parent(
             "images_count": len(_all_images(parent_row.get("Images", ""))),
             "has_shared": "shared" in info_paths,
             "has_override": "override" in info_paths,
-            "folder_path": folder,
+            # Discord receives only portable catalogue identity, never a host path.
+            "folder_path": context.get("product_relpath"),
             "variations_count": len(variation_rows),
         },
     }

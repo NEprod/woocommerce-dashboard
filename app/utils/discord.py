@@ -1,210 +1,236 @@
-# app/utils/discorp.py
-import os, json, requests
-from datetime import datetime
+"""Optional, bounded Discord notifications for catalogue operations."""
 
-DEFAULT_TIMEOUT = 10
+from __future__ import annotations
 
-COLORS = {
-    "success": 0x2ECC71,
-    "info": 0x3498DB,
-    "warn": 0xF1C40F,
-    "error": 0xE74C3C,
-}
+import os
+import time
+from datetime import UTC, datetime
+from urllib.parse import urlparse
+
+import requests
+
+from app.utils.redaction import redact_diagnostic
+
+CONNECT_TIMEOUT = 3.05
+READ_TIMEOUT = 5
+MAX_ATTEMPTS = 2
+MAX_RATE_LIMIT_WAIT = 1.0
+COLORS = {"success": 0x2ECC71, "info": 0x3498DB, "warn": 0xF1C40F, "error": 0xE74C3C}
 
 
 def _env(name, default=""):
     return os.environ.get(name) or default
 
 
-# Multi-webhook config (set in .env)
-WEBHOOKS = {
-    "scans_info": _env("DISCORD_WEBHOOK_SCANS_INFO"),
-    "scans_errors": _env("DISCORD_WEBHOOK_SCANS_ERRORS"),
-    "edits": _env("DISCORD_WEBHOOK_EDITS"),
-    "overrides": _env("DISCORD_WEBHOOK_OVERRIDES"),
-    # NEW: per-product ingest channel
-    "ingest": _env("DISCORD_WEBHOOK_INGEST"),
+WEBHOOK_ENV = {
+    "scans_info": "DISCORD_WEBHOOK_SCANS_INFO",
+    "scans_errors": "DISCORD_WEBHOOK_SCANS_ERRORS",
+    "edits": "DISCORD_WEBHOOK_EDITS",
+    "overrides": "DISCORD_WEBHOOK_OVERRIDES",
+    "ingest": "DISCORD_WEBHOOK_INGEST",
 }
-
-ENABLED = _env("DISCORD_ENABLED", "true").lower() == "true"
+WEBHOOKS = {channel: _env(variable) for channel, variable in WEBHOOK_ENV.items()}
+ENABLED = _env("DISCORD_ENABLED", "false").lower() == "true"
 DEFAULT_USERNAME = _env("DISCORD_DEFAULT_USERNAME", "WooCommerce Dashboard")
 DEFAULT_AVATAR = _env("DISCORD_DEFAULT_AVATAR_URL", "")
-
 MAX_FIELD_CHARS = int(_env("DISCORD_MAX_FIELD_CHARS", "950"))
 MAX_EMBED_FIELDS = int(_env("DISCORD_MAX_EMBED_FIELDS", "10"))
 
 
-def _post(webhook_url: str, payload: dict, timeout=DEFAULT_TIMEOUT):
-    if not ENABLED or not webhook_url:
-        return False, "disabled or no webhook"
+def _refresh_configuration():
+    global ENABLED, DEFAULT_USERNAME, DEFAULT_AVATAR
+    ENABLED = _env("DISCORD_ENABLED", "false").lower() == "true"
+    DEFAULT_USERNAME = _env("DISCORD_DEFAULT_USERNAME", "WooCommerce Dashboard")
+    DEFAULT_AVATAR = _env("DISCORD_DEFAULT_AVATAR_URL", "")
+    for channel, variable in WEBHOOK_ENV.items():
+        value = os.environ.get(variable)
+        if value is not None:
+            WEBHOOKS[channel] = value
+
+
+def _valid_webhook(value):
     try:
-        resp = requests.post(
-            webhook_url,
-            data=json.dumps(payload),
-            headers={"Content-Type": "application/json"},
-            timeout=timeout,
-        )
-        if 200 <= resp.status_code < 300:
-            return True, "ok"
-        return False, f"{resp.status_code}: {resp.text}"
-    except Exception as e:
-        return False, str(e)
+        parsed = urlparse(value)
+    except (TypeError, ValueError):
+        return False
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname in {"discord.com", "discordapp.com"}
+        and parsed.path.startswith("/api/webhooks/")
+        and len([part for part in parsed.path.split("/") if part]) >= 4
+        and not parsed.username
+        and not parsed.password
+    )
 
 
-def send_discord_message(
-    content: str = "", *, embeds=None, channels=None, username=None, avatar_url=None
-):
-    """Backwards-compatible sender + multi-channel routing."""
+def configuration_summary():
+    _refresh_configuration()
+    configured = [channel for channel, value in WEBHOOKS.items() if _valid_webhook(value)]
+    state = "disabled" if not ENABLED else "configured" if configured else "not_configured"
+    return {"enabled": ENABLED, "state": state, "configured_channels": configured, "configured_count": len(configured)}
+
+
+def _post(webhook_url, payload):
+    _refresh_configuration()
     if not ENABLED:
         return False, "disabled"
-    if channels is None:
-        channels = ["scans_info"]
+    if not webhook_url:
+        return False, "not configured"
+    if not _valid_webhook(webhook_url):
+        return False, "invalid webhook configuration"
+    final_error = "delivery failed"
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            response = requests.post(
+                webhook_url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+            )
+            if 200 <= response.status_code < 300:
+                return True, "sent"
+            if response.status_code == 429:
+                final_error = "rate limited"
+                if attempt + 1 < MAX_ATTEMPTS:
+                    try:
+                        delay = min(MAX_RATE_LIMIT_WAIT, max(0.0, float(response.headers.get("Retry-After", "0"))))
+                    except (TypeError, ValueError):
+                        delay = 0
+                    if delay:
+                        time.sleep(delay)
+                    continue
+            elif 500 <= response.status_code < 600 and attempt + 1 < MAX_ATTEMPTS:
+                final_error = f"Discord service returned HTTP {response.status_code}"
+                continue
+            else:
+                final_error = f"Discord returned HTTP {response.status_code}"
+            break
+        except (requests.Timeout, requests.ConnectionError) as error:
+            final_error = error.__class__.__name__.replace("Error", " failure").lower()
+            if attempt + 1 < MAX_ATTEMPTS:
+                continue
+        except requests.RequestException:
+            final_error = "request failure"
+            break
+        except Exception:
+            final_error = "unexpected delivery failure"
+            break
+    return False, redact_diagnostic(final_error, limit=240)
+
+
+def send_discord_message(content="", *, embeds=None, channels=None, username=None, avatar_url=None):
+    _refresh_configuration()
+    if not ENABLED:
+        return False, "disabled"
+    channels = channels or ["scans_info"]
     payload = {
         "content": content[:2000] if content else None,
         "username": username or DEFAULT_USERNAME,
         "avatar_url": avatar_url or DEFAULT_AVATAR,
         "embeds": embeds or [],
     }
-    payload = {k: v for k, v in payload.items() if v not in (None, "", [], {})}
-    ok_all = True
-    last_err = "ok"
-    for ch in channels:
-        url = WEBHOOKS.get(ch)
-        ok, err = _post(url, payload)
-        ok_all = ok_all and ok
-        last_err = err
-    return ok_all, last_err
+    payload = {key: value for key, value in payload.items() if value not in (None, "", [], {})}
+    sent = 0
+    failures = []
+    for channel in channels:
+        ok, result = _post(WEBHOOKS.get(channel, ""), payload)
+        if ok:
+            sent += 1
+        else:
+            failures.append(result)
+    if sent == len(channels):
+        return True, "sent"
+    if sent:
+        return False, "partially sent"
+    return False, failures[-1] if failures else "not configured"
 
 
-def _truncate(v: str) -> str:
-    v = v or ""
-    return v if len(v) <= MAX_FIELD_CHARS else v[: MAX_FIELD_CHARS - 3] + "..."
+def _truncate(value):
+    value = redact_diagnostic(value or "", limit=MAX_FIELD_CHARS)
+    return value if len(value) <= MAX_FIELD_CHARS else value[: MAX_FIELD_CHARS - 3] + "..."
 
 
-def build_embed(
-    title: str,
-    description: str,
-    color: int,
-    fields: list[dict] = None,
-    footer="WooCommerce Dashboard",
-):
+def build_embed(title, description, color, fields=None, footer="WooCommerce Dashboard"):
+    safe_fields = []
+    for field in (fields or [])[:MAX_EMBED_FIELDS]:
+        safe_fields.append({
+            "name": _truncate(str(field.get("name", "")))[:256],
+            "value": _truncate(str(field.get("value", ""))),
+            "inline": bool(field.get("inline")),
+        })
     return {
-        "title": title,
-        "description": _truncate(description),
-        "color": color,
-        "fields": (fields or [])[:MAX_EMBED_FIELDS],
-        "footer": {
-            "text": f"{footer} • {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
-        },
+        "title": _truncate(title)[:256], "description": _truncate(description), "color": color,
+        "fields": safe_fields,
+        "footer": {"text": f"{footer} • {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')} UTC"},
     }
 
 
-# Convenience wrappers
-def notify_scan_started(mode: str, collection_count: int):
-    emb = build_embed(
-        "Scan Started",
-        f"Mode: **{mode}**\nCollections discovered: **{collection_count}**",
-        COLORS["info"],
-    )
-    return send_discord_message(embeds=[emb], channels=["scans_info"])
+def notify_scan_started(mode, collection_count):
+    embed = build_embed("Scan Started", f"Mode: **{mode}**\nCollections discovered: **{collection_count}**", COLORS["info"])
+    return send_discord_message(embeds=[embed], channels=["scans_info"])
 
 
-def notify_scan_completed(mode: str, summary: dict, elapsed_text: str):
+def notify_scan_completed(mode, summary, elapsed_text):
+    warnings = int(summary.get("warnings", 0) or 0)
     fields = []
-    for k in (
-        "folders",
-        "new_rows",
-        "products_created",
-        "products_updated",
-        "variations_created",
-        "variations_updated",
-    ):
-        if k in summary:
-            fields.append(
-                {
-                    "name": k.replace("_", " ").title(),
-                    "value": str(summary[k]),
-                    "inline": True,
-                }
-            )
-    emb = build_embed(
-        "Scan Completed",
+    for key in ("folders", "new_rows", "products_created", "products_updated", "variations_created", "variations_updated", "images_copied"):
+        if key in summary:
+            fields.append({"name": key.replace("_", " ").title(), "value": str(summary[key]), "inline": True})
+    if warnings:
+        fields.append({"name": "Warnings", "value": str(warnings), "inline": True})
+    embed = build_embed(
+        "Scan Completed with Warnings" if warnings else "Scan Completed",
         f"Mode: **{mode}**\nElapsed: **{elapsed_text}**",
-        COLORS["success"],
-        fields=fields,
+        COLORS["warn"] if warnings else COLORS["success"], fields,
     )
-    return send_discord_message(embeds=[emb], channels=["scans_info"])
+    return send_discord_message(embeds=[embed], channels=["scans_info"])
 
 
-def notify_scan_failed(mode: str, error_text: str):
-    emb = build_embed(
-        "Scan Failed",
-        f"Mode: **{mode}**\nError: `{_truncate(error_text)}`",
-        COLORS["error"],
-    )
-    return send_discord_message(embeds=[emb], channels=["scans_errors"])
+def notify_scan_failed(mode, error_text):
+    embed = build_embed("Scan Failed", f"Mode: **{mode}**\nError: `{_truncate(error_text)}`", COLORS["error"])
+    return send_discord_message(embeds=[embed], channels=["scans_errors"])
 
 
-def notify_editor_saved(kind: str, sku: str, path: str):
-    emb = build_embed(
-        "Editor Saved",
-        f"Kind: **{kind}**\nSKU: **{sku}**\nPath: `{path}`",
-        COLORS["info"],
-    )
-    return send_discord_message(embeds=[emb], channels=["edits"])
+def notify_editor_saved(kind, sku, path=None, *, collection=None, affected=None):
+    fields = [{"name": "Kind", "value": kind, "inline": True}, {"name": "SKU", "value": sku, "inline": True}]
+    if collection:
+        fields.append({"name": "Collection", "value": collection, "inline": True})
+    if affected is not None:
+        fields.append({"name": "Affected products", "value": str(affected), "inline": True})
+    embed = build_embed("Metadata Updated", "Catalogue metadata was saved successfully.", COLORS["info"], fields)
+    return send_discord_message(embeds=[embed], channels=["edits"])
 
 
-def notify_override_created(sku: str, path: str):
-    emb = build_embed(
-        "Override Created",
-        f"SKU: **{sku}**\nPath: `{path}`",
-        COLORS["info"],
-    )
-    return send_discord_message(embeds=[emb], channels=["overrides", "edits"])
+def notify_override_created(sku, path=None, *, product=None, collection=None):
+    fields = [{"name": "SKU", "value": sku, "inline": True}]
+    if product:
+        fields.append({"name": "Product", "value": product, "inline": True})
+    if collection:
+        fields.append({"name": "Collection", "value": collection, "inline": True})
+    embed = build_embed("Product Override Updated", "One product override was created.", COLORS["info"], fields)
+    return send_discord_message(embeds=[embed], channels=["overrides", "edits"])
 
 
-def notify_override_removed(sku: str, path: str):
-    emb = build_embed(
-        "Override Removed",
-        f"SKU: **{sku}**\nRemoved: `{path}`",
-        COLORS["warn"],
-    )
-    return send_discord_message(embeds=[emb], channels=["overrides", "edits"])
+def notify_override_removed(sku, path=None, *, product=None, collection=None):
+    fields = [{"name": "SKU", "value": sku, "inline": True}]
+    if product:
+        fields.append({"name": "Product", "value": product, "inline": True})
+    if collection:
+        fields.append({"name": "Collection", "value": collection, "inline": True})
+    embed = build_embed("Product Override Removed", "One product override was removed.", COLORS["warn"], fields)
+    return send_discord_message(embeds=[embed], channels=["overrides", "edits"])
 
 
-# NEW: per-product ingest notification
-def notify_ingest_product(
-    *,
-    sku: str,
-    name: str | None,
-    product_type: str,  # 'simple' | 'variable'
-    images_count: int,
-    has_shared: bool,
-    has_override: bool,
-    folder_path: str | None,
-    variations_count: int | None = None,
-):
+def notify_ingest_product(*, sku, name, product_type, images_count, has_shared, has_override, folder_path, variations_count=None):
     fields = [
         {"name": "SKU", "value": f"`{sku}`", "inline": True},
         {"name": "Type", "value": product_type or "-", "inline": True},
         {"name": "Images", "value": str(images_count), "inline": True},
         {"name": "Shared JSON", "value": "✅" if has_shared else "—", "inline": True},
-        {
-            "name": "Override JSON",
-            "value": "✅" if has_override else "—",
-            "inline": True,
-        },
+        {"name": "Override JSON", "value": "✅" if has_override else "—", "inline": True},
     ]
     if variations_count is not None:
-        fields.append(
-            {"name": "Variations", "value": str(variations_count), "inline": True}
-        )
-
-    desc = f"**Path:** `{folder_path}`" if folder_path else ""
-    emb = build_embed(
-        f"Ingested Product — {name or sku}",
-        desc,
-        COLORS["success"] if images_count else COLORS["warn"],
-        fields=fields,
-    )
-    return send_discord_message(embeds=[emb], channels=["ingest"])
+        fields.append({"name": "Variations", "value": str(variations_count), "inline": True})
+    description = f"**Source:** `{_truncate(folder_path)}`" if folder_path else ""
+    embed = build_embed(f"Ingested Product — {name or sku}", description, COLORS["success"] if images_count else COLORS["warn"], fields)
+    return send_discord_message(embeds=[embed], channels=["ingest"])

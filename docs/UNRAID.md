@@ -71,11 +71,26 @@ confirm that its `SECRET_KEY` field contains a stable generated value.** The new
 image intentionally refuses missing values, `dev-secret`, `changeme`, and obvious
 example placeholders. It never prints or saves the supplied value.
 
-Discord is disabled by default with `DISCORD_ENABLED=false`. Optional supported
-variables are `DISCORD_DEFAULT_USERNAME`, `DISCORD_DEFAULT_AVATAR_URL`,
-`DISCORD_WEBHOOK_SCANS_INFO`, `DISCORD_WEBHOOK_SCANS_ERRORS`,
-`DISCORD_WEBHOOK_EDITS`, `DISCORD_WEBHOOK_OVERRIDES`, and
-`DISCORD_WEBHOOK_INGEST`. Treat every webhook as a secret.
+Discord is disabled by default with `DISCORD_ENABLED=false`. It is optional and
+delivery failure does not fail a scanner operation. All fields apply after a
+container restart:
+
+| Field label | Variable | Type | Default | Required | Secret | Placeholder example |
+|---|---|---|---|---|---|---|
+| Enable Discord Notifications | `DISCORD_ENABLED` | Variable | `false` | No | No | `true` |
+| Discord Display Name | `DISCORD_DEFAULT_USERNAME` | Variable | `WooCommerce Dashboard` | No | No | `Catalogue Scanner` |
+| Discord Avatar URL | `DISCORD_DEFAULT_AVATAR_URL` | Variable | empty | No | No | `https://example.invalid/avatar.png` |
+| Discord Scanner Updates Webhook | `DISCORD_WEBHOOK_SCANS_INFO` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
+| Discord Scanner Failures Webhook | `DISCORD_WEBHOOK_SCANS_ERRORS` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
+| Discord Metadata Updates Webhook | `DISCORD_WEBHOOK_EDITS` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
+| Discord Product Overrides Webhook | `DISCORD_WEBHOOK_OVERRIDES` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
+| Discord Product Ingest Webhook | `DISCORD_WEBHOOK_INGEST` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
+
+Existing users should update their template to receive the clearer labels. The
+target environment variable names remain compatible, so existing values do not
+need renaming. Keep the ingest webhook empty if per-product messages would be
+noisy. Treat every webhook as a secret. See
+[Scanner, Operations, and Discord](SCANNER_OPERATIONS.md).
 
 ## First start
 

@@ -96,6 +96,7 @@ Suggested Docker Hub overview: “WooCommerce Dashboard is a self-hosted Flask a
 - [Collections Workspace](docs/COLLECTIONS.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Scanner Contract](docs/SCANNER_CONTRACT.md)
+- [Scanner, Operations, and Discord](docs/SCANNER_OPERATIONS.md)
 - [product_info.json Contract](docs/PRODUCT_INFO.md)
 - [Data Model](docs/DATA_MODEL.md)
 - [Database Migrations](docs/MIGRATIONS.md)

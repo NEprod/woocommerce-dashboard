@@ -22,7 +22,7 @@ def create_app():
 
     app.config["DISCORD_WEBHOOK_URL"] = os.getenv("DISCORD_WEBHOOK_URL", "")
     app.config["DISCORD_ENABLED"] = (
-        os.getenv("DISCORD_ENABLED", "true").lower() == "true"
+        os.getenv("DISCORD_ENABLED", "false").lower() == "true"
     )
     app.config["DISCORD_USERNAME"] = os.getenv("DISCORD_USERNAME", "Woo Scanner")
     app.config["DISCORD_AVATAR_URL"] = os.getenv("DISCORD_AVATAR_URL", "")

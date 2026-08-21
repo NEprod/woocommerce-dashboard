@@ -50,7 +50,10 @@ Phase 2 uses sequential approval gates on the long-lived `develop` branch:
    Genuine collection aggregates, metadata health, lifecycle/publishing-intent
    summaries, image coverage, affected-product pagination, contextual operation
    history, and cross-navigation reuse the existing projection and editor.
-7. Scanner workspace and operation history UI.
+7. Scanner workspace and operation history UI. **Complete on `develop`.**
+   Authenticated confirmation/readiness, persisted operation browsing, bounded
+   live diagnostics, safe retry preparation, and optional hardened Discord
+   notifications reuse the existing operation schema and protected scanner.
 8. Settings, accessibility, responsive refinement, and future placeholders.
 9. Complete documentation, contract verification, Docker/Unraid testing, and
    the explicitly gated `v0.3.0` release.

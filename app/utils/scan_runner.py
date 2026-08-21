@@ -53,6 +53,8 @@ class BoundedLogQueue:
         self.max_bytes = max_bytes
         self._items = deque()
         self._bytes = 0
+        self._history = deque()
+        self._history_bytes = 0
         self._condition = threading.Condition()
 
     @staticmethod
@@ -82,6 +84,22 @@ class BoundedLogQueue:
             if truncated:
                 self._items.appendleft(LOG_TRUNCATION_MARKER)
                 self._bytes += marker_size
+            if self._history and self._history[0] == LOG_TRUNCATION_MARKER:
+                self._history.popleft()
+                self._history_bytes -= marker_size
+            self._history.append(item)
+            self._history_bytes += self._size(item)
+            history_truncated = False
+            while self._history and (
+                len(self._history) > max(1, self.max_lines - 1)
+                or self._history_bytes + marker_size > self.max_bytes
+            ):
+                removed = self._history.popleft()
+                self._history_bytes -= self._size(removed)
+                history_truncated = True
+            if history_truncated:
+                self._history.appendleft(LOG_TRUNCATION_MARKER)
+                self._history_bytes += marker_size
             self._condition.notify()
 
     def get(self, timeout=None):
@@ -110,6 +128,11 @@ class BoundedLogQueue:
     def qsize(self):
         with self._condition:
             return len(self._items)
+
+    def snapshot(self):
+        """Return the bounded chronological history without draining SSE output."""
+        with self._condition:
+            return list(self._history)
 
 
 def _run_is_protected(run):
@@ -342,6 +365,8 @@ def start_scan(
             "errors": 0,
             "sequence": next(_run_sequence),
             "recovery_state": "none",
+            "discord": {"state": "pending", "label": "Pending", "events": []},
+            "notification_events": set(),
         }
     register_operation_reference(operation_id)
     _prune_completed_runs()
@@ -367,6 +392,75 @@ def start_scan(
             finish_catalogue_operation(operation_id, status="failed", error=error)
         raise
     return operation_id
+
+
+def _record_notification(run_id, event, result):
+    ok, message = result if isinstance(result, tuple) and len(result) == 2 else (False, "delivery failed")
+    state = "sent" if ok else "disabled" if message == "disabled" else "not_configured" if message == "not configured" else "failed"
+    with _runs_lock:
+        notification = _runs[run_id]["discord"]
+        notification["state"] = state
+        notification["label"] = {
+            "sent": "Sent", "disabled": "Discord disabled", "not_configured": "Discord not configured", "failed": "Delivery failed",
+        }[state]
+        notification["events"].append({"event": event, "state": state, "result": message, "attempted_at": datetime.utcnow().isoformat()})
+
+
+def _notify_once(run_id, event, callback):
+    with _runs_lock:
+        sent = _runs[run_id]["notification_events"]
+        if event in sent:
+            return False, "duplicate skipped"
+        sent.add(event)
+    try:
+        result = callback()
+    except Exception as error:
+        result = (False, redact_diagnostic(error, paths=_runs[run_id].get("redaction_paths"), limit=240))
+    _record_notification(run_id, event, result)
+    return result
+
+
+def operation_run_snapshot(operation_id):
+    """Return safe process-local progress for an operation, when still retained."""
+    with _runs_lock:
+        for run_id, run in _runs.items():
+            if run.get("operation_id") != operation_id:
+                continue
+            progress = get_progress(run_id)
+            return {
+                "run_id": run_id, "stage": run.get("stage"), "current_item": run.get("current_item"),
+                "status": run.get("status"), "progress": progress["progress"], "counts": progress["counts"],
+                "summary": dict(run.get("summary", {})), "discord": dict(run.get("discord", {})),
+            }
+    return None
+
+
+def operation_log_page(operation_id, *, page=1, per_page=50, severity="", search=""):
+    """Return one bounded page from retained, already-redacted process logs."""
+    page = max(1, int(page))
+    per_page = min(100, max(1, int(per_page)))
+    run = None
+    with _runs_lock:
+        for candidate in _runs.values():
+            if candidate.get("operation_id") == operation_id:
+                run = candidate
+                break
+        lines = (
+            [
+                redact_diagnostic(line, paths=run.get("redaction_paths"), limit=4000)
+                for line in run["queue"].snapshot()
+            ]
+            if run
+            else []
+        )
+    severity_markers = {"info": "[ℹ️]", "warning": "[⚠️]", "error": "[❌]"}
+    marker = severity_markers.get(severity)
+    needle = (search or "").casefold()[:100]
+    filtered = [line for line in lines if (not marker or marker in line) and (not needle or needle in line.casefold())]
+    start = (page - 1) * per_page
+    return {"items": filtered[start:start + per_page], "page": page, "per_page": per_page,
+            "total": len(filtered), "pages": max(1, (len(filtered) + per_page - 1) // per_page),
+            "retained": bool(run)}
 
 
 def _scan_thread(
@@ -441,10 +535,9 @@ def _scan_thread(
             _runs[run_id]["summary"]["folders"] = len(folders)
 
             # 🔔 Discord: started
-            try:
-                notify_scan_started(scan_mode, len(folders))
-            except Exception as e:
-                log(f"⚠️ Discord start notify failed: {e}", level="WARN")
+            result = _notify_once(run_id, "scanner_started", lambda: notify_scan_started(scan_mode, len(folders)))
+            if not result[0] and result[1] not in {"disabled", "not configured"}:
+                log(f"Discord start notification: {result[1]}", level="WARN")
 
             log(f"Scan mode: {scan_mode}")
             log(f"Using product folder: {scan_folder}")
@@ -584,10 +677,10 @@ def _scan_thread(
             elapsed = datetime.utcnow() - start_ts
             mins, secs = divmod(int(elapsed.total_seconds()), 60)
             elapsed_text = f"{mins:02d}:{secs:02d}"
-            try:
-                notify_scan_completed(scan_mode, _runs[run_id]["summary"], elapsed_text)
-            except Exception as e:
-                log(f"⚠️ Discord complete notify failed: {e}", level="WARN")
+            _runs[run_id]["summary"]["warnings"] = _runs[run_id].get("warnings", 0)
+            result = _notify_once(run_id, "scanner_completed", lambda: notify_scan_completed(scan_mode, _runs[run_id]["summary"], elapsed_text))
+            if not result[0] and result[1] not in {"disabled", "not configured"}:
+                log(f"Discord completion notification: {result[1]}", level="WARN")
 
             _runs[run_id]["status"] = "done"
             if products_failed and products_succeeded:
@@ -618,10 +711,7 @@ def _scan_thread(
             _runs[run_id]["stage"] = "failed"
             _runs[run_id]["current_item"] = None
             # 🔔 Discord: failed
-            try:
-                notify_scan_failed(scan_mode, str(e))
-            except Exception:
-                pass
+            _notify_once(run_id, "scanner_failed", lambda: notify_scan_failed(scan_mode, str(e)))
         finally:
             if _runs[run_id]["status"] == "error":
                 _runs[run_id]["stage"] = "failed"

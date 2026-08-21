@@ -135,8 +135,6 @@ def test_planned_pages_are_professional_and_do_not_claim_live_features(
     authenticated_client,
 ):
     expected = {
-        "/scanner": "Scanner workspace",
-        "/operations": "Operation History",
         "/settings": "Settings",
         "/woo-sync": "Woo Sync",
         "/orders": "Orders",
@@ -151,6 +149,11 @@ def test_planned_pages_are_professional_and_do_not_claim_live_features(
         assert title in html
         assert "Planned" in html
         assert "not available in this release" in html
+
+    for route, title in {"/scanner": "Scanner workspace", "/operations": "Operation History"}.items():
+        html = authenticated_client.get(route).get_data(as_text=True)
+        assert title in html
+        assert "Planned" not in html
 
 
 def test_folder_picker_requires_authentication_and_still_works_for_admin(
