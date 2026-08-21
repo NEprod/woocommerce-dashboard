@@ -82,6 +82,12 @@ from app.metadata_workspace import (
     product_workspace,
     variation_page,
 )
+from app.collections_workspace import (
+    build_collection_detail,
+    build_collections_browser,
+    parse_collection_filters,
+    parse_product_pagination,
+)
 
 main = Blueprint("main", __name__)
 
@@ -1152,11 +1158,24 @@ def _render_planned(title, section, description, *, primary=None):
 @main.route("/collections")
 @login_required
 def collections():
-    return _render_planned(
-        "Collections",
-        "Catalogue",
-        "Browse collection health, defaults, products, and variations together.",
-        primary=("View Products", url_for("main.products")),
+    try:
+        filters = parse_collection_filters(request.args)
+    except ValueError as error:
+        raise BadRequest(str(error)) from error
+    return render_template("collections.html", workspace=build_collections_browser(filters))
+
+
+@main.route("/collections/<int:collection_id>")
+@login_required
+def collection_detail(collection_id):
+    collection = db.get_or_404(Collection, collection_id)
+    try:
+        pagination = parse_product_pagination(request.args)
+    except ValueError as error:
+        raise BadRequest(str(error)) from error
+    return render_template(
+        "collection_detail.html",
+        workspace=build_collection_detail(collection, pagination),
     )
 
 

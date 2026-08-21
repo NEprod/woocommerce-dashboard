@@ -175,6 +175,11 @@ def _product_view(product, variation_count, minimum_price, maximum_price):
         "type": "variable" if product.product_type == "variable" else "simple",
         "collection": product.collection.name if product.collection else "Unassigned",
         "collection_id": product.collection_id,
+        "collection_url": (
+            url_for("main.collection_detail", collection_id=product.collection_id)
+            if product.collection_id
+            else None
+        ),
         "catalogue_status": product.catalogue_status or "active",
         "publishing_intent": publishing_intent["state"],
         "publishing_intent_label": publishing_intent["compact_label"],
@@ -310,6 +315,11 @@ def build_products_data(filters):
         collection_id: {
             "id": collection_id,
             "name": name or "Unassigned",
+            "detail_url": (
+                url_for("main.collection_detail", collection_id=collection_id)
+                if collection_id
+                else None
+            ),
             "product_count": int(product_count or 0),
             "variation_count": int(variation_total or 0),
             "active_count": int(active_count or 0),

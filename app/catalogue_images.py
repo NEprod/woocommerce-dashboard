@@ -84,6 +84,68 @@ def product_thumbnail_url(product: Product) -> str | None:
     return f"/catalogue-images/products/{product.id}"
 
 
+def projected_image_coverage(product: Product) -> dict:
+    """Summarize persisted source-image coverage without loading variations.
+
+    ProductAsset is the portable scanner projection for both parent- and
+    variation-owned source files. This helper deliberately avoids output files
+    and validates each projected source through the existing confinement and
+    image-content rules.
+    """
+
+    context = _source_context(product)
+    parent_sources = set()
+    variation_sources = set()
+    corrupt_sources = 0
+    if context:
+        catalogue_root, product_folder, _source_parts = context
+        for asset in product.assets:
+            if asset.kind != "image":
+                continue
+            parts = _portable_parts(asset.source_relpath)
+            candidate = (
+                catalogue_root.joinpath(*parts)
+                if parts
+                else Path(asset.path)
+            )
+            if _valid_image(candidate, product_folder, catalogue_root):
+                if asset.variation_id is None:
+                    parent_sources.add(str(candidate.resolve()))
+                else:
+                    variation_sources.add(asset.variation_id)
+                continue
+            try:
+                resolved = candidate.resolve(strict=True)
+            except (OSError, RuntimeError):
+                continue
+            if (
+                resolved.is_file()
+                and _within(resolved, catalogue_root)
+                and _within(resolved, product_folder)
+                and resolved.suffix.lower() in SUPPORTED_IMAGE_SUFFIXES
+            ):
+                corrupt_sources += 1
+    usable_parent = bool(parent_sources)
+    usable_variation = bool(variation_sources)
+    usable = usable_parent or usable_variation
+    projected_parent_urls = len(product.images) or bool(product.image_url)
+    return {
+        "usable": usable,
+        "usable_parent": usable_parent,
+        "usable_variation": usable_variation,
+        "variation_fallback": not usable_parent and usable_variation,
+        "missing": not usable,
+        "corrupt": corrupt_sources > 0,
+        "corrupt_source_count": corrupt_sources,
+        "source_only": usable_parent and not projected_parent_urls,
+        "url_only": bool(projected_parent_urls) and not usable_parent,
+        "parent_source_count": len(parent_sources),
+        "parent_gallery_count": len(product.images),
+        "variation_source_count": len(variation_sources),
+        "thumbnail": f"/catalogue-images/products/{product.id}" if usable else None,
+    }
+
+
 def variation_thumbnail_url(variation: Variation) -> str | None:
     if not resolve_variation_catalogue_image(variation):
         return None

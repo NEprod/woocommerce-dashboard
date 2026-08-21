@@ -137,7 +137,6 @@ def test_planned_pages_are_professional_and_do_not_claim_live_features(
     expected = {
         "/scanner": "Scanner workspace",
         "/operations": "Operation History",
-        "/collections": "Collections",
         "/settings": "Settings",
         "/woo-sync": "Woo Sync",
         "/orders": "Orders",

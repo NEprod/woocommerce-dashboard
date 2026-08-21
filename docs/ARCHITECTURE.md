@@ -115,6 +115,17 @@ paginated `/api/collections/<id>/affected-products`. Relationships required by
 each page are select-in loaded so page size, rather than catalogue size, bounds
 work and avoids per-row database access.
 
+`app/collections_workspace.py` is the read-only aggregation boundary for
+`/collections` and `/collections/<id>`. It reuses the existing `Collection`
+projection and integer identity, validates the portable shared metadata source,
+uses grouped correlated counts, and bounds ordinary image checks to the
+rendered collection/product page. Collection Detail paginates affected parents
+without loading their Variation relationships. Source-image coverage uses
+portable `ProductAsset` rows through the same confinement and content checks as
+the opaque image routes. The filesystem catalogue and collection
+`product_info.json` remain authoritative; this view does not add an authored
+database collection layer.
+
 ## Persistence
 
 SQLite stores users, settings, the complete emitted parent/variation row projection, exact Collection → Product → Variation relationships, images, attributes, taxonomy, JSON provenance, operation history, and dormant integration-oriented models. Product folders, authored JSON, scanner markers, and SKU counters remain independent filesystem state.

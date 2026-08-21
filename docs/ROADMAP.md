@@ -46,7 +46,10 @@ Phase 2 uses sequential approval gates on the long-lived `develop` branch:
    intentional partial product overrides, explicit Advanced JSON, ordered image
    diagnostics, and bounded affected-product/variation loading all reuse the
    existing save and scanner update authority.
-6. Collections browser and collection workflows.
+6. Collections browser and collection workflows. **Complete on `develop`.**
+   Genuine collection aggregates, metadata health, lifecycle/publishing-intent
+   summaries, image coverage, affected-product pagination, contextual operation
+   history, and cross-navigation reuse the existing projection and editor.
 7. Scanner workspace and operation history UI.
 8. Settings, accessibility, responsive refinement, and future placeholders.
 9. Complete documentation, contract verification, Docker/Unraid testing, and

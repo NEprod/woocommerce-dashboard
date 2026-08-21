@@ -191,6 +191,17 @@ override, collection metadata through inheritance, or the scanner default.
 `Product.published` is the normalized projection of that resolved intent; it is
 not evidence that a product currently exists or is published in WooCommerce.
 
+Phase 2 Milestone 6 replaces the Collections placeholder with an authenticated,
+server-backed Collections browser and resolved Collection Detail workspace.
+Existing `Collection.id` supplies safe route identity while portable relative
+paths supply provenance. Browser cards aggregate genuine product/variation,
+lifecycle, publishing-intent, override, metadata-health, image-coverage, and
+last-update facts with search, filters, sorting, and pagination. Collection
+Detail summarizes the authoritative shared metadata source, affected products,
+image diagnostics, and bounded scoped operation history, and links to Product
+Detail and the existing Collection Metadata Editor. It adds no model or
+migration and performs no collection filesystem mutation. See `COLLECTIONS.md`.
+
 ## Database projection
 
 - The active path populates Collection → Product → Variation for all three exact collection types.
@@ -218,7 +229,7 @@ WooCommerce-compatible rows and future Woo ID columns exist, but there is no liv
 
 - Multi-worker or multi-replica catalogue mutation is not supported; the lock is process-local.
 - Scan progress is process-local and non-durable.
-- Collections, detailed Scanner/Operations history, Settings, and future modules
+- Detailed Scanner/Operations history, Settings, and future modules
   intentionally show availability-aware placeholders until their approved
   Phase 2 milestones are implemented.
 

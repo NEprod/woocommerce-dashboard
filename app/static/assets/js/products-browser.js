@@ -233,6 +233,11 @@
     facts.className = "collection-facts";
     facts.appendChild(text("span", "collection-active-count", `${group.active_count} Active in catalogue`));
     facts.appendChild(text("span", "collection-missing-count", `${group.missing_count} Missing`));
+    if (group.detail_url) {
+      const detailLink = text("a", "collection-detail-link", "View collection");
+      detailLink.href = group.detail_url;
+      facts.appendChild(detailLink);
+    }
     facts.appendChild(text("time", "", `Updated ${formatDate(group.last_updated)}`));
     header.appendChild(facts);
     article.appendChild(header);

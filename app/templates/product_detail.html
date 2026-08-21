@@ -14,7 +14,7 @@
     <p class="page-lede">Review the read-only scanner projection, its authoritative metadata sources, and product-owned images.</p>
   </div>
   <div class="page-actions">
-    {% if product.collection_id %}<a class="btn btn-outline-primary" href="{{ url_for('main.collection_metadata_edit', collection_id=product.collection_id) }}">Edit Collection Metadata</a>{% endif %}
+    {% if product.collection_id %}<a class="btn btn-outline-primary" href="{{ url_for('main.collection_detail', collection_id=product.collection_id) }}">View Collection</a><a class="btn btn-outline-primary" href="{{ url_for('main.collection_metadata_edit', collection_id=product.collection_id) }}">Edit Collection Metadata</a>{% endif %}
     {% if workspace.override.exists %}
     <a class="btn btn-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='override') }}">Edit Product Override</a>
     {% else %}
@@ -38,7 +38,7 @@
       <code>{{ product.sku }}</code>
       <dl class="product-key-facts">
         <div><dt>Type</dt><dd>{{ product.product_type|title }}</dd></div>
-        <div><dt>Collection</dt><dd>{{ product.collection.name if product.collection else 'Unassigned' }}</dd></div>
+        <div><dt>Collection</dt><dd>{% if product.collection %}<a href="{{ url_for('main.collection_detail', collection_id=product.collection.id) }}">{{ product.collection.name }}</a>{% else %}Unassigned{% endif %}</dd></div>
         <div><dt>Variations</dt><dd>{{ workspace.variation_pagination.total }}</dd></div>
         <div><dt>Price</dt><dd>{% if workspace.price_min %}£{{ workspace.price_min }}{% if workspace.price_max != workspace.price_min %}–£{{ workspace.price_max }}{% endif %}{% else %}Not set{% endif %}</dd></div>
         <div><dt>Updated</dt><dd>{{ product.local_updated_at.strftime('%d %b %Y, %H:%M') if product.local_updated_at else 'Not recorded' }}</dd></div>

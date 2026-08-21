@@ -1,5 +1,7 @@
 {% from 'includes/icons.html' import icon %}
-{% set catalogue_endpoints = ['main.products', 'main.edit_products', 'main.product_edit', 'main.collections'] %}
+{% set product_endpoints = ['main.products', 'main.edit_products', 'main.product_edit', 'main.product_detail'] %}
+{% set collection_endpoints = ['main.collections', 'main.collection_detail', 'main.collection_metadata_edit'] %}
+{% set catalogue_endpoints = product_endpoints + collection_endpoints %}
 {% set scanner_endpoints = ['main.scanner', 'main.initial_scan_page'] %}
 
 <aside class="app-sidebar" aria-label="Primary navigation">
@@ -11,8 +13,8 @@
     <a class="sidebar-link {{ 'is-active' if request.endpoint == 'main.dashboard' }}" href="{{ url_for('main.dashboard') }}"{% if request.endpoint == 'main.dashboard' %} aria-current="page"{% endif %} title="Dashboard">{{ icon('dashboard') }} <span class="sidebar-label">Dashboard</span></a>
     <div class="sidebar-group">
       <p class="sidebar-group-label sidebar-label">Catalogue</p>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in ['main.products', 'main.edit_products', 'main.product_edit'] }}" href="{{ url_for('main.products') }}"{% if request.endpoint in ['main.products', 'main.edit_products', 'main.product_edit'] %} aria-current="page"{% endif %} title="Products">{{ icon('box') }} <span class="sidebar-label">Products</span></a>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint == 'main.collections' }}" href="{{ url_for('main.collections') }}"{% if request.endpoint == 'main.collections' %} aria-current="page"{% endif %} title="Collections">{{ icon('collection') }} <span class="sidebar-label">Collections</span></a>
+      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in product_endpoints }}" href="{{ url_for('main.products') }}"{% if request.endpoint in product_endpoints %} aria-current="page"{% endif %} title="Products">{{ icon('box') }} <span class="sidebar-label">Products</span></a>
+      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in collection_endpoints }}" href="{{ url_for('main.collections') }}"{% if request.endpoint in collection_endpoints %} aria-current="page"{% endif %} title="Collections">{{ icon('collection') }} <span class="sidebar-label">Collections</span></a>
     </div>
     <div class="sidebar-group">
       <p class="sidebar-group-label sidebar-label">Scanner</p>
@@ -37,7 +39,7 @@
 
 <nav class="mobile-bottom-nav" aria-label="Mobile primary navigation">
   <a class="mobile-primary-link {{ 'is-active' if request.endpoint == 'main.dashboard' }}" href="{{ url_for('main.dashboard') }}"{% if request.endpoint == 'main.dashboard' %} aria-current="page"{% endif %}>{{ icon('dashboard') }}<span>Dashboard</span></a>
-  <a class="mobile-primary-link {{ 'is-active' if request.endpoint in catalogue_endpoints }}" href="{{ url_for('main.products') }}"{% if request.endpoint in catalogue_endpoints %} aria-current="page"{% endif %}>{{ icon('box') }}<span>Products</span></a>
+  <a class="mobile-primary-link {{ 'is-active' if request.endpoint in product_endpoints }}" href="{{ url_for('main.products') }}"{% if request.endpoint in product_endpoints %} aria-current="page"{% endif %}>{{ icon('box') }}<span>Products</span></a>
   <a class="mobile-primary-link {{ 'is-active' if request.endpoint in scanner_endpoints }}" href="{{ url_for('main.scanner') }}"{% if request.endpoint in scanner_endpoints %} aria-current="page"{% endif %}>{{ icon('scanner') }}<span>Scanner</span></a>
   <a class="mobile-primary-link {{ 'is-active' if request.endpoint == 'main.operations' }}" href="{{ url_for('main.operations') }}"{% if request.endpoint == 'main.operations' %} aria-current="page"{% endif %}>{{ icon('history') }}<span>Operations</span></a>
   <button class="mobile-primary-link" type="button" data-bs-toggle="offcanvas" data-bs-target="#appNavigation" aria-controls="appNavigation" aria-label="Open more navigation">{{ icon('menu') }}<span>More</span></button>
@@ -50,7 +52,7 @@
   </div>
   <div class="offcanvas-body">
     <nav aria-label="Secondary navigation">
-      <div class="mobile-nav-section"><p class="mobile-nav-label">Catalogue</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.collections' }}" href="{{ url_for('main.collections') }}">{{ icon('collection') }} Collections</a></div>
+      <div class="mobile-nav-section"><p class="mobile-nav-label">Catalogue</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint in collection_endpoints }}" href="{{ url_for('main.collections') }}"{% if request.endpoint in collection_endpoints %} aria-current="page"{% endif %}>{{ icon('collection') }} Collections</a></div>
       <div class="mobile-nav-section"><p class="mobile-nav-label">Metadata</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.metadata_reference' }}" href="{{ url_for('main.metadata_reference') }}">{{ icon('book') }} Metadata Reference</a></div>
       <div class="mobile-nav-section"><p class="mobile-nav-label">System</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.settings' }}" href="{{ url_for('main.settings') }}">{{ icon('settings') }} Settings</a></div>
       <div class="mobile-nav-section">

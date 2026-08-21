@@ -32,6 +32,11 @@ Catalogue lifecycle labels remain local scanner state. Separately, resolved
 `live` is shown as Published or Draft intent for a future WooCommerce sync; the
 application does not claim that either state currently exists remotely.
 The released Phase 1 scanner and persistence contracts remain unchanged.
+The Collections workspace provides server-backed browsing and a resolved
+Collection Detail view for metadata health, catalogue lifecycle, publishing
+intent, overrides, source-image coverage, affected products, and recent scoped
+operations. Collection JSON remains authoritative and editing continues through
+the existing Collection Metadata Editor.
 
 ## Current capabilities
 
@@ -88,6 +93,7 @@ Suggested Docker Hub overview: “WooCommerce Dashboard is a self-hosted Flask a
 ## Documentation
 
 - [Current State](docs/CURRENT_STATE.md)
+- [Collections Workspace](docs/COLLECTIONS.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Scanner Contract](docs/SCANNER_CONTRACT.md)
 - [product_info.json Contract](docs/PRODUCT_INFO.md)
