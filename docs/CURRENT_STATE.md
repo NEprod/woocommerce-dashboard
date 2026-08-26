@@ -247,9 +247,13 @@ does not alter scanner success. Delivery state is not durable after restart.
 ## Known operational risks
 
 - Multi-worker or multi-replica catalogue mutation is not supported; the lock is process-local.
-- Scan progress is process-local and non-durable.
-- Settings and future modules intentionally show availability-aware placeholders
-  until their approved Phase 2 milestones are implemented.
+- Scanner execution remains process-local, while bounded live progress and logs
+  are persisted with the operation for safe cross-worker presentation.
+- `/settings` is an authenticated, read-only view of safe application state,
+  mount health, scanner locking/progress, Discord configuration booleans, and
+  existing retention rules. It never renders configured paths, webhook values,
+  secrets, or an environment dump. Future modules remain availability-aware
+  placeholders until their approved milestones are implemented.
 
 The protected scanner discrepancies and intentional full-scan semantics remain
 unchanged.

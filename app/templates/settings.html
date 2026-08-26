@@ -1,0 +1,80 @@
+{% extends 'layouts/base.html' %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<section class="page-heading page-heading-actions">
+  <div><p class="eyebrow">System</p><h1>Settings</h1><p>Review safe runtime, storage, scanner, and integration readiness without exposing configured values.</p></div>
+  <a class="btn btn-outline-primary" href="{{ url_for('main.scanner') }}">Open Scanner</a>
+</section>
+
+<div class="settings-guidance" role="note">
+  <div aria-hidden="true">i</div>
+  <p><strong>Read-only configuration</strong><span>Environment and Discord changes are configured in Unraid and require a container restart. Secret values are never shown here.</span></p>
+</div>
+
+<section class="settings-summary-grid" aria-label="Configuration overview">
+  <article><span>Database</span><strong>{{ 'Available' if workspace.application.database_available else 'Unavailable' }}</strong><small>Migration {{ workspace.application.migration_head }}</small></article>
+  <article><span>SQLite integrity</span><strong>{{ 'Passed' if workspace.application.integrity_ok else 'Action required' }}</strong><small>Read-only quick check</small></article>
+  <article><span>Scanner lock</span><strong>{{ workspace.scanner.lock_label }}</strong><small>{{ workspace.scanner.active_label }}</small></article>
+  <article><span>Discord</span><strong>{{ 'Enabled' if workspace.discord.enabled else 'Disabled' }}</strong><small>Configuration state only</small></article>
+</section>
+
+<div class="settings-grid">
+  <section class="workspace-panel settings-panel" aria-labelledby="settings-application-heading">
+    <div class="panel-heading"><div><p class="eyebrow">Runtime</p><h2 id="settings-application-heading">Application</h2></div><span class="status-badge {{ 'status-healthy' if workspace.application.database_available else 'status-failed' }}">{{ 'Available' if workspace.application.database_available else 'Unavailable' }}</span></div>
+    <dl class="settings-definition-list">
+      <div><dt>Build identifier</dt><dd>{{ workspace.application.build }}</dd></div>
+      <div><dt>Environment</dt><dd>{{ workspace.application.environment }}</dd></div>
+      <div><dt>Platform</dt><dd>{{ workspace.application.platform }}</dd></div>
+      <div><dt>Migration head</dt><dd>{{ workspace.application.migration_head }}</dd></div>
+      <div><dt>SQLite integrity</dt><dd>{{ 'Passed' if workspace.application.integrity_ok else 'Unavailable' }}</dd></div>
+      <div><dt>Authentication and setup</dt><dd>{{ 'Complete' if workspace.application.setup_complete else 'Incomplete' }}</dd></div>
+    </dl>
+  </section>
+
+  <section class="workspace-panel settings-panel" aria-labelledby="settings-storage-heading">
+    <div class="panel-heading"><div><p class="eyebrow">Persistent boundaries</p><h2 id="settings-storage-heading">Storage and mounts</h2></div></div>
+    <ul class="settings-status-list">
+      {% for item in workspace.storage %}<li><div><strong>{{ item.summary }}</strong>{% if item.detail %}<span>{{ item.detail }}</span>{% endif %}</div><span class="status-badge {{ 'status-healthy' if item.ok else 'status-failed' }}">{{ item.state }}</span></li>{% endfor %}
+    </ul>
+    <p class="panel-note">Catalogue source, generated output, and app data remain separate mounted storage domains. No absolute path is displayed.</p>
+  </section>
+
+  <section class="workspace-panel panel-dark settings-panel" aria-labelledby="settings-scanner-heading">
+    <div class="panel-heading"><div><p class="eyebrow">Operation safety</p><h2 id="settings-scanner-heading">Scanner</h2></div><span class="status-badge {{ 'status-running' if workspace.scanner.active else 'status-succeeded' }}">{{ 'Operation active' if workspace.scanner.active else 'Idle' }}</span></div>
+    <dl class="settings-definition-list">
+      <div><dt>Available modes</dt><dd>{{ workspace.scanner.modes|join(', ') }}</dd></div>
+      <div><dt>Operation lock</dt><dd>{{ workspace.scanner.lock_label }}</dd></div>
+      <div><dt>Live-progress persistence</dt><dd>Enabled</dd></div>
+      <div><dt>Execution model</dt><dd>One catalogue operation at a time</dd></div>
+    </dl>
+    <p class="panel-note"><strong>Cancellation is not supported.</strong> Scanner execution remains independent from browser state and must reach its existing terminal or recovery state.</p>
+  </section>
+
+  <section class="workspace-panel settings-panel" aria-labelledby="settings-discord-heading">
+    <div class="panel-heading"><div><p class="eyebrow">Optional integration</p><h2 id="settings-discord-heading">Discord notifications</h2></div><span class="status-badge {{ 'status-healthy' if workspace.discord.enabled else '' }}">Discord {{ 'enabled' if workspace.discord.enabled else 'disabled' }}</span></div>
+    <ul class="settings-status-list compact">
+      {% for channel in workspace.discord.channels %}<li><strong>{{ channel.label }}</strong><span class="status-badge {{ 'status-healthy' if channel.configured else '' }}">{{ 'Configured' if channel.configured else 'Not configured' }}</span></li>{% endfor %}
+      <li><strong>Display name</strong><span class="status-badge">{{ 'Configured' if workspace.discord.display_name_state == 'configured' else 'Default' }}</span></li>
+      <li><strong>Avatar</strong><span class="status-badge">{{ 'Configured' if workspace.discord.avatar_state == 'configured' else 'Not configured' }}</span></li>
+    </ul>
+    <p class="panel-note">Configured in Unraid · Restart required after changes. Optional missing channels do not block scanner success. Future operational features should consider notifications where useful; no new events are enabled here.</p>
+  </section>
+
+  <section class="workspace-panel settings-panel" aria-labelledby="settings-retention-heading">
+    <div class="panel-heading"><div><p class="eyebrow">Bounded persistence</p><h2 id="settings-retention-heading">Retention and safety</h2></div><span class="status-badge status-healthy">Protected</span></div>
+    <ul class="settings-policy-list">
+      <li><strong>Routine operation history</strong><span>Newest {{ '{:,}'.format(workspace.retention.routine_count) }} retained; entries are eligible after {{ workspace.retention.routine_days }} days.</span></li>
+      <li><strong>Failed-operation history</strong><span>Resolved failures are retained for at least {{ workspace.retention.failure_days }} days.</span></li>
+      <li><strong>Bounded live logs</strong><span>Maximum {{ workspace.retention.log_lines }} lines / {{ workspace.retention.log_kib }} KiB per operation snapshot.</span></li>
+      <li><strong>Metadata backups</strong><span>Newest {{ workspace.retention.metadata_count }} per source plus backups newer than {{ workspace.retention.metadata_days }} days.</span></li>
+      <li><strong>Secret redaction</strong><span>Credentials, tokens, webhook values, and sensitive configured paths are removed from diagnostics.</span></li>
+      <li><strong>Image storage</strong><span>Image binaries are not stored in SQLite or app data.</span></li>
+    </ul>
+  </section>
+
+  <section class="workspace-panel settings-panel settings-future-panel" aria-labelledby="settings-woo-heading">
+    <div><p class="eyebrow">Future integration</p><h2 id="settings-woo-heading">WooCommerce synchronization</h2><p>Not implemented in Phase 2</p><small>No connection, credential, upload, or synchronization control is available in this release.</small></div>
+    <span class="status-badge">Unavailable</span>
+  </section>
+</div>
+{% endblock %}

@@ -12,8 +12,8 @@
           <!-- LEFT PANEL -->
           <div class="col-md-5 d-none d-md-flex auth-brand-panel">
             <img src="{{ url_for('static', filename='assets/img/woocommerce-dashboard-icon.png') }}" alt="">
-            <h5 class="fw-bold mb-0">Let’s Get Started</h5>
-            <h3 class="fw-bold text-uppercase">Initial Scan</h3>
+            <p class="fw-bold mb-0 auth-brand-kicker">Let’s Get Started</p>
+            <p class="fw-bold text-uppercase auth-brand-title">Initial Scan</p>
           </div>
 
           <!-- RIGHT PANEL -->
@@ -28,7 +28,7 @@
                  data-have-settings="{{ 1 if (settings and settings.product_folder and settings.output_folder and settings.url_prefix) else 0 }}">
             </div>
 
-            <h2 class="h2 mb-3">Initial Scan</h2>
+            <h1 class="h2 mb-3">Initial Scan</h1>
             <p class="text-muted small mb-3">Choose the identity-safe action for the detected catalogue state.</p>
 
             <div class="alert {{ 'alert-danger' if not setup_state.safe_to_run else 'alert-info' }} small">

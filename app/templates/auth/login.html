@@ -13,14 +13,14 @@
           <!-- LEFT PANEL: Welcome -->
           <div class="col-md-5 d-none d-md-flex auth-brand-panel">
             <img src="{{ url_for('static', filename='assets/img/woocommerce-dashboard-icon.png') }}" alt="">
-            <h5 class="fw-bold mb-0">Welcome Back</h5>
-            <h3 class="fw-bold text-uppercase">WooCommerce Dashboard</h3>
+            <p class="fw-bold mb-0 auth-brand-kicker">Welcome Back</p>
+            <p class="fw-bold text-uppercase auth-brand-title">WooCommerce Dashboard</p>
             <p class="small text-muted mt-3 mb-0">Independent local catalogue management.</p>
           </div>
 
           <!-- RIGHT PANEL: Login Form -->
           <div class="col-md-7 auth-form-panel">
-            <h2 class="h2 mb-3">Sign in to your dashboard</h2>
+            <h1 class="h2 mb-3">Sign in to your dashboard</h1>
             <p class="text-muted small mb-4">Please enter your credentials to continue.</p>
 
             {% with messages = get_flashed_messages(with_categories=true) %}

@@ -67,7 +67,20 @@ def configuration_summary():
     _refresh_configuration()
     configured = [channel for channel, value in WEBHOOKS.items() if _valid_webhook(value)]
     state = "disabled" if not ENABLED else "configured" if configured else "not_configured"
-    return {"enabled": ENABLED, "state": state, "configured_channels": configured, "configured_count": len(configured)}
+    return {
+        "enabled": ENABLED,
+        "state": state,
+        "configured_channels": configured,
+        "configured_count": len(configured),
+        "channel_states": {
+            channel: "configured" if channel in configured else "not_configured"
+            for channel in WEBHOOK_ENV
+        },
+        "display_name_state": (
+            "configured" if os.environ.get("DISCORD_DEFAULT_USERNAME") else "default"
+        ),
+        "avatar_state": "configured" if DEFAULT_AVATAR else "not_configured",
+    }
 
 
 def _post(webhook_url, payload):

@@ -32,12 +32,12 @@ persistence. Catalogue-relative context remains visible.
 
 ## Operation retention
 
-Live scan state is process-local and remains subject to the documented
-single-worker/single-replica boundary. Active and unresolved-recovery runs are
-never removed. The newest 20 ordinary completed runs remain in memory. Each
-unconsumed log queue retains at most 2,000 lines and approximately 2 MiB of text;
-oldest lines are discarded with an explicit truncation marker while completion
-summaries remain available.
+Scanner execution and locking remain process-local and subject to the documented
+single-worker/single-replica boundary. Bounded live progress is also persisted
+with its operation so another web worker can present it. Each persisted snapshot
+retains at most 500 log lines and 256 KiB. In-process delivery queues remain
+bounded independently while an operation is running. Active and unresolved
+recovery operations are never pruned.
 
 Persistent routine successes are removed only when both older than 180 days and
 outside the newest 1,000. Failed or otherwise non-routine resolved operations

@@ -1,7 +1,7 @@
 {% extends 'layouts/base.html' %}
 {% block title %}Operations{% endblock %}
 {% block content %}
-<section class="page-heading page-heading-actions"><div><p class="eyebrow">Scanner</p><h1>Operation History</h1><p>Review persisted catalogue outcomes, recovery state, and safe process-local diagnostics.</p></div><a class="btn btn-accent" href="{{ url_for('main.scanner') }}">Open Scanner</a></section>
+<section class="page-heading page-heading-actions"><div><p class="eyebrow">Scanner</p><h1>Operation History</h1><p>Review persisted catalogue outcomes, recovery state, and bounded live diagnostics.</p></div><a class="btn btn-accent" href="{{ url_for('main.scanner') }}">Open Scanner</a></section>
 <form class="operations-toolbar" method="get" aria-label="Filter operations">
   <label class="operations-search"><span>Search</span><input type="search" name="q" value="{{ workspace.filters.q }}" placeholder="Operation ID, product SKU, or collection"></label>
   <label><span>Type</span><select name="type"><option value="">All types</option>{% for value,label in [('append','Append'),('product_update','Update'),('shared_collection_update','Shared collection update'),('full','Full'),('reconstruction','Reconstruction')] %}<option value="{{ value }}" {{ 'selected' if workspace.filters.type == value }}>{{ label }}</option>{% endfor %}</select></label>

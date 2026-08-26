@@ -4,6 +4,7 @@
 {% set catalogue_endpoints = product_endpoints + collection_endpoints %}
 {% set scanner_endpoints = ['main.scanner', 'main.initial_scan_page'] %}
 {% set operation_endpoints = ['main.operations', 'main.operation_detail'] %}
+{% set more_endpoints = collection_endpoints + ['main.metadata_reference', 'main.settings', 'main.woo_sync', 'main.orders', 'main.website_automation', 'main.analytics'] %}
 
 <aside class="app-sidebar" aria-label="Primary navigation">
   <div class="sidebar-brand">
@@ -43,7 +44,7 @@
   <a class="mobile-primary-link {{ 'is-active' if request.endpoint in product_endpoints }}" href="{{ url_for('main.products') }}"{% if request.endpoint in product_endpoints %} aria-current="page"{% endif %}>{{ icon('box') }}<span>Products</span></a>
   <a class="mobile-primary-link {{ 'is-active' if request.endpoint in scanner_endpoints }}" href="{{ url_for('main.scanner') }}"{% if request.endpoint in scanner_endpoints %} aria-current="page"{% endif %}>{{ icon('scanner') }}<span>Scanner</span></a>
   <a class="mobile-primary-link {{ 'is-active' if request.endpoint in operation_endpoints }}" href="{{ url_for('main.operations') }}"{% if request.endpoint in operation_endpoints %} aria-current="page"{% endif %}>{{ icon('history') }}<span>Operations</span></a>
-  <button class="mobile-primary-link" type="button" data-bs-toggle="offcanvas" data-bs-target="#appNavigation" aria-controls="appNavigation" aria-label="Open more navigation">{{ icon('menu') }}<span>More</span></button>
+  <button class="mobile-primary-link {{ 'is-active' if request.endpoint in more_endpoints }}" type="button" data-bs-toggle="offcanvas" data-bs-target="#appNavigation" aria-controls="appNavigation" aria-expanded="false" aria-label="Open more navigation{% if request.endpoint in more_endpoints %}; current page is in More{% endif %}">{{ icon('menu') }}<span>More</span></button>
 </nav>
 
 <div class="offcanvas offcanvas-end app-offcanvas" tabindex="-1" id="appNavigation" aria-labelledby="appNavigationLabel">
@@ -54,14 +55,14 @@
   <div class="offcanvas-body">
     <nav aria-label="Secondary navigation">
       <div class="mobile-nav-section"><p class="mobile-nav-label">Catalogue</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint in collection_endpoints }}" href="{{ url_for('main.collections') }}"{% if request.endpoint in collection_endpoints %} aria-current="page"{% endif %}>{{ icon('collection') }} Collections</a></div>
-      <div class="mobile-nav-section"><p class="mobile-nav-label">Metadata</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.metadata_reference' }}" href="{{ url_for('main.metadata_reference') }}">{{ icon('book') }} Metadata Reference</a></div>
-      <div class="mobile-nav-section"><p class="mobile-nav-label">System</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.settings' }}" href="{{ url_for('main.settings') }}">{{ icon('settings') }} Settings</a></div>
+      <div class="mobile-nav-section"><p class="mobile-nav-label">Metadata</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.metadata_reference' }}" href="{{ url_for('main.metadata_reference') }}"{% if request.endpoint == 'main.metadata_reference' %} aria-current="page"{% endif %}>{{ icon('book') }} Metadata Reference</a></div>
+      <div class="mobile-nav-section"><p class="mobile-nav-label">System</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.settings' }}" href="{{ url_for('main.settings') }}"{% if request.endpoint == 'main.settings' %} aria-current="page"{% endif %}>{{ icon('settings') }} Settings</a></div>
       <div class="mobile-nav-section">
         <p class="mobile-nav-label">Future</p>
-        <a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.woo_sync' }}" href="{{ url_for('main.woo_sync') }}">{{ icon('plug') }} Woo Sync</a>
-        <a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.orders' }}" href="{{ url_for('main.orders') }}">{{ icon('orders') }} Orders</a>
-        <a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.website_automation' }}" href="{{ url_for('main.website_automation') }}">{{ icon('wand') }} Website Automation</a>
-        <a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.analytics' }}" href="{{ url_for('main.analytics') }}">{{ icon('chart') }} Analytics</a>
+        <a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.woo_sync' }}" href="{{ url_for('main.woo_sync') }}"{% if request.endpoint == 'main.woo_sync' %} aria-current="page"{% endif %}>{{ icon('plug') }} Woo Sync</a>
+        <a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.orders' }}" href="{{ url_for('main.orders') }}"{% if request.endpoint == 'main.orders' %} aria-current="page"{% endif %}>{{ icon('orders') }} Orders</a>
+        <a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.website_automation' }}" href="{{ url_for('main.website_automation') }}"{% if request.endpoint == 'main.website_automation' %} aria-current="page"{% endif %}>{{ icon('wand') }} Website Automation</a>
+        <a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.analytics' }}" href="{{ url_for('main.analytics') }}"{% if request.endpoint == 'main.analytics' %} aria-current="page"{% endif %}>{{ icon('chart') }} Analytics</a>
       </div>
       <div class="mobile-nav-section border-top pt-3"><a class="mobile-nav-link" href="{{ url_for('main.logout') }}">{{ icon('logout') }} Sign out</a></div>
     </nav>

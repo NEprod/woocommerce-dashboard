@@ -92,6 +92,12 @@ need renaming. Keep the ingest webhook empty if per-product messages would be
 noisy. Treat every webhook as a secret. See
 [Scanner, Operations, and Discord](SCANNER_OPERATIONS.md).
 
+The authenticated `/settings` page presents only safe availability and
+configured/not-configured states. It never renders mount paths, webhook values,
+`SECRET_KEY`, or an environment dump. Environment and Discord configuration
+remain owned by the Unraid container template; restart the container after a
+change. The page is diagnostic and read-only, not a secret editor.
+
 ## First start
 
 1. Create/select the three host directories and ensure the container can write

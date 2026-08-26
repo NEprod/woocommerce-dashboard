@@ -135,7 +135,6 @@ def test_planned_pages_are_professional_and_do_not_claim_live_features(
     authenticated_client,
 ):
     expected = {
-        "/settings": "Settings",
         "/woo-sync": "Woo Sync",
         "/orders": "Orders",
         "/website-automation": "Website Automation",
@@ -154,6 +153,10 @@ def test_planned_pages_are_professional_and_do_not_claim_live_features(
         html = authenticated_client.get(route).get_data(as_text=True)
         assert title in html
         assert "Planned" not in html
+
+    settings_html = authenticated_client.get("/settings").get_data(as_text=True)
+    assert "Storage and mounts" in settings_html
+    assert "Planned" not in settings_html
 
 
 def test_folder_picker_requires_authentication_and_still_works_for_admin(

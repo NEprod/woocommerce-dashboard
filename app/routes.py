@@ -1464,12 +1464,9 @@ def site_manager():
 @main.route("/settings")
 @login_required
 def settings():
-    return _render_planned(
-        "Settings",
-        "System",
-        "Review local catalogue paths and connection readiness from one safe workspace.",
-        primary=("Open initial settings", url_for("main.initial_settings")),
-    )
+    from app.settings_workspace import build_settings_workspace
+
+    return render_template("settings.html", workspace=build_settings_workspace())
 
 
 # ---------- Auth ----------

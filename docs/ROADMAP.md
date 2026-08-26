@@ -55,6 +55,10 @@ Phase 2 uses sequential approval gates on the long-lived `develop` branch:
    live diagnostics, safe retry preparation, and optional hardened Discord
    notifications reuse the existing operation schema and protected scanner.
 8. Settings, accessibility, responsive refinement, and future placeholders.
+   **Complete on `develop`.** Authenticated read-only configuration health,
+   mount readiness, safe Discord state, navigation consistency, and targeted
+   accessibility/responsive polish use existing runtime authorities without a
+   schema change.
 9. Complete documentation, contract verification, Docker/Unraid testing, and
    the explicitly gated `v0.3.0` release.
 
