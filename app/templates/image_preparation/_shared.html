@@ -4,8 +4,8 @@
   <dl><div><dt>Readable now</dt><dd>{{ 'Yes' if readiness.readable else 'No' }}</dd></div><div><dt>Writable later</dt><dd>{{ 'Yes' if readiness.writable else 'No' }}</dd></div><div><dt>Status</dt><dd>{{ readiness.label }}</dd></div></dl>
 </section>
 {%- endmacro %}
-{% macro preview_banner() -%}
-<div class="intake-preview-banner" role="status"><strong>Preview only — no files or folders have been created.</strong><span>Catalogue Intake does not copy, rename, group, import, upload, or scan files in this milestone.</span></div>
+{% macro preview_banner(detail='Catalogue Intake does not copy, rename, group, import, upload, or scan files on this preview page.') -%}
+<div class="intake-preview-banner" role="status"><strong>Preview only — no files or folders have been created.</strong><span>{{ detail }}</span></div>
 {%- endmacro %}
 
 {% macro issue_list(issues, heading='Conflicts and warnings') -%}

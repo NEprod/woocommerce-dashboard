@@ -55,7 +55,7 @@ The canonical container storage contract is fixed:
 | `/app/instance` | required read/write | `/app/instance/site.db` and `/app/instance/backups/` |
 | `/catalogue` | required read/write | authored catalogue, source images, metadata, `.scanned`, `.scanned.pending`, `.update`, and SKU indexes |
 | `/output` | required read/write | processed/generated image output |
-| `/intake` | optional read/write | external loose/prepared images for the read-only Catalogue Intake preview workspace |
+| `/intake` | optional read/write | external loose images, private grouping staging, and provisional `Prepared/` results for Catalogue Intake |
 
 Do not rename `/app/instance` to `/config` or rename `site.db`; either change can
 make an existing installation appear empty. Keep catalogue and output outside the
@@ -63,10 +63,11 @@ appdata instance directory. Updating or replacing a container preserves data onl
 when the same host directories are mounted again.
 
 `/intake` is never created by the image or entrypoint. Without a real mount, the
-Catalogue Intake workspace reports unavailable and performs no preview. This
+Catalogue Intake workspace reports unavailable and performs no work. This
 prevents an optional feature from silently writing to the disposable container
-layer. Current previews are read-only even when the mount is writable; the mode
-is required for later confirmed preparation operations. See
+layer. Previews remain read-only. Confirmed grouping requires the mount to be
+writable and writes only private operation-owned staging and duplicate-safe
+provisional results below `/intake/Prepared/`; sources are not modified. See
 [Catalogue Intake](CATALOGUE_INTAKE.md).
 
 Back up the instance/database and filesystem catalogue together with an understood consistency point. Back up authored JSON, `.scanned`, `.scanned.pending`, `.update`, SKU indexes, processed output, and source assets. Never rely on the disposable container layer for application data. Pending envelopes are required to preserve identities and finish database/marker recovery after interruption.

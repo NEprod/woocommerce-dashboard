@@ -43,7 +43,7 @@
 
   function formatActivity(value) {
     const timestamp = Date.parse(value || "");
-    if (!Number.isFinite(timestamp)) return "Awaiting scanner heartbeat";
+    if (!Number.isFinite(timestamp)) return "Awaiting operation heartbeat";
     const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
     if (seconds < 5) return "just now";
     if (seconds < 60) return seconds + " seconds ago";
@@ -58,7 +58,7 @@
 
   function markFailure() {
     failures += 1;
-    if (connectivity) connectivity.textContent = "Live status temporarily unavailable. The scan is continuing in the background.";
+    if (connectivity) connectivity.textContent = "Live status temporarily unavailable. The operation is continuing in the background.";
     if (shouldPause(failures)) {
       paused = true;
       if (retry) retry.hidden = false;
@@ -71,7 +71,8 @@
     const progress = live.progress || {};
     const counts = live.counts || {};
     const summary = payload.summary || live.summary || {};
-    text("[data-operation-heading]", operation.status_label);
+    const intakeGrouping = operation.type === "intake_group";
+    text("[data-operation-heading]", intakeGrouping && payload.terminal ? "Grouping complete — folder review required" : operation.status_label);
     const status = documentRef.querySelector("[data-operation-status]");
     if (status) {
       status.textContent = operation.status_label || operation.status;
@@ -96,8 +97,9 @@
       if (fill) fill.style.width = percent + "%";
     }
     const countParts = [];
-    if (progress.total) countParts.push((progress.completed || 0) + " of " + progress.total + " collections");
-    else if (progress.completed) countParts.push(progress.completed + " collections processed; total calculating");
+    const progressUnit = progress.unit || (intakeGrouping ? "images" : "collections");
+    if (progress.total) countParts.push((progress.completed || 0) + " of " + progress.total + " " + progressUnit);
+    else if (progress.completed) countParts.push(progress.completed + " " + progressUnit + " processed; total calculating");
     [["products", counts.products], ["variations", summary.variations_processed], ["parent images", summary.parent_images], ["variation images", summary.variation_images], ["output images copied", summary.output_images_copied]].forEach(function (item) {
       if (item[1] !== undefined && item[1] !== null) countParts.push(item[1] + " " + item[0]);
     });

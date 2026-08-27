@@ -112,6 +112,7 @@ from app.operations_workspace import (
 from app.image_preparation import (
     browse_intake,
     configured_intake_root,
+    grouping_confirmation_blockers,
     grouping_preview,
     intake_readiness,
     rename_preview,
@@ -181,9 +182,11 @@ def image_preparation_group():
     relative = request.args.get("path", "")[:1024]
     readiness, browser, error = _intake_page_context(relative)
     preview = None
+    confirmation_blockers = []
     if browser and not error:
         try:
             preview = grouping_preview(configured_intake_root(), relative)
+            confirmation_blockers = grouping_confirmation_blockers(preview)
         except ValueError:
             error = "The grouping preview could not safely inspect this intake folder."
     return render_template(
@@ -191,8 +194,43 @@ def image_preparation_group():
         readiness=readiness,
         browser=browser,
         preview=preview,
+        confirmation_blockers=confirmation_blockers,
+        can_confirm=bool(preview and not confirmation_blockers and readiness["writable"]),
         intake_error=error,
     ), (400 if error else 200)
+
+
+@main.route("/image-preparation/group/confirm", methods=["POST"])
+@login_required
+def image_preparation_group_confirm():
+    from app.intake_grouping import (
+        GroupingRejected,
+        IntakeOperationActive,
+        start_grouping_operation,
+    )
+
+    relative = request.form.get("path", "")[:1024]
+    digest = request.form.get("digest", "")[:128]
+    if request.form.get("acknowledge") != "yes":
+        flash("Confirm that the source will remain unchanged before starting grouping.", "danger")
+        return redirect(url_for("main.image_preparation_group", path=relative))
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        flash("The grouping proposal is invalid. Generate a fresh preview.", "danger")
+        return redirect(url_for("main.image_preparation_group", path=relative))
+    try:
+        operation_id = start_grouping_operation(
+            current_app._get_current_object(), relative, digest
+        )
+    except GroupingRejected as error:
+        flash(str(error), "danger")
+        return redirect(url_for("main.image_preparation_group", path=relative))
+    except IntakeOperationActive as error:
+        operation_id = str((error.active or {}).get("id") or "")
+        flash("A Catalogue Intake preparation operation is already running.", "warning")
+        if re.fullmatch(r"[0-9a-f]{32}", operation_id):
+            return redirect(url_for("main.operation_detail", operation_id=operation_id))
+        return redirect(url_for("main.image_preparation_group", path=relative))
+    return redirect(url_for("main.operation_detail", operation_id=operation_id))
 
 
 @main.route("/image-preparation/rename")

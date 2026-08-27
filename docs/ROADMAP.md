@@ -19,9 +19,12 @@
 - **Phase 2.5 — Pre-catalogue image preparation:** in progress on `develop`.
   Milestone 1 audited the two legacy Tk utilities. Milestone 2 adds an optional
   `/intake` mount plus authenticated, deterministic, strictly read-only folder,
-  grouping, rename, and scanner-compatibility previews. Later milestones remain
-  separately gated for copy-first grouping, collision-safe staged renaming, and
-  final prepared-layout validation.
+  grouping, rename, and scanner-compatibility previews. Milestone 3 adds explicit
+  digest-revalidated, copy-first grouping through private verified staging into
+  duplicate-safe provisional `Prepared/` results while preserving every source.
+  The next separately gated step is the Folder Naming and Structure Editor;
+  image renaming, metadata creation, catalogue handoff, and final validation
+  remain later work.
 - **Phase 3 — Read-only WooCommerce mapping and comparison:** planned.
 - **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.

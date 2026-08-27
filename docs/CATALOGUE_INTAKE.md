@@ -1,10 +1,10 @@
 # Catalogue Intake
 
-Catalogue Intake is an authenticated, read-only workspace for inspecting image
-folders before they enter the catalogue. It is deliberately separate from the
+Catalogue Intake is an authenticated workspace for inspecting and safely
+preparing image folders before they enter the catalogue. It is deliberately separate from the
 scanner, `/catalogue`, generated `/output`, and `/app/instance` state.
 
-Phase 2.5 Milestone 2 supplies:
+Phase 2.5 Milestones 2 and 3 supply:
 
 - an optional dedicated `/intake` mount;
 - an intake-confined folder browser;
@@ -12,10 +12,14 @@ Phase 2.5 Milestone 2 supplies:
 - deterministic prefix-renaming previews;
 - complete intake-relative source, folder-tree, destination, and filename views;
 - conflict, corrupt-image, unsafe-entry, Parent, and scanner-compatibility diagnostics.
+- explicit confirmation of valid grouping proposals;
+- copy-first grouped results below `/intake/Prepared/`.
 
-It does not group, rename, copy, move, delete, upload, import, scan, create
-`Prepared/`, write metadata, or persist preview manifests. Preview requests do
-not create operation history or Discord events.
+Browsing, grouping previews, and rename previews remain read-only and do not
+create operation history or Discord events. A confirmed grouping is the only
+current mutation: it copies unchanged image bytes into a provisional grouped
+result. It does not rename images or folders, move or delete sources, upload,
+import, scan, write metadata, or hand anything to `/catalogue`.
 
 ## Storage boundary
 
@@ -31,15 +35,55 @@ FIFOs, and other special entries are rejected or displayed as controlled issues.
 Authenticated image previews use signed opaque references, verify image content,
 and use private, sniff-resistant responses without writing thumbnail caches.
 
-Future confirmed operations will write only below:
+Confirmed operations write only below:
 
 ```text
 /intake/Prepared/
 ```
 
-The planned default is `Prepared/<selected source basename>/`, with visible
+The default is `Prepared/<selected source basename>/`, with visible
 duplicate-safe suffixes such as ` (2)` and ` (3)`. The source tree is never the
 destination. No result is transferred into the catalogue automatically.
+
+## Confirmed copy-first grouping
+
+`POST /image-preparation/group/confirm` requires authentication, CSRF, the
+explicit source-preservation acknowledgement, and a valid preview digest. The
+server recomputes the complete proposal and source identities before accepting
+it. Changes to paths, sizes, modification times, issues, or the chosen available
+destination make the proposal stale and require a new preview.
+
+Only one Catalogue Intake mutation runs at a time under a dedicated lock that
+does not replace or alter the scanner operation lock. The operation copies
+regular, validated source images without changing names, extensions, contents,
+or source metadata into the private operation-owned tree:
+
+```text
+/intake/.catalogue-intake-staging/<operation-id>/
+```
+
+Normal intake browsing and previews exclude that tree. Each staged result is
+checked for the exact expected two-level tree, regular-file status, image
+validity, and matching source size. The complete directory is then promoted on
+the same filesystem with a no-replace atomic rename. Existing results are never
+overwritten or merged; the server selects ` (2)`, ` (3)`, and later suffixes
+deterministically. A race at promotion fails safely rather than replacing data.
+
+Failure before promotion exposes no completed result and removes only the
+staging tree bearing that operation's ownership marker where safe. Cleanup
+failure is a bounded warning. Before another mutation, recognised staging trees
+older than 24 hours may be removed conservatively; active operations,
+unrecognised/user-created folders, and completed `Prepared/` results are never
+cleaned by this policy.
+
+Successful, warning, and failed operations appear in existing bounded operation
+history with stages, counts, safe intake-relative paths, and a read-only link to
+the provisional result. The terminal status is **Grouping complete — folder
+review required**, and the next step is **Review and rename folders**. Clean
+completion reuses the scanner-information Discord webhook; warning completion
+and failure reuse the scanner warnings/errors webhook. Previews do not notify,
+there is only one terminal message, payloads are bounded, and notification
+failure never changes the grouping result.
 
 ## Grouping preview
 
@@ -99,8 +143,7 @@ request-scoped and does not grow SQLite.
 
 ## Future milestones
 
-Later approved work may add copy-first grouping and collision-safe staged
-renaming. Originals should remain preserved, confirmed results should be exposed
-only after successful staging, and substantial terminal operations may reuse the
-scanner-information and scanner-warning/error Discord channels. Preview requests
-remain notification-free.
+The next milestone may add the separately approved Folder Naming and Structure
+Editor. Image renaming, metadata creation, final prepared-layout validation,
+catalogue handoff, and scanning remain separately gated. Grouped folder names in
+the current result are deliberately provisional.

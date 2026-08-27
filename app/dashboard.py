@@ -31,6 +31,7 @@ OPERATION_LABELS = {
     "shared_collection_update": "Collection refresh",
     "full": "Full regeneration",
     "reconstruction": "Catalogue reconstruction",
+    "intake_group": "Catalogue Intake — Group Images",
 }
 
 METADATA_ISSUE_DEFINITIONS = {

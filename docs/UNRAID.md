@@ -48,10 +48,12 @@ Read/Write mode, apply the template change, and restart the container. Do not
 enter `/catalogue`, `/output`, `/app/instance`, or a personal path copied from
 another system. The application displays intake-relative paths only.
 
-The current workspace only previews grouping and renaming. It does not create
-`Prepared/`, alter source files, transfer anything into the catalogue, or invoke
-the scanner. Read/write mode is documented now because later confirmed
-operations will create copy-first results below `/intake/Prepared/`. See
+Browsing and grouping/rename previews remain read-only. Explicitly confirmed
+grouping revalidates its preview, copies unchanged images through hidden private
+staging, and atomically creates a duplicate-safe provisional result below
+`/intake/Prepared/`. It does not rename or alter source files, transfer anything
+into the catalogue, create metadata, or invoke the scanner. Read/write mode is
+required for that confirmed operation. See
 [Catalogue Intake](CATALOGUE_INTAKE.md).
 
 Do not change the database mount to `/config` and do not rename `site.db`.

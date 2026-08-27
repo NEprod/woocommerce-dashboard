@@ -39,10 +39,11 @@ operations. Collection JSON remains authoritative and editing continues through
 the existing Collection Metadata Editor.
 
 Phase 2.5 adds an optional, authenticated Catalogue Intake workspace backed only
-by a dedicated `/intake` mount. Its first milestone is read-only: it browses
-intake-relative folders and previews deterministic grouping, renaming, Parent
-ownership, future `Prepared/` destinations, and scanner-compatibility conflicts
-without changing a file or invoking the scanner.
+by a dedicated `/intake` mount. Browsing and deterministic grouping/renaming
+previews remain read-only. An explicitly confirmed, server-revalidated grouping
+now copies unchanged source images through private verified staging into a
+duplicate-safe provisional result below `Prepared/`; it does not rename source
+or result files, create metadata, access the catalogue, or invoke the scanner.
 
 ## Current capabilities
 

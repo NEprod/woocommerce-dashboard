@@ -21,7 +21,7 @@ the Catalogue Intake workspace simply reports unavailable.
 
 ## Catalogue Intake
 
-Phase 2.5 Milestone 2 adds authenticated routes at `/image-preparation`,
+Phase 2.5 Milestones 2 and 3 add authenticated routes at `/image-preparation`,
 `/image-preparation/group`, and `/image-preparation/rename`. They browse only
 the canonical `/intake` root and render intake-relative breadcrumbs, supported,
 hidden, corrupt, unsupported, unreadable, and unsafe-entry counts.
@@ -39,6 +39,16 @@ All discovery and proposal ordering is deterministic. Request-scoped proposal
 digests change with safe source identity or proposal inputs. Previews write no
 files, folders, thumbnails, metadata, scanner markers, database rows, operation
 history, or Discord events. They do not invoke the scanner or browse `/catalogue`.
+
+A valid grouping preview may now be explicitly confirmed. The server recomputes
+the proposal and digest, acquires the dedicated Intake mutation lock, copies
+unchanged source images into private operation-owned staging, verifies the exact
+tree, and atomically promotes it without replacement to a duplicate-safe
+`Prepared/<source basename>/` result. Source files remain unchanged. Bounded
+operation progress and one terminal Discord summary are recorded; notification
+failure is non-fatal. Group names remain provisional, and the completed status
+is **Grouping complete — folder review required**. Folder/image renaming,
+metadata creation, catalogue handoff, and scanning remain unavailable.
 See [Catalogue Intake](CATALOGUE_INTAKE.md).
 
 ## Scanner modes

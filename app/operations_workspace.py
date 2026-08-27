@@ -25,7 +25,7 @@ STATUS_LABELS = {
 }
 TYPE_LABELS = {
     "append": "Append", "product_update": "Update", "shared_collection_update": "Shared collection update",
-    "full": "Full", "reconstruction": "Reconstruction",
+    "full": "Full", "reconstruction": "Reconstruction", "intake_group": "Catalogue Intake — Group Images",
 }
 SCAN_MODES = (
     {
@@ -277,10 +277,44 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
     if row.finished_at:
         timeline.append({"label": view["status_label"], "state": "error" if row.status == "failed" else "complete", "at": row.finished_at})
     retry_mode = {"append": "append", "product_update": "update", "full": "full"}.get(row.operation_type)
+    intake = None
+    if row.operation_type == "intake_group":
+        summary = view.get("summary") or {}
+        prepared_relpath = summary.get("prepared_relpath")
+        groups = []
+        prepared_url = None
+        if isinstance(prepared_relpath, str) and prepared_relpath.startswith("Prepared/"):
+            try:
+                from app.image_preparation import browse_intake, configured_intake_root
+
+                prepared = browse_intake(configured_intake_root(), prepared_relpath)
+                remaining_files = 5000
+                for directory in prepared["directories"][:200]:
+                    if remaining_files <= 0:
+                        break
+                    child = browse_intake(configured_intake_root(), directory["path"])
+                    filenames = [image["name"] for image in child["images"][:remaining_files]]
+                    remaining_files -= len(filenames)
+                    groups.append({
+                        "name": directory["name"],
+                        "path": directory["path"],
+                        "files": filenames,
+                    })
+                prepared_url = url_for("main.image_preparation", path=prepared_relpath)
+            except (OSError, ValueError):
+                groups = []
+        intake = {
+            "is_grouping": True,
+            "source_relpath": view["scope"].get("source_relpath"),
+            "prepared_relpath": prepared_relpath,
+            "prepared_url": prepared_url,
+            "groups": groups,
+            "workflow_status": summary.get("workflow_status") or view["scope"].get("workflow_status"),
+        }
     return {
         "operation": view, "items": item_views,
         "item_pagination": {"page": item_pagination.page, "pages": item_pagination.pages or 1, "total": item_pagination.total},
         "timeline": timeline, "related_products": list(related_products.values()),
         "related_collections": list(related_collections.values()), "retry_mode": retry_mode,
-        "cancellation_supported": False,
+        "cancellation_supported": False, "intake": intake,
     }

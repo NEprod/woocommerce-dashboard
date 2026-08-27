@@ -21,6 +21,7 @@ from app.utils.catalogue_paths import is_reserved_directory_name
 
 INTAKE_CONTAINER_ROOT = Path("/intake")
 PREPARED_DIRECTORY = "Prepared"
+INTAKE_STAGING_DIRECTORY = ".catalogue-intake-staging"
 SUPPORTED_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp")
 MAX_PREVIEW_FILES = 5000
 MAX_METADATA_BYTES = 1024 * 1024
@@ -241,6 +242,8 @@ def browse_intake(root, relative=""):
     except OSError as error:
         raise ValueError("Intake folder cannot be read") from error
     for entry in entries:
+        if entry.name == INTAKE_STAGING_DIRECTORY:
+            continue
         kind, entry_stat = _classify_entry(entry)
         if kind == "directory":
             child_rel = _join_rel(canonical, entry.name)
@@ -398,6 +401,8 @@ def grouping_preview(root, relative=""):
     result_name, result_conflict = _prepared_result(root, browser["folder_name"])
     mappings = []
     issues = list(browser["issues"])
+    if not browser["path"]:
+        issues.append(_issue("Catalogue Intake", "selection", "Select a child intake folder before confirming grouping", code="source_root", state="blocking"))
     bases = {}
     legacy_by_safe = {}
     for image in browser["images"]:
@@ -477,6 +482,7 @@ def grouping_preview(root, relative=""):
         )
     mappings.sort(key=lambda item: _ordered(item["source_name"]))
     digest = _digest("group", browser["path"], result_name, mappings, issues)
+    blocking = grouping_confirmation_blockers({"browser": browser, "mappings": mappings, "issues": issues})
     return {
         "kind": "group",
         "preview_only": True,
@@ -488,13 +494,30 @@ def grouping_preview(root, relative=""):
         "mappings": mappings,
         "issues": sorted(issues, key=lambda item: (_ordered(item["name"]), item["code"])),
         "digest": digest,
-        "ready": bool(mappings) and not any(item["state"] == "blocking" for item in mappings),
+        "ready": bool(mappings) and not blocking,
         "compatibility": {
             "state": "warning" if issues else "compatible",
             "label": "Scanner-compatible based on current visible structure" if mappings else "No supported loose images found",
             "detail": "Grouping does not determine collection type or image-attribute order.",
         },
     }
+
+
+def grouping_confirmation_blockers(preview):
+    """Return safe reasons why a grouping proposal cannot become a mutation."""
+
+    blockers = []
+    if not (preview.get("browser") or {}).get("path"):
+        blockers.append("Select a child intake folder")
+    if not preview.get("mappings"):
+        blockers.append("No supported loose images were found")
+    for mapping in preview.get("mappings") or ():
+        if mapping.get("state") == "blocking":
+            blockers.append(mapping.get("source_name") or "Unsafe grouping proposal")
+    for issue in preview.get("issues") or ():
+        if issue.get("state") == "blocking" or issue.get("category") in {"unsafe", "changed", "unreadable"}:
+            blockers.append(issue.get("message") or issue.get("name") or "Unsafe intake entry")
+    return list(dict.fromkeys(blockers))
 
 
 def _walk_intake_images(root: Path, folder: Path, selected: str):
@@ -512,6 +535,8 @@ def _walk_intake_images(root: Path, folder: Path, selected: str):
             continue
         child_dirs = []
         for entry in entries:
+            if entry.name == INTAKE_STAGING_DIRECTORY:
+                continue
             kind, entry_stat = _classify_entry(entry)
             rel = _join_rel(selected, *rel_parts, entry.name)
             if kind == "directory":

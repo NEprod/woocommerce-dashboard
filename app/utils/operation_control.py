@@ -151,6 +151,7 @@ def get_active_operation() -> dict | None:
     if has_app_context():
         row = (
             CatalogueOperation.query.filter(
+                CatalogueOperation.operation_type.in_(ALLOWED_OPERATION_TYPES),
                 CatalogueOperation.status.in_({"running", "pending"})
             )
             .order_by(CatalogueOperation.started_at.asc())
@@ -194,6 +195,7 @@ def acquire_catalogue_operation(operation_type: str, scope=None) -> OperationLea
         # worker even though the production runtime currently uses one worker.
         existing = (
             CatalogueOperation.query.filter(
+                CatalogueOperation.operation_type.in_(ALLOWED_OPERATION_TYPES),
                 CatalogueOperation.status.in_({"running", "pending"})
             )
             .order_by(CatalogueOperation.started_at.asc())
