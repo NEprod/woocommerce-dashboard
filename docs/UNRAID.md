@@ -125,7 +125,7 @@ strict and do not configure duplicate application file logging.
 
 Reconstruction preserves existing marker/SKU identities while rebuilding the
 database projection. Intentional full regeneration retains the protected
-SKU-reset behavior and must not be used as a substitute for reconstruction.
+SKU-reset behaviour and must not be used as a substitute for reconstruction.
 
 ## Updating and replacing the container
 

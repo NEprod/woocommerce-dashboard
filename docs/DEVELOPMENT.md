@@ -86,7 +86,7 @@ Before every commit and push:
 4. Scan staged content for webhook, key, token, bearer, and private-key patterns.
 5. Run compile checks and pytest.
 6. Build and validate the image using temporary mounts only.
-7. Confirm no production application behavior was changed incidentally.
+7. Confirm no production application behaviour was changed incidentally.
 
 For Phase 2 Milestones 1–8, publish the approved immutable
 `phase-2-m<N>` multi-platform image and update `develop` from the same build

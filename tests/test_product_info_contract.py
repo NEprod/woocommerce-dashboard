@@ -326,7 +326,7 @@ def test_in_app_reference_and_templates_are_available(editor_app):
     assert page.status_code == 200
     text = page.get_data(as_text=True)
     assert "product_info.json Metadata Reference" in text
-    assert "Inherited / override behavior" in text
+    assert "Inherited / override behaviour" in text
     assert "variation modifier sale_price" in text
 
     template = app.test_client().get("/api/metadata-reference/template/minimal-override")

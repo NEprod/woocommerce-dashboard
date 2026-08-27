@@ -50,7 +50,7 @@ failed/partial operation and never applies product missing-state reconciliation.
 
 Final states are `succeeded`, `partial`, `failed`, or `interrupted`. Scan history
 is finalized from a `finally` path, so scanner or ingestion exceptions release the
-process lock. Notification failures retain the existing best-effort behavior and
+process lock. Notification failures retain the existing best-effort behaviour and
 do not turn an otherwise successful scan into a failure. If final history writing
 itself fails, the in-process lock is still released and the unfinished row is
 recoverable at the next startup.

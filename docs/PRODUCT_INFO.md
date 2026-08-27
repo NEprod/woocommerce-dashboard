@@ -10,7 +10,7 @@ authenticated `/metadata-reference` page. For every recognized field it records
 the canonical key and aliases, type, units, required/optional state, collection
 and override placement, inheritance, merge rules, parent and variation effects,
 Woo-style output, SQLite destination, implementation status, example, and
-warning/error behavior.
+warning/error behaviour.
 
 ## Files and schemas
 
@@ -27,17 +27,20 @@ override never needs to repeat shared metadata.
 Schemas deliberately allow unknown top-level properties so the editor can warn
 without destroying forward-compatible content. They are applied to editor saves,
 not to scanner-wide loading. Existing catalogue files and unknown collection
-types therefore retain their protected scanner behavior.
+types therefore retain their protected scanner behaviour.
 
-## Inheritance and merge behavior
+## Inheritance and merge behaviour
 
 The scanner starts from the collection object and applies the product override:
 
 - scalar values and objects are replaced by the override;
 - lists are combined and deduplicated through a set, so membership is preserved
   but output ordering is not deterministic;
-- title uses its established combination/fallback behavior: product override and
-  shared title become `Override - Shared`, with folder-name fallbacks;
+- title uses one combination/fallback rule: nonblank product override and shared
+  title become `Override - Shared`; shared title alone becomes
+  `Product folder - Shared`; neither becomes the product folder name. Missing,
+  `null`, empty, and whitespace-only titles are absent. The collection folder
+  display name is separate;
 - partial overrides remain valid and inherited fields need not be repeated.
 
 The web editor deep-merges a submitted partial form into the existing file before
@@ -48,7 +51,7 @@ shared/override resolution and does not change it.
 
 | Key | Classification | Type / units | Placement | Resolution and output summary |
 |---|---|---|---|---|
-| `collection_type` | canonical and active | non-empty string | required collection; not normal override | Selects `Simple`, `Variable Collection`, or `Single Variable`; unknown values warn but retain the scanner behavior of emitting no rows. Stored on Collection and Product. |
+| `collection_type` | canonical and active | non-empty string | required collection; not normal override | Selects `Simple`, `Variable Collection`, or `Single Variable`; unknown values warn but retain the scanner behaviour of emitting no rows. Stored on Collection and Product. |
 | `title` | canonical and active | string | either | Special shared/override/folder merge; emits `Name`; stored as Product title and in resolved rows. |
 | `sku_prefix` | canonical and active | non-empty string | required collection; not normal override | Used only for new SKU allocation; identity-sensitive; stored on Collection. |
 | `price` | canonical and active | number/numeric string; store currency | either | Scalar override; parent and base variation `Regular price`; normalized on Product/Variation. |
@@ -106,7 +109,7 @@ or scan:
 - invalid saves preserve the original file, create no backup or `.update`, start
   no operation/scan, and return field paths plus submitted content where practical;
 - valid saves retain the existing backup, atomic replacement, override `.update`,
-  and update/shared-refresh orchestration behavior.
+  and update/shared-refresh orchestration behaviour.
 
 The editor keeps invalid textarea content in place for correction. Templates load
 into the form without saving. The normal override template is `{}` rather than a

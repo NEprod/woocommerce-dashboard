@@ -9,7 +9,7 @@
   Milestone 1.1 established the interim contrast baseline. The approved design
   reconciliation replaces its dark-first styling with the canonical light-first
   system, permanent sidebar/mobile shell, accessible tables, and dedicated dark
-  hierarchy/code states without changing application behavior.
+  hierarchy/code states without changing application behaviour.
   Milestone 2 completes setup-result and shared operation-progress presentation.
   Milestone 3 adds the genuine read-only catalogue-health Dashboard over the
   existing projection and operation records. Milestone 4 replaces the legacy
@@ -20,7 +20,7 @@
 - **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.
 
-Phase 1 is the current catalogue-integrity release. Future work must continue to treat its scanner contract and database/recovery behavior as protected baselines.
+Phase 1 is the current catalogue-integrity release. Future work must continue to treat its scanner contract and database/recovery behaviour as protected baselines.
 
 ## Phase 2 execution plan
 
@@ -59,8 +59,9 @@ Phase 2 uses sequential approval gates on the long-lived `develop` branch:
    mount readiness, safe Discord state, navigation consistency, and targeted
    accessibility/responsive polish use existing runtime authorities without a
    schema change.
-9. Complete documentation, contract verification, Docker/Unraid testing, and
-   the explicitly gated `v0.3.0` release.
+9. Targeted catalogue/UI corrections, final documentation, contract and
+   Docker/Unraid verification, and a release-candidate image. Stable `v0.3.0`
+   promotion remains explicitly gated on manual Unraid approval.
 
 Milestones 1–8 publish immutable multi-platform development images plus the
 moving `develop` image. They do not update stable or historical image tags.

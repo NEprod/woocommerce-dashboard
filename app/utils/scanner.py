@@ -202,28 +202,10 @@ def scan_simple_product(
     # Load override product_info.json (if it exists), and merge with collection-level shared_data
     try:
         override_data = load_json(os.path.join(folder, "product_info.json"))
-        merged = merge_product_json(shared_data, override_data)
+        merged = merge_product_json(shared_data, override_data, path=folder)
     except Exception as e:
         log(f"❌ Failed to load JSON for {folder}: {str(e)}", level="ERROR")
         return []
-
-    folder_name = os.path.basename(folder)
-
-    # If no specific title override, build a fallback using folder name and collection title
-    if "title" not in override_data:
-        shared_title = shared_data.get("title")
-        if shared_title:
-            merged["title"] = f"{folder_name} - {shared_title}"
-            log(
-                f"ℹ️ No override title found. Using fallback title: '{merged['title']}'",
-                level="INFO",
-            )
-        else:
-            merged["title"] = folder_name
-            log(
-                f"ℹ️ No override or shared title found. Using folder name as title: '{folder_name}'",
-                level="INFO",
-            )
 
     # Validate required fields and normalize format
     merged = validate_json(merged)
@@ -324,28 +306,10 @@ def scan_variable_product(
     # Load override product_info.json (if it exists), and merge with collection-level shared_data
     try:
         override_data = load_json(os.path.join(folder, "product_info.json"))
-        merged = merge_product_json(shared_data, override_data)
+        merged = merge_product_json(shared_data, override_data, path=folder)
     except Exception as e:
         log(f"❌ Failed to load JSON for {folder}: {str(e)}", level="ERROR")
         return []
-
-    folder_name = os.path.basename(folder)
-
-    # If no specific title override, build a fallback using folder name and collection title
-    if "title" not in override_data:
-        shared_title = shared_data.get("title")
-        if shared_title:
-            merged["title"] = f"{folder_name} - {shared_title}"
-            log(
-                f"ℹ️ No override title found. Using fallback title: '{merged['title']}'",
-                level="INFO",
-            )
-        else:
-            merged["title"] = folder_name
-            log(
-                f"ℹ️ No override or shared title found. Using folder name as title: '{folder_name}'",
-                level="INFO",
-            )
 
     # Validate and normalize the combined data
     merged = validate_json(merged)
@@ -489,7 +453,7 @@ def scan_single_variable(
         return []
 
     # Normalize and validate all data fields
-    merged = validate_json(shared_data)
+    merged = validate_json(merge_product_json(shared_data, {}, path=base_folder))
     merged["source_folder"] = base_folder
 
     # Load existing scan data if in update mode
@@ -531,13 +495,6 @@ def scan_single_variable(
     all_rows = []
 
     folder_name = os.path.basename(base_folder)
-    shared_title = merged.get("title")
-
-    # Construct a fallback title if not defined explicitly
-    if shared_title and folder_name:
-        merged["title"] = f"{folder_name} - {shared_title}"
-    elif not shared_title and folder_name:
-        merged["title"] = folder_name
 
     parent_title = merged.get("title") or folder_name
 

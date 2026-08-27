@@ -65,6 +65,6 @@ Restore validates the backup, copies it through the SQLite backup API to a tempo
 
 Always back up the database and filesystem catalogue together at an understood consistency point. Migration backup does not include authored JSON, `.scanned`, `.update`, `sku_index.json`, source images, or generated output.
 
-## Failure behavior
+## Failure behaviour
 
 If a migration fails, application startup fails rather than serving against a partially understood schema. The raised migration error includes the backup path when one was created. The original pre-migration state remains recoverable from that backup. Do not repeatedly restart or manually edit the database; stop the application, preserve both files, restore the verified backup, and diagnose the failed revision using synthetic reproduction where possible.

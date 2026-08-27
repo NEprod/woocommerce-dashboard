@@ -328,7 +328,7 @@ a:hover { color: var(--color-lime-hover); }
 .products-page-link:hover, .products-page-link.is-current { border-color: var(--color-surface-dark); background: var(--color-surface-dark); color: var(--color-text-inverse); }
 .products-page-link.is-disabled { color: var(--color-text-muted); opacity: .58; }
 
-.btn { min-height: 44px; padding: 11px 16px; border-radius: var(--radius-button); font-size: 13px; font-weight: 650; line-height: 20px; }
+.btn { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: var(--space-3); padding: 11px 16px; border-radius: var(--radius-button); font-size: 13px; font-weight: 650; line-height: 20px; text-align: center; }
 .btn-sm { min-height: 40px; padding: 9px 13px; }
 .btn-primary, .btn-app-primary { border-color: var(--color-surface-dark); background: var(--color-surface-dark); color: var(--color-text-inverse); }
 .btn-primary:hover, .btn-app-primary:hover { border-color: var(--color-surface-dark-hover); background: var(--color-surface-dark-hover); color: var(--color-text-inverse); transform: translateY(-1px); }

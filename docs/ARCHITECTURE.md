@@ -76,7 +76,7 @@ direct-folder discovery. If no parent source resolves, the first ordered valid
 variation image becomes the parent thumbnail. Variation routes preserve their
 own Single Variable image-attribute folder identity and fall back to the parent
 only when necessary; Variable Collection variations retain the scanner's shared
-parent-image behavior.
+parent-image behaviour.
 
 Single Variable collections reserve the semantic name `parent` at the collection
 root for the parent primary/gallery set. Its directory match is case-insensitive,
@@ -96,7 +96,7 @@ browser.
 `app/metadata_workspace.py` is the read-only composition boundary for Product
 Detail and metadata source editors. It resolves collection and override JSON by
 portable catalogue-relative identity, confines reads beneath the configured
-catalogue root, applies the protected `merge_product_json()` behavior, and
+catalogue root, applies the protected `merge_product_json()` behaviour, and
 presents collection/override/resolved comparisons without mutating the
 projection. `/products/<id>` is the canonical Product Detail route;
 `/collections/<id>/metadata` edits the shared source and the established

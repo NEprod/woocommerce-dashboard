@@ -28,9 +28,14 @@ temporary-file, and Docker-log limits are documented in
 
 Intentional full regeneration remains a separate warning-labelled action. The UI
 and route require explicit confirmation because it retains the scanner's existing
-SKU-reset behavior. An empty database never selects it automatically.
+SKU-reset behaviour. An empty database never selects it automatically.
 
 The scanner supports exact collection types `Simple`, `Variable Collection`, and `Single Variable`.
+Resolved product titles now apply the documented product/shared/folder fallback
+contract, treating blank authored titles as absent. Collection display identity
+continues to come from the collection folder basename. Append assignment is
+protected by isolated multi-collection regression coverage and continues to use
+portable source provenance rather than either title.
 
 ## Operation control
 
@@ -136,7 +141,7 @@ are paginated on the server. Variation attributes, price, stock quantity,
 lifecycle, provenance, and timestamps are fetched only when a variable parent
 is expanded. Desktop uses grouped relational rows, while tablet and mobile use
 collection-preserving product cards. This milestone adds no model, migration,
-scanner, ingestion, marker, SKU, or filesystem behavior.
+scanner, ingestion, marker, SKU, or filesystem behaviour.
 
 The Milestone 4 image-display follow-up serves genuine source images from the
 mounted catalogue through authenticated opaque product and variation routes.
@@ -198,6 +203,16 @@ separate concepts. `Product.catalogue_status` supplies Active, Missing, and
 other existing local lifecycle labels. Resolved metadata `live` supplies
 Published or Draft intent and records whether the value came from a product
 override, collection metadata through inheritance, or the scanner default.
+
+Phase 2 Milestone 9 completes the targeted release-candidate pass: canonical
+product-title fallback, deterministic Append collection-assignment regression
+coverage, shared centred action content, UK English interface copy, and mocked
+Discord event/routing verification. Scanner cancellation remains unsupported;
+only one catalogue mutation may run; live progress persists independently of the
+browser; Discord delivery detail is not guaranteed across every restart;
+multi-replica mutation execution, WooCommerce synchronisation, image upload or
+conversion, filesystem collection management, pre-catalogue image preparation,
+and remote media management remain outside Phase 2. Phase 3 has not begun.
 `Product.published` is the normalized projection of that resolved intent; it is
 not evidence that a product currently exists or is published in WooCommerce.
 

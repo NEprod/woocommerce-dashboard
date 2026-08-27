@@ -73,4 +73,4 @@ error, and the reserved directory is excluded before attribute interpretation.
 
 No image binary, output path, or new collection-thumbnail field is stored.
 Woo-facing URL generation, output copying, marker state, reconstruction, and SKU
-behavior are unchanged.
+behaviour are unchanged.

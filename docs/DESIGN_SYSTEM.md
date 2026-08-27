@@ -842,3 +842,17 @@ Before a page is accepted:
 - Responsive behaviour is designed, not improvised.
 - The approved Dashboard, Products, Login, and Metadata Editor references define
   the visual standard.
+
+## Shared action and language conventions
+
+Buttons and links styled as buttons use the shared `.btn` primitive. Content is
+centred with `inline-flex`, vertically aligned, and consistently spaced for text,
+icons, and busy indicators. Compact variants retain their intended height;
+primary mobile actions remain at least 44px high. Navigation and menu rows remain
+purposefully left aligned and do not inherit action-button centring.
+
+User-facing application copy uses UK English: `Catalogue`, `Categories`,
+`Personalised`, `Customisation`, `Colour`, `Behaviour`, and `Centre`. This rule
+does not rename JSON keys, Python or JavaScript identifiers, database columns,
+CSS properties, browser standards, WooCommerce fields, or quoted authored
+catalogue data.

@@ -162,4 +162,28 @@ notify. Preserve the embed style. Any future environment variable must also be
 added to the Unraid template and documented.
 
 Tests keep Discord disabled or use mocked HTTP transport. Real webhook values
-are never committed. The real-webhook regression remains gated to Milestone 9.
+are never committed.
+
+### Safe real-webhook verification after deployment
+
+Use only the webhook values already configured in the user's Unraid environment;
+never paste them into logs, screenshots, support messages, or source files.
+
+1. Run a normal Append operation and confirm the start and clean completion arrive
+   in Scanner Updates with accurate mode, collection, product, variation, and
+   image counts.
+2. Use a naturally occurring warning, when available, and confirm completion
+   arrives in Scanner Warnings/Failures with a bounded grouped summary.
+3. Save collection metadata and confirm Metadata Updates receives the collection
+   folder display name and affected-product count.
+4. Create, update, or remove a fictional product override and confirm Product
+   Overrides receives the resolved product title and collection display name.
+5. If the optional ingest webhook is configured, confirm a normal ingest reports
+   separate parent, variation, total, and copied-image counts.
+6. Confirm no message contains a webhook value, credential, absolute host path,
+   authored JSON payload, or other secret.
+
+Do not manufacture a scanner failure by damaging catalogue data, changing mount
+permissions, or disconnecting persistent storage. Failure routing remains covered
+by mocked transport tests; a real failure notification should be checked only if
+a safe natural failure occurs.

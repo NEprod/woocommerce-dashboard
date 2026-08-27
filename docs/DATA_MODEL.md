@@ -59,7 +59,7 @@ Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the P
 - `Category`, `Tag`, and association tables: emitted parent taxonomy membership.
 - `Service`: dormant hosting/domain-oriented model.
 
-Collection → Product → Variation is active and populated by normal ingestion. `source_relpath` and the JSON `*_relpath` columns are POSIX-style paths relative to `Settings.product_folder`; these are portable across host/container mount changes. Legacy `root_path`, `product_dir`, JSON path, and `ProductAsset.path` values remain absolute runtime locators for existing filesystem behavior.
+Collection → Product → Variation is active and populated by normal ingestion. `source_relpath` and the JSON `*_relpath` columns are POSIX-style paths relative to `Settings.product_folder`; these are portable across host/container mount changes. Legacy `root_path`, `product_dir`, JSON path, and `ProductAsset.path` values remain absolute runtime locators for existing filesystem behaviour.
 
 `resolved_row_json` is the lossless boundary for every key/value actually emitted by the protected row builder, including blank values and characterized discrepancies. Normalized columns are the query surface and do not invent values that the scanner failed to emit.
 
