@@ -50,6 +50,14 @@ class GroupingRejected(RuntimeError):
     pass
 
 
+class PromotionRejected(GroupingRejected):
+    def __init__(self, message, *, code, strategy=None, fallback_reason=None):
+        super().__init__(message)
+        self.code = code
+        self.strategy = strategy
+        self.fallback_reason = fallback_reason
+
+
 class IntakeOperationActive(RuntimeError):
     def __init__(self, active):
         super().__init__("A Catalogue Intake preparation operation is already running")
@@ -249,7 +257,7 @@ class _Progress:
         """Persist useful live progress without one SQLite transaction per file."""
 
         batch_size = max(5, min(25, (self.total + 19) // 20))
-        if self.copied >= self.total or self.copied - self._last_persisted_copy_count >= batch_size:
+        if self.copied - self._last_persisted_copy_count >= batch_size:
             self.persist()
 
     def record_discord(self, event, result):
@@ -370,7 +378,9 @@ def _verify_staged_result(stage_result, preview):
     return True
 
 
-def _atomic_promote_noreplace(source, destination):
+def _specialised_promote_noreplace(source, destination):
+    """Use the platform's atomic no-replace primitive or report it unavailable."""
+
     source_value = os.fsencode(source)
     destination_value = os.fsencode(destination)
     libc = ctypes.CDLL(None, use_errno=True)
@@ -379,15 +389,127 @@ def _atomic_promote_noreplace(source, destination):
     elif sys.platform == "darwin" and hasattr(libc, "renamex_np"):
         result = libc.renamex_np(source_value, destination_value, 0x00000004)
     else:
-        if destination.exists():
-            raise FileExistsError(str(destination))
-        os.rename(source, destination)
-        return
+        raise OSError(errno.ENOSYS, "specialised no-replace rename is unavailable")
     if result != 0:
         code = ctypes.get_errno()
         if code in {errno.EEXIST, errno.ENOTEMPTY}:
             raise FileExistsError(str(destination))
         raise OSError(code, os.strerror(code))
+
+
+def _filesystem_device(path):
+    return Path(path).stat().st_dev
+
+
+def _destination_exists(path):
+    try:
+        Path(path).lstat()
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def _promotion_error(error, *, strategy, fallback_reason=None):
+    code = getattr(error, "errno", None)
+    if isinstance(error, FileExistsError) or code in {errno.EEXIST, errno.ENOTEMPTY}:
+        return PromotionRejected(
+            "The prepared destination is no longer available. Review a fresh grouping proposal and retry.",
+            code="destination_conflict",
+            strategy=strategy,
+            fallback_reason=fallback_reason,
+        )
+    if code == errno.EXDEV:
+        return PromotionRejected(
+            "Catalogue Intake staging and Prepared must be on the same mounted filesystem.",
+            code="cross_filesystem",
+            strategy=strategy,
+            fallback_reason=fallback_reason,
+        )
+    if code == errno.EROFS:
+        return PromotionRejected(
+            "Catalogue Intake became read-only before the prepared result could be promoted.",
+            code="read_only",
+            strategy=strategy,
+            fallback_reason=fallback_reason,
+        )
+    if code in {errno.EACCES, errno.EPERM}:
+        return PromotionRejected(
+            "Catalogue Intake permissions prevented prepared-result promotion.",
+            code="permission_denied",
+            strategy=strategy,
+            fallback_reason=fallback_reason,
+        )
+    if code in {errno.EINVAL, errno.ENAMETOOLONG, errno.ENOENT, errno.ENOTDIR}:
+        return PromotionRejected(
+            "The prepared destination is not valid on this mounted filesystem.",
+            code="invalid_path",
+            strategy=strategy,
+            fallback_reason=fallback_reason,
+        )
+    return PromotionRejected(
+        "The mounted Catalogue Intake filesystem could not promote the prepared result safely.",
+        code="promotion_failed",
+        strategy=strategy,
+        fallback_reason=fallback_reason,
+    )
+
+
+def _require_same_filesystem(source, destination_parent, *, strategy, fallback_reason=None):
+    try:
+        source_device = _filesystem_device(source)
+        destination_device = _filesystem_device(destination_parent)
+    except OSError as error:
+        raise _promotion_error(error, strategy=strategy, fallback_reason=fallback_reason) from error
+    if source_device != destination_device:
+        raise PromotionRejected(
+            "Catalogue Intake staging and Prepared must be on the same mounted filesystem.",
+            code="cross_filesystem",
+            strategy=strategy,
+            fallback_reason=fallback_reason,
+        )
+
+
+def _ordinary_same_filesystem_promote(source, destination, *, fallback_reason):
+    strategy = "ordinary_same_filesystem_rename"
+    _require_same_filesystem(source, destination.parent, strategy=strategy, fallback_reason=fallback_reason)
+    if _destination_exists(destination):
+        raise PromotionRejected(
+            "The prepared destination is no longer available. Review a fresh grouping proposal and retry.",
+            code="destination_conflict",
+            strategy=strategy,
+            fallback_reason=fallback_reason,
+        )
+    try:
+        os.rename(source, destination)
+    except OSError as error:
+        raise _promotion_error(error, strategy=strategy, fallback_reason=fallback_reason) from error
+    return {"strategy": strategy, "fallback_reason": fallback_reason}
+
+
+def _promote_prepared_result(source, destination):
+    """Promote a verified tree without overwrite, including Unraid/FUSE fallback."""
+
+    source = Path(source)
+    destination = Path(destination)
+    strategy = "specialised_no_replace"
+    _require_same_filesystem(source, destination.parent, strategy=strategy)
+    if _destination_exists(destination):
+        raise PromotionRejected(
+            "The prepared destination is no longer available. Review a fresh grouping proposal and retry.",
+            code="destination_conflict",
+            strategy=strategy,
+        )
+    try:
+        _specialised_promote_noreplace(source, destination)
+        return {"strategy": strategy, "fallback_reason": None}
+    except OSError as error:
+        unsupported = {errno.EINVAL, errno.ENOSYS, errno.EOPNOTSUPP}
+        if hasattr(errno, "ENOTSUP"):
+            unsupported.add(errno.ENOTSUP)
+        if getattr(error, "errno", None) in unsupported:
+            reason = f"specialised_unsupported_{errno.errorcode.get(error.errno, 'unknown').lower()}"
+            return _ordinary_same_filesystem_promote(source, destination, fallback_reason=reason)
+        raise _promotion_error(error, strategy=strategy) from error
 
 
 def _warning_summary(preview):
@@ -481,6 +603,10 @@ def execute_grouping_operation(lease, relative, submitted_digest):
             progress.current_item = mapping["proposed_group"]
             progress.persist_copy_progress()
 
+        progress.update(
+            "copying_grouped_images",
+            f"Images copied: {progress.copied} / {progress.total}",
+        )
         progress.update("verifying_staged_result", "Verifying the complete staged grouping result")
         _verify_staged_result(stage_result, preview)
         if grouping_preview(root, canonical)["digest"] != submitted_digest:
@@ -495,7 +621,7 @@ def execute_grouping_operation(lease, relative, submitted_digest):
         final_destination = prepared_root / preview["result_name"]
         if final_destination.exists() or final_destination.is_symlink():
             raise GroupingRejected("The prepared destination changed after preview")
-        _atomic_promote_noreplace(stage_result, final_destination)
+        promotion = _promote_prepared_result(stage_result, final_destination)
         promoted = True
 
         progress.update("cleaning_staging", "Cleaning the completed operation staging wrapper")
@@ -528,6 +654,8 @@ def execute_grouping_operation(lease, relative, submitted_digest):
             "warning_summary": warning_summary,
             "warning_entries": warning_entries,
             "workflow_status": "folder_review_required",
+            "promotion_strategy": promotion["strategy"],
+            "promotion_fallback_reason": promotion["fallback_reason"],
             "duration_seconds": round(time.monotonic() - started, 3),
         }
         _notify_completed(progress, summary, time.monotonic() - started)
@@ -561,28 +689,43 @@ def execute_grouping_operation(lease, relative, submitted_digest):
             finish_intake_operation(lease, status="partial", summary=summary)
             return
         cleanup_warning = None
+        staging_cleanup = "not_created"
         try:
-            _cleanup_operation_staging(root, lease.id)
+            staging_cleanup = "cleaned" if _cleanup_operation_staging(root, lease.id) else "not_found"
         except OSError:
             cleanup_warning = "Operation staging cleanup requires review"
+            staging_cleanup = "retained_for_review"
         progress.failures = 1
         progress.warnings += int(bool(cleanup_warning))
+        failed_stage = progress.stage
+        safe_failure = str(error) if isinstance(error, GroupingRejected) else sanitize_operation_error(error)
         progress.stage = "failed"
-        progress.message = sanitize_operation_error(error)
+        progress.message = safe_failure
+        progress.logs.append({
+            "sequence": len(progress.logs) + 1,
+            "severity": "info" if staging_cleanup == "cleaned" else "warning",
+            "line": "Operation-owned staging was cleaned" if staging_cleanup == "cleaned" else "Operation staging was retained for controlled review",
+        })
         if cleanup_warning:
             progress.logs.append({"sequence": len(progress.logs) + 1, "severity": "warning", "line": cleanup_warning})
-        _notify_failed(progress, relative, error)
+        _notify_failed(progress, relative, safe_failure)
         failed_summary = {
             "source_relpath": relative,
+            "prepared_relpath": f"{PREPARED_DIRECTORY}/{preview['result_name']}" if preview else None,
             "source_images": progress.total,
             "copied_images": progress.copied,
             "failed_images": 1,
             "warnings": progress.warnings,
             "workflow_status": "failed",
+            "failed_stage": failed_stage,
+            "promotion_error_code": getattr(error, "code", None),
+            "promotion_strategy": getattr(error, "strategy", None),
+            "promotion_fallback_reason": getattr(error, "fallback_reason", None),
+            "staging_cleanup": staging_cleanup,
             "cleanup_warning": cleanup_warning,
         }
         progress.persist(summary=failed_summary, status="failed")
-        finish_intake_operation(lease, status="failed", error=error, summary=failed_summary)
+        finish_intake_operation(lease, status="failed", error=safe_failure, summary=failed_summary)
 
 
 def start_grouping_operation(app, relative, submitted_digest):

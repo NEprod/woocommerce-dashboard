@@ -65,13 +65,21 @@ or source metadata into the private operation-owned tree:
 Normal intake browsing and previews exclude that tree. Each staged result is
 checked for the exact expected two-level tree, regular-file status, image
 validity, and matching source size. The complete directory is then promoted on
-the same filesystem with a no-replace atomic rename. Existing results are never
-overwritten or merged; the server selects ` (2)`, ` (3)`, and later suffixes
-deterministically. A race at promotion fails safely rather than replacing data.
+the same filesystem. The application first uses the platform's atomic
+no-replace rename. Some Unraid/FUSE mounts reject that specialised flag with
+`EINVAL`; while still holding the authoritative Intake mutation lock, the app
+rechecks the source/destination device and destination absence before using the
+mount-compatible ordinary directory rename. It never uses overwrite-capable
+`os.replace()`. Existing results are never deliberately overwritten or merged;
+the server selects ` (2)`, ` (3)`, and later suffixes deterministically, and a
+reported destination conflict stops safely.
 
 Failure before promotion exposes no completed result and removes only the
 staging tree bearing that operation's ownership marker where safe. Cleanup
-failure is a bounded warning. Before another mutation, recognised staging trees
+failure is a bounded warning. Operation history records a controlled failure
+stage, safe relative destination, promotion capability, and whether exact
+operation-owned staging was cleaned; raw host paths are never retained. Before
+another mutation, recognised staging trees
 older than 24 hours may be removed conservatively; active operations,
 unrecognised/user-created folders, and completed `Prepared/` results are never
 cleaned by this policy.

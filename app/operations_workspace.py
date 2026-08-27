@@ -310,6 +310,9 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             "prepared_url": prepared_url,
             "groups": groups,
             "workflow_status": summary.get("workflow_status") or view["scope"].get("workflow_status"),
+            "failed_stage": summary.get("failed_stage"),
+            "staging_cleanup": summary.get("staging_cleanup"),
+            "retry_url": url_for("main.image_preparation_group", path=view["scope"].get("source_relpath")) if view["scope"].get("source_relpath") else None,
         }
     return {
         "operation": view, "items": item_views,

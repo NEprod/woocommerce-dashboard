@@ -70,6 +70,14 @@ writable and writes only private operation-owned staging and duplicate-safe
 provisional results below `/intake/Prepared/`; sources are not modified. See
 [Catalogue Intake](CATALOGUE_INTAKE.md).
 
+Prepared-result promotion supports ordinary Unraid/FUSE bind mounts. It prefers
+the specialised atomic no-replace rename and, when that operation is explicitly
+unsupported, rechecks that staging and `Prepared` share the same device and that
+the destination remains absent before using an ordinary same-filesystem rename
+under the dedicated Intake mutation lock. Cross-filesystem, read-only,
+permission, invalid-path, and destination-conflict failures remain controlled
+and expose no partial completed result.
+
 Back up the instance/database and filesystem catalogue together with an understood consistency point. Back up authored JSON, `.scanned`, `.scanned.pending`, `.update`, SKU indexes, processed output, and source assets. Never rely on the disposable container layer for application data. Pending envelopes are required to preserve identities and finish database/marker recovery after interruption.
 
 Never bake `.env`, SQLite, product folders, markers, generated images, exports, logs, or backups into the image. The mounted instance directory contains the live database plus migration and reconstruction backups, so the instance mount itself must be included in operational backups and have space for unique reconstruction snapshots.

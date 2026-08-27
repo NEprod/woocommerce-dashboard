@@ -1,3 +1,4 @@
+import errno
 import hashlib
 import json
 import os
@@ -441,13 +442,203 @@ def test_destination_race_never_overwrites_or_merges(grouping_app, grouping_clie
         (destination / "external.txt").write_text("external", encoding="utf-8")
         raise FileExistsError(str(destination))
 
-    monkeypatch.setattr(grouping, "_atomic_promote_noreplace", race)
+    monkeypatch.setattr(grouping, "_promote_prepared_result", race)
     response = _confirm(grouping_client, "Race", preview)
     operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
     assert _wait_for_operation(app, operation_id) == "failed"
     assert (intake / "Prepared" / "Race" / "external.txt").read_text(encoding="utf-8") == "external"
     assert not (intake / "Prepared" / "Race" / "Card").exists()
     assert (source / "Card1.png").exists()
+
+
+def test_specialised_no_replace_promotion_is_used_when_supported(tmp_path, monkeypatch):
+    import app.intake_grouping as grouping
+
+    source = tmp_path / "staging"
+    destination = tmp_path / "Prepared" / "Result"
+    source.mkdir()
+    destination.parent.mkdir()
+    (source / "image.png").write_bytes(b"fictional")
+    called = []
+
+    def supported(current, final):
+        called.append((current, final))
+        os.rename(current, final)
+
+    monkeypatch.setattr(grouping, "_specialised_promote_noreplace", supported)
+    result = grouping._promote_prepared_result(source, destination)
+    assert result == {"strategy": "specialised_no_replace", "fallback_reason": None}
+    assert called == [(source, destination)]
+    assert (destination / "image.png").exists()
+
+
+def test_einval_uses_safe_same_filesystem_fallback(tmp_path, monkeypatch):
+    import app.intake_grouping as grouping
+
+    source = tmp_path / "staging"
+    destination = tmp_path / "Prepared" / "Result"
+    source.mkdir()
+    destination.parent.mkdir()
+    (source / "image.png").write_bytes(b"fictional")
+    original_rename = os.rename
+    ordinary_calls = []
+
+    def unsupported(*_args):
+        raise OSError(errno.EINVAL, "filesystem does not support RENAME_NOREPLACE")
+
+    def ordinary(current, final):
+        ordinary_calls.append((current, final))
+        return original_rename(current, final)
+
+    monkeypatch.setattr(grouping, "_specialised_promote_noreplace", unsupported)
+    monkeypatch.setattr(grouping.os, "rename", ordinary)
+    result = grouping._promote_prepared_result(source, destination)
+    assert result == {"strategy": "ordinary_same_filesystem_rename", "fallback_reason": "specialised_unsupported_einval"}
+    assert ordinary_calls == [(source, destination)]
+    assert (destination / "image.png").exists()
+
+
+def test_fallback_cannot_overwrite_existing_destination(tmp_path, monkeypatch):
+    import app.intake_grouping as grouping
+
+    source = tmp_path / "staging"
+    destination = tmp_path / "Prepared" / "Result"
+    source.mkdir()
+    destination.mkdir(parents=True)
+    (source / "new.png").write_bytes(b"new")
+    (destination / "existing.png").write_bytes(b"existing")
+    monkeypatch.setattr(grouping, "_specialised_promote_noreplace", lambda *_args: (_ for _ in ()).throw(OSError(errno.EINVAL, "unsupported")))
+    with pytest.raises(grouping.PromotionRejected, match="destination is no longer available"):
+        grouping._promote_prepared_result(source, destination)
+    assert (destination / "existing.png").read_bytes() == b"existing"
+    assert (source / "new.png").exists()
+
+
+def test_fallback_destination_race_is_controlled(tmp_path, monkeypatch):
+    import app.intake_grouping as grouping
+
+    source = tmp_path / "staging"
+    destination = tmp_path / "Prepared" / "Result"
+    source.mkdir()
+    destination.parent.mkdir()
+    (source / "new.png").write_bytes(b"new")
+    monkeypatch.setattr(grouping, "_specialised_promote_noreplace", lambda *_args: (_ for _ in ()).throw(OSError(errno.EINVAL, "unsupported")))
+
+    def race(_current, final):
+        final.mkdir()
+        (final / "external.png").write_bytes(b"external")
+        raise FileExistsError(errno.EEXIST, "race")
+
+    monkeypatch.setattr(grouping.os, "rename", race)
+    with pytest.raises(grouping.PromotionRejected, match="destination is no longer available"):
+        grouping._promote_prepared_result(source, destination)
+    assert (destination / "external.png").read_bytes() == b"external"
+    assert (source / "new.png").exists()
+
+
+def test_cross_filesystem_promotion_fails_before_rename(tmp_path, monkeypatch):
+    import app.intake_grouping as grouping
+
+    source = tmp_path / "staging"
+    destination = tmp_path / "Prepared" / "Result"
+    source.mkdir()
+    destination.parent.mkdir()
+    monkeypatch.setattr(grouping, "_filesystem_device", lambda path: 1 if path == source else 2)
+    monkeypatch.setattr(grouping, "_specialised_promote_noreplace", lambda *_args: pytest.fail("rename attempted"))
+    with pytest.raises(grouping.PromotionRejected, match="same mounted filesystem"):
+        grouping._promote_prepared_result(source, destination)
+
+
+@pytest.mark.parametrize(
+    ("error_number", "message"),
+    [
+        (errno.EROFS, "read-only"),
+        (errno.EACCES, "permissions"),
+        (errno.EINVAL, "not valid"),
+    ],
+)
+def test_fallback_filesystem_errors_are_controlled(tmp_path, monkeypatch, error_number, message):
+    import app.intake_grouping as grouping
+
+    source = tmp_path / "staging"
+    destination = tmp_path / "Prepared" / "Result"
+    source.mkdir()
+    destination.parent.mkdir()
+    monkeypatch.setattr(grouping, "_specialised_promote_noreplace", lambda *_args: (_ for _ in ()).throw(OSError(errno.EINVAL, "unsupported")))
+    monkeypatch.setattr(grouping.os, "rename", lambda *_args: (_ for _ in ()).throw(OSError(error_number, "raw fixture detail")))
+    with pytest.raises(grouping.PromotionRejected, match=message):
+        grouping._promote_prepared_result(source, destination)
+
+
+def test_einval_fallback_flushes_full_progress_before_verification(grouping_app, grouping_client, monkeypatch):
+    import app.intake_grouping as grouping
+
+    app, intake, *_ = grouping_app
+    source = intake / "Unraid Fixture"
+    source.mkdir()
+    for number in range(1, 27):
+        _image(source / f"Card{number}.png")
+    preview = grouping_preview(intake, "Unraid Fixture")
+    monkeypatch.setattr(grouping, "_specialised_promote_noreplace", lambda *_args: (_ for _ in ()).throw(OSError(errno.EINVAL, "unsupported")))
+    response = _confirm(grouping_client, "Unraid Fixture", preview)
+    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
+    assert _wait_for_operation(app, operation_id) in {"succeeded", "partial"}
+    result = intake / "Prepared" / "Unraid Fixture"
+    assert len(list(result.rglob("*.png"))) == 26
+    with app.app_context():
+        row = db.session.get(CatalogueOperation, operation_id)
+        scope = json.loads(row.scope)
+        summary = scope["operation_summary"]
+        logs = scope["live_state"]["logs"]
+        assert summary["copied_images"] == 26
+        assert summary["promotion_strategy"] == "ordinary_same_filesystem_rename"
+        assert any(entry["line"] == "Images copied: 26 / 26" for entry in logs)
+        copy_line = next(index for index, entry in enumerate(logs) if entry["line"] == "Images copied: 26 / 26")
+        verify_line = next(index for index, entry in enumerate(logs) if "Verifying" in entry["line"])
+        assert copy_line < verify_line
+
+
+def test_failed_promotion_records_safe_stage_cleanup_and_retry_succeeds(grouping_app, grouping_client, monkeypatch):
+    import app.intake_grouping as grouping
+
+    app, intake, *_ = grouping_app
+    source = intake / "Retry Fixture"
+    source.mkdir()
+    _image(source / "Card1.png")
+    source_before = _tree(source)
+    preview = grouping_preview(intake, "Retry Fixture")
+    original_specialised = grouping._specialised_promote_noreplace
+    monkeypatch.setattr(grouping, "_specialised_promote_noreplace", lambda *_args: (_ for _ in ()).throw(OSError(errno.EINVAL, "unsupported")))
+    monkeypatch.setattr(grouping.os, "rename", lambda *_args: (_ for _ in ()).throw(OSError(errno.EACCES, "host detail")))
+    first = _confirm(grouping_client, "Retry Fixture", preview)
+    first_id = first.headers["Location"].rstrip("/").split("/")[-1]
+    assert _wait_for_operation(app, first_id) == "failed"
+    assert not (intake / "Prepared" / "Retry Fixture").exists()
+    assert not (intake / ".catalogue-intake-staging" / first_id).exists()
+    assert _tree(source) == source_before
+    with app.app_context():
+        failed = db.session.get(CatalogueOperation, first_id)
+        scope = json.loads(failed.scope)
+        assert scope["operation_summary"]["failed_stage"] == "promoting_prepared_result"
+        assert scope["operation_summary"]["staging_cleanup"] == "cleaned"
+        assert str(intake) not in failed.scope
+        assert "host detail" not in failed.scope
+    detail = grouping_client.get(f"/operations/{first_id}").get_data(as_text=True)
+    assert "Catalogue Intake permissions prevented prepared-result promotion" in detail
+    assert "Failed stage" in detail
+    assert "Promoting Prepared Result" in detail
+    assert "Private staging" in detail
+    assert "Cleaned" in detail
+    assert "Review fresh grouping proposal" in detail
+    assert "host detail" not in detail
+
+    monkeypatch.setattr(grouping, "_specialised_promote_noreplace", original_specialised)
+    monkeypatch.undo()
+    retry_preview = grouping_preview(intake, "Retry Fixture")
+    second = _confirm(grouping_client, "Retry Fixture", retry_preview)
+    second_id = second.headers["Location"].rstrip("/").split("/")[-1]
+    assert _wait_for_operation(app, second_id) in {"succeeded", "partial"}
+    assert (intake / "Prepared" / "Retry Fixture" / "Card" / "Card1.png").exists()
 
 
 def test_discord_exception_does_not_fail_completed_grouping(grouping_app, grouping_client, monkeypatch):
@@ -541,6 +732,8 @@ def test_discord_grouping_helpers_are_bounded_and_failure_is_nonfatal(monkeypatc
     sent.clear()
     discord.notify_intake_grouping_failed(source_name="Fictional Cards", error_text="safe failure", operation_id="b" * 32)
     assert sent[0]["channels"] == ["scans_errors"]
+    assert "/intake" not in json.dumps(sent[0])
+    assert "/Users/" not in json.dumps(sent[0])
 
 
 def test_rename_preview_remains_read_only_and_no_mutation_routes_exist(grouping_app, grouping_client):

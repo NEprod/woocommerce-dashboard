@@ -50,11 +50,19 @@ another system. The application displays intake-relative paths only.
 
 Browsing and grouping/rename previews remain read-only. Explicitly confirmed
 grouping revalidates its preview, copies unchanged images through hidden private
-staging, and atomically creates a duplicate-safe provisional result below
+staging, and promotes a verified duplicate-safe provisional result below
 `/intake/Prepared/`. It does not rename or alter source files, transfer anything
 into the catalogue, create metadata, or invoke the scanner. Read/write mode is
 required for that confirmed operation. See
 [Catalogue Intake](CATALOGUE_INTAKE.md).
+
+Unraid user shares may reject Linux `RENAME_NOREPLACE` with `EINVAL`. The
+application handles that capability result by retaining the dedicated mutation
+lock, confirming staging and `Prepared` are on the same mounted filesystem,
+rechecking that the selected destination is absent, and using the compatible
+ordinary directory rename. It never uses `os.replace()`, never copies into a
+visible partial result, and reports a controlled failure if safe promotion is
+not possible.
 
 Do not change the database mount to `/config` and do not rename `site.db`.
 Existing installations rely on `/app/instance/site.db`; changing either path can
