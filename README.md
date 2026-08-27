@@ -38,6 +38,12 @@ intent, overrides, source-image coverage, affected products, and recent scoped
 operations. Collection JSON remains authoritative and editing continues through
 the existing Collection Metadata Editor.
 
+Phase 2.5 adds an optional, authenticated Catalogue Intake workspace backed only
+by a dedicated `/intake` mount. Its first milestone is read-only: it browses
+intake-relative folders and previews deterministic grouping, renaming, Parent
+ownership, future `Prepared/` destinations, and scanner-compatibility conflicts
+without changing a file or invoking the scanner.
+
 ## Current capabilities
 
 - First-user and scanner-folder setup.
@@ -94,6 +100,7 @@ Suggested Docker Hub overview: “WooCommerce Dashboard is a self-hosted Flask a
 
 - [Current State](docs/CURRENT_STATE.md)
 - [Collections Workspace](docs/COLLECTIONS.md)
+- [Catalogue Intake](docs/CATALOGUE_INTAKE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Scanner Contract](docs/SCANNER_CONTRACT.md)
 - [Scanner, Operations, and Discord](docs/SCANNER_OPERATIONS.md)

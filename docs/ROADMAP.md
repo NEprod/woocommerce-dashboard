@@ -2,7 +2,7 @@
 
 - **Phase 0 — Secure baseline, documentation, tests and containerisation:** complete baseline scope for version `0.1.0`.
 - **Phase 1 — Database ingestion parity and catalogue integrity:** complete in `0.2.0`. Scanner characterization, migration/recovery foundations, operation control/history, catalogue projection/provenance, complete-parent transactions, recoverable marker coordination, lifecycle reconciliation, identity-preserving reconstruction, the metadata contract, and final release verification are complete.
-- **Phase 2 — Catalogue management UI:** in progress on `develop`. Milestone 1
+- **Phase 2 — Catalogue management UI:** complete as a release candidate on `develop`. Milestone 1
   establishes the semantic design system, neutral branding, responsive
   navigation shell, local UI assets, authenticated folder browser, and safe
   placeholder/compatibility routes without changing the scanner or schema.
@@ -16,6 +16,12 @@
   flat catalogue table with the genuine collection-grouped Products browser,
   URL-backed supported filters, server-side parent pagination, and lazy
   variation previews.
+- **Phase 2.5 — Pre-catalogue image preparation:** in progress on `develop`.
+  Milestone 1 audited the two legacy Tk utilities. Milestone 2 adds an optional
+  `/intake` mount plus authenticated, deterministic, strictly read-only folder,
+  grouping, rename, and scanner-compatibility previews. Later milestones remain
+  separately gated for copy-first grouping, collision-safe staged renaming, and
+  final prepared-layout validation.
 - **Phase 3 — Read-only WooCommerce mapping and comparison:** planned.
 - **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.

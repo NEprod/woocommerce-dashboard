@@ -35,6 +35,8 @@ Copy `.env.example` to the ignored `.env` and set:
 - `INSTANCE_FOLDER_HOST`: persistent database/application instance directory.
 - `PRODUCT_FOLDER_HOST`: catalogue directory mounted at `/catalogue`.
 - `OUTPUT_FOLDER_HOST`: generated output directory mounted at `/output`.
+- Catalogue Intake is optional. When used, bind a user-selected host staging
+  folder to `/intake` read/write; do not add an empty volume interpolation.
 - `PUID` and `PGID`: numeric non-root runtime identity; defaults are `100:100`.
 - `UMASK`: three- or four-digit octal creation mask; default is `002`.
 
@@ -53,11 +55,19 @@ The canonical container storage contract is fixed:
 | `/app/instance` | required read/write | `/app/instance/site.db` and `/app/instance/backups/` |
 | `/catalogue` | required read/write | authored catalogue, source images, metadata, `.scanned`, `.scanned.pending`, `.update`, and SKU indexes |
 | `/output` | required read/write | processed/generated image output |
+| `/intake` | optional read/write | external loose/prepared images for the read-only Catalogue Intake preview workspace |
 
 Do not rename `/app/instance` to `/config` or rename `site.db`; either change can
 make an existing installation appear empty. Keep catalogue and output outside the
 appdata instance directory. Updating or replacing a container preserves data only
 when the same host directories are mounted again.
+
+`/intake` is never created by the image or entrypoint. Without a real mount, the
+Catalogue Intake workspace reports unavailable and performs no preview. This
+prevents an optional feature from silently writing to the disposable container
+layer. Current previews are read-only even when the mount is writable; the mode
+is required for later confirmed preparation operations. See
+[Catalogue Intake](CATALOGUE_INTAKE.md).
 
 Back up the instance/database and filesystem catalogue together with an understood consistency point. Back up authored JSON, `.scanned`, `.scanned.pending`, `.update`, SKU indexes, processed output, and source assets. Never rely on the disposable container layer for application data. Pending envelopes are required to preserve identities and finish database/marker recovery after interruption.
 
@@ -81,7 +91,7 @@ Automatic startup migration is approved only for the documented single-worker Ph
 
 Setting `PUID`/`PGID` in Compose or an Unraid template only works because this image consumes them in its entrypoint. The entrypoint validates non-zero numeric IDs and a valid octal umask, updates the existing `app` account, creates `/app/instance/backups`, and deliberately corrects ownership recursively only beneath the application-owned `/app/instance`. Existing `site.db` and backup contents are preserved.
 
-The `/catalogue` and `/output` mount roots may have their ownership adjusted non-recursively, but their contents are never recursively chowned at startup. A write probe emits an actionable container-path warning if either is unavailable; the initial setup page may still load, while scanning still requires both paths to be read/write. Failure to prepare or write `/app/instance` stops startup immediately.
+The `/catalogue` and `/output` mount roots may have their ownership adjusted non-recursively, but their contents are never recursively chowned at startup. A write probe emits an actionable container-path warning if either is unavailable; the initial setup page may still load, while scanning still requires both paths to be read/write. Optional `/intake` is not created, chowned, or probed by startup. Its authenticated workspace reports real mount readiness without affecting application startup. Failure to prepare or write `/app/instance` stops startup immediately.
 
 ## Container logs
 

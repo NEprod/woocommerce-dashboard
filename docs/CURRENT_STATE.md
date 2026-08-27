@@ -1,6 +1,6 @@
 # Current State
 
-This document records the completed Phase 1 (`0.2.3`) catalogue-integrity release and the current Phase 2 development baseline. Phase 1 builds on the Phase 0 baseline without changing protected scanner row semantics.
+This document records the completed Phase 1 (`0.2.3`) catalogue-integrity release, the completed Phase 2 release-candidate baseline, and current Phase 2.5 development. Phase 1 builds on the Phase 0 baseline without changing protected scanner row semantics.
 
 ## Startup and setup
 
@@ -13,6 +13,33 @@ The application never generates or persists it. `/app/instance`, `/catalogue`,
 and `/output` remain three separate required mounts; storage, backup, operation,
 temporary-file, and Docker-log limits are documented in
 [Storage and Retention](STORAGE_RETENTION.md).
+
+Phase 2.5 optionally recognizes a fourth, real `/intake` mount for authenticated
+pre-catalogue image previews. The image and entrypoint do not create a fallback
+directory. Missing intake storage never blocks startup or the established app;
+the Catalogue Intake workspace simply reports unavailable.
+
+## Catalogue Intake
+
+Phase 2.5 Milestone 2 adds authenticated routes at `/image-preparation`,
+`/image-preparation/group`, and `/image-preparation/rename`. They browse only
+the canonical `/intake` root and render intake-relative breadcrumbs, supported,
+hidden, corrupt, unsupported, unreadable, and unsafe-entry counts.
+
+Grouping previews show the exact legacy trailing-number base beside the trimmed,
+safe proposed folder, identify single-image groups, case/normalization conflicts,
+and scanner-reserved Parent proposals, and display every future destination below
+`Prepared/<source folder>/`. Rename previews validate an independent filename
+prefix, show legacy and recommended names, hierarchy components, Parent ownership,
+sequence scope, complete destinations, and global flattened-output collisions.
+Visible collection metadata improves compatibility confidence; missing metadata
+is reported rather than guessed.
+
+All discovery and proposal ordering is deterministic. Request-scoped proposal
+digests change with safe source identity or proposal inputs. Previews write no
+files, folders, thumbnails, metadata, scanner markers, database rows, operation
+history, or Discord events. They do not invoke the scanner or browse `/catalogue`.
+See [Catalogue Intake](CATALOGUE_INTAKE.md).
 
 ## Scanner modes
 
@@ -211,7 +238,7 @@ Discord event/routing verification. Scanner cancellation remains unsupported;
 only one catalogue mutation may run; live progress persists independently of the
 browser; Discord delivery detail is not guaranteed across every restart;
 multi-replica mutation execution, WooCommerce synchronisation, image upload or
-conversion, filesystem collection management, pre-catalogue image preparation,
+conversion, filesystem collection management, confirmed pre-catalogue file mutation,
 and remote media management remain outside Phase 2. Phase 3 has not begun.
 `Product.published` is the normalized projection of that resolved intent; it is
 not evidence that a product currently exists or is published in WooCommerce.

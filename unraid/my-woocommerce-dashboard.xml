@@ -19,11 +19,12 @@
   <CPUset/>
   <DonateText/>
   <DonateLink/>
-  <Requires>Supports linux/amd64 and linux/arm64. Requires three read/write persistent path mappings.</Requires>
+  <Requires>Supports linux/amd64 and linux/arm64. Requires three persistent path mappings; Catalogue Intake is an optional fourth read/write mount.</Requires>
   <Config Name="WebUI Port" Target="7485" Default="7485" Mode="tcp" Description="WooCommerce Dashboard web interface." Type="Port" Display="always" Required="true" Mask="false">7485</Config>
   <Config Name="Application Data" Target="/app/instance" Default="/mnt/user/appdata/woocommerce-dashboard/instance" Mode="rw" Description="Persistent SQLite database plus migration and reconstruction backups." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/woocommerce-dashboard/instance</Config>
   <Config Name="Product Catalogue" Target="/catalogue" Default="" Mode="rw" Description="Collection folders, product_info.json, source images, .scanned, .update and SKU index state. Select a catalogue share outside appdata." Type="Path" Display="always" Required="true" Mask="false"></Config>
   <Config Name="Generated Output" Target="/output" Default="" Mode="rw" Description="Processed/generated image output. Select an output share outside appdata." Type="Path" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="Catalogue Intake" Target="/intake" Default="" Mode="rw" Description="External staging area for loose and prepared product images. Kept separate from the catalogue, generated output and application data. Required only when using Catalogue Intake; read/write access is needed for future confirmed operations." Type="Path" Display="always" Required="false" Mask="false"></Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="UID used by the application process. Unraid commonly uses UID 99; mounted shares must permit this identity." Type="Variable" Display="always" Required="true" Mask="false">99</Config>
   <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="GID used by the application process. Unraid commonly uses GID 100; mounted shares must permit this identity." Type="Variable" Display="always" Required="true" Mask="false">100</Config>
   <Config Name="UMASK" Target="UMASK" Default="002" Mode="" Description="Octal permissions mask for newly created files. 002 permits group write access." Type="Variable" Display="always" Required="true" Mask="false">002</Config>

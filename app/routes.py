@@ -109,6 +109,14 @@ from app.operations_workspace import (
     parse_operation_filters,
     scanner_readiness,
 )
+from app.image_preparation import (
+    browse_intake,
+    configured_intake_root,
+    grouping_preview,
+    intake_readiness,
+    rename_preview,
+    resolve_intake_image_token,
+)
 
 main = Blueprint("main", __name__)
 
@@ -137,6 +145,93 @@ def _catalogue_summary_counts():
         "products": Product.query.count(),
         "variations": Variation.query.count(),
     }
+
+
+def _intake_page_context(relative=""):
+    readiness = intake_readiness()
+    browser = None
+    error = None
+    if readiness["readable"]:
+        try:
+            browser = browse_intake(configured_intake_root(), relative)
+        except ValueError:
+            error = "The selected intake folder is invalid, unavailable, or unsafe."
+    return readiness, browser, error
+
+
+# ---------- Catalogue Intake read-only previews ----------
+
+
+@main.route("/image-preparation")
+@login_required
+def image_preparation():
+    relative = request.args.get("path", "")[:1024]
+    readiness, browser, error = _intake_page_context(relative)
+    return render_template(
+        "image_preparation/index.html",
+        readiness=readiness,
+        browser=browser,
+        intake_error=error,
+    ), (400 if error else 200)
+
+
+@main.route("/image-preparation/group")
+@login_required
+def image_preparation_group():
+    relative = request.args.get("path", "")[:1024]
+    readiness, browser, error = _intake_page_context(relative)
+    preview = None
+    if browser and not error:
+        try:
+            preview = grouping_preview(configured_intake_root(), relative)
+        except ValueError:
+            error = "The grouping preview could not safely inspect this intake folder."
+    return render_template(
+        "image_preparation/group.html",
+        readiness=readiness,
+        browser=browser,
+        preview=preview,
+        intake_error=error,
+    ), (400 if error else 200)
+
+
+@main.route("/image-preparation/rename")
+@login_required
+def image_preparation_rename():
+    relative = request.args.get("path", "")[:1024]
+    entered_prefix = request.args.get("prefix", "")[:128]
+    readiness, browser, error = _intake_page_context(relative)
+    preview = None
+    prefix_error = None
+    if browser and entered_prefix and not error:
+        try:
+            preview = rename_preview(
+                configured_intake_root(), relative, entered_prefix
+            )
+        except ValueError as preview_error:
+            prefix_error = str(preview_error)
+    return render_template(
+        "image_preparation/rename.html",
+        readiness=readiness,
+        browser=browser,
+        preview=preview,
+        entered_prefix=entered_prefix,
+        prefix_error=prefix_error,
+        intake_error=error,
+    ), (400 if error else 200)
+
+
+@main.route("/intake-images/<token>")
+@login_required
+def intake_image(token):
+    image_path = resolve_intake_image_token(token)
+    if image_path is None:
+        abort(404)
+    response = send_file(image_path, conditional=True, max_age=3600)
+    response.cache_control.public = False
+    response.cache_control.private = True
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 # ---------- Dashboard ----------
 

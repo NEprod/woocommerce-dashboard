@@ -1,0 +1,20 @@
+{% extends 'layouts/base.html' %}
+{% from 'includes/icons.html' import icon %}
+{% from 'image_preparation/_browser.html' import intake_browser %}
+{% from 'image_preparation/_shared.html' import readiness_panel, preview_banner %}
+{% block title %}Catalogue Intake{% endblock %}
+{% block content %}
+<header class="page-header intake-page-header"><div><p class="eyebrow">Pre-catalogue preparation</p><h1>Catalogue Intake</h1><p>Inspect loose and prepared images before manually transferring a verified result into the catalogue.</p></div></header>
+{{ preview_banner() }}
+{{ readiness_panel(readiness) }}
+{% if intake_error %}<div class="intake-error" role="alert"><strong>Folder unavailable</strong><span>{{ intake_error }}</span></div>{% endif %}
+{% if readiness.readable %}
+<section class="intake-task-grid" aria-label="Catalogue Intake preview tasks">
+  <article class="intake-task-card"><span class="intake-task-icon">{{ icon('collection') }}</span><p class="eyebrow">Loose images</p><h2>Group loose images</h2><p>Detect legacy trailing-number groups, safe folder names, Parent proposals, ambiguities, and future destinations.</p><a class="btn btn-dark" href="{{ url_for('main.image_preparation_group', path=browser.path if browser else '') }}">Open grouping preview</a></article>
+  <article class="intake-task-card"><span class="intake-task-icon">{{ icon('file') }}</span><p class="eyebrow">Prepared hierarchy</p><h2>Preview image renaming</h2><p>Enter a naming prefix and inspect every proposed filename, hierarchy component, scanner warning, and collision.</p><a class="btn btn-dark" href="{{ url_for('main.image_preparation_rename', path=browser.path if browser else '') }}">Open rename preview</a></article>
+</section>
+{% if browser %}{{ intake_browser(browser, 'main.image_preparation') }}{% endif %}
+{% else %}
+<section class="empty-state"><h2>Catalogue Intake is not mounted</h2><p>Add the optional <code>/intake</code> path in the Unraid container template to use this workspace. The rest of the application remains available.</p><p>After adding or changing the mount, restart the container.</p></section>
+{% endif %}
+{% endblock %}

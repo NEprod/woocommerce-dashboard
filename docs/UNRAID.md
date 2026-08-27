@@ -29,6 +29,9 @@ user catalogue share → /catalogue (read/write)
 
 Generated output:
 user output share → /output (read/write)
+
+Optional Catalogue Intake staging area:
+user-selected Unraid share or folder → /intake (read/write)
 ```
 
 All three mappings are required. `/app/instance` contains the application-owned
@@ -37,6 +40,19 @@ All three mappings are required. `/app/instance` contains the application-owned
 and `sku_index.json`; it must be writable. `/output` contains processed/generated
 images and must also be writable. Keep catalogue and output in purpose-specific
 shares rather than under appdata.
+
+`Catalogue Intake` is an optional fourth path. Leave its host path empty when
+the feature is not used. To enable it, edit the container, choose a user-owned
+Unraid share or folder as the host path, keep container path `/intake`, select
+Read/Write mode, apply the template change, and restart the container. Do not
+enter `/catalogue`, `/output`, `/app/instance`, or a personal path copied from
+another system. The application displays intake-relative paths only.
+
+The current workspace only previews grouping and renaming. It does not create
+`Prepared/`, alter source files, transfer anything into the catalogue, or invoke
+the scanner. Read/write mode is documented now because later confirmed
+operations will create copy-first results below `/intake/Prepared/`. See
+[Catalogue Intake](CATALOGUE_INTAKE.md).
 
 Do not change the database mount to `/config` and do not rename `site.db`.
 Existing installations rely on `/app/instance/site.db`; changing either path can
@@ -100,14 +116,16 @@ change. The page is diagnostic and read-only, not a secret editor.
 
 ## First start
 
-1. Create/select the three host directories and ensure the container can write
+1. Create/select the three required host directories and ensure the container can write
    to them.
-2. Install the XML as a user template or reproduce its fields manually.
-3. Set a generated `SECRET_KEY`; leave Discord disabled initially.
-4. Start the container and open `http://<unraid-ip>:7485/`.
-5. Complete `/setup`, then enter the container paths `/catalogue` and `/output`
+2. Optionally select a separate Catalogue Intake folder and map it read/write to
+   `/intake`.
+3. Install the XML as a user template or reproduce its fields manually.
+4. Set a generated `SECRET_KEY`; leave Discord disabled initially.
+5. Start the container and open `http://<unraid-ip>:7485/`.
+6. Complete `/setup`, then enter the container paths `/catalogue` and `/output`
    in initial settings.
-6. Review the initial-scan classification before starting any catalogue action.
+7. Review the initial-scan classification before starting any catalogue action.
 
 ## Docker log retention
 
