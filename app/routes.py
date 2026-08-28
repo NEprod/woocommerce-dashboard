@@ -233,6 +233,125 @@ def image_preparation_group_confirm():
     return redirect(url_for("main.operation_detail", operation_id=operation_id))
 
 
+def _folder_editor_spec_from_form():
+    current_paths = request.form.getlist("folder_current")[:5000]
+    proposed_paths = request.form.getlist("folder_proposed")[:5000]
+    renames = {
+        current: proposed
+        for current, proposed in zip(current_paths, proposed_paths)
+        if current
+    }
+    created = [
+        value
+        for value in request.form.get("created_folders", "")[:20000].splitlines()
+        if value.strip()
+    ][:200]
+    return {
+        "root_name": request.form.get("root_name", "")[:255],
+        "renames": renames,
+        "created": created,
+        "remove_empty": request.form.getlist("remove_empty")[:5000],
+        "preview_prefix": request.form.get("preview_prefix", "preview")[:128],
+    }
+
+
+@main.route("/image-preparation/folders")
+@login_required
+def image_preparation_folders():
+    readiness = intake_readiness()
+    prepared = None
+    error = None
+    try:
+        prepared = browse_intake(configured_intake_root(), "Prepared")
+    except ValueError:
+        error = "No safe prepared results are available for folder review."
+    return render_template(
+        "image_preparation/folders.html",
+        readiness=readiness,
+        prepared=prepared,
+        intake_error=error,
+    ), (400 if error else 200)
+
+
+@main.route("/image-preparation/folders/edit")
+@login_required
+def image_preparation_folders_edit():
+    from app.intake_folder_editor import folder_editor_preview
+
+    relative = request.args.get("path", "")[:1024]
+    readiness = intake_readiness()
+    preview = None
+    error = None
+    try:
+        preview = folder_editor_preview(configured_intake_root(), relative)
+    except ValueError as preview_error:
+        error = str(preview_error)
+    return render_template(
+        "image_preparation/folders_edit.html",
+        readiness=readiness,
+        preview=preview,
+        intake_error=error,
+    ), (400 if error else 200)
+
+
+@main.route("/image-preparation/folders/preview", methods=["POST"])
+@login_required
+def image_preparation_folders_preview():
+    from app.intake_folder_editor import folder_editor_preview
+
+    relative = request.form.get("path", "")[:1024]
+    readiness = intake_readiness()
+    preview = None
+    error = None
+    try:
+        preview = folder_editor_preview(
+            configured_intake_root(), relative, _folder_editor_spec_from_form()
+        )
+    except ValueError as preview_error:
+        error = str(preview_error)
+    return render_template(
+        "image_preparation/folders_edit.html",
+        readiness=readiness,
+        preview=preview,
+        intake_error=error,
+    ), (400 if error else 200)
+
+
+@main.route("/image-preparation/folders/confirm", methods=["POST"])
+@login_required
+def image_preparation_folders_confirm():
+    from app.intake_folder_editor import (
+        FolderProposalRejected,
+        parse_folder_spec,
+        start_folder_edit_operation,
+    )
+    from app.intake_grouping import IntakeOperationActive
+
+    relative = request.form.get("path", "")[:1024]
+    digest = request.form.get("digest", "")[:128]
+    if request.form.get("acknowledge") != "yes":
+        flash("Confirm that a new prepared result will be created before applying folder changes.", "danger")
+        return redirect(url_for("main.image_preparation_folders_edit", path=relative))
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        flash("The folder proposal is invalid. Generate a fresh preview.", "danger")
+        return redirect(url_for("main.image_preparation_folders_edit", path=relative))
+    try:
+        spec = parse_folder_spec(request.form.get("proposal_spec", ""))
+        operation_id = start_folder_edit_operation(
+            current_app._get_current_object(), relative, spec, digest
+        )
+    except (ValueError, FolderProposalRejected) as error:
+        flash(str(error), "danger")
+        return redirect(url_for("main.image_preparation_folders_edit", path=relative))
+    except IntakeOperationActive as error:
+        operation_id = str((error.active or {}).get("id") or "")
+        flash("A Catalogue Intake preparation operation is already running.", "warning")
+        if re.fullmatch(r"[0-9a-f]{32}", operation_id):
+            return redirect(url_for("main.operation_detail", operation_id=operation_id))
+        return redirect(url_for("main.image_preparation_folders_edit", path=relative))
+    return redirect(url_for("main.operation_detail", operation_id=operation_id))
+
+
 @main.route("/image-preparation/rename")
 @login_required
 def image_preparation_rename():

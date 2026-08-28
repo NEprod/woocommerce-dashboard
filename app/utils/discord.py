@@ -292,6 +292,44 @@ def notify_intake_grouping_failed(*, source_name, error_text, operation_id):
     return send_discord_message(embeds=[embed], channels=["scans_errors"])
 
 
+def notify_intake_folder_edit_completed(
+    *, source_name, result_name, renamed, created, warnings, elapsed_text, operation_id
+):
+    """Send one bounded terminal summary for a confirmed folder-edit result."""
+
+    warning_count = max(0, int(warnings or 0))
+    fields = [
+        {"name": "Source result", "value": _truncate(source_name), "inline": True},
+        {"name": "New result", "value": _truncate(result_name), "inline": True},
+        {"name": "Folders renamed", "value": str(max(0, int(renamed or 0))), "inline": True},
+        {"name": "Folders created", "value": str(max(0, int(created or 0))), "inline": True},
+        {"name": "Warnings", "value": str(warning_count), "inline": True},
+        {"name": "Duration", "value": _truncate(elapsed_text), "inline": True},
+        {"name": "Next step", "value": "Rename images using final folder names", "inline": False},
+    ]
+    embed = build_embed(
+        "Catalogue Intake Folder Structure Completed with Warnings" if warning_count else "Catalogue Intake Folder Structure Completed",
+        f"Operation: `{_truncate(operation_id)}`\nA new prepared result was created; the grouped source remains unchanged.",
+        COLORS["warn"] if warning_count else COLORS["success"],
+        fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_errors" if warning_count else "scans_info"])
+
+
+def notify_intake_folder_edit_failed(*, source_name, error_text, operation_id):
+    fields = [
+        {"name": "Source result", "value": _truncate(source_name), "inline": True},
+        {"name": "Operation", "value": f"`{_truncate(operation_id)}`", "inline": True},
+    ]
+    embed = build_embed(
+        "Catalogue Intake Folder Structure Failed",
+        f"No folder-edited Prepared result was exposed.\nError: `{_truncate(error_text)}`",
+        COLORS["error"],
+        fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_errors"])
+
+
 def notify_editor_saved(kind, sku, path=None, *, collection=None, affected=None):
     fields = [{"name": "Kind", "value": kind, "inline": True}, {"name": "SKU", "value": sku, "inline": True}]
     if collection:

@@ -39,6 +39,8 @@ from app.utils.operation_live import persist_live_state, utcnow_iso
 
 
 INTAKE_OPERATION_TYPE = "intake_group"
+INTAKE_FOLDER_OPERATION_TYPE = "intake_folder_edit"
+INTAKE_OPERATION_TYPES = (INTAKE_OPERATION_TYPE, INTAKE_FOLDER_OPERATION_TYPE)
 STALE_STAGING_AGE = timedelta(hours=24)
 _OPERATION_ID = re.compile(r"^[0-9a-f]{32}$")
 _process_lock = threading.Lock()
@@ -79,21 +81,25 @@ def _lock_path():
     return Path(configured) if configured else Path(current_app.instance_path) / "catalogue-intake-mutation.lock"
 
 
-def _safe_scope(scope):
+def _safe_scope(scope, *, operation_type=INTAKE_OPERATION_TYPE):
     safe = {
         "source_relpath": str(scope.get("source_relpath") or "")[:1024],
         "proposed_result_name": str(scope.get("proposed_result_name") or "")[:255],
         "proposal_digest": str(scope.get("proposal_digest") or "")[:64],
         "source_images": max(0, int(scope.get("source_images") or 0)),
         "group_count": max(0, int(scope.get("group_count") or 0)),
-        "workflow_status": "folder_review_required",
+        "workflow_status": (
+            "image_renaming_required"
+            if operation_type == INTAKE_FOLDER_OPERATION_TYPE
+            else "folder_review_required"
+        ),
     }
     return json.dumps(safe, ensure_ascii=False, separators=(",", ":"))
 
 
 def get_active_intake_operation():
     row = (
-        CatalogueOperation.query.filter_by(operation_type=INTAKE_OPERATION_TYPE)
+        CatalogueOperation.query.filter(CatalogueOperation.operation_type.in_(INTAKE_OPERATION_TYPES))
         .filter(CatalogueOperation.status.in_({"running", "pending"}))
         .order_by(CatalogueOperation.started_at.asc())
         .first()
@@ -101,10 +107,10 @@ def get_active_intake_operation():
     if row:
         return {"id": row.id, "operation_type": row.operation_type, "started_at": row.started_at.isoformat() if row.started_at else None}
     with _state_lock:
-        return {"id": _active_lease.id, "operation_type": INTAKE_OPERATION_TYPE} if _active_lease else None
+        return {"id": _active_lease.id, "operation_type": "catalogue_intake"} if _active_lease else None
 
 
-def acquire_intake_operation(scope) -> IntakeOperationLease:
+def acquire_intake_operation(scope, *, operation_type=INTAKE_OPERATION_TYPE) -> IntakeOperationLease:
     global _active_lease
 
     if not _process_lock.acquire(blocking=False):
@@ -119,7 +125,7 @@ def acquire_intake_operation(scope) -> IntakeOperationLease:
         except BlockingIOError as error:
             raise IntakeOperationActive(get_active_intake_operation() or {"id": "unknown"}) from error
         existing = (
-            CatalogueOperation.query.filter_by(operation_type=INTAKE_OPERATION_TYPE)
+            CatalogueOperation.query.filter(CatalogueOperation.operation_type.in_(INTAKE_OPERATION_TYPES))
             .filter(CatalogueOperation.status.in_({"running", "pending"}))
             .order_by(CatalogueOperation.started_at.asc())
             .first()
@@ -129,9 +135,9 @@ def acquire_intake_operation(scope) -> IntakeOperationLease:
         operation_id = uuid.uuid4().hex
         row = CatalogueOperation(
             id=operation_id,
-            operation_type=INTAKE_OPERATION_TYPE,
+            operation_type=operation_type,
             status="running",
-            scope=_safe_scope(scope),
+            scope=_safe_scope(scope, operation_type=operation_type),
             started_at=_utcnow(),
         )
         db.session.add(row)
@@ -306,7 +312,7 @@ def cleanup_stale_staging(root, *, now=None, protected_ids=None):
     protected = set(protected_ids or ())
     protected.update(
         row.id
-        for row in CatalogueOperation.query.filter_by(operation_type=INTAKE_OPERATION_TYPE)
+        for row in CatalogueOperation.query.filter(CatalogueOperation.operation_type.in_(INTAKE_OPERATION_TYPES))
         .filter(CatalogueOperation.status.in_({"running", "pending"}))
         .all()
     )

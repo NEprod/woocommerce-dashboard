@@ -108,6 +108,40 @@ or normalization collisions without merging them. Single-image groups are valid
 and labelled. A proposed case-insensitive `Parent/` folder is identified as the
 scanner-reserved parent-image location and requires deliberate future review.
 
+## Folder Naming and Structure Editor
+
+Authenticated routes below `/image-preparation/folders` select only one direct
+child of `Prepared/`. The editor shows the complete current and proposed trees,
+safe intake-relative paths, direct image/child counts, inferred Parent ownership,
+entered/normalized names, folder-only scanner compatibility, and a preview of
+future filenames. Future names use a temporary, non-persisted prefix; image files
+are not renamed by this milestone.
+
+Names are NFC-normalized and trimmed while preserving meaningful Unicode,
+punctuation, apostrophes, and selected casing. Separators, dot components,
+absolute/drive paths, control/null characters, encoded traversal, empty names,
+and unsafe reserved filesystem names are blocked. Sibling collisions are checked
+case-insensitively and after Unicode normalization. Only one direct child may be
+the scanner-reserved Parent directory; nested folders named Parent are ordinary
+folders. Non-empty folders cannot be removed.
+
+Confirmation recomputes a deterministic digest over the source folder/image
+identities, complete current/proposed trees, rename/create/remove-empty proposal,
+Parent state, collision results, and future filename analysis. It then uses the
+same dedicated Intake mutation lock and private staging ownership contract as
+grouping. The existing grouped result is copied to staging, folder changes are
+applied in an isolated result tree (making swaps and case-only renames safe),
+every image is byte-verified, and the complete result is promoted to a new
+duplicate-safe `Prepared/` destination. The source result is never edited,
+overwritten, merged, or removed.
+
+The bounded operation type is **Catalogue Intake — Edit Folder Structure**. Its
+terminal state is **Folder structure confirmed — image renaming required**.
+Only safe counts, relative result identity, proposal digest, stage, warning/error
+state, and terminal status persist. One terminal Discord summary uses the
+existing scanner-information or scanner warnings/errors channel; previews and
+individual folder edits do not notify. Notification failure is non-fatal.
+
 ## Rename preview
 
 The legacy filename reference is:
@@ -151,7 +185,6 @@ request-scoped and does not grow SQLite.
 
 ## Future milestones
 
-The next milestone may add the separately approved Folder Naming and Structure
-Editor. Image renaming, metadata creation, final prepared-layout validation,
-catalogue handoff, and scanning remain separately gated. Grouped folder names in
-the current result are deliberately provisional.
+Image renaming, metadata creation, final prepared-layout validation, catalogue
+handoff, and scanning remain separately gated. Folder-edited results are not
+labelled catalogue-ready and do not contain generated JSON.

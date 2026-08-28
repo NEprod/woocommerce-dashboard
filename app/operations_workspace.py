@@ -26,6 +26,7 @@ STATUS_LABELS = {
 TYPE_LABELS = {
     "append": "Append", "product_update": "Update", "shared_collection_update": "Shared collection update",
     "full": "Full", "reconstruction": "Reconstruction", "intake_group": "Catalogue Intake — Group Images",
+    "intake_folder_edit": "Catalogue Intake — Edit Folder Structure",
 }
 SCAN_MODES = (
     {
@@ -278,7 +279,7 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
         timeline.append({"label": view["status_label"], "state": "error" if row.status == "failed" else "complete", "at": row.finished_at})
     retry_mode = {"append": "append", "product_update": "update", "full": "full"}.get(row.operation_type)
     intake = None
-    if row.operation_type == "intake_group":
+    if row.operation_type in {"intake_group", "intake_folder_edit"}:
         summary = view.get("summary") or {}
         prepared_relpath = summary.get("prepared_relpath")
         groups = []
@@ -289,7 +290,9 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
 
                 prepared = browse_intake(configured_intake_root(), prepared_relpath)
                 remaining_files = 5000
-                for directory in prepared["directories"][:200]:
+                pending = list(prepared["directories"][:200])
+                while pending and len(groups) < 200:
+                    directory = pending.pop(0)
                     if remaining_files <= 0:
                         break
                     child = browse_intake(configured_intake_root(), directory["path"])
@@ -300,11 +303,13 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
                         "path": directory["path"],
                         "files": filenames,
                     })
+                    pending.extend(child["directories"][: max(0, 200 - len(groups) - len(pending))])
                 prepared_url = url_for("main.image_preparation", path=prepared_relpath)
             except (OSError, ValueError):
                 groups = []
         intake = {
-            "is_grouping": True,
+            "is_grouping": row.operation_type == "intake_group",
+            "is_folder_edit": row.operation_type == "intake_folder_edit",
             "source_relpath": view["scope"].get("source_relpath"),
             "prepared_relpath": prepared_relpath,
             "prepared_url": prepared_url,
@@ -312,7 +317,15 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             "workflow_status": summary.get("workflow_status") or view["scope"].get("workflow_status"),
             "failed_stage": summary.get("failed_stage"),
             "staging_cleanup": summary.get("staging_cleanup"),
-            "retry_url": url_for("main.image_preparation_group", path=view["scope"].get("source_relpath")) if view["scope"].get("source_relpath") else None,
+            "retry_url": (
+                url_for("main.image_preparation_folders_edit", path=view["scope"].get("source_relpath"))
+                if row.operation_type == "intake_folder_edit" and view["scope"].get("source_relpath")
+                else url_for("main.image_preparation_group", path=view["scope"].get("source_relpath"))
+                if view["scope"].get("source_relpath")
+                else None
+            ),
+            "folder_editor_url": url_for("main.image_preparation_folders_edit", path=prepared_relpath) if row.operation_type == "intake_group" and prepared_relpath else None,
+            "rename_preview_url": url_for("main.image_preparation_rename", path=prepared_relpath) if row.operation_type == "intake_folder_edit" and prepared_relpath else None,
         }
     return {
         "operation": view, "items": item_views,

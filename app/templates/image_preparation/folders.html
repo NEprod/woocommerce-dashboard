@@ -1,0 +1,19 @@
+{% extends 'layouts/base.html' %}
+{% from 'image_preparation/_shared.html' import readiness_panel %}
+{% from 'includes/icons.html' import icon %}
+{% block title %}Prepared Folder Review | WooCommerce Dashboard{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ url_for('main.image_preparation') }}">Catalogue Intake</a><span aria-hidden="true">/</span><span aria-current="page">Folder review</span></nav>
+<header class="page-header intake-page-header"><div><p class="eyebrow">Prepared hierarchy</p><h1>Folder Naming and Structure</h1><p>Select a completed grouped result and propose final folder names before image filenames are generated.</p></div><a class="btn btn-ghost" href="{{ url_for('main.image_preparation') }}">Back to Catalogue Intake</a></header>
+{{ readiness_panel(readiness) }}
+{% if intake_error %}<div class="alert alert-warning" role="alert">{{ intake_error }}</div>{% endif %}
+{% if prepared %}
+<section class="workspace-panel" aria-labelledby="prepared-results-heading">
+  <div class="panel-heading"><div><p class="eyebrow">Prepared results</p><h2 id="prepared-results-heading">Choose a grouped result</h2></div><span class="status-badge">{{ prepared.directories|length }} available</span></div>
+  <p>The selected result remains unchanged. Applying an approved proposal creates a duplicate-safe new result beneath <code>Prepared/</code>.</p>
+  <div class="intake-folder-list" role="list" aria-label="Prepared results">
+    {% for folder in prepared.directories %}<a class="intake-folder-row" role="listitem" href="{{ url_for('main.image_preparation_folders_edit', path=folder.path) }}">{{ icon('folder') }}<span><strong>{{ folder.name }}</strong><small>{{ folder.path }}</small></span><span>Review and rename folders</span></a>{% else %}<div class="empty-state compact"><h3>No prepared results</h3><p>Complete copy-first grouping before reviewing folder names.</p></div>{% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

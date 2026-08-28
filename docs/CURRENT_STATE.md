@@ -21,8 +21,9 @@ the Catalogue Intake workspace simply reports unavailable.
 
 ## Catalogue Intake
 
-Phase 2.5 Milestones 2 and 3 add authenticated routes at `/image-preparation`,
-`/image-preparation/group`, and `/image-preparation/rename`. They browse only
+Phase 2.5 Milestones 2–4 add authenticated routes at `/image-preparation`,
+`/image-preparation/group`, `/image-preparation/folders`, and
+`/image-preparation/rename`. They browse only
 the canonical `/intake` root and render intake-relative breadcrumbs, supported,
 hidden, corrupt, unsupported, unreadable, and unsafe-entry counts.
 
@@ -47,7 +48,17 @@ tree, and atomically promotes it without replacement to a duplicate-safe
 `Prepared/<source basename>/` result. Source files remain unchanged. Bounded
 operation progress and one terminal Discord summary are recorded; notification
 failure is non-fatal. Group names remain provisional, and the completed status
-is **Grouping complete — folder review required**. Folder/image renaming,
+is **Grouping complete — folder review required**.
+
+The Folder Naming and Structure Editor creates another copy-first, versioned
+Prepared result rather than editing the grouped result in place. It supports
+validated collection/product/variation/Parent renames, new empty folders, and
+explicit removal of empty proposed folders. Case/Unicode collisions, unsafe
+paths, duplicate Parent variants, non-empty removal, unsupported depth, and
+future flattened filename collisions block confirmation. Swaps and case-only
+renames are isolated inside operation-owned staging; unchanged image bytes and
+the complete tree are verified before no-replace promotion. The terminal status
+is **Folder structure confirmed — image renaming required**. Image renaming,
 metadata creation, catalogue handoff, and scanning remain unavailable.
 See [Catalogue Intake](CATALOGUE_INTAKE.md).
 
