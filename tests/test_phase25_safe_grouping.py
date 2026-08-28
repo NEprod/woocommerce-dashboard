@@ -736,11 +736,11 @@ def test_discord_grouping_helpers_are_bounded_and_failure_is_nonfatal(monkeypatc
     assert "/Users/" not in json.dumps(sent[0])
 
 
-def test_rename_preview_remains_read_only_and_image_mutation_route_does_not_exist(grouping_app, grouping_client):
+def test_rename_preview_is_read_only_and_invalid_confirmation_does_not_mutate(grouping_app, grouping_client):
     _app, intake, *_ = grouping_app
     source = intake / "Prepared Fixture"
     _image(source / "Group" / "Image.png")
     before = _tree(intake)
     assert grouping_client.get("/image-preparation/rename?path=Prepared%20Fixture&prefix=Test").status_code == 200
-    assert grouping_client.post("/image-preparation/rename/confirm", data={}).status_code == 404
+    assert grouping_client.post("/image-preparation/rename/confirm", data={}).status_code == 302
     assert _tree(intake) == before

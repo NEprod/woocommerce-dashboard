@@ -86,7 +86,7 @@ def folder_client(folder_app):
 
 def _spec(**changes):
     value = {
-        "root_name": "Ultimate Countdown",
+        "root_name": "Grouped Result",
         "renames": {
             "Empty": "Empty",
             "Parent": "PaReNt",
@@ -165,11 +165,11 @@ def test_complete_current_and_proposed_tree_parent_and_future_preview(folder_app
     preview = folder_editor_preview(intake, "Prepared/Grouped Result", _spec())
     assert preview["ready"]
     assert preview["source"] == "Prepared/Grouped Result"
-    assert preview["proposed_result"] == "Prepared/Ultimate Countdown"
+    assert preview["proposed_result"] == "Prepared/Grouped Result"
     assert {item["path"] for item in preview["current_tree"]} == {"Empty", "Parent", "Train", "Train/Ascending"}
     assert {item["path"] for item in preview["proposed_tree"]} == {"PaReNt", "Holiday Express Train", "Holiday Express Train/Ascending", "New Empty"}
     assert preview["parent"] == {"before": "Parent", "after": "PaReNt", "changed": True}
-    assert preview["counts"] == {"renamed": 4, "created": 1, "removed_empty": 1, "images": 3, "warnings": 0}
+    assert preview["counts"] == {"renamed": 3, "created": 1, "removed_empty": 1, "images": 3, "warnings": 0}
     assert all(row["current_filename"] in {"Train1.png", "Train2.JPG", "Parent1.webp"} for row in preview["mappings"])
     assert all(row["future_filename"].startswith("ucc_") for row in preview["mappings"])
     assert "Single Variable-compatible" in preview["compatibility"]["label"]
@@ -187,13 +187,12 @@ def test_unsafe_folder_names_are_blocking(folder_app, name):
 def test_whitespace_unicode_apostrophes_and_case_are_preserved_visibly(folder_app):
     _app, intake, *_ = folder_app
     spec = _spec(
-        root_name="  Noël's Countdown  ",
         renames={**_spec()["renames"], "Train": "  L'Express Été  ", "Train/Ascending": "L'Express Été/Grand Format"},
     )
     preview = folder_editor_preview(intake, "Prepared/Grouped Result", spec)
-    assert preview["canonical_spec"]["root_name"] == "Noël's Countdown"
+    assert preview["canonical_spec"]["root_name"] == "Grouped Result"
     assert preview["canonical_spec"]["renames"]["Train"] == "L'Express Été"
-    assert {item["normalised"] for item in preview["canonical_spec"]["normalised"]} >= {"L'Express Été", "Noël's Countdown"}
+    assert {item["normalised"] for item in preview["canonical_spec"]["normalised"]} >= {"L'Express Été"}
 
 
 @pytest.mark.parametrize(
@@ -239,10 +238,10 @@ def test_non_empty_removal_and_missing_explicit_parent_are_blocking(folder_app):
     assert {issue["code"] for issue in preview["issues"]} >= {"non_empty_remove", "missing_parent"}
 
 
-def test_safe_operation_creates_new_result_and_preserves_every_boundary(folder_app, folder_client):
+def test_safe_operation_replaces_same_working_result_and_preserves_every_boundary(folder_app, folder_client):
     app, intake, catalogue, output = folder_app
     source = intake / "Prepared" / "Grouped Result"
-    source_before = _tree(source)
+    source_bytes = {path.relative_to(source).as_posix(): path.read_bytes() for path in source.rglob("*") if path.is_file()}
     catalogue_before = _tree(catalogue)
     output_before = _tree(output)
     preview = folder_editor_preview(intake, "Prepared/Grouped Result", _spec())
@@ -250,13 +249,13 @@ def test_safe_operation_creates_new_result_and_preserves_every_boundary(folder_a
     assert response.status_code == 302
     operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
     assert _wait(app, operation_id) == "succeeded"
-    result = intake / "Prepared" / "Ultimate Countdown"
-    assert _tree(source) == source_before
+    result = source
+    assert not (intake / "Prepared" / "Grouped Result (2)").exists()
     assert _tree(catalogue) == catalogue_before
     assert _tree(output) == output_before
-    assert (result / "Holiday Express Train" / "Train1.png").read_bytes() == (source / "Train" / "Train1.png").read_bytes()
-    assert (result / "Holiday Express Train" / "Ascending" / "Train2.JPG").read_bytes() == (source / "Train" / "Ascending" / "Train2.JPG").read_bytes()
-    assert (result / "PaReNt" / "Parent1.webp").read_bytes() == (source / "Parent" / "Parent1.webp").read_bytes()
+    assert (result / "Holiday Express Train" / "Train1.png").read_bytes() == source_bytes["Train/Train1.png"]
+    assert (result / "Holiday Express Train" / "Ascending" / "Train2.JPG").read_bytes() == source_bytes["Train/Ascending/Train2.JPG"]
+    assert (result / "PaReNt" / "Parent1.webp").read_bytes() == source_bytes["Parent/Parent1.webp"]
     assert (result / "New Empty").is_dir()
     assert not (result / "Empty").exists()
     assert not list(result.rglob("product_info.json"))
@@ -266,14 +265,14 @@ def test_safe_operation_creates_new_result_and_preserves_every_boundary(folder_a
         summary = json.loads(row.scope)["operation_summary"]
         assert row.operation_type == "intake_folder_edit"
         assert summary["workflow_status"] == "image_renaming_required"
-        assert summary["renamed_folders"] == 4
+        assert summary["renamed_folders"] == 3
         assert summary["created_folders"] == 1
         assert summary["removed_empty_folders"] == 1
         assert len(row.scope.encode()) < 256 * 1024
         assert str(intake) not in row.scope
     detail = folder_client.get(response.headers["Location"]).get_data(as_text=True)
     assert "Folder structure confirmed — image renaming required" in detail
-    assert "Preview image renaming" in detail
+    assert "Rename Images" in detail
     assert "Ready for Catalogue" not in detail
 
 
@@ -283,7 +282,7 @@ def test_case_only_and_swap_renames_are_collision_safe(folder_app, folder_client
     (source / "Cards").mkdir()
     _image(source / "Cards" / "Card1.png")
     spec = _spec(
-        root_name="Swap Result",
+        root_name="Grouped Result",
         renames={"Empty": "Empty", "Parent": "parent", "Train": "Cards", "Train/Ascending": "Cards/Ascending", "Cards": "Train"},
         created=[],
         remove_empty=["Empty"],
@@ -293,40 +292,47 @@ def test_case_only_and_swap_renames_are_collision_safe(folder_app, folder_client
     response = _confirm(folder_client, preview)
     operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
     assert _wait(app, operation_id) == "succeeded"
-    result = intake / "Prepared" / "Swap Result"
+    result = intake / "Prepared" / "Grouped Result"
     assert (result / "Cards" / "Train1.png").exists()
     assert (result / "Train" / "Card1.png").exists()
     assert (result / "parent" / "Parent1.webp").exists()
 
 
-def test_existing_result_uses_suffix_and_never_overwrites(folder_app, folder_client):
+def test_unrelated_prepared_result_is_preserved_and_normal_progression_never_suffixes(folder_app, folder_client):
     app, intake, *_ = folder_app
     existing = intake / "Prepared" / "Ultimate Countdown"
     existing.mkdir()
     (existing / "keep.txt").write_text("unchanged", encoding="utf-8")
     preview = folder_editor_preview(intake, "Prepared/Grouped Result", _spec())
-    assert preview["result_name"] == "Ultimate Countdown (2)"
+    assert preview["result_name"] == "Grouped Result"
     response = _confirm(folder_client, preview)
     operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
     assert _wait(app, operation_id) in {"succeeded", "partial"}
     assert (existing / "keep.txt").read_text() == "unchanged"
-    assert (intake / "Prepared" / "Ultimate Countdown (2)" / "PaReNt" / "Parent1.webp").exists()
+    assert (intake / "Prepared" / "Grouped Result" / "PaReNt" / "Parent1.webp").exists()
+    assert not (intake / "Prepared" / "Grouped Result (2)").exists()
 
 
 def test_failed_promotion_exposes_no_result_and_cleans_only_owned_staging(folder_app, folder_client, monkeypatch):
-    import app.intake_folder_editor as editor
+    import app.intake_working_result as working
 
     app, intake, *_ = folder_app
     unrelated = intake / ".catalogue-intake-staging" / "user-created"
     unrelated.mkdir(parents=True)
     (unrelated / "keep.txt").write_text("keep", encoding="utf-8")
     source_before = _tree(intake / "Prepared" / "Grouped Result")
-    monkeypatch.setattr(editor, "_promote_prepared_result", lambda *_args: (_ for _ in ()).throw(PermissionError("fictional host path")))
+    original_promote = working._promote_prepared_result
+    calls = {"count": 0}
+    def fail_once(*args):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise PermissionError("fictional host path")
+        return original_promote(*args)
+    monkeypatch.setattr(working, "_promote_prepared_result", fail_once)
     preview = folder_editor_preview(intake, "Prepared/Grouped Result", _spec())
     response = _confirm(folder_client, preview)
     operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
     assert _wait(app, operation_id) == "failed"
-    assert not (intake / "Prepared" / "Ultimate Countdown").exists()
     assert _tree(intake / "Prepared" / "Grouped Result") == source_before
     assert (unrelated / "keep.txt").exists()
     assert not (intake / ".catalogue-intake-staging" / operation_id).exists()
@@ -402,7 +408,7 @@ def test_discord_failure_does_not_fail_folder_operation(folder_app, folder_clien
     response = _confirm(folder_client, preview)
     operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
     assert _wait(app, operation_id) == "succeeded"
-    assert (intake / "Prepared" / "Ultimate Countdown").exists()
+    assert (intake / "Prepared" / "Grouped Result").exists()
 
 
 def test_read_only_mount_keeps_preview_and_disables_apply(folder_app, folder_client, monkeypatch):

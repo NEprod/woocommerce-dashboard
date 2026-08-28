@@ -72,7 +72,16 @@
     const counts = live.counts || {};
     const summary = payload.summary || live.summary || {};
     const intakeGrouping = operation.type === "intake_group";
-    text("[data-operation-heading]", intakeGrouping && payload.terminal ? "Grouping complete — folder review required" : operation.status_label);
+    const intakeFolderEdit = operation.type === "intake_folder_edit";
+    const intakeImageRename = operation.type === "intake_image_rename";
+    const terminalHeading = intakeGrouping
+      ? "Grouping complete — folder review required"
+      : intakeFolderEdit
+        ? "Folder structure confirmed — image renaming required"
+        : intakeImageRename
+          ? "Images renamed — metadata required"
+          : operation.status_label;
+    text("[data-operation-heading]", payload.terminal ? terminalHeading : operation.status_label);
     const status = documentRef.querySelector("[data-operation-status]");
     if (status) {
       status.textContent = operation.status_label || operation.status;

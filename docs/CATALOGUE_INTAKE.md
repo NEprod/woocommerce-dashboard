@@ -129,11 +129,14 @@ Confirmation recomputes a deterministic digest over the source folder/image
 identities, complete current/proposed trees, rename/create/remove-empty proposal,
 Parent state, collision results, and future filename analysis. It then uses the
 same dedicated Intake mutation lock and private staging ownership contract as
-grouping. The existing grouped result is copied to staging, folder changes are
+grouping. The existing working result is copied to staging, folder changes are
 applied in an isolated result tree (making swaps and case-only renames safe),
-every image is byte-verified, and the complete result is promoted to a new
-duplicate-safe `Prepared/` destination. The source result is never edited,
-overwritten, merged, or removed.
+and every image is byte-verified. The visible working result then moves to
+operation-owned hidden rollback, verified staging is promoted under the same
+visible Prepared name, and rollback is removed only after promoted verification.
+Any failed swap restores and verifies the original. Normal folder-review
+progression therefore never creates a `(2)` result; deliberate repeated grouping
+remains duplicate-safe and may do so.
 
 The bounded operation type is **Catalogue Intake — Edit Folder Structure**. Its
 terminal state is **Folder structure confirmed — image renaming required**.
@@ -142,7 +145,7 @@ state, and terminal status persist. One terminal Discord summary uses the
 existing scanner-information or scanner warnings/errors channel; previews and
 individual folder edits do not notify. Notification failure is non-fatal.
 
-## Rename preview
+## Image Renaming
 
 The legacy filename reference is:
 
@@ -155,7 +158,9 @@ format while rejecting path separators, absolute/drive values, dot segments,
 null/control characters, and empty prefixes. Runs of whitespace become
 underscores and Unicode is normalized consistently.
 
-The preview shows the entered and normalized prefixes, source extension and
+Only a direct Prepared result whose latest proven workflow state is **Folder
+structure confirmed — image renaming required** is eligible. The preview shows
+the entered and normalized prefixes, source extension and
 folder, hierarchy type and every contributing component, sequence, legacy name,
 recommended name, complete proposed destination, and scanner-compatibility state.
 Numbering is deterministic by `(name.casefold(), name)`, begins at `01`, and uses
@@ -167,9 +172,31 @@ folders do not receive reserved ownership. Visible `product_info.json`
 `collection_type` and `image_attributes` may improve compatibility confidence;
 the workspace does not guess image-attribute order when metadata is absent.
 
-Collision analysis covers exact, case-insensitive, Unicode-normalized, deeper
-hierarchy, sequence-reset, Parent/variation, existing prepared result, and
-flattened scanner-output names. A blocking collision prevents a Ready state.
+Collision analysis covers exact, case-insensitive, Unicode-normalized,
+sequence-reset, Parent/variation, equal-hierarchy, and flattened scanner-output
+names. A blocking collision prevents confirmation. Parent filenames use the
+visible Prepared result name; variation filenames include every hierarchy
+component in deterministic order. Sequence numbering restarts per image-owning
+directory and uses two digits as a minimum.
+
+Confirmation revalidates the workflow state, complete tree identities, mappings,
+prefix, digest, and any selected lineage cleanup. The working result is copied to
+hidden staging. Each image first receives a unique operation-owned temporary
+name and is then renamed to its final approved name, allowing case-only changes
+and swaps without overwrite. Counts, readability, extensions, complete paths,
+and SHA-256 byte identity are verified before the same rollback-protected visible
+replacement used by folder editing. Success is **Images renamed — metadata
+required**. No JSON, catalogue copy, output copy, scanner call, marker, image
+conversion, or image-content change occurs.
+
+Older versioned folder-edit results remain eligible. A superseded predecessor is
+offered for cleanup only when operation lineage records direct ancestry, both
+recorded tree identities still match, and no later operation references the
+predecessor. Exact acknowledgement is required and cleanup occurs only after the
+renamed result is verified. Legacy lineage without immutable identities, naming
+similarity alone, active/referenced results, and loose source folders are always
+preserved. Cleanup failure is a warning and does not invalidate the renamed
+working result.
 
 ## Determinism and limits
 

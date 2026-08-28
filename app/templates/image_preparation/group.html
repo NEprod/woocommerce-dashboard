@@ -4,7 +4,7 @@
 {% block title %}Grouping Preview{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ url_for('main.image_preparation') }}">Catalogue Intake</a><span aria-hidden="true">/</span><span aria-current="page">Grouping preview</span></nav>
-<header class="page-header intake-page-header"><div><p class="eyebrow">Loose images</p><h1>Grouping preview</h1><p>Review detected legacy groups and safe proposed destinations without changing the intake folder.</p></div><a class="btn btn-ghost" href="{{ url_for('main.image_preparation_rename', path=browser.path if browser else '') }}">Preview image renaming</a></header>
+<header class="page-header intake-page-header"><div><p class="eyebrow">Loose images</p><h1>Grouping preview</h1><p>Review detected legacy groups and safe proposed destinations without changing the intake folder.</p></div><a class="btn btn-ghost" href="{{ url_for('main.image_preparation_folders') }}">Prepared folder review</a></header>
 {{ preview_banner('The proposal remains read-only until Confirm Grouping is explicitly submitted. Image and folder renaming remain unavailable.') }}
 {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="intake-flash-list" aria-live="polite">{% for category,message in messages %}<div class="intake-error state-{{ category }}" role="{{ 'alert' if category == 'danger' else 'status' }}"><strong>{{ 'Grouping not started' if category == 'danger' else 'Catalogue Intake status' }}</strong><span>{{ message }}</span></div>{% endfor %}</div>{% endif %}{% endwith %}
 {{ readiness_panel(readiness) }}

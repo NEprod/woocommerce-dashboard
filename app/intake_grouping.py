@@ -40,7 +40,12 @@ from app.utils.operation_live import persist_live_state, utcnow_iso
 
 INTAKE_OPERATION_TYPE = "intake_group"
 INTAKE_FOLDER_OPERATION_TYPE = "intake_folder_edit"
-INTAKE_OPERATION_TYPES = (INTAKE_OPERATION_TYPE, INTAKE_FOLDER_OPERATION_TYPE)
+INTAKE_RENAME_OPERATION_TYPE = "intake_image_rename"
+INTAKE_OPERATION_TYPES = (
+    INTAKE_OPERATION_TYPE,
+    INTAKE_FOLDER_OPERATION_TYPE,
+    INTAKE_RENAME_OPERATION_TYPE,
+)
 STALE_STAGING_AGE = timedelta(hours=24)
 _OPERATION_ID = re.compile(r"^[0-9a-f]{32}$")
 _process_lock = threading.Lock()
@@ -91,6 +96,8 @@ def _safe_scope(scope, *, operation_type=INTAKE_OPERATION_TYPE):
         "workflow_status": (
             "image_renaming_required"
             if operation_type == INTAKE_FOLDER_OPERATION_TYPE
+            else "metadata_required"
+            if operation_type == INTAKE_RENAME_OPERATION_TYPE
             else "folder_review_required"
         ),
     }

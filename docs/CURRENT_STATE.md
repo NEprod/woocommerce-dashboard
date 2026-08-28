@@ -21,7 +21,7 @@ the Catalogue Intake workspace simply reports unavailable.
 
 ## Catalogue Intake
 
-Phase 2.5 Milestones 2–4 add authenticated routes at `/image-preparation`,
+Phase 2.5 Milestones 2–5 add authenticated routes at `/image-preparation`,
 `/image-preparation/group`, `/image-preparation/folders`, and
 `/image-preparation/rename`. They browse only
 the canonical `/intake` root and render intake-relative breadcrumbs, supported,
@@ -50,16 +50,26 @@ operation progress and one terminal Discord summary are recorded; notification
 failure is non-fatal. Group names remain provisional, and the completed status
 is **Grouping complete — folder review required**.
 
-The Folder Naming and Structure Editor creates another copy-first, versioned
-Prepared result rather than editing the grouped result in place. It supports
+The Folder Naming and Structure Editor now advances the same visible Prepared
+working result rather than creating another normal-progression copy. It supports
 validated collection/product/variation/Parent renames, new empty folders, and
 explicit removal of empty proposed folders. Case/Unicode collisions, unsafe
 paths, duplicate Parent variants, non-empty removal, unsupported depth, and
 future flattened filename collisions block confirmation. Swaps and case-only
 renames are isolated inside operation-owned staging; unchanged image bytes and
-the complete tree are verified before no-replace promotion. The terminal status
-is **Folder structure confirmed — image renaming required**. Image renaming,
-metadata creation, catalogue handoff, and scanning remain unavailable.
+the complete tree are verified before rollback-protected same-name promotion.
+The terminal status is **Folder structure confirmed — image renaming required**.
+
+An eligible folder-confirmed result can then be renamed in place through the
+same hidden staging/rollback model. Final filenames use a validated normalized
+prefix, all scanner-relevant hierarchy components, collection-root Parent
+ownership, deterministic per-directory sequences, and lowercase source
+extensions. A two-stage temporary/final rename supports cycles and case changes
+without overwrite. Complete paths, image readability, count, and bytes are
+verified before promotion. Proven superseded predecessors may be removed only
+after explicit acknowledgement and verified success; uncertain or referenced
+lineage is preserved. The terminal status is **Images renamed — metadata
+required**. Metadata creation, catalogue handoff, and scanning remain unavailable.
 See [Catalogue Intake](CATALOGUE_INTAKE.md).
 
 ## Scanner modes

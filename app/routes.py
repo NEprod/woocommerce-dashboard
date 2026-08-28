@@ -115,7 +115,6 @@ from app.image_preparation import (
     grouping_confirmation_blockers,
     grouping_preview,
     intake_readiness,
-    rename_preview,
     resolve_intake_image_token,
 )
 
@@ -330,7 +329,7 @@ def image_preparation_folders_confirm():
     relative = request.form.get("path", "")[:1024]
     digest = request.form.get("digest", "")[:128]
     if request.form.get("acknowledge") != "yes":
-        flash("Confirm that a new prepared result will be created before applying folder changes.", "danger")
+        flash("Confirm that hidden staging and rollback will safely update this working result.", "danger")
         return redirect(url_for("main.image_preparation_folders_edit", path=relative))
     if not re.fullmatch(r"[0-9a-f]{64}", digest):
         flash("The folder proposal is invalid. Generate a fresh preview.", "danger")
@@ -355,14 +354,29 @@ def image_preparation_folders_confirm():
 @main.route("/image-preparation/rename")
 @login_required
 def image_preparation_rename():
+    from app.intake_image_renamer import (
+        eligible_image_rename_results,
+        image_rename_preview,
+    )
+
     relative = request.args.get("path", "")[:1024]
     entered_prefix = request.args.get("prefix", "")[:128]
-    readiness, browser, error = _intake_page_context(relative)
+    readiness = intake_readiness()
+    browser = None
+    error = None
+    eligible_results = []
+    if relative:
+        readiness, browser, error = _intake_page_context(relative)
+    else:
+        try:
+            eligible_results = eligible_image_rename_results(configured_intake_root())
+        except (OSError, ValueError):
+            error = "No safe folder-confirmed Prepared results are available."
     preview = None
     prefix_error = None
     if browser and entered_prefix and not error:
         try:
-            preview = rename_preview(
+            preview = image_rename_preview(
                 configured_intake_root(), relative, entered_prefix
             )
         except ValueError as preview_error:
@@ -375,7 +389,89 @@ def image_preparation_rename():
         entered_prefix=entered_prefix,
         prefix_error=prefix_error,
         intake_error=error,
+        eligible_results=eligible_results,
     ), (400 if error else 200)
+
+
+@main.route("/image-preparation/rename/preview", methods=["POST"])
+@login_required
+def image_preparation_rename_preview():
+    from app.intake_image_renamer import image_rename_preview
+
+    relative = request.form.get("path", "")[:1024]
+    entered_prefix = request.form.get("prefix", "")[:128]
+    remove_predecessor = request.form.get("remove_predecessor") == "yes"
+    readiness, browser, error = _intake_page_context(relative)
+    preview = None
+    prefix_error = None
+    if browser and not error:
+        try:
+            preview = image_rename_preview(
+                configured_intake_root(),
+                relative,
+                entered_prefix,
+                remove_predecessor=remove_predecessor,
+            )
+        except ValueError as preview_error:
+            prefix_error = str(preview_error)
+    return render_template(
+        "image_preparation/rename.html",
+        readiness=readiness,
+        browser=browser,
+        preview=preview,
+        entered_prefix=entered_prefix,
+        prefix_error=prefix_error,
+        intake_error=error,
+        eligible_results=[],
+    ), (400 if error else 200)
+
+
+@main.route("/image-preparation/rename/confirm", methods=["POST"])
+@login_required
+def image_preparation_rename_confirm():
+    from app.intake_grouping import IntakeOperationActive
+    from app.intake_image_renamer import (
+        RenameProposalRejected,
+        start_image_rename_operation,
+    )
+
+    relative = request.form.get("path", "")[:1024]
+    prefix = request.form.get("prefix", "")[:128]
+    digest = request.form.get("digest", "")[:128]
+    remove_predecessor = request.form.get("remove_predecessor") == "yes"
+    if request.form.get("acknowledge") != "yes":
+        flash(
+            "Confirm that hidden staging and rollback will safely update this working result.",
+            "danger",
+        )
+        return redirect(url_for("main.image_preparation_rename", path=relative, prefix=prefix))
+    if remove_predecessor and request.form.get("acknowledge_predecessor") != "yes":
+        flash(
+            "Confirm the exact proven predecessor cleanup before continuing.",
+            "danger",
+        )
+        return redirect(url_for("main.image_preparation_rename", path=relative, prefix=prefix))
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        flash("The rename proposal is invalid. Generate a fresh preview.", "danger")
+        return redirect(url_for("main.image_preparation_rename", path=relative, prefix=prefix))
+    try:
+        operation_id = start_image_rename_operation(
+            current_app._get_current_object(),
+            relative,
+            prefix,
+            digest,
+            remove_predecessor=remove_predecessor,
+        )
+    except (ValueError, RenameProposalRejected) as error:
+        flash(str(error), "danger")
+        return redirect(url_for("main.image_preparation_rename", path=relative, prefix=prefix))
+    except IntakeOperationActive as error:
+        operation_id = str((error.active or {}).get("id") or "")
+        flash("A Catalogue Intake preparation operation is already running.", "warning")
+        if re.fullmatch(r"[0-9a-f]{32}", operation_id):
+            return redirect(url_for("main.operation_detail", operation_id=operation_id))
+        return redirect(url_for("main.image_preparation_rename", path=relative, prefix=prefix))
+    return redirect(url_for("main.operation_detail", operation_id=operation_id))
 
 
 @main.route("/intake-images/<token>")

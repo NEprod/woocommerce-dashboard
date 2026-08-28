@@ -22,11 +22,11 @@
   grouping, rename, and scanner-compatibility previews. Milestone 3 adds explicit
   digest-revalidated, copy-first grouping through private verified staging into
   duplicate-safe provisional `Prepared/` results while preserving every source.
-  Milestone 4 adds the copy-first Folder Naming and Structure Editor, complete
-  current/proposed tree review, Parent/collision validation, future filename
-  preview, and verified promotion to a new versioned Prepared result. Image
-  renaming, metadata creation, catalogue handoff, and final validation remain
-  later work.
+  Milestone 4 adds the copy-first Folder Naming and Structure Editor. Milestone 5
+  corrects normal progression to one visible rollback-protected Prepared working
+  result and adds deterministic, two-stage, byte-preserving image renaming with
+  conservative lineage-proven predecessor cleanup. Metadata creation, catalogue
+  handoff, and final validation remain later work.
 - **Phase 3 — Read-only WooCommerce mapping and comparison:** planned.
 - **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.

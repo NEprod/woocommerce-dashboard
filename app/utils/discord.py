@@ -300,7 +300,7 @@ def notify_intake_folder_edit_completed(
     warning_count = max(0, int(warnings or 0))
     fields = [
         {"name": "Source result", "value": _truncate(source_name), "inline": True},
-        {"name": "New result", "value": _truncate(result_name), "inline": True},
+        {"name": "Working result", "value": _truncate(result_name), "inline": True},
         {"name": "Folders renamed", "value": str(max(0, int(renamed or 0))), "inline": True},
         {"name": "Folders created", "value": str(max(0, int(created or 0))), "inline": True},
         {"name": "Warnings", "value": str(warning_count), "inline": True},
@@ -309,7 +309,7 @@ def notify_intake_folder_edit_completed(
     ]
     embed = build_embed(
         "Catalogue Intake Folder Structure Completed with Warnings" if warning_count else "Catalogue Intake Folder Structure Completed",
-        f"Operation: `{_truncate(operation_id)}`\nA new prepared result was created; the grouped source remains unchanged.",
+        f"Operation: `{_truncate(operation_id)}`\nThe same Prepared working result was safely updated after rollback-protected verification.",
         COLORS["warn"] if warning_count else COLORS["success"],
         fields,
     )
@@ -324,6 +324,50 @@ def notify_intake_folder_edit_failed(*, source_name, error_text, operation_id):
     embed = build_embed(
         "Catalogue Intake Folder Structure Failed",
         f"No folder-edited Prepared result was exposed.\nError: `{_truncate(error_text)}`",
+        COLORS["error"],
+        fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_errors"])
+
+
+def notify_intake_image_rename_completed(
+    *, result_name, prefix, renamed, parent, variation, warnings,
+    predecessor, elapsed_text, operation_id
+):
+    """Send one bounded terminal image-renaming summary."""
+
+    warning_count = max(0, int(warnings or 0))
+    fields = [
+        {"name": "Working result", "value": _truncate(result_name), "inline": True},
+        {"name": "Prefix", "value": _truncate(prefix), "inline": True},
+        {"name": "Images renamed", "value": str(max(0, int(renamed or 0))), "inline": True},
+        {"name": "Parent images", "value": str(max(0, int(parent or 0))), "inline": True},
+        {"name": "Variation images", "value": str(max(0, int(variation or 0))), "inline": True},
+        {"name": "Warnings", "value": str(warning_count), "inline": True},
+        {"name": "Predecessor", "value": _truncate(predecessor or "preserved"), "inline": True},
+        {"name": "Duration", "value": _truncate(elapsed_text), "inline": True},
+        {"name": "Next step", "value": "Create product metadata", "inline": False},
+    ]
+    embed = build_embed(
+        "Catalogue Intake Image Renaming Completed with Warnings" if warning_count else "Catalogue Intake Image Renaming Completed",
+        f"Operation: `{_truncate(operation_id)}`\nImages were renamed in the same rollback-protected Prepared working result.",
+        COLORS["warn"] if warning_count else COLORS["success"],
+        fields,
+    )
+    return send_discord_message(
+        embeds=[embed],
+        channels=["scans_errors" if warning_count else "scans_info"],
+    )
+
+
+def notify_intake_image_rename_failed(*, result_name, error_text, operation_id):
+    fields = [
+        {"name": "Working result", "value": _truncate(result_name), "inline": True},
+        {"name": "Operation", "value": f"`{_truncate(operation_id)}`", "inline": True},
+    ]
+    embed = build_embed(
+        "Catalogue Intake Image Renaming Failed",
+        f"No partial Prepared result was exposed.\nError: `{_truncate(error_text)}`",
         COLORS["error"],
         fields,
     )

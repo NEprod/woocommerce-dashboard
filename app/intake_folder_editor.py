@@ -48,6 +48,10 @@ from app.intake_grouping import (
     cleanup_stale_staging,
     finish_intake_operation,
 )
+from app.intake_working_result import (
+    WorkingResultRecoveryRequired,
+    replace_working_result,
+)
 from app.utils.catalogue_paths import is_reserved_directory_name
 from app.utils.operation_control import sanitize_operation_error
 
@@ -169,6 +173,28 @@ def _snapshot_prepared_result(root, relative):
         "images": images,
         "issues": issues,
     }
+
+
+def _snapshot_identity(snapshot):
+    payload = {
+        "selected": snapshot["selected"],
+        "folders": [
+            {"path": item["path"], "empty": item["empty"]}
+            for item in snapshot["folders"]
+        ],
+        "images": [
+            {key: item[key] for key in ("path", "size", "sha256")}
+            for item in snapshot["images"]
+        ],
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _canonical_spec(snapshot, spec):
@@ -329,13 +355,20 @@ def folder_editor_preview(root, relative, spec=None):
     root = _safe_root(Path(root))
     snapshot = _snapshot_prepared_result(root, relative)
     canonical, issues = _canonical_spec(snapshot, spec)
+    if canonical["root_name"] != snapshot["root_name"]:
+        issues.append(
+            _issue(
+                canonical["root_name"],
+                "The working Prepared result keeps its visible name throughout preparation.",
+                code="working_result_identity",
+            )
+        )
+        canonical["root_name"] = snapshot["root_name"]
     issues = [*snapshot["issues"], *issues, *_proposal_issues(snapshot, canonical)]
     mappings, filename_issues = _future_mappings(snapshot, canonical)
     issues.extend(filename_issues)
     current_tree, proposed_tree = _tree_rows(snapshot, canonical)
-    result_name, result_conflict = _prepared_result(root, canonical["root_name"])
-    if result_conflict:
-        issues.append(_issue(result_name, f"An existing result requires the duplicate-safe destination {result_name}.", code="existing_result", state="warning"))
+    result_name = snapshot["root_name"]
 
     rename_count = sum(1 for current, proposed in canonical["renames"].items() if current != proposed)
     parent_before = [item["path"] for item in current_tree if len(PurePosixPath(item["path"]).parts) == 1 and is_reserved_directory_name(item["path"])]
@@ -353,6 +386,7 @@ def folder_editor_preview(root, relative, spec=None):
         "kind": "folder_edit",
         "selected": snapshot["selected"],
         "result_name": result_name,
+        "source_identity": _snapshot_identity(snapshot),
         "source_folders": [{"path": item["path"], "empty": item["empty"]} for item in snapshot["folders"]],
         "source_images": [{key: item[key] for key in ("path", "size", "mtime_ns", "sha256")} for item in snapshot["images"]],
         "canonical": digest_spec,
@@ -375,6 +409,7 @@ def folder_editor_preview(root, relative, spec=None):
         "source_name": snapshot["root_name"],
         "result_name": result_name,
         "proposed_result": _join_rel(PREPARED_DIRECTORY, result_name),
+        "source_identity": _snapshot_identity(snapshot),
         "canonical_spec": canonical,
         "spec_json": json.dumps(digest_spec, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
         "current_tree": current_tree,
@@ -474,7 +509,7 @@ def execute_folder_edit_operation(lease, relative, spec, submitted_digest):
     progress = _Progress(lease.id, 0)
     started = time.monotonic()
     operation_dir = root / INTAKE_STAGING_DIRECTORY / lease.id
-    promoted = False
+    replacement_complete = False
     preview = None
     summary = None
     try:
@@ -531,12 +566,34 @@ def execute_folder_edit_operation(lease, relative, spec, submitted_digest):
             raise FolderProposalRejected("The source or folder proposal changed during preparation")
         progress.update("checking_scanner_compatibility", "Checking folder-only scanner compatibility")
 
-        progress.update("promoting_prepared_result", "Promoting the verified folder-edited result")
         final_destination = root / PREPARED_DIRECTORY / preview["result_name"]
-        if final_destination.exists() or final_destination.is_symlink():
-            raise FolderProposalRejected("The prepared destination changed after preview")
-        promotion = _promote_prepared_result(stage_result, final_destination)
-        promoted = True
+
+        def verify_restored(restored):
+            del restored
+            restored_snapshot = _snapshot_prepared_result(root, relative)
+            if _snapshot_identity(restored_snapshot) != preview["source_identity"]:
+                raise WorkingResultRecoveryRequired(
+                    "The restored Prepared result could not be verified"
+                )
+
+        replacement_messages = {
+            "moving_current_result_to_rollback": "Moving the current working result to protected rollback storage",
+            "promoting_result": "Promoting the verified folder structure under the same working-result name",
+            "verifying_promoted_result": "Verifying the promoted folder structure",
+            "verifying_restored_result": "Verifying the automatically restored working result",
+            "removing_rollback": "Removing rollback after successful promoted-result verification",
+        }
+        replacement = replace_working_result(
+            root=root,
+            operation_id=lease.id,
+            staged_result=stage_result,
+            visible_result=final_destination,
+            verify_promoted=lambda promoted: _verify_result(promoted, preview),
+            verify_restored=verify_restored,
+            failed_result_parent=operation_dir,
+            on_stage=lambda stage: progress.update(stage, replacement_messages[stage]),
+        )
+        replacement_complete = True
 
         progress.update("cleaning_staging", "Cleaning the completed operation staging wrapper")
         marker = operation_dir / ".operation-owner"
@@ -556,8 +613,11 @@ def execute_folder_edit_operation(lease, relative, spec, submitted_digest):
             "parent_changed": preview["parent"]["changed"],
             "warnings": progress.warnings,
             "workflow_status": FOLDER_EDIT_STATUS,
-            "promotion_strategy": promotion["strategy"],
-            "promotion_fallback_reason": promotion["fallback_reason"],
+            "source_identity": preview["source_identity"],
+            "result_identity": _snapshot_identity(
+                _snapshot_prepared_result(root, preview["proposed_result"])
+            ),
+            **replacement,
             "duration_seconds": round(time.monotonic() - started, 3),
         }
         _notify_completed(progress, summary, time.monotonic() - started)
@@ -567,18 +627,15 @@ def execute_folder_edit_operation(lease, relative, spec, submitted_digest):
         progress.persist(summary=summary, status="partial" if progress.warnings else "succeeded")
         finish_intake_operation(lease, status="partial" if progress.warnings else "succeeded", summary=summary)
     except Exception as error:
-        if promoted:
-            progress.warnings += 1
-            summary = summary or {"source_relpath": relative, "result_name": preview["result_name"], "prepared_relpath": _join_rel(PREPARED_DIRECTORY, preview["result_name"]), "source_images": progress.total, "copied_images": progress.copied, "failed_images": 0, "warnings": progress.warnings, "workflow_status": FOLDER_EDIT_STATUS}
-            _notify_completed(progress, summary, time.monotonic() - started)
-            progress.stage = "completed_image_renaming_required"
-            progress.message = "Folder structure confirmed — image renaming required"
-            progress.persist(summary=summary, status="partial")
-            finish_intake_operation(lease, status="partial", summary=summary)
-            return
         cleanup_warning = None
         try:
-            staging_cleanup = "cleaned" if _cleanup_operation_staging(root, lease.id) else "not_found"
+            staging_cleanup = (
+                "not_found"
+                if replacement_complete
+                else "cleaned"
+                if _cleanup_operation_staging(root, lease.id)
+                else "not_found"
+            )
         except OSError:
             staging_cleanup = "retained_for_review"
             cleanup_warning = "Operation staging cleanup requires review"
@@ -597,7 +654,14 @@ def execute_folder_edit_operation(lease, relative, spec, submitted_digest):
         progress.message = safe_failure
         progress.logs.append({"sequence": len(progress.logs) + 1, "severity": "info" if staging_cleanup == "cleaned" else "warning", "line": "Operation-owned staging was cleaned" if staging_cleanup == "cleaned" else "Operation staging was retained for controlled review"})
         _notify_failed(progress, relative, safe_failure)
-        failed_summary = {"source_relpath": relative, "prepared_relpath": preview["proposed_result"] if preview else None, "source_images": progress.total, "copied_images": progress.copied, "failed_images": 1, "warnings": progress.warnings, "workflow_status": "failed", "failed_stage": failed_stage, "staging_cleanup": staging_cleanup}
+        recovery_state = (
+            "manual_recovery_required"
+            if isinstance(error, WorkingResultRecoveryRequired)
+            else "restored"
+            if failed_stage in {"promoting_result", "verifying_promoted_result", "moving_current_result_to_rollback", "verifying_restored_result"}
+            else "not_required"
+        )
+        failed_summary = {"source_relpath": relative, "prepared_relpath": preview["proposed_result"] if preview else None, "source_images": progress.total, "copied_images": progress.copied, "failed_images": 1, "warnings": progress.warnings, "workflow_status": "failed", "failed_stage": failed_stage, "staging_cleanup": staging_cleanup, "recovery_state": recovery_state}
         progress.persist(summary=failed_summary, status="failed")
         finish_intake_operation(lease, status="failed", error=safe_failure, summary=failed_summary)
 

@@ -27,6 +27,7 @@ MAX_PREVIEW_FILES = 5000
 MAX_METADATA_BYTES = 1024 * 1024
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _DRIVE = re.compile(r"^[A-Za-z]:")
+_WINDOWS_RESERVED = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$", re.I)
 
 
 def _ordered(value):
@@ -340,7 +341,10 @@ def normalize_prefix(value):
     value = _decode_path(value)
     if "/" in value or "\\" in value or _CONTROL.search(value) or _DRIVE.match(value.strip()):
         raise ValueError("Prefix contains an unsafe path value")
-    return _safe_component(value, lowercase=True)
+    normalised = _safe_component(value, lowercase=True)
+    if normalised.endswith(".") or _WINDOWS_RESERVED.match(normalised):
+        raise ValueError("Prefix contains an unsafe filesystem name")
+    return normalised
 
 
 def _prepared_result(root: Path, source_name: str):
@@ -598,7 +602,7 @@ def rename_preview(root, relative, prefix):
     root = _safe_root(Path(root))
     folder, selected = resolve_intake_folder(root, relative)
     normalised_prefix = normalize_prefix(prefix)
-    result_name, result_conflict = _prepared_result(root, folder.name)
+    result_name = folder.name
     images, issues, directories = _walk_intake_images(root, folder, selected)
     metadata = _metadata_context(folder)
     collection_type = metadata.get("collection_type") if isinstance(metadata.get("collection_type"), str) else None
@@ -623,7 +627,7 @@ def rename_preview(root, relative, prefix):
             recommended = None
             legacy = None
             if folder_parts:
-                legacy_parts = (folder.name,) if is_reserved_directory_name(folder_parts[-1]) else folder_parts[-2:]
+                legacy_parts = (folder.name,) if is_reserved_directory_name(folder_parts[-1]) else folder_parts
                 legacy_component = "_".join(_normalised_components(legacy_parts))
                 legacy = f"{normalised_prefix}_{legacy_component}_{sequence:02d}{Path(image['name']).suffix.lower()}".lower()
                 is_root_parent = len(folder_parts) == 1 and is_reserved_directory_name(folder_parts[0])
@@ -654,12 +658,8 @@ def rename_preview(root, relative, prefix):
                             hierarchy_note = "Folder depth does not match configured image_attributes"
                     elif len(folder_parts) == 1:
                         hierarchy_type = "product"
-                    elif len(folder_parts) == 2:
+                    elif len(folder_parts) >= 2:
                         hierarchy_type = "variation"
-                    else:
-                        hierarchy_type = "unsupported_depth"
-                        hierarchy_state = "blocking"
-                        hierarchy_note = "Deeper hierarchy cannot be confirmed without scanner metadata"
                 try:
                     component = "_".join(_normalised_components(recommended_parts))
                     recommended = f"{normalised_prefix}_{component}_{sequence:02d}{Path(image['name']).suffix.lower()}".lower()
@@ -720,13 +720,14 @@ def rename_preview(root, relative, prefix):
             for row in rows:
                 row["conflict"] = "exact_collision"
 
-    if result_conflict:
-        issues.append(_issue(folder.name, "conflict", f"The default prepared result already exists; the duplicate-safe proposal is {result_name}", code="existing_result"))
     mappings.sort(key=lambda item: tuple(_ordered(part) for part in (*item["folder_parts"], item["name"])))
     issues.sort(key=lambda item: (_ordered(item["name"]), item["code"]))
     digest = _digest("rename", selected, result_name, mappings, issues, {"prefix": normalised_prefix, "collection_type": collection_type, "image_attributes": image_attributes})
     blocking = any(item["state"] == "blocking" for item in mappings) or any(issue["state"] == "blocking" for issue in issues)
-    certainty = bool(collection_type and (collection_type != "Single Variable" or image_attributes))
+    metadata_certainty = bool(
+        collection_type
+        and (collection_type != "Single Variable" or image_attributes)
+    )
     if collection_type == "Single Variable" and image_attributes:
         compatibility_label = "Single Variable hierarchy recognised from collection metadata"
     elif collection_type in {"Simple", "Variable Collection"}:
@@ -747,9 +748,9 @@ def rename_preview(root, relative, prefix):
         "mappings": mappings,
         "issues": issues,
         "digest": digest,
-        "ready": bool(mappings) and not blocking and certainty,
+        "ready": bool(mappings) and not blocking,
         "compatibility": {
-            "state": "compatible" if certainty and not blocking else "warning" if mappings else "unavailable",
+            "state": "compatible" if metadata_certainty and not blocking else "warning" if mappings else "unavailable",
             "label": compatibility_label,
             "collection_type": collection_type,
             "image_attributes": image_attributes or [],
