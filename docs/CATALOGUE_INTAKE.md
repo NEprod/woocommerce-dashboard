@@ -4,7 +4,7 @@ Catalogue Intake is an authenticated workspace for inspecting and safely
 preparing image folders before they enter the catalogue. It is deliberately separate from the
 scanner, `/catalogue`, generated `/output`, and `/app/instance` state.
 
-Phase 2.5 Milestones 2 and 3 supply:
+Phase 2.5 Milestones 2–6 supply:
 
 - an optional dedicated `/intake` mount;
 - an intake-confined folder browser;
@@ -15,11 +15,11 @@ Phase 2.5 Milestones 2 and 3 supply:
 - explicit confirmation of valid grouping proposals;
 - copy-first grouped results below `/intake/Prepared/`.
 
-Browsing, grouping previews, and rename previews remain read-only and do not
-create operation history or Discord events. A confirmed grouping is the only
-current mutation: it copies unchanged image bytes into a provisional grouped
-result. It does not rename images or folders, move or delete sources, upload,
-import, scan, write metadata, or hand anything to `/catalogue`.
+Browsing and previews remain read-only and do not create operation history or
+Discord events. Confirmed grouping, folder editing, image renaming, and Prepared
+metadata saving are separately gated mutations under one Intake lock. None
+moves or deletes loose sources, uploads, imports, scans, creates markers, or
+hands anything to `/catalogue`.
 
 ## Storage boundary
 
@@ -198,6 +198,42 @@ similarity alone, active/referenced results, and loose source folders are always
 preserved. Cleanup failure is a warning and does not invalidate the renamed
 working result.
 
+## Prepared Metadata Builder
+
+Authenticated routes below `/image-preparation/metadata` select only a direct
+Prepared result whose latest durable state is **Images renamed — metadata
+required** or **Metadata complete — validation required**. The builder creates
+or corrects only the collection-level `product_info.json`; it does not create
+product overrides or resolved projection data. The supported inventory is the
+existing scanner contract: identity, pricing/sale, physical data, taxonomy,
+descriptions/SEO, ordered attributes and image attributes, existing variation
+modifiers, shipping class, and grouped/upsell/cross-sell fields. Exact collection
+types remain `Simple`, `Variable Collection`, and `Single Variable`.
+
+Guided mode shows every supported field. Advanced JSON edits the actual authored
+object and preserves unknown authored content instead of flattening inheritance.
+The exact read-only preview has no operation metadata, IDs, absolute paths, or
+invisible defaults. Validation combines the existing JSON Schema with safe SKU,
+numeric/date, duplicate-value, attribute/modifier-reference, and folder checks.
+Single Variable analysis recognises root `Parent/` case-insensitively, rejects
+duplicate case variants, excludes Parent from attribute values, and follows the
+authored `image_attributes` order while reporting expected and visible
+combinations. Complete scanner validation is not claimed.
+
+Confirmation recomputes the document, findings, existing metadata identity,
+workflow state, folder list, and image hashes before checking the deterministic
+digest. It acquires the shared Intake lock, copies to operation-owned hidden
+staging, atomically writes a UTF-8 newline-terminated file, verifies every image
+byte and folder, and uses rollback-protected same-name promotion. Normal save
+creates no `(2)` result and no visible backup clutter. Failure restores and
+verifies the prior result.
+
+The bounded operation is **Catalogue Intake — Save Metadata**. Logs do not retain
+the full JSON or descriptions. Terminal Discord delivery remains bounded and
+non-fatal. Success is **Metadata complete — validation required** and the next
+step is **Validate prepared collection**. Catalogue handoff and scanner actions
+remain unavailable.
+
 ## Determinism and limits
 
 Directories, files, groups, and sequences use `(name.casefold(), name)` ordering.
@@ -212,6 +248,5 @@ request-scoped and does not grow SQLite.
 
 ## Future milestones
 
-Image renaming, metadata creation, final prepared-layout validation, catalogue
-handoff, and scanning remain separately gated. Folder-edited results are not
-labelled catalogue-ready and do not contain generated JSON.
+Final prepared-layout validation, catalogue handoff, and scanning remain
+separately gated. Metadata-complete results are not labelled catalogue-ready.

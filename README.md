@@ -43,7 +43,10 @@ by a dedicated `/intake` mount. Browsing and deterministic grouping/renaming
 previews remain read-only. An explicitly confirmed, server-revalidated grouping
 now copies unchanged source images through private verified staging into a
 duplicate-safe provisional result below `Prepared/`; it does not rename source
-or result files, create metadata, access the catalogue, or invoke the scanner.
+files, access the catalogue, or invoke the scanner. Later gated steps safely
+advance the same Prepared result through folder editing, image renaming, and an
+authoritative shared `product_info.json`. Metadata completion remains
+**validation required** and does not perform catalogue handoff or scanning.
 
 ## Current capabilities
 

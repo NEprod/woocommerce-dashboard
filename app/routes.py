@@ -474,6 +474,101 @@ def image_preparation_rename_confirm():
     return redirect(url_for("main.operation_detail", operation_id=operation_id))
 
 
+@main.route("/image-preparation/metadata")
+@login_required
+def image_preparation_metadata():
+    from app.intake_metadata_builder import eligible_metadata_results
+
+    readiness = intake_readiness()
+    error = None
+    try:
+        results = eligible_metadata_results(configured_intake_root()) if readiness["readable"] else []
+    except (OSError, ValueError):
+        results = []
+        error = "No safe image-renamed Prepared results are available."
+    return render_template(
+        "image_preparation/metadata.html",
+        readiness=readiness,
+        eligible_results=results,
+        intake_error=error,
+    ), (400 if error else 200)
+
+
+@main.route("/image-preparation/metadata/edit")
+@login_required
+def image_preparation_metadata_edit():
+    from app.intake_metadata_builder import metadata_preview
+
+    relative = request.args.get("path", "")[:1024]
+    readiness = intake_readiness()
+    preview = None
+    error = None
+    try:
+        preview = metadata_preview(configured_intake_root(), relative)
+    except ValueError as preview_error:
+        error = str(preview_error)
+    return render_template(
+        "image_preparation/metadata_edit.html",
+        readiness=readiness,
+        preview=preview,
+        intake_error=error,
+    ), (400 if error else 200)
+
+
+@main.route("/image-preparation/metadata/preview", methods=["POST"])
+@login_required
+def image_preparation_metadata_preview():
+    from app.intake_metadata_builder import metadata_preview
+
+    relative = request.form.get("path", "")[:1024]
+    document = request.form.get("document", "")
+    readiness = intake_readiness()
+    preview = None
+    error = None
+    try:
+        preview = metadata_preview(configured_intake_root(), relative, document)
+    except ValueError as preview_error:
+        error = str(preview_error)
+    return render_template(
+        "image_preparation/metadata_edit.html",
+        readiness=readiness,
+        preview=preview,
+        intake_error=error,
+        submitted_document=document,
+    ), (400 if error else 200)
+
+
+@main.route("/image-preparation/metadata/confirm", methods=["POST"])
+@login_required
+def image_preparation_metadata_confirm():
+    from app.intake_grouping import IntakeOperationActive
+    from app.intake_metadata_builder import MetadataProposalRejected, start_metadata_operation
+
+    relative = request.form.get("path", "")[:1024]
+    digest = request.form.get("digest", "")[:128]
+    document = request.form.get("document", "")
+    if request.form.get("acknowledge") != "yes":
+        flash("Confirm that product_info.json will be safely saved inside this Prepared result.", "danger")
+        return redirect(url_for("main.image_preparation_metadata_edit", path=relative))
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        flash("The metadata proposal is invalid. Generate a fresh preview.", "danger")
+        return redirect(url_for("main.image_preparation_metadata_edit", path=relative))
+    try:
+        operation_id = start_metadata_operation(
+            current_app._get_current_object(), relative, document, digest
+        )
+    except (ValueError, MetadataProposalRejected) as error:
+        flash(str(error), "danger")
+        return redirect(url_for("main.image_preparation_metadata_edit", path=relative))
+    except IntakeOperationActive as error:
+        operation_id = str((error.active or {}).get("id") or "")
+        flash("A Catalogue Intake preparation operation is already running.", "warning")
+        if re.fullmatch(r"[0-9a-f]{32}", operation_id):
+            return redirect(url_for("main.operation_detail", operation_id=operation_id))
+        return redirect(url_for("main.image_preparation_metadata_edit", path=relative))
+    return redirect(url_for("main.operation_detail", operation_id=operation_id))
+
+
 @main.route("/intake-images/<token>")
 @login_required
 def intake_image(token):

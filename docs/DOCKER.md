@@ -66,8 +66,11 @@ when the same host directories are mounted again.
 Catalogue Intake workspace reports unavailable and performs no work. This
 prevents an optional feature from silently writing to the disposable container
 layer. Previews remain read-only. Confirmed grouping requires the mount to be
-writable and writes only private operation-owned staging and duplicate-safe
-provisional results below `/intake/Prepared/`; sources are not modified. See
+writable and writes only private operation-owned staging and verified results
+below `/intake/Prepared/`; sources are not modified. Folder editing, image
+renaming, and Prepared `product_info.json` save reuse hidden same-mount staging
+and rollback while retaining the visible result name. No Intake step writes to
+the container layer, `/catalogue`, `/output`, or `/app/instance`. See
 [Catalogue Intake](CATALOGUE_INTAKE.md).
 
 Prepared-result promotion supports ordinary Unraid/FUSE bind mounts. It prefers

@@ -374,6 +374,44 @@ def notify_intake_image_rename_failed(*, result_name, error_text, operation_id):
     return send_discord_message(embeds=[embed], channels=["scans_errors"])
 
 
+def notify_intake_metadata_completed(summary, *, operation_id):
+    """Send one bounded terminal Prepared metadata summary."""
+
+    warning_count = max(0, int(summary.get("warnings", 0) or 0))
+    fields = [
+        {"name": "Prepared result", "value": _truncate(summary.get("result_name")), "inline": True},
+        {"name": "Action", "value": _truncate(summary.get("metadata_action")), "inline": True},
+        {"name": "Collection type", "value": _truncate(summary.get("collection_type")), "inline": True},
+        {"name": "SKU prefix", "value": _truncate(summary.get("sku_prefix")), "inline": True},
+        {"name": "Publishing intent", "value": _truncate(summary.get("publishing_intent")), "inline": True},
+        {"name": "Attributes", "value": str(max(0, int(summary.get("attribute_count", 0) or 0))), "inline": True},
+        {"name": "Warnings", "value": str(warning_count), "inline": True},
+        {"name": "Duration", "value": f"{float(summary.get('duration_seconds', 0) or 0):.1f}s", "inline": True},
+        {"name": "Next step", "value": "Validate prepared collection", "inline": False},
+    ]
+    embed = build_embed(
+        "Catalogue Intake Metadata Completed with Warnings" if warning_count else "Catalogue Intake Metadata Completed",
+        f"Operation: `{_truncate(operation_id)}`\nThe same Prepared result was safely updated and remains outside Catalogue.",
+        COLORS["warn"] if warning_count else COLORS["success"],
+        fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_errors" if warning_count else "scans_info"])
+
+
+def notify_intake_metadata_failed(result_name, error_text, *, operation_id):
+    fields = [
+        {"name": "Prepared result", "value": _truncate(result_name), "inline": True},
+        {"name": "Operation", "value": f"`{_truncate(operation_id)}`", "inline": True},
+    ]
+    embed = build_embed(
+        "Catalogue Intake Metadata Failed",
+        f"No partial Prepared result was exposed.\nError: `{_truncate(error_text)}`",
+        COLORS["error"],
+        fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_errors"])
+
+
 def notify_editor_saved(kind, sku, path=None, *, collection=None, affected=None):
     fields = [{"name": "Kind", "value": kind, "inline": True}, {"name": "SKU", "value": sku, "inline": True}]
     if collection:

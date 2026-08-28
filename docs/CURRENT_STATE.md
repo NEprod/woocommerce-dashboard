@@ -21,9 +21,9 @@ the Catalogue Intake workspace simply reports unavailable.
 
 ## Catalogue Intake
 
-Phase 2.5 Milestones 2–5 add authenticated routes at `/image-preparation`,
+Phase 2.5 Milestones 2–6 add authenticated routes at `/image-preparation`,
 `/image-preparation/group`, `/image-preparation/folders`, and
-`/image-preparation/rename`. They browse only
+`/image-preparation/rename`, plus `/image-preparation/metadata`. They browse only
 the canonical `/intake` root and render intake-relative breadcrumbs, supported,
 hidden, corrupt, unsupported, unreadable, and unsafe-entry counts.
 
@@ -69,7 +69,17 @@ without overwrite. Complete paths, image readability, count, and bytes are
 verified before promotion. Proven superseded predecessors may be removed only
 after explicit acknowledgement and verified success; uncertain or referenced
 lineage is preserved. The terminal status is **Images renamed — metadata
-required**. Metadata creation, catalogue handoff, and scanning remain unavailable.
+required**.
+
+The Prepared Metadata Builder then creates or corrects the authoritative shared
+`product_info.json` in that same working result. It reuses the established
+schema and complete collection-field inventory, offers guided and actual-authored
+Advanced JSON modes, preserves unknown authored content, and validates folder
+hierarchy without invoking the scanner. Save uses deterministic digest
+revalidation, the shared Intake lock, hidden staging, atomic metadata writing,
+unchanged image/tree verification, and rollback-protected same-name promotion.
+The terminal status is **Metadata complete — validation required**. Complete
+collection validation, catalogue handoff, and scanning remain unavailable.
 See [Catalogue Intake](CATALOGUE_INTAKE.md).
 
 ## Scanner modes

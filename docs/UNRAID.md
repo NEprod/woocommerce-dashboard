@@ -48,12 +48,14 @@ Read/Write mode, apply the template change, and restart the container. Do not
 enter `/catalogue`, `/output`, `/app/instance`, or a personal path copied from
 another system. The application displays intake-relative paths only.
 
-Browsing and grouping/rename previews remain read-only. Explicitly confirmed
+Browsing and grouping/rename/metadata previews remain read-only. Explicitly confirmed
 grouping revalidates its preview, copies unchanged images through hidden private
 staging, and promotes a verified duplicate-safe provisional result below
-`/intake/Prepared/`. It does not rename or alter source files, transfer anything
-into the catalogue, create metadata, or invoke the scanner. Read/write mode is
-required for that confirmed operation. See
+`/intake/Prepared/`. Later folder, image, and metadata steps advance that same
+visible result through hidden staging and rollback. Metadata save creates or
+updates only root `product_info.json`; it does not alter loose sources, transfer
+anything into the catalogue, or invoke the scanner. Read/write mode is required
+for confirmed operations; read-only mounts still permit previews. See
 [Catalogue Intake](CATALOGUE_INTAKE.md).
 
 Unraid user shares may reject Linux `RENAME_NOREPLACE` with `EINVAL`. The

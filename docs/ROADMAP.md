@@ -25,8 +25,10 @@
   Milestone 4 adds the copy-first Folder Naming and Structure Editor. Milestone 5
   corrects normal progression to one visible rollback-protected Prepared working
   result and adds deterministic, two-stage, byte-preserving image renaming with
-  conservative lineage-proven predecessor cleanup. Metadata creation, catalogue
-  handoff, and final validation remain later work.
+  conservative lineage-proven predecessor cleanup. Milestone 6 adds guided and
+  Advanced JSON authoring, exact preview, folder-aware validation, and
+  rollback-protected same-name `product_info.json` saving. Catalogue handoff and
+  final validation remain later work.
 - **Phase 3 — Read-only WooCommerce mapping and comparison:** planned.
 - **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.

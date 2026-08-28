@@ -28,6 +28,7 @@ TYPE_LABELS = {
     "full": "Full", "reconstruction": "Reconstruction", "intake_group": "Catalogue Intake — Group Images",
     "intake_folder_edit": "Catalogue Intake — Edit Folder Structure",
     "intake_image_rename": "Catalogue Intake — Rename Images",
+    "intake_metadata_save": "Catalogue Intake — Save Metadata",
 }
 SCAN_MODES = (
     {
@@ -280,7 +281,7 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
         timeline.append({"label": view["status_label"], "state": "error" if row.status == "failed" else "complete", "at": row.finished_at})
     retry_mode = {"append": "append", "product_update": "update", "full": "full"}.get(row.operation_type)
     intake = None
-    if row.operation_type in {"intake_group", "intake_folder_edit", "intake_image_rename"}:
+    if row.operation_type in {"intake_group", "intake_folder_edit", "intake_image_rename", "intake_metadata_save"}:
         summary = view.get("summary") or {}
         prepared_relpath = summary.get("prepared_relpath")
         groups = []
@@ -312,6 +313,7 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             "is_grouping": row.operation_type == "intake_group",
             "is_folder_edit": row.operation_type == "intake_folder_edit",
             "is_image_rename": row.operation_type == "intake_image_rename",
+            "is_metadata_save": row.operation_type == "intake_metadata_save",
             "source_relpath": view["scope"].get("source_relpath"),
             "prepared_relpath": prepared_relpath,
             "prepared_url": prepared_url,
@@ -325,6 +327,15 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             "variation_images": summary.get("variation_images"),
             "other_images": summary.get("other_images"),
             "proposal_digest": summary.get("proposal_digest") or view["scope"].get("proposal_digest"),
+            "metadata_action": summary.get("metadata_action"),
+            "collection_type": summary.get("collection_type"),
+            "sku_prefix": summary.get("sku_prefix"),
+            "publishing_intent": summary.get("publishing_intent"),
+            "category_count": summary.get("category_count"),
+            "tag_count": summary.get("tag_count"),
+            "attribute_count": summary.get("attribute_count"),
+            "image_attribute_count": summary.get("image_attribute_count"),
+            "modifier_count": summary.get("modifier_count"),
             "rollback_state": summary.get("rollback_state"),
             "recovery_state": summary.get("recovery_state"),
             "predecessor_relpath": summary.get("predecessor_relpath"),
@@ -334,6 +345,8 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
                 if row.operation_type == "intake_folder_edit" and view["scope"].get("source_relpath")
                 else url_for("main.image_preparation_rename", path=view["scope"].get("source_relpath"))
                 if row.operation_type == "intake_image_rename" and view["scope"].get("source_relpath")
+                else url_for("main.image_preparation_metadata_edit", path=view["scope"].get("source_relpath"))
+                if row.operation_type == "intake_metadata_save" and view["scope"].get("source_relpath")
                 else url_for("main.image_preparation_group", path=view["scope"].get("source_relpath"))
                 if view["scope"].get("source_relpath")
                 else None
@@ -341,6 +354,7 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             "folder_editor_url": url_for("main.image_preparation_folders_edit", path=prepared_relpath) if row.operation_type == "intake_group" and prepared_relpath else None,
             "rename_preview_url": url_for("main.image_preparation_rename", path=prepared_relpath) if row.operation_type == "intake_folder_edit" and prepared_relpath else None,
             "metadata_next": row.operation_type == "intake_image_rename" and summary.get("workflow_status") == "metadata_required",
+            "metadata_editor_url": url_for("main.image_preparation_metadata_edit", path=prepared_relpath) if row.operation_type in {"intake_image_rename", "intake_metadata_save"} and prepared_relpath else None,
         }
     return {
         "operation": view, "items": item_views,
