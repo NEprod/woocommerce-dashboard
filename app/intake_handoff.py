@@ -306,11 +306,8 @@ def handoff_preview(relative, *, fresh_review=False):
     source = _tree_snapshot(folder)
     metadata = _metadata_identity(canonical, folder, source)
     findings = list(metadata["findings"]) + list(source["findings"])
-    for finding in findings:
-        if finding.get("code") in {"unsupported_depth", "unexplained_folders"}:
-            finding["state"] = "blocking"
     image_rows = [item for item in source["rows"] if item["kind"] == "image"]
-    if not image_rows:
+    if not image_rows and not any(item.get("code") == "missing_image_source" for item in findings):
         findings.append({"state": "blocking", "code": "missing_images", "message": "The Prepared collection contains no usable supported images"})
     flattened = {}
     for item in image_rows:
@@ -350,6 +347,9 @@ def handoff_preview(relative, *, fresh_review=False):
         "warnings": len(warnings),
         "errors": len(blocking),
         "variations": metadata["analysis"].get("expected_variations") or 0,
+        "exact_image_variations": (metadata["analysis"].get("image_health") or {}).get("exact", 0),
+        "fallback_image_variations": (metadata["analysis"].get("image_health") or {}).get("fallback", 0),
+        "missing_image_variations": (metadata["analysis"].get("image_health") or {}).get("missing", 0),
     }
     proposal = {
         "kind": "catalogue_handoff",
@@ -620,6 +620,9 @@ def execute_handoff_operation(lease, relative, digest, fresh_review, acknowledge
             "collection_type": fresh["collection_type"], "sku_prefix": fresh["sku_prefix"][:128],
             "publishing_intent": fresh["publishing_intent"].casefold().replace(" / ", "_"),
             "product_count": fresh["counts"]["products"], "variation_count": fresh["counts"]["variations"],
+            "exact_image_variations": fresh["counts"]["exact_image_variations"],
+            "fallback_image_variations": fresh["counts"]["fallback_image_variations"],
+            "missing_image_variations": fresh["counts"]["missing_image_variations"],
             "total_images": fresh["counts"]["images"], "parent_images": fresh["counts"]["parent_images"],
             "product_images": fresh["counts"]["product_images"], "variation_images": fresh["counts"]["variation_images"],
             "category_count": fresh["counts"]["categories"], "tag_count": fresh["counts"]["tags"],

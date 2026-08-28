@@ -214,7 +214,8 @@ def test_single_variable_parent_case_hierarchy_and_count(metadata_app):
     assert "Parent" not in preview["analysis"]["product_folders"]
     assert preview["analysis"]["expected_variations"] == 4
     assert preview["analysis"]["visible_variations"] == 2
-    assert any(item["code"] == "missing_variation_folders" for item in preview["warnings"])
+    assert preview["analysis"]["image_health"] == {"exact": 2, "fallback": 2, "missing": 0}
+    assert any(item["code"] == "image_fallback_parent" for item in preview["warnings"])
 
 
 def test_variable_title_preview_uses_existing_product_json_without_editing_it(metadata_app, metadata_client):

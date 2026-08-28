@@ -423,6 +423,7 @@ def notify_intake_handoff_completed(summary, *, operation_id):
         {"name": "Collection type", "value": _truncate(summary.get("collection_type")), "inline": True},
         {"name": "Products / variations", "value": f"{int(summary.get('product_count', 0) or 0)} / {int(summary.get('variation_count', 0) or 0)}", "inline": True},
         {"name": "Images", "value": str(max(0, int(summary.get("total_images", 0) or 0))), "inline": True},
+        {"name": "Exact / fallback / missing", "value": f"{int(summary.get('exact_image_variations', 0) or 0)} / {int(summary.get('fallback_image_variations', 0) or 0)} / {int(summary.get('missing_image_variations', 0) or 0)}", "inline": True},
         {"name": "Warnings", "value": str(warning_count), "inline": True},
         {"name": "Duration", "value": f"{float(summary.get('duration_seconds', 0) or 0):.1f}s", "inline": True},
         {"name": "Next step", "value": "Run Append Scan", "inline": False},

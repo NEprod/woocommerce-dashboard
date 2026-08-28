@@ -17,6 +17,7 @@ from itsdangerous import BadData, URLSafeSerializer
 from PIL import Image, UnidentifiedImageError
 
 from app.utils.catalogue_paths import is_reserved_directory_name
+from app.utils.image_resolution import resolve_single_variable_image_layout
 
 
 INTAKE_CONTAINER_ROOT = Path("/intake")
@@ -723,7 +724,24 @@ def rename_preview(root, relative, prefix):
     mappings.sort(key=lambda item: tuple(_ordered(part) for part in (*item["folder_parts"], item["name"])))
     issues.sort(key=lambda item: (_ordered(item["name"]), item["code"]))
     digest = _digest("rename", selected, result_name, mappings, issues, {"prefix": normalised_prefix, "collection_type": collection_type, "image_attributes": image_attributes})
-    blocking = any(item["state"] == "blocking" for item in mappings) or any(issue["state"] == "blocking" for issue in issues)
+    layout = None
+    metadata_attributes = metadata.get("attributes") if isinstance(metadata.get("attributes"), dict) else {}
+    if (
+        collection_type == "Single Variable"
+        and image_attributes
+        and metadata_attributes
+        and all(name in metadata_attributes for name in image_attributes)
+    ):
+        layout = resolve_single_variable_image_layout(
+            metadata,
+            directories,
+            [PurePosixPath(*item["folder_parts"], item["name"]).as_posix() for item in images],
+        )
+    blocking = (
+        any(item["state"] == "blocking" for item in mappings)
+        or any(issue["state"] == "blocking" for issue in issues)
+        or any(item["state"] == "blocking" for item in (layout or {}).get("findings", []))
+    )
     metadata_certainty = bool(
         collection_type
         and (collection_type != "Single Variable" or image_attributes)
@@ -750,10 +768,18 @@ def rename_preview(root, relative, prefix):
         "digest": digest,
         "ready": bool(mappings) and not blocking,
         "compatibility": {
-            "state": "compatible" if metadata_certainty and not blocking else "warning" if mappings else "unavailable",
+            "state": (
+                "blocking" if layout and any(item["state"] == "blocking" for item in layout["findings"])
+                else "warning" if layout and any(item["state"] == "warning" for item in layout["findings"])
+                else "compatible" if metadata_certainty and not blocking
+                else "warning" if mappings
+                else "unavailable"
+            ),
             "label": compatibility_label,
             "collection_type": collection_type,
             "image_attributes": image_attributes or [],
+            "image_health": (layout or {}).get("image_health"),
+            "image_findings": (layout or {}).get("findings", []),
         },
     }
 

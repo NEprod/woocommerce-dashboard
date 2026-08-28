@@ -83,7 +83,10 @@ The terminal status is **Metadata complete — validation required**.
 Final validation and catalogue handoff now revalidate the complete Prepared
 tree, metadata, image readability and scanner-facing hierarchy, show the exact
 catalogue-relative create/replace destination, and require explicit
-acknowledgement. The existing catalogue/scanner lock is acquired before the
+acknowledgement. Single Variable image depth follows only the ordered
+`image_attributes`: exact sources are Ready, scanner-supported broader sources
+and Parent preview fallback are warnings, and genuinely unresolved sources are
+blocking. Non-image attributes do not create image-folder levels. The existing catalogue/scanner lock is acquired before the
 Intake mutation lock. A byte-identical copy is verified in hidden catalogue
 staging; replacement uses protected rollback and no merge. The Prepared result
 remains unchanged. Success records **Catalogue handoff complete** and directs

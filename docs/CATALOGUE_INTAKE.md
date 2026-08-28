@@ -218,7 +218,14 @@ numeric/date, duplicate-value, attribute/modifier-reference, and folder checks.
 Single Variable analysis recognises root `Parent/` case-insensitively, rejects
 duplicate case variants, excludes Parent from attribute values, and follows the
 authored `image_attributes` order while reporting expected and visible
-combinations. Complete scanner validation is not claimed.
+combinations. Image-folder depth is determined only by `image_attributes`;
+additional attributes still create Cartesian-product variations without adding
+folder levels. Direct images in the first image-attribute folder are the
+scanner's deterministic broader source for matching variations. An exact
+subfolder source is Ready, broader reuse is a warning, a genuine root Parent
+preview fallback is a warning without changing parent ownership, and an
+unresolved source is blocking. Diagnostics name only bounded owner folders and
+never list valid images or `product_info.json` as hierarchy errors.
 
 Confirmation recomputes the document, findings, existing metadata identity,
 workflow state, folder list, and image hashes before checking the deterministic
@@ -247,7 +254,9 @@ flattened filename collision, unsupported entry, symlink, destination, and
 mount checks. Blocking errors disable confirmation and have no bypass. Optional
 SEO omissions, Draft publishing intent, prefix differences, and a new
 destination remain warnings where they do not conflict with the scanner
-contract. The proposal digest covers the Prepared workflow and tree identities,
+contract. Scanner-supported broader image reuse and explicit Parent preview
+fallback are also warnings, not blockers; exact, fallback, and missing variation
+counts remain distinct. The proposal digest covers the Prepared workflow and tree identities,
 metadata validation, catalogue-relative destination, current destination state,
 create/replace action, and whether replacement acknowledgement is required.
 

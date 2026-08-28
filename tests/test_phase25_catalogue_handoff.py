@@ -414,10 +414,12 @@ def test_discord_handoff_summary_is_single_bounded_and_uses_existing_channels(mo
         "result_name": "Holiday Cards", "catalogue_destination": "Holiday Cards", "handoff_action": "create",
         "collection_type": "Single Variable", "product_count": 1, "variation_count": 4,
         "total_images": 3, "warnings": 0, "duration_seconds": 1.2,
+        "exact_image_variations": 2, "fallback_image_variations": 2, "missing_image_variations": 0,
     }
     assert discord.notify_intake_handoff_completed(summary, operation_id="a" * 32) == (True, "sent")
     assert len(deliveries) == 1
     assert deliveries[0]["channels"] == ["scans_info"]
+    assert any(field["name"] == "Exact / fallback / missing" and field["value"] == "2 / 2 / 0" for field in deliveries[0]["embeds"][0]["fields"])
     encoded = json.dumps(deliveries[0])
     assert "/private/" not in encoded and "product_info.json" not in encoded
     deliveries.clear()
@@ -425,3 +427,78 @@ def test_discord_handoff_summary_is_single_bounded_and_uses_existing_channels(mo
     discord.notify_intake_handoff_completed(summary, operation_id="b" * 32)
     discord.notify_intake_handoff_failed("Holiday Cards", "controlled failure", operation_id="c" * 32)
     assert [item["channels"] for item in deliveries] == [["scans_errors"], ["scans_errors"]]
+
+
+def _replace_with_winter_fixture(prepared, *, image_attributes=("Style",), parent=False, images=True):
+    for entry in list(prepared.iterdir()):
+        if entry.is_dir():
+            shutil.rmtree(entry)
+    document = {
+        "collection_type": "Single Variable",
+        "title": "Fictional Winter Cards",
+        "sku_prefix": "FWC-",
+        "price": "12.00",
+        "categories": ["Cards"],
+        "tags": ["fictional"],
+        "live": False,
+        "attributes": {
+            "Style": ["Gnome", "Santa and his Elves", "Snowman"],
+            "Size": ["Small", "Large"],
+            "Direction": ["Ascending", "Descending"],
+        },
+        "image_attributes": list(image_attributes),
+    }
+    (prepared / "product_info.json").write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    for index, style in enumerate(document["attributes"]["Style"]):
+        (prepared / style).mkdir(parents=True, exist_ok=True)
+        if images:
+            _image(prepared / style / f"winter-{index}.jpg", (20 + index, 80, 120))
+    if parent:
+        _image(prepared / "Parent" / "parent.jpg", (30, 40, 50))
+    return document
+
+
+def test_gnome_style_only_handoff_is_ready_and_diagnostics_are_filtered(handoff_app):
+    app, intake, _catalogue, _output, prepared, _before = handoff_app
+    _replace_with_winter_fixture(prepared)
+    from app.intake_metadata_builder import metadata_preview
+    from app.image_preparation import rename_preview
+    with app.app_context():
+        metadata = metadata_preview(intake, "Prepared/Holiday Cards")
+        handoff = handoff_preview("Prepared/Holiday Cards")
+        compatibility = rename_preview(intake, "Prepared/Holiday Cards", "FWC")
+    assert metadata["ready"] and handoff["ready"] and compatibility["ready"]
+    assert metadata["analysis"]["image_health"] == {"exact": 12, "fallback": 0, "missing": 0}
+    assert handoff["counts"]["exact_image_variations"] == 12
+    assert compatibility["compatibility"]["image_health"] == metadata["analysis"]["image_health"]
+    assert {item["code"] for item in metadata["findings"]} == {
+        item["code"] for item in handoff["findings"] if item["code"] not in {"optional_meta_title", "optional_meta_description", "prepared_preserved", "new_destination"}
+    }
+    diagnostics = " ".join(item["message"] for item in handoff["findings"])
+    assert "product_info.json" not in diagnostics
+    assert "winter-0.jpg" not in diagnostics
+
+
+def test_style_level_scanner_fallback_allows_handoff_with_named_warning(handoff_app):
+    app, _intake, _catalogue, _output, prepared, _before = handoff_app
+    _replace_with_winter_fixture(prepared, image_attributes=("Style", "Direction"))
+    with app.app_context():
+        preview = handoff_preview("Prepared/Holiday Cards")
+    assert preview["ready"]
+    assert preview["counts"]["fallback_image_variations"] == 12
+    warning = next(item for item in preview["warnings"] if item["code"] == "image_fallback_broader")
+    assert "Gnome/" in warning["message"]
+    assert "Handoff remains allowed" in warning["message"]
+    assert not any(item["code"] == "unsupported_depth" for item in preview["blocking"])
+
+
+def test_parent_preview_fallback_allows_handoff_without_changing_ownership(handoff_app):
+    app, _intake, _catalogue, _output, prepared, _before = handoff_app
+    _replace_with_winter_fixture(prepared, parent=True, images=False)
+    with app.app_context():
+        preview = handoff_preview("Prepared/Holiday Cards")
+    assert preview["ready"]
+    assert preview["counts"]["parent_images"] == 1
+    assert preview["counts"]["variation_images"] == 0
+    assert preview["counts"]["fallback_image_variations"] == 12
+    assert any(item["code"] == "image_fallback_parent" for item in preview["warnings"])

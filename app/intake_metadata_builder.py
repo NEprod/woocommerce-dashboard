@@ -41,6 +41,7 @@ from app.intake_working_result import WorkingResultRecoveryRequired, replace_wor
 from app.models import CatalogueOperation
 from app.product_info import FIELD_INVENTORY, validate_product_info
 from app.utils.catalogue_paths import is_reserved_directory_name
+from app.utils.image_resolution import resolve_single_variable_image_layout
 from app.utils.operation_control import sanitize_operation_error
 
 
@@ -266,43 +267,22 @@ def _folder_analysis(snapshot, document):
     image_attributes = document.get("image_attributes") if isinstance(document.get("image_attributes"), list) else []
     collection_type = document.get("collection_type")
     findings = []
-    if len(parent_variants) > 1:
-        findings.append(_finding("duplicate_parent", "Multiple case variants of the reserved Parent directory are ambiguous."))
     if collection_type == "Single Variable":
-        if not image_attributes:
-            findings.append(_finding("image_attributes_required", "Single Variable folder validation requires ordered image attributes."))
-        for name in image_attributes:
-            if name not in attributes:
-                findings.append(_finding("unknown_image_attribute", f"Image attribute ‘{name}’ is not a defined attribute.", path="$.image_attributes"))
-        expected_depth = len(image_attributes)
-        unexplained = []
-        visible_combinations = set()
-        for image in snapshot["images"]:
-            parts = PurePosixPath(image["path"]).parts[:-1]
-            if parts and is_reserved_directory_name(parts[0]):
-                continue
-            if expected_depth and len(parts) != expected_depth:
-                unexplained.append(PurePosixPath(*parts).as_posix())
-            elif expected_depth:
-                visible_combinations.add(tuple(parts))
-        if unexplained:
-            findings.append(_finding("unsupported_depth", "Some image folders do not match the selected image-attribute depth.", state="warning"))
-        expected_values = [attributes.get(name, []) for name in image_attributes]
-        expected_count = 1
-        for values in expected_values:
-            expected_count *= len(values) if isinstance(values, list) else 0
-        visible_expected = set()
-        if expected_values and all(isinstance(values, list) for values in expected_values):
-            import itertools
-            visible_expected = set(itertools.product(*expected_values))
-        missing = visible_expected - visible_combinations
-        if missing:
-            findings.append(_finding("missing_variation_folders", f"{len(missing)} expected variation folder combination(s) have no images.", state="warning"))
-        unexplained_values = visible_combinations - visible_expected if visible_expected else set()
-        if unexplained_values:
-            findings.append(_finding("unexplained_folders", f"{len(unexplained_values)} visible image folder combination(s) are not explained by metadata.", state="warning"))
+        resolution = resolve_single_variable_image_layout(
+            document,
+            snapshot["folders"],
+            snapshot["images"],
+        )
+        findings.extend(resolution["findings"])
+        expected_count = resolution["expected_variations"]
+        visible_count = resolution["visible_variations"]
+        parent_variants = resolution["parent_folders"]
+        non_parent = resolution["product_folders"]
     else:
         expected_count = None
+        visible_count = None
+        if len(parent_variants) > 1:
+            findings.append(_finding("duplicate_parent", "Multiple case variants of the reserved Parent directory are ambiguous."))
     titles = []
     shared_title = str(document.get("title") or "").strip()
     if collection_type == "Variable Collection":
@@ -329,7 +309,9 @@ def _folder_analysis(snapshot, document):
         "parent_folders": parent_variants,
         "product_folders": non_parent,
         "expected_variations": expected_count,
-        "visible_variations": len(visible_combinations) if collection_type == "Single Variable" else None,
+        "visible_variations": visible_count,
+        "image_resolutions": resolution["resolutions"] if collection_type == "Single Variable" else [],
+        "image_health": resolution["image_health"] if collection_type == "Single Variable" else None,
         "title_previews": titles,
         "findings": findings,
     }
