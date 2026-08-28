@@ -231,8 +231,45 @@ verifies the prior result.
 The bounded operation is **Catalogue Intake — Save Metadata**. Logs do not retain
 the full JSON or descriptions. Terminal Discord delivery remains bounded and
 non-fatal. Success is **Metadata complete — validation required** and the next
-step is **Validate prepared collection**. Catalogue handoff and scanner actions
-remain unavailable.
+step is **Validate prepared collection**.
+
+## Final validation and catalogue handoff
+
+Authenticated routes below `/image-preparation/handoff` accept only a direct
+Prepared result whose latest durable workflow state is **Metadata complete —
+validation required**. A completed result shows **Review Handoff**; repeating a
+handoff requires an explicit fresh validation and confirmation. Readiness is
+never inferred from a folder name.
+
+Final validation combines the existing metadata/schema and folder checks with a
+complete safe-tree identity, image readability, case/Unicode ambiguity,
+flattened filename collision, unsupported entry, symlink, destination, and
+mount checks. Blocking errors disable confirmation and have no bypass. Optional
+SEO omissions, Draft publishing intent, prefix differences, and a new
+destination remain warnings where they do not conflict with the scanner
+contract. The proposal digest covers the Prepared workflow and tree identities,
+metadata validation, catalogue-relative destination, current destination state,
+create/replace action, and whether replacement acknowledgement is required.
+
+Confirmation re-resolves and revalidates everything server-side. Lock order is
+the existing catalogue/scanner operation lock followed by the Intake mutation
+lock. The complete Prepared tree is copied byte-for-byte into operation-owned
+hidden staging beneath the configured catalogue mount and verified before any
+final destination appears. Existing destinations are never merged: after
+verified staging they move to protected rollback, the staged tree promotes with
+the existing no-replace/FUSE-compatible helper, and the promoted tree is
+verified before rollback removal. A promotion or verification failure restores
+and verifies the original destination; unresolved restoration retains a
+controlled recovery state.
+
+The Prepared result is never moved, renamed, rewritten, or deleted. Successful
+operation history records **Catalogue handoff complete**, completion time,
+catalogue-relative destination, create/replace action, bounded counts and
+digests, verification and rollback state, and the next step **Run Append Scan**.
+No scanner is invoked, no marker or SKU is created, no SQLite catalogue
+projection changes, and `/output` remains untouched. One bounded terminal
+Discord summary reuses scanner-information for clean success and scanner-errors
+for warning completion or failure; Discord delivery remains non-fatal.
 
 ## Determinism and limits
 
@@ -246,7 +283,7 @@ One preview is bounded to 5,000 valid images. Image validation is cached by safe
 source identity, size, and modification time. Per-file preview data remains
 request-scoped and does not grow SQLite.
 
-## Future milestones
+## Workflow boundary
 
-Final prepared-layout validation, catalogue handoff, and scanning remain
-separately gated. Metadata-complete results are not labelled catalogue-ready.
+Catalogue handoff is complete but scanning remains separately gated. A handoff
+copies source material only; the user must start Append Scan manually.

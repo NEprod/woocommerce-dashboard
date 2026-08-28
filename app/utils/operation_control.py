@@ -21,6 +21,7 @@ ALLOWED_OPERATION_TYPES = {
     "shared_collection_update",
     "full",
     "reconstruction",
+    "intake_catalogue_handoff",
 }
 FINAL_STATUSES = {"succeeded", "partial", "failed", "interrupted"}
 

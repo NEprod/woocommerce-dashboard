@@ -69,8 +69,12 @@ layer. Previews remain read-only. Confirmed grouping requires the mount to be
 writable and writes only private operation-owned staging and verified results
 below `/intake/Prepared/`; sources are not modified. Folder editing, image
 renaming, and Prepared `product_info.json` save reuse hidden same-mount staging
-and rollback while retaining the visible result name. No Intake step writes to
-the container layer, `/catalogue`, `/output`, or `/app/instance`. See
+and rollback while retaining the visible result name. Final handoff is the only
+Intake step that writes `/catalogue`: it copies the verified Prepared collection
+through operation-owned `.woocommerce-dashboard-staging`, uses
+`.woocommerce-dashboard-rollback` only for safe replacement, and removes those
+owned paths after verified success. It never writes `/output`, the container
+layer, or scanner projection state. See
 [Catalogue Intake](CATALOGUE_INTAKE.md).
 
 Prepared-result promotion supports ordinary Unraid/FUSE bind mounts. It prefers

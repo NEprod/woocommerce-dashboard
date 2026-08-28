@@ -27,8 +27,10 @@
   result and adds deterministic, two-stage, byte-preserving image renaming with
   conservative lineage-proven predecessor cleanup. Milestone 6 adds guided and
   Advanced JSON authoring, exact preview, folder-aware validation, and
-  rollback-protected same-name `product_info.json` saving. Catalogue handoff and
-  final validation remain later work.
+  rollback-protected same-name `product_info.json` saving. Milestone 7 adds
+  complete scanner-aware validation and a digest-protected, copy-only catalogue
+  handoff using hidden staging, safe replacement rollback, preserved Prepared
+  source, and an explicitly separate manual Append Scan.
 - **Phase 3 — Read-only WooCommerce mapping and comparison:** planned.
 - **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.

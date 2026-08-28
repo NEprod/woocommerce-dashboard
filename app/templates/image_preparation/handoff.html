@@ -1,0 +1,13 @@
+{% extends 'layouts/base.html' %}
+{% from 'image_preparation/_shared.html' import readiness_panel %}
+{% block title %}Catalogue Handoff{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ url_for('main.image_preparation') }}">Catalogue Intake</a><span aria-hidden="true">/</span><span aria-current="page">Catalogue handoff</span></nav>
+<header class="page-header intake-page-header"><div><p class="eyebrow">Final preparation step</p><h1>Catalogue Handoff</h1><p>Validate a metadata-complete Prepared result and copy it safely into the live catalogue. No scan starts automatically.</p></div><a class="btn btn-ghost" href="{{ url_for('main.image_preparation_metadata') }}">Product metadata</a></header>
+{{ readiness_panel(readiness) }}
+{% if intake_error %}<div class="alert alert-danger" role="alert">{{ intake_error }}</div>{% endif %}
+<section class="workspace-panel" aria-labelledby="handoff-results-heading"><div class="panel-heading"><div><p class="eyebrow">Durable workflow state</p><h2 id="handoff-results-heading">Eligible Prepared results</h2></div><span class="status-badge">{{ eligible_results|length }} available</span></div>
+{% if eligible_results %}<div class="intake-folder-list" role="list" aria-label="Eligible catalogue handoff results">{% for result in eligible_results %}{% if result.workflow_status == 'catalogue_handoff_complete' %}<a class="intake-folder-row" role="listitem" href="{{ url_for('main.image_preparation_handoff_review', path=result.path) }}"><span><strong>{{ result.name }}</strong><small>{{ result.path }} · Catalogue handoff complete</small></span><span>Review Handoff</span></a>{% else %}<form class="intake-folder-row" method="post" action="{{ url_for('main.image_preparation_handoff_preview') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="path" value="{{ result.path }}"><span><strong>{{ result.name }}</strong><small>{{ result.path }} · Metadata complete — validation required</small></span><button class="btn btn-dark" type="submit">Validate and Copy to Catalogue</button></form>{% endif %}{% endfor %}</div>{% else %}<div class="empty-state compact"><h3>No eligible results</h3><p>Complete Prepared metadata before final validation and catalogue handoff.</p></div>{% endif %}
+</section>
+<section class="workspace-panel panel-dark" aria-labelledby="handoff-boundary-heading"><p class="eyebrow">Manual boundary</p><h2 id="handoff-boundary-heading">Append Scan remains separate</h2><p>This workspace copies verified source files only. It never invokes the scanner, creates markers, allocates SKUs, or updates catalogue projections.</p></section>
+{% endblock %}

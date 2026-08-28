@@ -53,9 +53,14 @@ grouping revalidates its preview, copies unchanged images through hidden private
 staging, and promotes a verified duplicate-safe provisional result below
 `/intake/Prepared/`. Later folder, image, and metadata steps advance that same
 visible result through hidden staging and rollback. Metadata save creates or
-updates only root `product_info.json`; it does not alter loose sources, transfer
-anything into the catalogue, or invoke the scanner. Read/write mode is required
-for confirmed operations; read-only mounts still permit previews. See
+updates only root `product_info.json`; it does not alter loose sources or invoke
+the scanner. The explicitly confirmed final handoff copies the complete verified
+Prepared result into hidden staging beneath `/catalogue`, then creates or safely
+replaces exactly one collection using protected rollback. Prepared remains
+unchanged and Append Scan remains a separate manual action. Both `/intake` and
+`/catalogue` must be genuine readable mounts; catalogue handoff additionally
+requires `/catalogue` to be writable. Read/write mode is required for confirmed
+operations; read-only mounts still permit previews where practical. See
 [Catalogue Intake](CATALOGUE_INTAKE.md).
 
 Unraid user shares may reject Linux `RENAME_NOREPLACE` with `EINVAL`. The

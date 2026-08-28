@@ -79,6 +79,18 @@ class IntakeOperationLease:
     lock_fd: int
 
 
+@dataclass(frozen=True)
+class IntakeMutationGuard:
+    """Filesystem/process lock used by a catalogue handoff operation.
+
+    Catalogue handoff owns its operation row through the catalogue-operation
+    lock.  This guard deliberately does not create a second operation record.
+    Lock order is always catalogue operation first, then Intake mutation.
+    """
+
+    lock_fd: int
+
+
 def _utcnow():
     return datetime.now(UTC).replace(tzinfo=None)
 
@@ -167,6 +179,49 @@ def acquire_intake_operation(scope, *, operation_type=INTAKE_OPERATION_TYPE) -> 
             os.close(fd)
         _process_lock.release()
         raise
+
+
+def acquire_intake_mutation_guard() -> IntakeMutationGuard:
+    """Acquire Intake mutation exclusion without creating an operation row."""
+
+    if not _process_lock.acquire(blocking=False):
+        raise IntakeOperationActive(get_active_intake_operation() or {"id": "unknown"})
+    fd = None
+    try:
+        path = _lock_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise IntakeOperationActive(get_active_intake_operation() or {"id": "unknown"}) from error
+        existing = (
+            CatalogueOperation.query.filter(CatalogueOperation.operation_type.in_(INTAKE_OPERATION_TYPES))
+            .filter(CatalogueOperation.status.in_({"running", "pending"}))
+            .order_by(CatalogueOperation.started_at.asc())
+            .first()
+        )
+        if existing:
+            raise IntakeOperationActive({"id": existing.id, "operation_type": existing.operation_type})
+        return IntakeMutationGuard(fd)
+    except Exception:
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+            os.close(fd)
+        _process_lock.release()
+        raise
+
+
+def release_intake_mutation_guard(guard: IntakeMutationGuard) -> None:
+    try:
+        fcntl.flock(guard.lock_fd, fcntl.LOCK_UN)
+    finally:
+        os.close(guard.lock_fd)
+        if _process_lock.locked():
+            _process_lock.release()
 
 
 def finish_intake_operation(lease, *, status, error=None, summary=None):

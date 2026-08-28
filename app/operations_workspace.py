@@ -29,6 +29,7 @@ TYPE_LABELS = {
     "intake_folder_edit": "Catalogue Intake — Edit Folder Structure",
     "intake_image_rename": "Catalogue Intake — Rename Images",
     "intake_metadata_save": "Catalogue Intake — Save Metadata",
+    "intake_catalogue_handoff": "Catalogue Intake — Catalogue Handoff",
 }
 SCAN_MODES = (
     {
@@ -281,7 +282,7 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
         timeline.append({"label": view["status_label"], "state": "error" if row.status == "failed" else "complete", "at": row.finished_at})
     retry_mode = {"append": "append", "product_update": "update", "full": "full"}.get(row.operation_type)
     intake = None
-    if row.operation_type in {"intake_group", "intake_folder_edit", "intake_image_rename", "intake_metadata_save"}:
+    if row.operation_type in {"intake_group", "intake_folder_edit", "intake_image_rename", "intake_metadata_save", "intake_catalogue_handoff"}:
         summary = view.get("summary") or {}
         prepared_relpath = summary.get("prepared_relpath")
         groups = []
@@ -314,6 +315,7 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             "is_folder_edit": row.operation_type == "intake_folder_edit",
             "is_image_rename": row.operation_type == "intake_image_rename",
             "is_metadata_save": row.operation_type == "intake_metadata_save",
+            "is_handoff": row.operation_type == "intake_catalogue_handoff",
             "source_relpath": view["scope"].get("source_relpath"),
             "prepared_relpath": prepared_relpath,
             "prepared_url": prepared_url,
@@ -341,7 +343,9 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             "predecessor_relpath": summary.get("predecessor_relpath"),
             "predecessor_cleanup": summary.get("predecessor_cleanup"),
             "retry_url": (
-                url_for("main.image_preparation_folders_edit", path=view["scope"].get("source_relpath"))
+                url_for("main.image_preparation_handoff", path=view["scope"].get("source_relpath"))
+                if row.operation_type == "intake_catalogue_handoff" and view["scope"].get("source_relpath")
+                else url_for("main.image_preparation_folders_edit", path=view["scope"].get("source_relpath"))
                 if row.operation_type == "intake_folder_edit" and view["scope"].get("source_relpath")
                 else url_for("main.image_preparation_rename", path=view["scope"].get("source_relpath"))
                 if row.operation_type == "intake_image_rename" and view["scope"].get("source_relpath")
@@ -355,6 +359,13 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             "rename_preview_url": url_for("main.image_preparation_rename", path=prepared_relpath) if row.operation_type == "intake_folder_edit" and prepared_relpath else None,
             "metadata_next": row.operation_type == "intake_image_rename" and summary.get("workflow_status") == "metadata_required",
             "metadata_editor_url": url_for("main.image_preparation_metadata_edit", path=prepared_relpath) if row.operation_type in {"intake_image_rename", "intake_metadata_save"} and prepared_relpath else None,
+            "handoff_review_url": url_for("main.image_preparation_handoff_review", path=prepared_relpath) if row.operation_type == "intake_catalogue_handoff" and prepared_relpath else None,
+            "catalogue_destination": summary.get("catalogue_destination"),
+            "handoff_action": summary.get("handoff_action"),
+            "completion_time": summary.get("completion_time"),
+            "staged_verification": summary.get("staged_verification"),
+            "promoted_verification": summary.get("promoted_verification"),
+            "next_step": summary.get("next_step"),
         }
     return {
         "operation": view, "items": item_views,

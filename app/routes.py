@@ -569,6 +569,105 @@ def image_preparation_metadata_confirm():
     return redirect(url_for("main.operation_detail", operation_id=operation_id))
 
 
+@main.route("/image-preparation/handoff")
+@login_required
+def image_preparation_handoff():
+    from app.intake_handoff import eligible_handoff_results
+
+    readiness = intake_readiness()
+    error = None
+    try:
+        results = eligible_handoff_results(configured_intake_root()) if readiness["readable"] else []
+    except (OSError, ValueError):
+        results = []
+        error = "No safe metadata-complete Prepared results are available."
+    return render_template(
+        "image_preparation/handoff.html",
+        readiness=readiness,
+        eligible_results=results,
+        intake_error=error,
+    ), (400 if error else 200)
+
+
+@main.route("/image-preparation/handoff/review")
+@login_required
+def image_preparation_handoff_review():
+    from app.intake_handoff import HandoffRejected, handoff_preview, handoff_review
+
+    relative = request.args.get("path", "")[:1024]
+    fresh = request.args.get("fresh") == "1"
+    try:
+        if fresh:
+            return render_template("image_preparation/handoff_review.html", preview=handoff_preview(relative, fresh_review=True), intake_error=None)
+        return render_template("image_preparation/handoff_history.html", review=handoff_review(relative), intake_error=None)
+    except (OSError, ValueError, HandoffRejected) as error:
+        return render_template("image_preparation/handoff_review.html", preview=None, intake_error=str(error)), 400
+
+
+@main.route("/image-preparation/handoff/catalogue")
+@login_required
+def image_preparation_handoff_catalogue():
+    """Open only a destination proven by completed handoff history."""
+
+    from app.intake_handoff import HandoffRejected, handoff_review
+
+    relative = request.args.get("path", "")[:1024]
+    try:
+        review = handoff_review(relative)
+        if not review["destination_exists"]:
+            raise HandoffRejected("The recorded catalogue destination is not currently available")
+        return render_template("image_preparation/handoff_history.html", review=review, intake_error=None, catalogue_open=True)
+    except (OSError, ValueError, HandoffRejected) as error:
+        return render_template("image_preparation/handoff_history.html", review=None, intake_error=str(error), catalogue_open=True), 404
+
+
+@main.route("/image-preparation/handoff/preview", methods=["POST"])
+@login_required
+def image_preparation_handoff_preview():
+    from app.intake_handoff import HandoffRejected, handoff_preview
+
+    relative = request.form.get("path", "")[:1024]
+    fresh = request.form.get("fresh_review") == "yes"
+    try:
+        preview = handoff_preview(relative, fresh_review=fresh)
+        return render_template("image_preparation/handoff_review.html", preview=preview, intake_error=None)
+    except (OSError, ValueError, HandoffRejected) as error:
+        return render_template("image_preparation/handoff_review.html", preview=None, intake_error=str(error)), 400
+
+
+@main.route("/image-preparation/handoff/confirm", methods=["POST"])
+@login_required
+def image_preparation_handoff_confirm():
+    from app.intake_handoff import HandoffRejected, start_handoff_operation
+    from app.intake_grouping import IntakeOperationActive
+    from app.utils.operation_control import CatalogueOperationActive
+
+    relative = request.form.get("path", "")[:1024]
+    digest = request.form.get("digest", "")[:128]
+    fresh = request.form.get("fresh_review") == "yes"
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        flash("The handoff proposal is invalid. Generate a fresh review.", "danger")
+        return redirect(url_for("main.image_preparation_handoff"))
+    try:
+        operation_id = start_handoff_operation(
+            current_app._get_current_object(), relative, digest,
+            fresh_review=fresh,
+            acknowledge=request.form.get("acknowledge") == "yes",
+            acknowledge_replace=request.form.get("acknowledge_replace") == "yes",
+        )
+    except (ValueError, HandoffRejected) as error:
+        flash(str(error), "danger")
+        return redirect(url_for("main.image_preparation_handoff_review", path=relative, fresh="1" if fresh else None))
+    except (CatalogueOperationActive, IntakeOperationActive) as error:
+        active = getattr(error, "active", {}) or {}
+        operation_id = str(active.get("id") or "")
+        flash("A catalogue or Catalogue Intake operation is already running.", "warning")
+        if re.fullmatch(r"[0-9a-f]{32}", operation_id):
+            return redirect(url_for("main.operation_detail", operation_id=operation_id))
+        return redirect(url_for("main.image_preparation_handoff"))
+    return redirect(url_for("main.operation_detail", operation_id=operation_id))
+
+
 @main.route("/intake-images/<token>")
 @login_required
 def intake_image(token):

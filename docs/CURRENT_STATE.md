@@ -78,8 +78,17 @@ Advanced JSON modes, preserves unknown authored content, and validates folder
 hierarchy without invoking the scanner. Save uses deterministic digest
 revalidation, the shared Intake lock, hidden staging, atomic metadata writing,
 unchanged image/tree verification, and rollback-protected same-name promotion.
-The terminal status is **Metadata complete — validation required**. Complete
-collection validation, catalogue handoff, and scanning remain unavailable.
+The terminal status is **Metadata complete — validation required**.
+
+Final validation and catalogue handoff now revalidate the complete Prepared
+tree, metadata, image readability and scanner-facing hierarchy, show the exact
+catalogue-relative create/replace destination, and require explicit
+acknowledgement. The existing catalogue/scanner lock is acquired before the
+Intake mutation lock. A byte-identical copy is verified in hidden catalogue
+staging; replacement uses protected rollback and no merge. The Prepared result
+remains unchanged. Success records **Catalogue handoff complete** and directs
+the user to **Run Append Scan** manually. No scan, marker, SKU allocation,
+database projection, output write, conversion, or upload occurs.
 See [Catalogue Intake](CATALOGUE_INTAKE.md).
 
 ## Scanner modes

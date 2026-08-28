@@ -412,6 +412,44 @@ def notify_intake_metadata_failed(result_name, error_text, *, operation_id):
     return send_discord_message(embeds=[embed], channels=["scans_errors"])
 
 
+def notify_intake_handoff_completed(summary, *, operation_id):
+    """Send one bounded terminal catalogue handoff summary."""
+
+    warning_count = max(0, int(summary.get("warnings", 0) or 0))
+    fields = [
+        {"name": "Prepared result", "value": _truncate(summary.get("result_name")), "inline": True},
+        {"name": "Catalogue destination", "value": _truncate(summary.get("catalogue_destination")), "inline": True},
+        {"name": "Action", "value": _truncate(summary.get("handoff_action")), "inline": True},
+        {"name": "Collection type", "value": _truncate(summary.get("collection_type")), "inline": True},
+        {"name": "Products / variations", "value": f"{int(summary.get('product_count', 0) or 0)} / {int(summary.get('variation_count', 0) or 0)}", "inline": True},
+        {"name": "Images", "value": str(max(0, int(summary.get("total_images", 0) or 0))), "inline": True},
+        {"name": "Warnings", "value": str(warning_count), "inline": True},
+        {"name": "Duration", "value": f"{float(summary.get('duration_seconds', 0) or 0):.1f}s", "inline": True},
+        {"name": "Next step", "value": "Run Append Scan", "inline": False},
+    ]
+    embed = build_embed(
+        "Catalogue Handoff Completed with Warnings" if warning_count else "Catalogue Handoff Completed",
+        f"Operation: `{_truncate(operation_id)}`\nThe verified Prepared collection was copied safely. No scan was started.",
+        COLORS["warn"] if warning_count else COLORS["success"],
+        fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_errors" if warning_count else "scans_info"])
+
+
+def notify_intake_handoff_failed(result_name, error_text, *, operation_id):
+    fields = [
+        {"name": "Prepared result", "value": _truncate(result_name), "inline": True},
+        {"name": "Operation", "value": f"`{_truncate(operation_id)}`", "inline": True},
+    ]
+    embed = build_embed(
+        "Catalogue Handoff Failed",
+        f"No unverified partial destination was retained.\nError: `{_truncate(error_text)}`",
+        COLORS["error"],
+        fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_errors"])
+
+
 def notify_editor_saved(kind, sku, path=None, *, collection=None, affected=None):
     fields = [{"name": "Kind", "value": kind, "inline": True}, {"name": "SKU", "value": sku, "inline": True}]
     if collection:
