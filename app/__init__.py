@@ -13,12 +13,16 @@ csrf = CSRFProtect()
 
 
 def create_app():
+    from .security import validate_secret_key
+
+    secret_key = validate_secret_key()
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_object(Config)
+    app.config["SECRET_KEY"] = secret_key
 
     app.config["DISCORD_WEBHOOK_URL"] = os.getenv("DISCORD_WEBHOOK_URL", "")
     app.config["DISCORD_ENABLED"] = (
-        os.getenv("DISCORD_ENABLED", "true").lower() == "true"
+        os.getenv("DISCORD_ENABLED", "false").lower() == "true"
     )
     app.config["DISCORD_USERNAME"] = os.getenv("DISCORD_USERNAME", "Woo Scanner")
     app.config["DISCORD_AVATAR_URL"] = os.getenv("DISCORD_AVATAR_URL", "")

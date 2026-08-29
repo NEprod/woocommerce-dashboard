@@ -87,7 +87,17 @@ def test_unraid_template_has_safe_supported_contract():
     assert configs["SECRET_KEY"].attrib["Default"] == ""
     assert configs["SECRET_KEY"].attrib["Required"] == "true"
     assert configs["SECRET_KEY"].attrib["Mask"] == "true"
-    assert configs["DISCORD_ENABLED"].attrib["Default"] == "false"
+    configs_by_target = {node.attrib["Target"]: node for node in root.findall("Config")}
+    assert configs_by_target["DISCORD_ENABLED"].attrib["Default"] == "false"
+    assert configs_by_target["DISCORD_ENABLED"].attrib["Required"] == "false"
+    discord_targets = {
+        "DISCORD_DEFAULT_USERNAME", "DISCORD_DEFAULT_AVATAR_URL",
+        "DISCORD_WEBHOOK_SCANS_INFO", "DISCORD_WEBHOOK_SCANS_ERRORS",
+        "DISCORD_WEBHOOK_EDITS", "DISCORD_WEBHOOK_OVERRIDES", "DISCORD_WEBHOOK_INGEST",
+    }
+    assert discord_targets <= configs_by_target.keys()
+    for target in {value for value in discord_targets if "WEBHOOK" in value}:
+        assert configs_by_target[target].attrib["Mask"] == "true"
     xml_text = TEMPLATE.read_text(encoding="utf-8")
     assert "/Users/" not in xml_text
     assert "/mnt/user/appdata/woocommerce-dashboard/instance" in xml_text

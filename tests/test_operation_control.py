@@ -1,3 +1,4 @@
+import json
 import time
 
 import pytest
@@ -221,10 +222,11 @@ def test_full_scan_history_records_explicit_authoritative_scope(
     with operation_app.app_context():
         row = db.session.get(CatalogueOperation, operation_id)
         assert row.operation_type == "full"
-        assert row.scope == (
-            '{"exhaustive": true, "scan_mode": "full", '
-            '"scope_kind": "catalogue"}'
-        )
+        scope = json.loads(row.scope)
+        assert {key: scope[key] for key in ("exhaustive", "scan_mode", "scope_kind")} == {
+            "exhaustive": True, "scan_mode": "full", "scope_kind": "catalogue",
+        }
+        assert scope["live_state"]["stage"] == "queued"
         finish_catalogue_operation(operation_id, status="succeeded")
 
 
@@ -267,7 +269,9 @@ def test_notification_exception_does_not_leak_operation_lock(
     while get_progress(run_id)["status"] == "running" and time.monotonic() < deadline:
         time.sleep(0.01)
 
-    assert get_progress(run_id)["status"] == "done"
+    progress = get_progress(run_id)
+    assert progress["status"] == "done"
+    assert progress["counts"]["warnings"] == 0
     with operation_app.app_context():
         row = CatalogueOperation.query.one()
         assert row.status == "succeeded"

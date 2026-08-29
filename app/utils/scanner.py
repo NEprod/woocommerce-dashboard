@@ -19,6 +19,7 @@ from .file_markers import (
 )
 from .image_tools import process_images, get_image_csv_urls
 from .csv_writer import build_simple_product, build_variable_parent, build_variation_row
+from .catalogue_paths import find_reserved_directory, is_reserved_directory_name
 
 """
 scanner.py
@@ -201,28 +202,10 @@ def scan_simple_product(
     # Load override product_info.json (if it exists), and merge with collection-level shared_data
     try:
         override_data = load_json(os.path.join(folder, "product_info.json"))
-        merged = merge_product_json(shared_data, override_data)
+        merged = merge_product_json(shared_data, override_data, path=folder)
     except Exception as e:
         log(f"❌ Failed to load JSON for {folder}: {str(e)}", level="ERROR")
         return []
-
-    folder_name = os.path.basename(folder)
-
-    # If no specific title override, build a fallback using folder name and collection title
-    if "title" not in override_data:
-        shared_title = shared_data.get("title")
-        if shared_title:
-            merged["title"] = f"{folder_name} - {shared_title}"
-            log(
-                f"ℹ️ No override title found. Using fallback title: '{merged['title']}'",
-                level="INFO",
-            )
-        else:
-            merged["title"] = folder_name
-            log(
-                f"ℹ️ No override or shared title found. Using folder name as title: '{folder_name}'",
-                level="INFO",
-            )
 
     # Validate required fields and normalize format
     merged = validate_json(merged)
@@ -323,28 +306,10 @@ def scan_variable_product(
     # Load override product_info.json (if it exists), and merge with collection-level shared_data
     try:
         override_data = load_json(os.path.join(folder, "product_info.json"))
-        merged = merge_product_json(shared_data, override_data)
+        merged = merge_product_json(shared_data, override_data, path=folder)
     except Exception as e:
         log(f"❌ Failed to load JSON for {folder}: {str(e)}", level="ERROR")
         return []
-
-    folder_name = os.path.basename(folder)
-
-    # If no specific title override, build a fallback using folder name and collection title
-    if "title" not in override_data:
-        shared_title = shared_data.get("title")
-        if shared_title:
-            merged["title"] = f"{folder_name} - {shared_title}"
-            log(
-                f"ℹ️ No override title found. Using fallback title: '{merged['title']}'",
-                level="INFO",
-            )
-        else:
-            merged["title"] = folder_name
-            log(
-                f"ℹ️ No override or shared title found. Using folder name as title: '{folder_name}'",
-                level="INFO",
-            )
 
     # Validate and normalize the combined data
     merged = validate_json(merged)
@@ -488,7 +453,7 @@ def scan_single_variable(
         return []
 
     # Normalize and validate all data fields
-    merged = validate_json(shared_data)
+    merged = validate_json(merge_product_json(shared_data, {}, path=base_folder))
     merged["source_folder"] = base_folder
 
     # Load existing scan data if in update mode
@@ -530,26 +495,27 @@ def scan_single_variable(
     all_rows = []
 
     folder_name = os.path.basename(base_folder)
-    shared_title = merged.get("title")
-
-    # Construct a fallback title if not defined explicitly
-    if shared_title and folder_name:
-        merged["title"] = f"{folder_name} - {shared_title}"
-    elif not shared_title and folder_name:
-        merged["title"] = folder_name
 
     parent_title = merged.get("title") or folder_name
 
     # image fallback if no images in parent folder adds images from style to parent
-    parent_folder = os.path.join(base_folder, "parent")
-    if os.path.exists(parent_folder):
-        log("🖼️ Using 'parent/' folder for parent images", level="INFO")
-        parent_image_names = process_images(parent_folder, image_output_folder, log=log)
+    parent_directory = find_reserved_directory(base_folder)
+    if parent_directory is not None:
+        parent_folder = str(parent_directory)
+        log(
+            f"🖼️ Using '{parent_directory.name}/' folder for parent images",
+            level="INFO",
+        )
+        parent_image_names = process_images(
+            parent_folder, image_output_folder, log=log, deterministic=True
+        )
     else:
         fallback_style = attr_map[image_attrs[0]][0]
         parent_folder = os.path.join(base_folder, fallback_style)
         log(f"🖼️ Using '{fallback_style}' for parent images", level="WARN")
-        parent_image_names = process_images(parent_folder, image_output_folder, log=log)
+        parent_image_names = process_images(
+            parent_folder, image_output_folder, log=log, deterministic=True
+        )
 
     parent_image_urls = get_image_csv_urls(parent_image_names, url_prefix)
     all_rows.append(build_variable_parent(merged, parent_image_urls))
@@ -569,8 +535,15 @@ def scan_single_variable(
     # fallback to style if variation images are missing
     for i, v_attrs in enumerate(variations):
         log(f"🔎 Resolving image path for {v_attrs} → {base_folder}", level="WARN")
-        base_path = os.path.join(base_folder, v_attrs[image_attrs[0]])
-        style_images = process_images(base_path, image_output_folder, log=log)
+        first_image_value = v_attrs[image_attrs[0]]
+        if is_reserved_directory_name(first_image_value):
+            raise ValueError(
+                "The first image attribute contains the reserved 'parent' directory name"
+            )
+        base_path = os.path.join(base_folder, first_image_value)
+        style_images = process_images(
+            base_path, image_output_folder, log=log, deterministic=True
+        )
 
         for attr in image_attrs[1:]:
             if attr in v_attrs:
@@ -578,7 +551,10 @@ def scan_single_variable(
                 if os.path.exists(sub_path):
                     log(f"   ↳ Adding images from: {sub_path}")
                     extra_images = process_images(
-                        sub_path, image_output_folder, log=log
+                        sub_path,
+                        image_output_folder,
+                        log=log,
+                        deterministic=True,
                     )
                     style_images.extend(extra_images)
 
@@ -601,7 +577,9 @@ def scan_single_variable(
             override_sku=v_sku,
         )
         all_rows.append(row)
-        resolved_variations.append({"attributes": v_attrs, "sku": v_sku})
+        resolved_variations.append(
+            {"attributes": v_attrs, "sku": v_sku, "images_used": style_images}
+        )
 
     # Save .scanned data with variation count
     if not preserve_existing_marker or not (

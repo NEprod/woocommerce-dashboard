@@ -12,16 +12,15 @@ COPY requirements.txt ./
 RUN apt-get update && \
     apt-get install --yes --no-install-recommends gosu && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install --no-cache-dir --requirement requirements.txt
+    pip install --no-cache-dir --requirement requirements.txt && \
+    rm -rf /var/log/apt/* /var/log/dpkg.log /var/log/alternatives.log
 
-COPY --chown=app:app app ./app
-COPY --chown=app:app migrations ./migrations
-COPY --chown=app:app config.py run.py ./
+COPY --chown=root:root --chmod=0555 app ./app
+COPY --chown=root:root --chmod=0555 migrations ./migrations
+COPY --chown=root:root --chmod=0444 config.py run.py ./
 COPY --chown=root:root docker/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN mkdir -p /app/instance /catalogue /output && \
-    chown -R root:root /app/app /app/migrations /app/config.py /app/run.py && \
-    chmod -R a+rX /app/app /app/migrations /app/config.py /app/run.py && \
     chown -R app:app /app/instance /catalogue /output && \
     chmod 0755 /usr/local/bin/docker-entrypoint.sh
 

@@ -50,7 +50,7 @@ def crop_to_square(image):
     bottom = top + side
     return image.crop((left, top, right, bottom))
 
-def process_images(source_folder, output_folder, log=print):
+def process_images(source_folder, output_folder, log=print, *, deterministic=False):
     """
     Processes all supported images in a folder:
     - Crops to square
@@ -66,7 +66,10 @@ def process_images(source_folder, output_folder, log=print):
     """
 
     processed_files = []
-    for filename in os.listdir(source_folder):
+    filenames = os.listdir(source_folder)
+    if deterministic:
+        filenames = sorted(filenames, key=lambda value: (value.casefold(), value))
+    for filename in filenames:
         if filename.startswith("._"):
             log(f"⏭️ Skipped macOS hidden file: {filename}", level="INFO")
             continue

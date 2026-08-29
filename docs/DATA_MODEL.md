@@ -46,13 +46,20 @@ Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the P
 - `Product`: resolved parent identity, collection relationship, complete emitted row JSON, normalized commercial/content/publication/SEO fields, portable and runtime provenance, and future Woo sync fields.
 - `ProductAttribute`: emitted parent attribute definitions, values, visibility/global flags, and position.
 - `Variation`: child of Product with complete emitted row JSON, portable source provenance, canonical emitted-attribute identity, normalized SKU/price/dimension/image fields, lifecycle state, and future Woo fields.
-- `ProductImage` / `VariationImage`: ordered image URL galleries.
+- `ProductImage` / `VariationImage`: ordered Woo-facing image URL galleries.
+- `ProductAsset(kind="image")`: portable catalogue-relative source identity for
+  scanner-owned parent and variation images. The absolute `path` remains a
+  runtime locator; `source_relpath` is the portable identity. Image assets never
+  point into the generated output directory and never contain image binaries.
+  They contain references, not binary data. UI image display resolves those
+  hints against each row's portable catalogue source provenance; mounted source
+  files remain authoritative when upload extensions or filenames differ.
 - `VariationAttribute`: resolved name/value pairs.
 - `ProductAsset`: local filesystem paths, actively used for shared and override JSON.
 - `Category`, `Tag`, and association tables: emitted parent taxonomy membership.
 - `Service`: dormant hosting/domain-oriented model.
 
-Collection → Product → Variation is active and populated by normal ingestion. `source_relpath` and the JSON `*_relpath` columns are POSIX-style paths relative to `Settings.product_folder`; these are portable across host/container mount changes. Legacy `root_path`, `product_dir`, JSON path, and `ProductAsset.path` values remain absolute runtime locators for existing filesystem behavior.
+Collection → Product → Variation is active and populated by normal ingestion. `source_relpath` and the JSON `*_relpath` columns are POSIX-style paths relative to `Settings.product_folder`; these are portable across host/container mount changes. Legacy `root_path`, `product_dir`, JSON path, and `ProductAsset.path` values remain absolute runtime locators for existing filesystem behaviour.
 
 `resolved_row_json` is the lossless boundary for every key/value actually emitted by the protected row builder, including blank values and characterized discrepancies. Normalized columns are the query surface and do not invent values that the scanner failed to emit.
 

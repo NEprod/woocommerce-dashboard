@@ -1,0 +1,133 @@
+{% extends "layouts/base.html" %}
+{% from 'includes/icons.html' import icon %}
+{% block title %}{{ workspace.product.title }}{% endblock %}
+{% block content %}
+{% set product = workspace.product %}
+<nav class="workspace-breadcrumb" aria-label="Breadcrumb">
+  <a href="{{ url_for('main.products') }}">Catalogue</a><span aria-hidden="true">/</span><span>Products</span><span aria-hidden="true">/</span><span aria-current="page">{{ product.title }}</span>
+</nav>
+
+<header class="page-header metadata-page-header">
+  <div>
+    <p class="eyebrow">Resolved catalogue workspace</p>
+    <h1 class="page-title">{{ product.title }}</h1>
+    <p class="page-lede">Review the read-only scanner projection, its authoritative metadata sources, and product-owned images.</p>
+  </div>
+  <div class="page-actions">
+    {% if product.collection_id %}<a class="btn btn-outline-primary" href="{{ url_for('main.collection_detail', collection_id=product.collection_id) }}">View Collection</a><a class="btn btn-outline-primary" href="{{ url_for('main.collection_metadata_edit', collection_id=product.collection_id) }}">Edit Collection Metadata</a>{% endif %}
+    {% if workspace.override.exists %}
+    <a class="btn btn-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='override') }}">Edit Product Override</a>
+    {% else %}
+    <a class="btn btn-primary" href="{{ url_for('main.products', q=product.sku) }}">Create Override</a>
+    {% endif %}
+  </div>
+</header>
+
+<section class="product-detail-hero" aria-label="Parent product summary">
+  <article class="product-identity-card">
+    <div class="product-detail-primary-image">
+      {% if workspace.primary_preview and workspace.primary_preview.preview_url %}
+      <img src="{{ workspace.primary_preview.preview_url }}" alt="{{ workspace.primary_preview.alt_text or product.title }}" loading="eager">
+      {% else %}<span class="product-image-fallback" aria-hidden="true">{{ icon('box') }}</span>{% endif %}
+    </div>
+    <div class="product-identity-copy">
+      <span class="catalogue-pill is-{{ product.catalogue_status }}">Catalogue state: {{ product.catalogue_status|title }}</span>
+      <p class="product-context-label">Parent product</p>
+      {% if workspace.primary_preview and workspace.primary_preview.variation_fallback %}<span class="catalogue-pill is-shared">Parent fallback from variation</span>{% endif %}
+      <h2>{{ product.title }}</h2>
+      <code>{{ product.sku }}</code>
+      <dl class="product-key-facts">
+        <div><dt>Type</dt><dd>{{ product.product_type|title }}</dd></div>
+        <div><dt>Collection</dt><dd>{% if product.collection %}<a href="{{ url_for('main.collection_detail', collection_id=product.collection.id) }}">{{ workspace.collection_display_name }}</a>{% else %}Unassigned{% endif %}</dd></div>
+        <div><dt>Variations</dt><dd>{{ workspace.variation_pagination.total }}</dd></div>
+        <div><dt>Price</dt><dd>{% if workspace.price_min %}£{{ workspace.price_min }}{% if workspace.price_max != workspace.price_min %}–£{{ workspace.price_max }}{% endif %}{% else %}Not set{% endif %}</dd></div>
+        <div><dt>Updated</dt><dd>{{ product.local_updated_at.strftime('%d %b %Y, %H:%M') if product.local_updated_at else 'Not recorded' }}</dd></div>
+        <div><dt>Catalogue state</dt><dd>{{ product.catalogue_status|title }}</dd></div>
+        <div><dt>Publishing intent</dt><dd><span class="catalogue-pill is-intent-{{ workspace.publishing_intent.state }}">{{ workspace.publishing_intent.label }}</span></dd></div>
+        <div><dt>Resolved live value</dt><dd><code>{{ workspace.publishing_intent.value_text }}</code></dd></div>
+        <div><dt>Publishing intent source</dt><dd>{{ workspace.publishing_intent.source }}</dd></div>
+        <div><dt>Inheritance</dt><dd>{{ workspace.publishing_intent.inheritance }}</dd></div>
+      </dl>
+      <p class="publishing-intent-note">Future WooCommerce publishing intent only. Woo sync is not implemented, so this does not report current remote publication state.</p>
+    </div>
+  </article>
+
+  <aside class="metadata-provenance-panel" aria-labelledby="metadata-provenance-title">
+    <div class="dark-panel-heading"><span>{{ icon('file') }}</span><div><p class="eyebrow">Metadata ownership</p><h2 id="metadata-provenance-title">Source and resolution</h2></div></div>
+    <div class="provenance-source-row">
+      <span>Collection metadata</span><strong>{{ workspace.shared.reference or 'Not registered' }}</strong><small>Shared default for products in this collection.</small>
+    </div>
+    <div class="provenance-source-row">
+      <span>Product override</span><strong>{{ workspace.override.reference if workspace.override.exists else 'No override' }}</strong><small>{% if workspace.override.exists %}Intentional differences for this product.{% else %}Resolved values currently inherit collection metadata.{% endif %}</small>
+    </div>
+    <div class="provenance-legend" aria-label="Value source legend">
+      <span class="catalogue-pill is-shared">Inherited value</span>
+      <span class="catalogue-pill is-override">Override value</span>
+      <span class="catalogue-pill is-neutral">Resolved value</span>
+    </div>
+  </aside>
+</section>
+
+<section class="workspace-card" aria-labelledby="resolved-metadata-title">
+  <header class="workspace-card-header"><div><p class="eyebrow">Read-only scanner result</p><h2 id="resolved-metadata-title">Resolved metadata</h2></div><span class="catalogue-pill is-neutral">{{ workspace.comparison|length }} fields</span></header>
+  <div class="metadata-comparison" role="table" aria-label="Collection, override and resolved metadata">
+    <div class="metadata-comparison-head" role="row"><span role="columnheader">Field</span><span role="columnheader">Collection value</span><span role="columnheader">Product override</span><span role="columnheader">Resolved value</span></div>
+    {% for row in workspace.comparison %}
+    <div class="metadata-comparison-row" role="row">
+      <strong role="rowheader">{{ row.label }}</strong>
+      <span role="cell">{{ row.collection_display }}</span>
+      <span role="cell" class="value-state is-{{ row.state }}">{{ row.override_display }}</span>
+      <span role="cell">{{ row.resolved_display }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="workspace-card" aria-labelledby="parent-gallery-title">
+  <header class="workspace-card-header"><div><p class="eyebrow">Product-owned source media</p><h2 id="parent-gallery-title">Parent image gallery</h2></div><span class="catalogue-pill is-neutral">{{ workspace.parent_images|length }} images</span></header>
+  {% if workspace.parent_images %}
+  <div class="diagnostic-gallery">
+    {% for image in workspace.parent_images %}
+    <article class="diagnostic-image-card">
+      <div class="diagnostic-image-preview">{% if image.preview_url %}<img src="{{ image.preview_url }}" alt="{{ image.alt_text or product.title }}" loading="lazy">{% else %}<span aria-hidden="true">{{ icon('alert') }}</span>{% endif %}</div>
+      <div class="diagnostic-image-body">
+        <div class="diagnostic-image-heading"><strong>{{ image.role|title }}</strong><span class="catalogue-pill is-{{ 'active' if image.source_exists else 'missing' }}">{{ image.state|replace('_', ' ')|title }}</span></div>
+        <dl><div><dt>Owner</dt><dd>Parent product</dd></div><div><dt>Order</dt><dd>{{ image.position + 1 }}</dd></div><div><dt>Source reference</dt><dd><code>{{ image.source_reference or 'Source unavailable' }}</code></dd></div><div><dt>Content type</dt><dd>{{ image.content_type or 'Unknown' }}</dd></div></dl>
+        <label>Stored website URL <span class="visually-hidden">for image {{ loop.index }}</span><input readonly value="{{ image.stored_url or '' }}" aria-label="Stored website URL for parent image {{ loop.index }}"></label>
+        <div class="copy-actions"><button class="btn btn-sm btn-outline-primary" type="button" data-copy-value="{{ image.stored_url or '' }}" aria-label="Copy stored website URL for parent image {{ loop.index }}" {% if not image.stored_url %}disabled{% endif %}>Copy URL</button><button class="btn btn-sm btn-ghost" type="button" data-copy-value="{{ image.source_reference or '' }}" aria-label="Copy source reference for parent image {{ loop.index }}" {% if not image.source_reference %}disabled{% endif %}>Copy Source Reference</button></div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}<div class="workspace-empty"><span aria-hidden="true">{{ icon('alert') }}</span><div><strong>No usable parent image</strong><p>No valid parent source image or stored website URL is projected for this product.</p></div></div>{% endif %}
+</section>
+
+<section class="workspace-card" aria-labelledby="variations-title">
+  <header class="workspace-card-header"><div><p class="eyebrow">Parent and child hierarchy</p><h2 id="variations-title">Variations</h2></div>{% if product.product_type == 'variable' %}<span class="catalogue-pill is-neutral">{{ workspace.variation_pagination.total }} total</span>{% endif %}</header>
+  {% if product.product_type != 'variable' %}
+  <div class="workspace-empty"><span aria-hidden="true">{{ icon('box') }}</span><div><strong>Simple product</strong><p>No variations are generated for this Simple product.</p></div></div>
+  {% elif workspace.variations %}
+  <div class="variation-detail-list" data-detail-variations data-url="{{ url_for('main.api_product_detail_variations', product_id=product.id) }}">
+    {% for variation in workspace.variations %}
+    <details class="variation-detail-card" {% if loop.first %}open{% endif %}>
+      <summary data-variation-toggle><span><strong>{{ variation.sku }}</strong><small>{% for attribute in variation.attributes %}{{ attribute.name }}: {{ attribute.value }}{% if not loop.last %} · {% endif %}{% endfor %}</small></span><span>£{{ variation.sale_price or variation.regular_price or 'Not set' }} · {{ variation.status|title }}</span></summary>
+      <div class="variation-detail-body">
+        <dl class="variation-facts"><div><dt>Parent product</dt><dd>{{ product.sku }}</dd></div><div><dt>Local stock</dt><dd>{{ variation.stock_quantity if variation.stock_quantity is not none else 'Not recorded' }}</dd></div><div><dt>Metadata source</dt><dd>{{ 'Product override + collection default' if workspace.override.exists else 'Collection default' }}</dd></div><div><dt>Last update</dt><dd>{{ variation.updated_at.strftime('%d %b %Y, %H:%M') if variation.updated_at else 'Not recorded' }}</dd></div></dl>
+        {% if variation.images %}<div class="variation-image-strip">{% for image in variation.images %}<article><div>{% if image.preview_url %}<img src="{{ image.preview_url }}" alt="{{ image.alt_text or variation.sku }}" loading="lazy">{% endif %}</div><strong>{{ image.role|title }}</strong><span class="catalogue-pill is-{{ 'shared' if image.fallback else 'active' }}">{{ 'Parent preview fallback' if image.fallback else image.state|replace('_', ' ')|title }}</span><code>{{ image.source_reference or 'Source unavailable' }}</code>{% if image.stored_url %}<label>Stored website URL<input readonly value="{{ image.stored_url }}"></label>{% elif image.fallback %}<small>No variation URL was created for this display-only fallback.</small>{% endif %}</article>{% endfor %}</div>{% else %}<p class="text-muted">No usable variation image or parent preview fallback is available.</p>{% endif %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% if workspace.variation_pagination.pages > 1 %}<div class="workspace-load-more"><button class="btn btn-outline-primary" type="button" data-load-detail-variations data-page="2">Load more variations</button></div>{% endif %}
+  {% else %}<div class="workspace-empty"><span aria-hidden="true">{{ icon('alert') }}</span><div><strong>No projected variations</strong><p>This variable parent currently has no variation records.</p></div></div>{% endif %}
+</section>
+
+<section class="workspace-card" aria-labelledby="operations-title">
+  <header class="workspace-card-header"><div><p class="eyebrow">Local catalogue activity</p><h2 id="operations-title">Recent relevant operations</h2></div></header>
+  {% if workspace.operations %}<ol class="operation-history-list">{% for operation in workspace.operations %}<li><span class="catalogue-pill is-{{ 'active' if operation.status == 'succeeded' else operation.status }}">{{ operation.status|replace('_', ' ')|title }}</span><div><strong>{{ operation.type|replace('_', ' ')|title }}</strong><small>{{ operation.started_at.strftime('%d %b %Y, %H:%M') if operation.started_at else 'Time not recorded' }}</small></div></li>{% endfor %}</ol>{% else %}<p class="text-muted">No product-specific operation history is recorded.</p>{% endif %}
+</section>
+{% endblock %}
+
+{% block javascripts %}
+<script src="{{ url_for('static', filename='assets/js/product-workspace.js') }}"></script>
+{% endblock %}

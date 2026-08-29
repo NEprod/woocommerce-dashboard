@@ -10,7 +10,7 @@ authenticated `/metadata-reference` page. For every recognized field it records
 the canonical key and aliases, type, units, required/optional state, collection
 and override placement, inheritance, merge rules, parent and variation effects,
 Woo-style output, SQLite destination, implementation status, example, and
-warning/error behavior.
+warning/error behaviour.
 
 ## Files and schemas
 
@@ -27,17 +27,20 @@ override never needs to repeat shared metadata.
 Schemas deliberately allow unknown top-level properties so the editor can warn
 without destroying forward-compatible content. They are applied to editor saves,
 not to scanner-wide loading. Existing catalogue files and unknown collection
-types therefore retain their protected scanner behavior.
+types therefore retain their protected scanner behaviour.
 
-## Inheritance and merge behavior
+## Inheritance and merge behaviour
 
 The scanner starts from the collection object and applies the product override:
 
 - scalar values and objects are replaced by the override;
 - lists are combined and deduplicated through a set, so membership is preserved
   but output ordering is not deterministic;
-- title uses its established combination/fallback behavior: product override and
-  shared title become `Override - Shared`, with folder-name fallbacks;
+- title uses one combination/fallback rule: nonblank product override and shared
+  title become `Override - Shared`; shared title alone becomes
+  `Product folder - Shared`; neither becomes the product folder name. Missing,
+  `null`, empty, and whitespace-only titles are absent. The collection folder
+  display name is separate;
 - partial overrides remain valid and inherited fields need not be repeated.
 
 The web editor deep-merges a submitted partial form into the existing file before
@@ -48,7 +51,7 @@ shared/override resolution and does not change it.
 
 | Key | Classification | Type / units | Placement | Resolution and output summary |
 |---|---|---|---|---|
-| `collection_type` | canonical and active | non-empty string | required collection; not normal override | Selects `Simple`, `Variable Collection`, or `Single Variable`; unknown values warn but retain the scanner behavior of emitting no rows. Stored on Collection and Product. |
+| `collection_type` | canonical and active | non-empty string | required collection; not normal override | Selects `Simple`, `Variable Collection`, or `Single Variable`; unknown values warn but retain the scanner behaviour of emitting no rows. Stored on Collection and Product. |
 | `title` | canonical and active | string | either | Special shared/override/folder merge; emits `Name`; stored as Product title and in resolved rows. |
 | `sku_prefix` | canonical and active | non-empty string | required collection; not normal override | Used only for new SKU allocation; identity-sensitive; stored on Collection. |
 | `price` | canonical and active | number/numeric string; store currency | either | Scalar override; parent and base variation `Regular price`; normalized on Product/Variation. |
@@ -59,7 +62,7 @@ shared/override resolution and does not change it.
 | `dimensions` | canonical and active | `{length,width,height}`; millimetres | either | Parent/base variation dimensions; modifiers may replace variation dimensions. |
 | `categories` | canonical and active | string array | either | Additive set-based merge; emits Categories; normalized through Category membership. |
 | `tags` | canonical and active | string array | either | Additive set-based merge; emits Tags; normalized through Tag membership. |
-| `live` | canonical and active | boolean | either | Maps to Published and Product publication status; defaults to live when omitted. |
+| `live` | canonical and active | boolean | either | Future publishing intent: `true` maps to Published and `false` to Draft when Woo sync is introduced; defaults to `true` when omitted. It is not current remote WooCommerce state. |
 | `short_description` | canonical and active | string | either | Emits Short description; stored on Product. |
 | `description` | canonical and active | string | either | Emits Description; stored on Product. |
 | `attributes` | canonical and active | object of non-empty scalar arrays | either | Creates Cartesian variation combinations and parent/variation attributes; Woo-style rows contain only five attribute slots. |
@@ -106,11 +109,42 @@ or scan:
 - invalid saves preserve the original file, create no backup or `.update`, start
   no operation/scan, and return field paths plus submitted content where practical;
 - valid saves retain the existing backup, atomic replacement, override `.update`,
-  and update/shared-refresh orchestration behavior.
+  and update/shared-refresh orchestration behaviour.
 
 The editor keeps invalid textarea content in place for correction. Templates load
 into the form without saving. The normal override template is `{}` rather than a
 copy of every possible field.
+
+## Phase 2 source editors and resolved detail
+
+The guided Collection Metadata Editor changes the authoritative collection
+document and clearly reports that every inheriting product may be affected. The
+guided Product Override Editor changes only the selected product's optional
+partial document. Collection defaults are displayed beside override and
+resolved values, but inherited defaults are never flattened into an override.
+An override field is persisted only when explicitly enabled; disabling it
+removes that authored key and reveals the inherited result.
+
+`live` is presented as publishing intent, independently of local catalogue
+lifecycle state. A product-level `live` key overrides the collection intent;
+without that key the product inherits the collection value. The resolved value
+is projected to `Product.published` for future synchronization, but no current
+WooCommerce publication is claimed because Woo sync is not implemented.
+
+Advanced JSON is an explicit expert mode for the same authored source, not a
+third metadata layer. It validates through this module's existing schemas and
+uses the same atomic save, backup, and catalogue-update pipeline as guided mode.
+Unknown forward-compatible keys are preserved by guided saves. Formatting is
+user-triggered and does not change scanner resolution semantics.
+
+Product Detail is a resolved, read-only view. It does not edit SQLite or imply
+that each product owns a complete JSON document. Product and variation images
+belong to their source folders and projected image records. Catalogue-relative
+source identity and stored final website URLs may be displayed, but image bytes
+remain outside SQLite and `/app/instance`. `/output` is temporary user-managed
+upload staging and is neither persisted as image identity nor used for preview.
+Future Woo synchronization must use the already stored final URLs directly; the
+current app does not upload or convert media.
 
 ## Known unchanged discrepancies
 

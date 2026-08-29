@@ -15,6 +15,7 @@ from app.database import (
     migration_head,
     restore_database,
 )
+from app.utils.backup_retention import mark_backup_recovery_required
 from app.models import CatalogueOperationItem, Product, Settings
 from app.utils.file_markers import (
     PENDING_FILE,
@@ -377,6 +378,8 @@ def run_reconstruction(*, failure_injector=None, log=_quiet_log):
             or marker_outcome["marker_recovery_required"]
             or outstanding_pending
         )
+        if recovery_required and backup_path:
+            mark_backup_recovery_required(backup_path)
         status = "partial" if recovery_required else "succeeded"
         recovery_state = "recovery_required" if recovery_required else "none"
         finish_catalogue_operation(
@@ -409,6 +412,11 @@ def run_reconstruction(*, failure_injector=None, log=_quiet_log):
         )
     except Exception as error:
         db.session.rollback()
+        if backup_path:
+            try:
+                mark_backup_recovery_required(backup_path)
+            except Exception:
+                pass
         safe_error = _safe_catalogue_error(error, product_folder)
         pending_recovery = 0
         if product_folder:

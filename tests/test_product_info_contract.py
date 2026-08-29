@@ -326,7 +326,7 @@ def test_in_app_reference_and_templates_are_available(editor_app):
     assert page.status_code == 200
     text = page.get_data(as_text=True)
     assert "product_info.json Metadata Reference" in text
-    assert "Inherited / override behavior" in text
+    assert "Inherited / override behaviour" in text
     assert "variation modifier sale_price" in text
 
     template = app.test_client().get("/api/metadata-reference/template/minimal-override")
@@ -350,5 +350,7 @@ def test_runtime_resources_are_in_image_context_and_tests_are_not_copied():
     assert (root / "app/resources/product_info/schemas/collection.schema.json").is_file()
     assert (root / "app/resources/product_info/schemas/override.schema.json").is_file()
     assert (root / "app/resources/product_info/field_inventory.json").is_file()
-    assert "COPY --chown=app:app app ./app" in (root / "Dockerfile").read_text()
+    assert "COPY --chown=root:root --chmod=0555 app ./app" in (
+        root / "Dockerfile"
+    ).read_text()
     assert "COPY --chown=app:app tests" not in (root / "Dockerfile").read_text()

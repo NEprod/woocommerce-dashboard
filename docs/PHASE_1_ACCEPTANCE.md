@@ -6,8 +6,8 @@ until every milestone is complete and its focused commit history remains intact.
 
 ## Functional acceptance
 
-- Protected scanner behavior, SKU generation/reuse, inheritance, append, update,
-  and deliberate full-scan behavior remain characterized and unchanged unless a
+- Protected scanner behaviour, SKU generation/reuse, inheritance, append, update,
+  and deliberate full-scan behaviour remain characterised and unchanged unless a
   separately approved replacement is introduced.
 - SQLite is a complete projection of emitted resolved scanner output, with active
   Collection → Product → Variation relationships and portable provenance.

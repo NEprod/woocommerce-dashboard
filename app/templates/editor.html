@@ -1,6 +1,12 @@
 {% extends "layouts/base.html" %}
 {% block content %}
-<h2 class="mb-3">Edit {{ kind|title }} JSON — {{ product.sku }}</h2>
+<header class="page-header">
+  <div>
+    <p class="eyebrow">Metadata editor</p>
+    <h1 class="page-title">Edit {{ kind|title }} JSON</h1>
+    <p class="page-lede">{{ product.sku }}</p>
+  </div>
+</header>
 
 <div class="mb-2 small text-muted">
   Path: <code id="jsonPath">{{ json_path or 'Not created yet' }}</code>
@@ -41,7 +47,9 @@
 
 <div id="validationMessages" class="d-none" role="alert"></div>
 
-<form id="editorForm" class="mb-4">
+<form id="editorForm" class="editor-form-card mb-4">
+  <section class="editor-section" aria-labelledby="editor-basics">
+  <h2 class="editor-section-title" id="editor-basics">Basic information</h2>
   <!-- Collection type -->
   <div class="mb-3">
     <label class="form-label">Collection Type</label>
@@ -67,6 +75,10 @@
     <label class="form-label">SKU Prefix (shared only)</label>
     <input class="form-control" name="sku_prefix" {% if kind != 'shared' %}disabled{% endif %}>
   </div>
+
+  </section>
+  <section class="editor-section" aria-labelledby="editor-pricing">
+  <h2 class="editor-section-title" id="editor-pricing">Pricing and fulfilment</h2>
 
   <!-- Price + Sale Price -->
   <div class="row g-3">
@@ -132,6 +144,10 @@
     <input class="form-control" name="shipping_class">
   </div>
 
+  </section>
+  <section class="editor-section" aria-labelledby="editor-organisation">
+  <h2 class="editor-section-title" id="editor-organisation">Catalogue organisation</h2>
+
   <!-- Grouped / Upsell / Cross-sell -->
   <div class="row g-3 mt-1">
     <div class="col-md-4">
@@ -148,6 +164,10 @@
     </div>
   </div>
 
+  </section>
+  <section class="editor-section" aria-labelledby="editor-content">
+  <h2 class="editor-section-title" id="editor-content">Product content</h2>
+
   <!-- Short Description -->
   <div class="mt-3">
     <label class="form-label">Short Description</label>
@@ -160,23 +180,31 @@
     <textarea class="form-control" name="description" rows="5"></textarea>
   </div>
 
+  </section>
+  <section class="editor-section" aria-labelledby="editor-structured">
+  <h2 class="editor-section-title" id="editor-structured">Structured metadata</h2>
+
   <!-- Attributes JSON -->
   <div class="mt-3">
     <label class="form-label">Attributes (JSON)</label>
-    <textarea class="form-control" name="attributes" rows="5" placeholder='{"Size":["A4","A3"]}'></textarea>
+    <textarea class="form-control code-editor" name="attributes" rows="5" spellcheck="false" placeholder='{"Size":["A4","A3"]}'></textarea>
   </div>
 
   <!-- Image Attributes JSON -->
   <div class="mt-3">
     <label class="form-label">Image Attributes (JSON)</label>
-    <textarea class="form-control" name="image_attributes" rows="3" placeholder='["Style","Size"]'></textarea>
+    <textarea class="form-control code-editor" name="image_attributes" rows="3" spellcheck="false" placeholder='["Style","Size"]'></textarea>
   </div>
 
   <!-- Variation Modifiers JSON -->
   <div class="mt-3">
     <label class="form-label">Variation Modifiers (JSON)</label>
-    <textarea class="form-control" name="variation_modifiers" rows="5" placeholder='{"Size=A3":{"price":"12.99"}}'></textarea>
+    <textarea class="form-control code-editor" name="variation_modifiers" rows="5" spellcheck="false" placeholder='{"Size=A3":{"price":"12.99"}}'></textarea>
   </div>
+
+  </section>
+  <section class="editor-section" aria-labelledby="editor-search">
+  <h2 class="editor-section-title" id="editor-search">Search metadata</h2>
 
   <!-- Meta -->
   <div class="mt-3">
@@ -187,6 +215,7 @@
     <label class="form-label">Meta Description</label>
     <textarea class="form-control" name="meta_description" rows="3"></textarea>
   </div>
+  </section>
 
   <div class="mt-4">
     <button type="button" id="saveBtn" class="btn btn-primary" {% if json_path == "" %}disabled{% endif %}>Save</button>
@@ -453,10 +482,8 @@
 
       const runId = out.run_id;
       const modalEl = document.getElementById("scanModal");
-      const logEl = modalEl.querySelector(".scan-log");
-      const progEl = modalEl.querySelector(".scan-progress");
-      logEl.textContent = "";
-      progEl.textContent = "Starting...";
+      const progressView = window.OperationProgress.create(modalEl.querySelector("[data-operation-progress]"));
+      progressView.begin(KIND === 'shared' ? 'shared_collection_update' : 'product_update');
       const modal = new bootstrap.Modal(modalEl);
       modal.show();
 
@@ -466,21 +493,18 @@
 
       const evtSrc = new EventSource(streamUrl);
       evtSrc.onmessage = (ev) => {
-        logEl.textContent += ev.data + "\n";
-        logEl.scrollTop = logEl.scrollHeight;
+        progressView.appendLog(ev.data);
       };
 
       const intv = setInterval(async () => {
         const r = await fetch(progressUrl);
         const js = await r.json();
+        progressView.update(js);
         if (js.status === "done" || js.status === "error") {
           clearInterval(intv);
           evtSrc.close();
-          progEl.textContent = js.status.toUpperCase();
           // optional "done" callback
           fetch(doneUrl).catch(()=>{});
-        } else {
-          progEl.textContent = `${js.done}/${js.total} (${js.status})`;
         }
       }, 1000);
     });

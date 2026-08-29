@@ -1,0 +1,16 @@
+{% macro readiness_panel(readiness) -%}
+<section class="intake-readiness state-{{ readiness.state }}" aria-labelledby="intake-readiness-heading">
+  <div><p class="eyebrow">Dedicated mount</p><h2 id="intake-readiness-heading">{{ readiness.message }}</h2><p>The optional <code>/intake</code> mount remains separate from catalogue, output, and application data.</p></div>
+  <dl><div><dt>Readable now</dt><dd>{{ 'Yes' if readiness.readable else 'No' }}</dd></div><div><dt>Writable later</dt><dd>{{ 'Yes' if readiness.writable else 'No' }}</dd></div><div><dt>Status</dt><dd>{{ readiness.label }}</dd></div></dl>
+</section>
+{%- endmacro %}
+{% macro preview_banner(detail='Catalogue Intake does not copy, rename, group, import, upload, or scan files on this preview page.') -%}
+<div class="intake-preview-banner" role="status"><strong>Preview only — no files or folders have been created.</strong><span>{{ detail }}</span></div>
+{%- endmacro %}
+
+{% macro issue_list(issues, heading='Conflicts and warnings') -%}
+<section class="workspace-panel" aria-labelledby="intake-issues-heading">
+  <div class="panel-heading"><div><p class="eyebrow">Diagnostics</p><h2 id="intake-issues-heading">{{ heading }}</h2></div><span class="status-badge {{ 'status-partial' if issues else 'status-succeeded' }}">{{ issues|length }} issues</span></div>
+  {% if issues %}<div class="intake-diagnostic-list">{% for issue in issues %}<article class="intake-diagnostic is-{{ issue.state }}"><span class="status-badge status-{{ 'failed' if issue.state == 'blocking' else 'partial' }}">{{ 'Conflict' if issue.state == 'blocking' else 'Warning' }}</span><div><h3>{{ issue.name }}</h3><p>{{ issue.message }}</p></div></article>{% endfor %}</div>{% else %}<p class="intake-success-copy">No conflicts were detected in this read-only preview.</p>{% endif %}
+</section>
+{%- endmacro %}

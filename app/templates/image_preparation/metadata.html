@@ -1,0 +1,14 @@
+{% extends 'layouts/base.html' %}
+{% from 'includes/icons.html' import icon %}
+{% from 'image_preparation/_shared.html' import readiness_panel %}
+{% block title %}Prepared Metadata Builder{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ url_for('main.image_preparation') }}">Catalogue Intake</a><span aria-hidden="true">/</span><span aria-current="page">Product metadata</span></nav>
+<header class="page-header intake-page-header"><div><p class="eyebrow">Image-renamed results</p><h1>Prepared Metadata Builder</h1><p>Create or correct the authoritative collection-level <code>product_info.json</code> without moving the result into the live catalogue.</p></div><div class="button-row"><a class="btn btn-ghost" href="{{ url_for('main.image_preparation_rename') }}">Image renaming</a><a class="btn btn-dark" href="{{ url_for('main.image_preparation_handoff') }}">Catalogue handoff</a></div></header>
+{{ readiness_panel(readiness) }}
+{% if intake_error %}<div class="alert alert-danger" role="alert">{{ intake_error }}</div>{% endif %}
+<section class="workspace-panel" aria-labelledby="eligible-metadata-heading"><div class="panel-heading"><div><p class="eyebrow">Eligible working results</p><h2 id="eligible-metadata-heading">Choose a Prepared result</h2></div><span class="status-badge">{{ eligible_results|length }} eligible</span></div>
+{% if eligible_results %}<div class="intake-folder-list" role="list" aria-label="Eligible Prepared results">{% for result in eligible_results %}<a class="intake-folder-row" role="listitem" href="{{ url_for('main.image_preparation_metadata_edit', path=result.path) }}"><span><strong>{{ result.name }}</strong><small>{{ result.path }} · {{ 'Metadata complete — validation required' if result.workflow_status == 'validation_required' else 'Images renamed — metadata required' }}</small></span><span>{{ result.action }}</span></a>{% endfor %}</div>{% else %}<div class="empty-state compact"><h3>No eligible results</h3><p>Complete safe image renaming before creating product metadata.</p></div>{% endif %}
+</section>
+<section class="workspace-panel intake-compatibility" aria-labelledby="metadata-boundary-heading"><p class="eyebrow">Workflow boundary</p><h2 id="metadata-boundary-heading">Prepared only</h2><p>This builder does not copy to Catalogue, invoke the scanner, create markers, allocate SKUs, or write product rows.</p></section>
+{% endblock %}

@@ -8,6 +8,46 @@ WooCommerce Dashboard is a local Flask application that scans a structured produ
 
 Phase 0 (`0.1.0`) established the secure, documented, tested, and containerised baseline. Phase 1 (`0.2.3`) makes SQLite a complete, recoverable projection of resolved scanner output while preserving the protected scanner contract and adds a reusable Unraid installation template.
 
+Phase 2 development takes place on `develop`. Its first milestone introduces a
+neutral, responsive WooCommerce Dashboard shell with centralized design tokens,
+local project-owned UI assets, accessible grouped navigation, and explicit safe
+pages for workspaces that are not available yet. The approved design-system
+reconciliation makes `docs/DESIGN_SYSTEM.md` authoritative: warm-white canvas
+and floating white cards dominate, while deep slate is reserved for navigation,
+group headers, progress, and code surfaces. Lime and teal remain restrained.
+The current `develop` Dashboard presents genuine catalogue health, scanner
+state, recent operations, attention signals, and recently updated products from
+the local projection without fabricated analytics. Its Products workspace now
+groups genuine parent products by collection, preserves supported Dashboard
+issue filters, paginates parent results, and loads projected variation details
+only when requested.
+Product Detail now presents the resolved parent/variation workspace, metadata
+provenance, ordered catalogue image diagnostics, and read-only stored website
+URLs. Guided editors preserve the real ownership model: one collection document
+supplies shared defaults and an optional partial product override stores only
+intentional differences. Advanced JSON remains available as an explicit expert
+mode, and every save continues through the protected backup, atomic-write, and
+scanner update workflow.
+Catalogue lifecycle labels remain local scanner state. Separately, resolved
+`live` is shown as Published or Draft intent for a future WooCommerce sync; the
+application does not claim that either state currently exists remotely.
+The released Phase 1 scanner and persistence contracts remain unchanged.
+The Collections workspace provides server-backed browsing and a resolved
+Collection Detail view for metadata health, catalogue lifecycle, publishing
+intent, overrides, source-image coverage, affected products, and recent scoped
+operations. Collection JSON remains authoritative and editing continues through
+the existing Collection Metadata Editor.
+
+Phase 2.5 adds an optional, authenticated Catalogue Intake workspace backed only
+by a dedicated `/intake` mount. Browsing and deterministic grouping/renaming
+previews remain read-only. An explicitly confirmed, server-revalidated grouping
+now copies unchanged source images through private verified staging into a
+duplicate-safe provisional result below `Prepared/`; it does not rename source
+files, access the catalogue, or invoke the scanner. Later gated steps safely
+advance the same Prepared result through folder editing, image renaming, and an
+authoritative shared `product_info.json`. Metadata completion remains
+**validation required** and does not perform catalogue handoff or scanning.
+
 ## Current capabilities
 
 - First-user and scanner-folder setup.
@@ -33,7 +73,12 @@ pytest
 python run.py
 ```
 
-Replace placeholders in `.env` locally and keep Discord disabled during development unless notifications are intentionally being tested. Application startup applies versioned SQLite migrations, so use an isolated instance directory for safety. Existing unversioned Phase 0 databases are backed up and adopted only when their schema matches the frozen baseline. See [Database Migrations](docs/MIGRATIONS.md).
+Replace the `SECRET_KEY` and path placeholders in `.env` before startup and keep
+Discord disabled during development unless notifications are intentionally being
+tested. Missing or recognizable placeholder secret keys are rejected. Application
+startup applies versioned SQLite migrations, so use an isolated instance directory
+for safety. Existing unversioned Phase 0 databases are backed up and adopted only
+when their schema matches the frozen baseline. See [Database Migrations](docs/MIGRATIONS.md).
 
 ## Docker
 
@@ -58,12 +103,16 @@ Suggested Docker Hub overview: “WooCommerce Dashboard is a self-hosted Flask a
 ## Documentation
 
 - [Current State](docs/CURRENT_STATE.md)
+- [Collections Workspace](docs/COLLECTIONS.md)
+- [Catalogue Intake](docs/CATALOGUE_INTAKE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Scanner Contract](docs/SCANNER_CONTRACT.md)
+- [Scanner, Operations, and Discord](docs/SCANNER_OPERATIONS.md)
 - [product_info.json Contract](docs/PRODUCT_INFO.md)
 - [Data Model](docs/DATA_MODEL.md)
 - [Database Migrations](docs/MIGRATIONS.md)
 - [Catalogue Operation Control](docs/CATALOGUE_OPERATIONS.md)
+- [Storage and Retention](docs/STORAGE_RETENTION.md)
 - [Phase 1 Acceptance](docs/PHASE_1_ACCEPTANCE.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Decisions](docs/DECISIONS.md)

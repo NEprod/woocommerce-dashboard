@@ -105,8 +105,8 @@ def merge_product_json(shared, override, path=None):
         else:
             result[key] = value
 
-    shared_title = shared.get("title")
-    override_title = override.get("title")
+    shared_title = _nonblank_title(shared.get("title"))
+    override_title = _nonblank_title(override.get("title"))
     folder_name = os.path.basename(path) if path else ""
 
     if override_title and shared_title:
@@ -235,3 +235,12 @@ def apply_variation_modifiers(base_data, variation_attrs, log=print):
             result["dimensions"] = mod["dimensions"]
 
     return result
+
+
+def _nonblank_title(value):
+    """Return a trimmed authored title, treating blank values as absent."""
+
+    if value is None:
+        return None
+    title = str(value).strip()
+    return title or None

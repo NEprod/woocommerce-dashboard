@@ -16,7 +16,17 @@ Flask web UI
 
 `app.create_app()` is the application factory. It initializes SQLAlchemy, login management, CSRF protection, routes, and the database tables. `run.py` is both the development entry point and Gunicorn import target.
 
-All HTTP routes currently live in a single blueprint in `app/routes.py`. Jinja templates and bundled Bootstrap/Volt assets provide the UI.
+All HTTP routes currently live in a single blueprint in `app/routes.py`. Jinja
+templates provide the UI over bundled Bootstrap assets. The Phase 2 shell uses
+one semantic-token stylesheet, project-owned SVG symbols, and a small local
+JavaScript controller; it does not require Bootstrap, jQuery, fonts, or icons
+from a public CDN at runtime.
+
+The authenticated shell uses a desktop sidebar, tablet icon rail, mobile primary
+bottom navigation, and a secondary More drawer. Navigation groups Dashboard,
+Catalogue, Scanner/Operations, Metadata, System, and Future workspaces. Incomplete workspaces use one shared
+`Planned` template and never imply that a backend integration exists. Legacy
+route aliases redirect to an appropriate safe workspace.
 
 ## Scanner
 
@@ -25,6 +35,102 @@ An authenticated request first acquires the catalogue operation lock, creates an
 Before ordinary selection, the thread recovers any `.scanned.pending` whose recorded parent transaction already committed. Selected products atomically stage pending marker intent while retaining an existing `.scanned` and `.update`. After each parent transaction, the coordinator either finalizes `.scanned` and removes `.update`, records `database_recovery_required`, or records `marker_recovery_required`. Pending identity is catalogue-local and contains only the established marker payload plus bounded coordination fields.
 
 Run state and mutual exclusion are process-local. Persistent operation rows provide history and interrupted-run diagnosis, not a distributed lock. This is why the Phase 1 container remains limited to one Gunicorn worker and one application replica. See [Catalogue Operation Control](CATALOGUE_OPERATIONS.md).
+
+Phase 2 exposes a backward-compatible presentation view over that existing
+process-local state. Legacy `total`, `done`, `status`, and `summary` fields
+remain intact; normalized operation, progress, timing, and count objects drive
+one shared accessible component across setup and metadata-triggered updates.
+The added stage/current-item fields are observational only. They neither add a
+queue nor persist live progress, and reconstruction remains the existing
+synchronous controlled operation.
+
+The authenticated Dashboard is composed by `app/dashboard.py`. Its queries are
+read-only views over Collection, Product, Variation, ProductImage, and
+CatalogueOperation records, supplemented by the existing process-local active
+operation observation. The route does not cache, migrate, reconcile, or mutate
+catalogue state. Summary and completeness values are derived at request time;
+recent lists are deliberately bounded.
+
+The authenticated Products browser is composed by `app/products_browser.py`.
+`/api/edit_products` remains the backward-compatible parent endpoint while
+adding collection groups, genuine summary facts, supported URL filters, and
+server-side pagination. Correlated aggregate queries provide variation counts
+and price ranges without loading child rows. The separate authenticated
+`/api/products/<id>/variations` endpoint loads ordered variation attributes and
+other projected child facts only after expansion. Both paths are read-only;
+existing metadata editor, raw-source, override creation, and override deletion
+routes remain the action authority.
+
+Products and Dashboard thumbnails use the authenticated opaque route
+`/catalogue-images/products/<id>`; expanded variation previews use
+`/catalogue-images/variations/<id>`. SQLite continues to store the scanner's
+Woo-facing image URL and portable source provenance rather than image bytes.
+For UI display, files beneath the configured catalogue mount are authoritative;
+emitted URLs are filename hints because uploader conversion can change the
+extension to `.webp` and may change the upload name.
+
+`app/catalogue_images.py` follows scanner-supported folders only. Parent
+resolution uses the ordered primary gallery mapping, the product shortcut,
+remaining ordered parent images, recorded `.scanned.images_used`, then safe
+direct-folder discovery. If no parent source resolves, the first ordered valid
+variation image becomes the parent thumbnail. Variation routes preserve their
+own Single Variable image-attribute folder identity and fall back to the parent
+only when necessary; Variable Collection variations retain the scanner's shared
+parent-image behaviour.
+
+Single Variable collections reserve the semantic name `parent` at the collection
+root for the parent primary/gallery set. Its directory match is case-insensitive,
+preserves the actual spelling in portable provenance, and rejects multiple
+case-variants as ambiguous. Configured image-attribute names define variation
+directory depth in order; every case-variant of `parent` is excluded from that hierarchy. Ingestion
+keeps the scanner-generated website URLs and positions in `ProductImage` and
+`VariationImage`, and records confined portable source identities as image
+`ProductAsset` rows. UI resolution prefers those persisted source identities,
+then compatible marker/URL discovery, and uses a variation preview only when no
+usable genuine parent source remains.
+PNG, JPG, JPEG, and WebP sources are accepted
+case-insensitively by extension. Traversal, symlink escape, unsupported and
+invalid files are rejected, and catalogue paths are never returned to the
+browser.
+
+`app/metadata_workspace.py` is the read-only composition boundary for Product
+Detail and metadata source editors. It resolves collection and override JSON by
+portable catalogue-relative identity, confines reads beneath the configured
+catalogue root, applies the protected `merge_product_json()` behaviour, and
+presents collection/override/resolved comparisons without mutating the
+projection. `/products/<id>` is the canonical Product Detail route;
+`/collections/<id>/metadata` edits the shared source and the established
+`/edit_products/<id>/edit/<label>` compatibility route opens the same guided
+editor. The old save endpoint remains the only write authority.
+
+Gallery routes extend the opaque authenticated image interface with a bounded
+ordered index for product- and variation-owned sources. They recalculate each
+confined mapping and never accept a filesystem path from the request. Stored
+website URLs remain read-only diagnostics. A parent preview fallback shown for
+a variation is explicitly labelled and never creates a variation image URL.
+
+Product Detail loads at most 24 variation children initially. Further detail
+uses `/api/products/<id>/detail-variations`; collection editor previews use the
+paginated `/api/collections/<id>/affected-products`. Relationships required by
+each page are select-in loaded so page size, rather than catalogue size, bounds
+work and avoids per-row database access.
+
+`app/collections_workspace.py` is the read-only aggregation boundary for
+`/collections` and `/collections/<id>`. It reuses the existing `Collection`
+projection and integer identity, validates the portable shared metadata source,
+uses grouped correlated counts, and bounds ordinary image checks to the
+rendered collection/product page. Collection Detail paginates affected parents
+without loading their Variation relationships. Source-image coverage uses
+portable `ProductAsset` rows through the same confinement and content checks as
+the opaque image routes. The filesystem catalogue and collection
+`product_info.json` remain authoritative; this view does not add an authored
+database collection layer.
+
+`app/collection_identity.py` is the presentation boundary for collection names.
+It derives the visible title from the basename of existing portable collection
+provenance, keeps `Collection.id` as route identity, and never treats the shared
+JSON `title` field as a collection title. The latter remains authored shared
+product metadata. This resolver performs no filesystem reads or mutations.
 
 ## Persistence
 

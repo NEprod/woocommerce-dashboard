@@ -23,6 +23,13 @@ python -c "import xml.etree.ElementTree as ET; ET.parse('unraid/my-woocommerce-d
 
 Migration tests construct a frozen, synthetic Phase 0 database in a temporary directory. They must cover fresh initialization, adoption, repeated upgrade, backup, injected failure, restore, and post-restore use. Never substitute a local or archived database. Operational procedures are in [Database Migrations](MIGRATIONS.md).
 
+Storage-hardening tests set an explicit test-only `SECRET_KEY` before application
+imports and use only temporary instance/catalogue/output directories. They cover
+secure backup modes, central redaction, memory and database operation retention,
+backup count/age floors, narrow stale-temporary cleanup, Docker logging limits,
+and runtime image boundaries. Never weaken production key validation to simplify
+tests.
+
 Operation-control tests use temporary databases and fictional paths. They must prove conflict rejection before mutation, success and exception cleanup, sanitized persistent errors, notification-failure cleanup, and startup interruption recovery. Resetting the process-local test lock is allowed only in isolated tests. See [Catalogue Operation Control](CATALOGUE_OPERATIONS.md).
 
 Projection tests must use emitted fictional rows and temporary catalogue mounts. They must prove exact collection types and relationships, lossless parent/variation row storage, normalized field parity, portable relative provenance across mount changes, and preservation of existing Product, Variation, and Woo placeholder IDs. They must not alter scanner fixtures to conceal a row-builder discrepancy.
@@ -61,7 +68,17 @@ and `/output` mounts and must never point at live Unraid or local data.
 
 ## Git workflow
 
-Use phase-specific branches when appropriate, focused commits, and annotated phase/release tags. Before every commit and push:
+Phase 2 uses the long-lived `develop` branch. Every approved milestone is a
+focused commit pushed to `origin/develop`; milestone work is not merged to
+`main` and final tags are not created until the Phase 2 release gate. Do not
+force-push or remove the development branch without explicit approval.
+
+Milestone UI tests must cover authenticated route safety, neutral branding,
+local assets, keyboard navigation, focus return, representative responsive
+breakpoints, and absence of horizontal viewport overflow. Browser checks use a
+temporary database and fabricated account only.
+
+Before every commit and push:
 
 1. Review `git status --short --ignored`.
 2. Review the exact staged file list and diff.
@@ -69,4 +86,9 @@ Use phase-specific branches when appropriate, focused commits, and annotated pha
 4. Scan staged content for webhook, key, token, bearer, and private-key patterns.
 5. Run compile checks and pytest.
 6. Build and validate the image using temporary mounts only.
-7. Confirm no production application behavior was changed incidentally.
+7. Confirm no production application behaviour was changed incidentally.
+
+For Phase 2 Milestones 1–8, publish the approved immutable
+`phase-2-m<N>` multi-platform image and update `develop` from the same build
+result. Both tags must share one manifest containing `linux/amd64` and
+`linux/arm64`. Stable and historical tags remain untouched.

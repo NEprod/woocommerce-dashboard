@@ -1,55 +1,34 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
+  <title>{% block title %}Dashboard{% endblock %} | WooCommerce Dashboard</title>
   {% include 'includes/head.html' %}
+  {% block stylesheets %}{% endblock %}
 </head>
-<body>
-
-  <!-- NAVIGATION (full-width background, centered content) -->
-  <nav class="navbar navbar-expand-lg bg-charcoal-slate border-bottom border-rustic-oak fixed-top z-3">
-    <div class="container-xl">
-      {% include 'includes/navbar.html' %}
-    </div>
-  </nav>
-
-  <!-- PAGE CONTENT -->
-  <main class="py-4">
-    <div class="container-xl px-3">
-      {% block content %}{% endblock %}
-    </div>
-  </main>
-
-  <!-- FOOTER (full-width background, centered content) -->
-
+<body class="app-body">
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <div class="app-frame">
+    {% include 'includes/navbar.html' %}
+    <div class="app-workspace">
+      <header class="app-utility-header">
+        <a class="app-mobile-brand" href="{{ url_for('main.dashboard') }}">
+          <img src="{{ url_for('static', filename='assets/img/woocommerce-dashboard-icon.png') }}" alt="">
+          <span>WooCommerce Dashboard</span>
+        </a>
+        <div class="app-account-summary">
+          <span>Signed in as <strong>{{ current_user.username }}</strong></span>
+          <a class="btn btn-ghost btn-sm" href="{{ url_for('main.logout') }}">Sign out</a>
+        </div>
+      </header>
+      <main id="main-content" class="app-main" tabindex="-1">
+        <div class="app-content">
+          {% block content %}{% endblock %}
+        </div>
+      </main>
       {% include 'includes/footer.html' %}
-
-
+    </div>
+  </div>
   {% include 'includes/scripts.html' %}
   {% block javascripts %}{% endblock %}
-  <script>
-    document.addEventListener("DOMContentLoaded", function () {
-      const navbarToggler = document.querySelector('.navbar-toggler');
-      const openIcon = navbarToggler.querySelector('.open-icon');
-      const closeIcon = navbarToggler.querySelector('.close-icon');
-      const navbarCollapse = document.getElementById('tlcNavbar');
-
-      // Toggle body class on button click (optional for offcanvas scroll control)
-      navbarToggler.addEventListener('click', function () {
-        document.body.classList.toggle('offcanvas-open');
-      });
-
-      // Bootstrap native event: menu opened
-      navbarCollapse.addEventListener('shown.bs.collapse', function () {
-        openIcon.classList.add('d-none');
-        closeIcon.classList.remove('d-none');
-      });
-
-      // Bootstrap native event: menu closed
-      navbarCollapse.addEventListener('hidden.bs.collapse', function () {
-        closeIcon.classList.add('d-none');
-        openIcon.classList.remove('d-none');
-      });
-    });
-  </script>
 </body>
 </html>

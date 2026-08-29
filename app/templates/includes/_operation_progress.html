@@ -1,0 +1,39 @@
+{% macro operation_progress(id='operationProgress', title='Catalogue operation', show_log=True) -%}
+<section id="{{ id }}" class="operation-progress" data-operation-progress aria-busy="false" aria-labelledby="{{ id }}Title">
+  <div class="operation-progress-header">
+    <div>
+      <p class="eyebrow">Live operation</p>
+      <h3 id="{{ id }}Title">{{ title }}</h3>
+    </div>
+    <span class="status-pill operation-status scan-progress" data-progress-status>
+      <span class="status-dot" aria-hidden="true"></span>
+      <span data-progress-status-label>Ready</span>
+    </span>
+  </div>
+
+  <div class="operation-stage" role="status" aria-live="polite" aria-atomic="true">
+    <strong data-progress-stage>Ready</strong>
+    <span><span data-progress-current>Choose an operation to begin.</span> <span class="operation-elapsed" data-progress-elapsed>Elapsed 00:00</span></span>
+  </div>
+
+  <div class="progress operation-progress-track" aria-hidden="false">
+    <div class="progress-bar app-progress-bar" data-progress-bar role="progressbar" aria-label="Collections processed" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+  </div>
+  <p class="operation-progress-label" data-progress-label>0 of 0 collections processed</p>
+
+  <dl class="operation-metrics" aria-label="Operation counts">
+    <div><dt>Collections</dt><dd data-count="collections">0</dd></div>
+    <div><dt>Parent products</dt><dd data-count="products">0</dd></div>
+    <div><dt>Variations</dt><dd data-count="variations">0</dd></div>
+    <div><dt>Warnings</dt><dd data-count="warnings">0</dd></div>
+    <div><dt>Failures</dt><dd data-count="failures">0</dd></div>
+  </dl>
+
+  {% if show_log %}
+  <details class="operation-log-disclosure">
+    <summary>View operation log</summary>
+    <div class="scan-log operation-log" data-progress-log tabindex="0" aria-label="Operation log"></div>
+  </details>
+  {% endif %}
+</section>
+{%- endmacro %}

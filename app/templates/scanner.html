@@ -1,0 +1,55 @@
+{% extends 'layouts/base.html' %}
+{% block title %}Scanner{% endblock %}
+{% block content %}
+<section class="page-heading page-heading-actions">
+  <div><p class="eyebrow">Scanner</p><h1>Scanner workspace</h1><p>Run supported catalogue workflows with explicit scope, readiness, and operation history.</p></div>
+  <a class="btn btn-outline-primary" href="{{ url_for('main.operations') }}">View operation history</a>
+</section>
+
+{% if readiness.active %}
+<section class="operation-active-card" aria-labelledby="active-operation-heading">
+  <div><p class="eyebrow">Active operation</p><h2 id="active-operation-heading">{{ readiness.active.operation_type|replace('_', ' ')|title }} is running</h2><p>Stage: {{ readiness.active.stage|replace('_', ' ')|title }} · Elapsed: {{ readiness.active.elapsed_seconds or 0 }}s{% if readiness.active.heartbeat_at %} · Latest activity {{ readiness.active.heartbeat_at }}{% endif %}</p><p>Only one catalogue operation can run at a time. Opening this page again will not start another.</p></div>
+  <a class="btn btn-accent" href="{{ url_for('main.operation_detail', operation_id=readiness.active.id) }}">Follow progress</a>
+</section>
+{% endif %}
+
+<div class="scanner-layout">
+  <section class="workspace-panel panel-dark scanner-readiness" aria-labelledby="readiness-heading">
+    <div class="panel-heading"><div><p class="eyebrow">Safe preflight</p><h2 id="readiness-heading">Scanner readiness</h2></div><span class="status-badge {{ 'status-succeeded' if readiness.mounts_ready else 'status-failed' }}">{{ 'Ready' if readiness.mounts_ready else 'Action required' }}</span></div>
+    <ul class="readiness-list">
+      {% for check in readiness.checks %}<li><span class="readiness-mark" aria-hidden="true">{{ '✓' if check.ok else '!' }}</span><div><strong>{{ check.label }}</strong><small>{{ check.detail }}</small></div></li>{% endfor %}
+      <li><span class="readiness-mark" aria-hidden="true">{{ '✓' if readiness.discord.state == 'configured' else '–' }}</span><div><strong>Discord {{ readiness.discord.state|replace('_',' ') }}</strong><small>No webhook value is displayed. Notification delivery never controls scanner success.</small></div></li>
+    </ul>
+  </section>
+  <aside class="workspace-panel scanner-contract" aria-labelledby="contract-heading"><p class="eyebrow">Protected contract</p><h2 id="contract-heading">What every mode preserves</h2><ul><li>Existing SKU generation and reuse rules</li><li>JSON inheritance and sparse product overrides</li><li>Atomic marker and database coordination</li><li>Parent and variation image ownership</li><li>One authoritative operation lock</li></ul><p class="panel-note">Safe cancellation is not implemented. Once started, an operation must reach its existing terminal or recovery state.</p></aside>
+</div>
+
+<section aria-labelledby="modes-heading"><div class="page-heading compact"><p class="eyebrow">Choose deliberately</p><h2 id="modes-heading">Supported scan modes</h2><p>Only established append, marker-selected update, and intentional full-scan workflows are available here.</p></div>
+  <div class="scan-mode-grid">
+  {% for mode in modes %}
+    <article class="scan-mode-card {{ 'is-selected' if selected_mode == mode.key }}" data-scan-mode="{{ mode.key }}">
+      <div class="scan-mode-title"><span class="operation-mode-icon" aria-hidden="true">{{ loop.index }}</span><div><p class="eyebrow">{{ mode.impact }} impact</p><h3>{{ mode.label }}</h3></div></div>
+      <p>{{ mode.description }}</p><p class="mode-detail">{{ mode.details }}</p>
+      <button class="btn {{ 'btn-accent' if mode.key == 'append' else 'btn-primary' }}" type="button" data-open-scan-confirm="{{ mode.key }}" {% if not readiness.mounts_ready or readiness.active %}disabled{% endif %}>Review {{ mode.label }} scan</button>
+    </article>
+  {% endfor %}
+  </div>
+</section>
+
+<section class="workspace-panel recent-operation-panel" aria-labelledby="recent-heading"><div class="panel-heading"><div><p class="eyebrow">Persisted history</p><h2 id="recent-heading">Recent scanner operations</h2></div><a class="btn btn-ghost btn-sm" href="{{ url_for('main.operations') }}">View all</a></div>
+{% if recent_operations %}<div class="operation-card-list">{% for operation in recent_operations %}<a href="{{ operation.detail_url }}"><span class="status-badge status-{{ operation.status }}">{{ operation.status_label }}</span><strong>{{ operation.type_label }}</strong><small>{{ operation.started_at.strftime('%d %b %Y %H:%M') if operation.started_at else 'Unknown start' }} · {{ operation.scope_label }}</small></a>{% endfor %}</div>{% else %}<div class="empty-state compact"><h3>No scanner operations yet</h3><p>Your first confirmed scan will create a persisted operation record here.</p></div>{% endif %}
+</section>
+
+<dialog class="scan-confirm-dialog" data-scan-dialog aria-labelledby="scan-confirm-title">
+  <form method="dialog"><button class="icon-button dialog-close" value="cancel" aria-label="Close confirmation">×</button></form>
+  <div><p class="eyebrow">Confirmation required</p><h2 id="scan-confirm-title">Confirm <span data-confirm-mode-label></span> scan</h2><p data-confirm-impact></p>
+    <ul><li>Catalogue, output, and app data readiness will be checked again on the server.</li><li>Required images may be copied to the output mount.</li><li>Discord may send one start and one terminal event when configured.</li><li>No second operation can start while the lock is active.</li></ul>
+    <label class="confirmation-check"><input type="checkbox" data-confirm-operation> <span>I understand this operation’s scope and want to start it.</span></label>
+    <label class="confirmation-check" data-full-confirm hidden><input type="checkbox"> <span>I understand Full scans are catalogue-wide and may take substantially longer.</span></label>
+    <div class="form-alert" data-scan-error role="alert" hidden></div>
+    <div class="form-alert form-alert-success" data-scan-success role="status" hidden>Scan started successfully. <a class="btn btn-sm btn-primary" data-open-created-operation href="#">Open Operation</a></div>
+    <div class="dialog-actions"><button class="btn btn-ghost" type="button" data-cancel-scan>Cancel</button><button class="btn btn-accent" type="button" data-start-scan>Start operation</button></div>
+  </div>
+</dialog>
+{% endblock %}
+{% block javascripts %}<script src="{{ url_for('static', filename='assets/js/scanner-workspace.js') }}"></script>{% endblock %}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import re
 import sqlite3
@@ -20,6 +21,7 @@ from sqlalchemy.engine import make_url
 
 BASELINE_REVISION = "0001_phase0"
 MIGRATIONS_PATH = Path(__file__).resolve().parents[1] / "migrations"
+_LOGGER = logging.getLogger(__name__)
 
 PHASE0_TABLE_COLUMNS = {
     "category": {"id", "name", "slug", "woo_id", "created_at", "updated_at"},
@@ -170,7 +172,13 @@ def backup_database(
 
     database_path = database_path.resolve()
     root = (backup_root or database_path.parent / "backups").resolve()
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        root.chmod(0o700)
+    except OSError as error:
+        raise MigrationFailure(
+            f"Could not secure database backup directory: {root}"
+        ) from error
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
     unique = uuid.uuid4().hex[:12]
     transition = (
@@ -194,6 +202,23 @@ def backup_database(
     _integrity_check(temporary)
     os.replace(temporary, destination)
     destination.chmod(0o600)
+    from app.utils.backup_retention import (
+        cleanup_backup_temporaries,
+        prune_database_backups,
+    )
+
+    try:
+        retention = prune_database_backups(root, purpose=safe_purpose)
+        cleanup_backup_temporaries(root)
+        if retention["failed"]:
+            _LOGGER.warning(
+                "Database backup retention could not remove %s expired file(s)",
+                retention["failed"],
+            )
+    except Exception as error:
+        _LOGGER.warning(
+            "Database backup retention cleanup failed: %s", type(error).__name__
+        )
     return destination
 
 
@@ -209,15 +234,19 @@ def restore_database(backup_path: Path, database_path: Path) -> Path:
     temporary = database_path.with_suffix(database_path.suffix + ".restore.tmp")
     temporary.unlink(missing_ok=True)
 
-    source_connection = sqlite3.connect(backup_path)
-    destination_connection = sqlite3.connect(temporary)
     try:
-        source_connection.backup(destination_connection)
-    finally:
-        destination_connection.close()
-        source_connection.close()
-    _integrity_check(temporary)
-    os.replace(temporary, database_path)
+        source_connection = sqlite3.connect(backup_path)
+        destination_connection = sqlite3.connect(temporary)
+        try:
+            source_connection.backup(destination_connection)
+        finally:
+            destination_connection.close()
+            source_connection.close()
+        _integrity_check(temporary)
+        os.replace(temporary, database_path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
     return database_path
 
 
@@ -236,6 +265,10 @@ def ensure_database(
     """Initialize, adopt, or upgrade a file-backed SQLite database."""
 
     database_path = _database_path(database_url)
+    if database_path.exists():
+        from app.utils.backup_retention import cleanup_restore_temporary
+
+        cleanup_restore_temporary(database_path)
     database_path.parent.mkdir(parents=True, exist_ok=True)
     config = _alembic_config(database_url)
     head = _head_revision(config)
@@ -276,6 +309,13 @@ def ensure_database(
             )
         upgrade_command(config, "head")
     except Exception as error:
+        if backup_path:
+            try:
+                from app.utils.backup_retention import mark_backup_recovery_required
+
+                mark_backup_recovery_required(backup_path)
+            except Exception:
+                pass
         raise MigrationFailure(str(error), backup_path) from error
 
     connection = sqlite3.connect(database_path)

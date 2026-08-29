@@ -76,10 +76,13 @@ def test_docker_runtime_uses_gosu_and_drops_privileges_before_application_load()
     assert "gosu" in dockerfile
     assert 'ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]' in dockerfile
     assert "USER app" not in dockerfile
-    assert "chmod -R a+rX /app/app /app/migrations /app/config.py /app/run.py" in dockerfile
+    assert "COPY --chown=root:root --chmod=0555 app ./app" in dockerfile
+    assert "COPY --chown=root:root --chmod=0444 config.py run.py ./" in dockerfile
+    assert "chmod -R a+rX" not in dockerfile
     assert 'exec gosu "${PUID}:${PGID}" "$@"' in entrypoint
     assert "umask \"${UMASK}\"" in entrypoint
     assert "mkdir -p /app/instance/backups" in entrypoint
+    assert "chmod 0700 /app/instance/backups" in entrypoint
     assert "chown -R" in entrypoint
     assert "chown -R \"${PUID}:${PGID}\" /app/instance" in entrypoint
     assert "chown -R \"${PUID}:${PGID}\" /catalogue" not in entrypoint

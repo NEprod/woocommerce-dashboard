@@ -4,6 +4,14 @@ Image repository: `neprod/woocommerce-dashboard`
 
 Phase 1 deployment polish publishes the equivalent multi-platform tags `phase-1`, `0.2.3`, and `latest`. The immutable `0.2.3` tag is preferred for deployment. Historical version tags remain unchanged.
 
+Phase 2 milestone builds are development images. Each approved Milestone 1–8
+publishes one immutable `phase-2-m<N>` tag and updates the moving `develop` tag
+from the same Buildx result. Stable `latest`, `phase-1`, `0.2.3`, and every
+historical tag remain unchanged until the explicitly approved final release.
+The approved Milestone 1 visual-correction build uses the immutable exception
+`phase-2-m1.1`; it must share its manifest digest with `develop` and must not
+overwrite `phase-2-m1`.
+
 ## Build
 
 ```bash
@@ -11,7 +19,12 @@ docker build -t neprod/woocommerce-dashboard:phase-1 .
 docker tag neprod/woocommerce-dashboard:phase-1 neprod/woocommerce-dashboard:0.2.3
 ```
 
-The container initially starts as root only to validate `PUID`, `PGID`, and `UMASK`, adjust the existing `app` account, and prepare mounted application state. It then uses the packaged `gosu` binary with `exec`; application import, migrations, the Gunicorn master, and its worker all run as the configured non-root UID/GID. Generic Docker defaults preserve the previous `100:100` identity and `UMASK=002`. One worker and one application replica are required because scan progress, background threads, and the catalogue mutation lock are process-local. Persistent operation rows support diagnosis but are not a distributed mutex.
+The container initially starts as root only to validate `PUID`, `PGID`, and `UMASK`, adjust the existing `app` account, and prepare mounted application state. It then uses the packaged `gosu` binary with `exec`; application import, migrations, the Gunicorn master, and its worker all run as the configured non-root UID/GID. Generic Docker defaults preserve the previous `100:100` identity and `UMASK=002`. The packaged Phase 2 runtime remains one worker and one application replica for catalogue mutation ownership. Live Operation Detail progress, heartbeat, counters, and bounded logs are now persisted in SQLite, so ordinary polling requests do not depend on the scanner-owning thread and are cross-worker readable. A future supported multi-replica mutation runtime still requires a deliberately reviewed distributed lock/runner design.
+
+Production startup rejects a missing or recognizable placeholder `SECRET_KEY`.
+Supply one stable strong value through the runtime environment before updating a
+deployment; the application neither generates nor persists it. Reusing the same
+value preserves existing login sessions across restarts.
 
 Gunicorn imports the application before accepting requests. That startup applies Alembic migrations to `/app/instance/site.db`. A matching unversioned Phase 0 database is backed up under `/app/instance/backups` before adoption; backups never default to disposable container storage such as `/tmp`. A failed or unknown migration prevents the worker from starting. Keep the instance mount writable by the container user and preserve its backup files until the upgraded application has been validated.
 
@@ -22,6 +35,8 @@ Copy `.env.example` to the ignored `.env` and set:
 - `INSTANCE_FOLDER_HOST`: persistent database/application instance directory.
 - `PRODUCT_FOLDER_HOST`: catalogue directory mounted at `/catalogue`.
 - `OUTPUT_FOLDER_HOST`: generated output directory mounted at `/output`.
+- Catalogue Intake is optional. When used, bind a user-selected host staging
+  folder to `/intake` read/write; do not add an empty volume interpolation.
 - `PUID` and `PGID`: numeric non-root runtime identity; defaults are `100:100`.
 - `UMASK`: three- or four-digit octal creation mask; default is `002`.
 
@@ -40,15 +55,43 @@ The canonical container storage contract is fixed:
 | `/app/instance` | required read/write | `/app/instance/site.db` and `/app/instance/backups/` |
 | `/catalogue` | required read/write | authored catalogue, source images, metadata, `.scanned`, `.scanned.pending`, `.update`, and SKU indexes |
 | `/output` | required read/write | processed/generated image output |
+| `/intake` | optional read/write | external loose images, private grouping staging, and provisional `Prepared/` results for Catalogue Intake |
 
 Do not rename `/app/instance` to `/config` or rename `site.db`; either change can
 make an existing installation appear empty. Keep catalogue and output outside the
 appdata instance directory. Updating or replacing a container preserves data only
 when the same host directories are mounted again.
 
+`/intake` is never created by the image or entrypoint. Without a real mount, the
+Catalogue Intake workspace reports unavailable and performs no work. This
+prevents an optional feature from silently writing to the disposable container
+layer. Previews remain read-only. Confirmed grouping requires the mount to be
+writable and writes only private operation-owned staging and verified results
+below `/intake/Prepared/`; sources are not modified. Folder editing, image
+renaming, and Prepared `product_info.json` save reuse hidden same-mount staging
+and rollback while retaining the visible result name. Final handoff is the only
+Intake step that writes `/catalogue`: it copies the verified Prepared collection
+through operation-owned `.woocommerce-dashboard-staging`, uses
+`.woocommerce-dashboard-rollback` only for safe replacement, and removes those
+owned paths after verified success. It never writes `/output`, the container
+layer, or scanner projection state. See
+[Catalogue Intake](CATALOGUE_INTAKE.md).
+
+Prepared-result promotion supports ordinary Unraid/FUSE bind mounts. It prefers
+the specialised atomic no-replace rename and, when that operation is explicitly
+unsupported, rechecks that staging and `Prepared` share the same device and that
+the destination remains absent before using an ordinary same-filesystem rename
+under the dedicated Intake mutation lock. Cross-filesystem, read-only,
+permission, invalid-path, and destination-conflict failures remain controlled
+and expose no partial completed result.
+
 Back up the instance/database and filesystem catalogue together with an understood consistency point. Back up authored JSON, `.scanned`, `.scanned.pending`, `.update`, SKU indexes, processed output, and source assets. Never rely on the disposable container layer for application data. Pending envelopes are required to preserve identities and finish database/marker recovery after interruption.
 
 Never bake `.env`, SQLite, product folders, markers, generated images, exports, logs, or backups into the image. The mounted instance directory contains the live database plus migration and reconstruction backups, so the instance mount itself must be included in operational backups and have space for unique reconstruction snapshots.
+
+Application-created retention, secure modes, and narrow temporary cleanup are
+defined in [Storage and Retention](STORAGE_RETENTION.md). The instance backup
+directory is mode `0700` and verified SQLite backups remain mode `0600`.
 
 The production image includes `app/resources/product_info` because collection and
 override schemas, the field inventory, fictional examples, and editor templates
@@ -64,7 +107,16 @@ Automatic startup migration is approved only for the documented single-worker Ph
 
 Setting `PUID`/`PGID` in Compose or an Unraid template only works because this image consumes them in its entrypoint. The entrypoint validates non-zero numeric IDs and a valid octal umask, updates the existing `app` account, creates `/app/instance/backups`, and deliberately corrects ownership recursively only beneath the application-owned `/app/instance`. Existing `site.db` and backup contents are preserved.
 
-The `/catalogue` and `/output` mount roots may have their ownership adjusted non-recursively, but their contents are never recursively chowned at startup. A write probe emits an actionable container-path warning if either is unavailable; the initial setup page may still load, while scanning still requires both paths to be read/write. Failure to prepare or write `/app/instance` stops startup immediately.
+The `/catalogue` and `/output` mount roots may have their ownership adjusted non-recursively, but their contents are never recursively chowned at startup. A write probe emits an actionable container-path warning if either is unavailable; the initial setup page may still load, while scanning still requires both paths to be read/write. Optional `/intake` is not created, chowned, or probed by startup. Its authenticated workspace reports real mount readiness without affecting application startup. Failure to prepare or write `/app/instance` stops startup immediately.
+
+## Container logs
+
+The application does not add persistent file logs under `/app/instance`.
+Gunicorn continues to emit stdout/stderr. Compose selects Docker's `local`
+logging driver with `max-size=10m`, `max-file=5`, and compression: approximately
+50 MiB per container before compression. This is host-side Docker configuration,
+not an application-enforced limit. Unraid deployments must apply the equivalent
+container settings described in [Unraid Installation](UNRAID.md).
 
 Inspect numeric ownership on a Linux host with `ls -ldn`. For the documented Unraid instance path:
 
@@ -83,6 +135,23 @@ An Unraid deployment should pull the immutable `0.2.3` tag, set `PUID=99`, `PGID
 The Phase 1 image supplies both target architectures, but publication does not replace deployment-specific backup, mount, secret, and operational validation.
 
 ## Multi-platform publication
+
+For a Phase 2 milestone, publish both tags in one build, for example:
+
+```bash
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --tag neprod/woocommerce-dashboard:phase-2-m1 \
+  --tag neprod/woocommerce-dashboard:develop \
+  --push .
+```
+
+The immutable milestone tag and `develop` must share one manifest digest. Test
+both architectures with separate temporary instance, catalogue, and output
+mounts. Milestone routes, Gunicorn startup, migration head `0004_lifecycle`,
+SQLite integrity, and image-content exclusions must pass before the milestone
+is reported. A separate Unraid development container must never share writable
+storage with the stable deployment.
 
 The published Phase 0 image was built on Apple Silicon and its manifest does not provide `linux/amd64`, so it is not usable by the target Unraid server. Do not overwrite `phase-0` or `0.1.0` to correct that historical image. Immutable version tags `0.2.0` and `0.2.1` also remain historical release records.
 

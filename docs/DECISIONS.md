@@ -10,6 +10,12 @@
 6. **Containers use mounted persistence.** `/app/instance`, `/catalogue`, and `/output` are runtime mounts.
 7. **The initial container uses one Gunicorn worker.** Scan state and threads are process-local and SQLite/background work has not been designed for multiple workers. Four threads allow ordinary request concurrency within that single process.
 
+Phase 2 keeps the packaged one-worker mutation runtime, but live scanner
+observation no longer depends on process affinity. Bounded progress, heartbeat,
+counts, logs, and terminal summaries are persisted in the existing operation
+metadata envelope for cross-worker readers. This does not declare catalogue
+mutation ownership or locking safe for a multi-replica deployment.
+
 No new source-of-truth or schema design decision is made here.
 
 ## Phase 1 approved constraints
@@ -48,3 +54,37 @@ No new source-of-truth or schema design decision is made here.
     upsell/cross-sell spellings are documented and warned but not normalized.
     Unknown collection types and every characterized scanner discrepancy remain
     unchanged pending an explicit contract decision.
+
+## Phase 2 approved constraints
+
+1. **Phase 2 is a presentation and workflow phase.** Scanner resolution, SKU
+   allocation, database projection, migrations, reconstruction, marker recovery,
+   and operation semantics remain protected.
+2. **Visual identity is centralized and project-owned.** `DESIGN_SYSTEM.md` is
+   authoritative. Semantic CSS variables use a light-first warm-white/white
+   system with deep-slate hierarchy, restrained lime and teal, and the existing
+   unchanged WooCommerce Dashboard logo. Local Bootstrap,
+   application JavaScript, and an original SVG symbol set replace runtime CDN
+   dependencies and business-specific styling.
+3. **Incomplete modules identify themselves honestly.** Safe `Planned` pages
+   replace missing templates and never claim Woo, order, automation, analytics,
+   collection, settings, or operation functionality before its approved
+   milestone.
+4. **Responsive navigation follows one information architecture.** Desktop uses
+   a sidebar, tablet a compact rail, and mobile a labelled bottom bar plus More
+   drawer, with keyboard focus, focus return, reduced-motion support, and no
+   hover-only actions.
+5. **Folder enumeration requires authentication.** The existing setup folder
+   picker remains an administrator workflow and is not a public route.
+6. **Unified progress is a presentation contract, not new operation authority.**
+   Phase 2 retains the established process-local run store and persistent
+   operation-history semantics. Normalized stages, current collection, elapsed
+   time, and counts are observations for shared UI components; they do not
+   change scanner ordering, create durable live progress, or make synchronous
+   reconstruction asynchronous.
+7. **Products browsing is a read-only projection view.** Collection grouping,
+   supported URL filters, parent pagination, price ranges, source labels, and
+   lazy variation previews are derived from existing Phase 1 records. They do
+   not duplicate scanner resolution, reinterpret authored JSON, or introduce a
+   new persistence contract. Metadata mutation continues through the existing
+   editor and controlled update routes.

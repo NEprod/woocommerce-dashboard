@@ -11,7 +11,9 @@ This is a personal project baseline. Report suspected vulnerabilities privately 
 - Protect Discord webhooks as credentials. Rotate any accidentally exposed webhook or token immediately.
 - Future WooCommerce consumer keys and WordPress credentials must remain runtime secrets.
 - Do not expose Flask debug mode publicly.
-- Use a long random `SECRET_KEY` outside isolated development.
+- Production refuses a missing or recognized placeholder `SECRET_KEY`. Supply a
+  stable long random value only through the runtime environment; never generate
+  a different value on each container start.
 - Review staged files and Docker build context before every push.
 - Keep persistent mounts and backups access-controlled.
 - Treat `/app/instance` as sensitive application data: `site.db` contains user
@@ -29,6 +31,18 @@ This is a personal project baseline. Report suspected vulnerabilities privately 
 - Unraid templates must contain only placeholders and harmless defaults. Never
   save a generated `SECRET_KEY` or Discord webhook into tracked/shared XML.
 - Keep catalogue operation scopes concise. Operation history must redact credential-like keys and errors and must not store full metadata payloads.
+- Central diagnostic redaction covers authorization and cookie headers, bearer
+  tokens, API/WooCommerce credentials, passwords, Discord webhooks, session
+  secrets, and sensitive configured/home path prefixes before persistence or
+  browser presentation. Never log a complete environment mapping.
 - Pending marker envelopes may contain only the established `.scanned` payload and bounded coordination fields; never add authored JSON, credentials, webhooks, or resolved database rows.
+- Filesystem folder browsing is an authenticated administrator setup function.
+  `/folder-picker` must never be exposed anonymously, and its responses must not
+  be repurposed as a public filesystem API.
+- Catalogue thumbnails are served only through the authenticated opaque
+  `/catalogue-images/products/<id>` route. The resolver is confined to the
+  configured catalogue root and projected product folder, rejects traversal and
+  symlink escape, validates supported image content, and never exposes authored
+  host/container paths or provides a general-purpose file-download endpoint.
 
 If a credential may have entered Git history or an image layer, rotate it first; removing the text afterward is not sufficient.

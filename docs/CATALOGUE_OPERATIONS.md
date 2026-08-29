@@ -17,6 +17,14 @@ errors are bounded, and keys that indicate
 secrets, passwords, tokens, API keys, or webhooks are redacted. Full metadata
 payloads and credentials must never be stored.
 
+Completed history is bounded without changing active work. Routine successes
+are eligible only when older than 180 days and outside the newest 1,000.
+Resolved failed/non-routine history is retained for at least 365 days. Running,
+pending, unresolved-recovery, process-referenced, and newest-per-type operations
+are protected. Item rows follow an eligible operation through verified cascade
+deletion. Cleanup failure is diagnostic only and cannot turn a successful scan
+into a failure.
+
 Ordinary ingestion now writes one item per emitted parent. A successful item and
 its complete parent projection share a transaction and use
 `database_state=committed`. If any parent stage fails, that transaction is rolled
@@ -42,7 +50,7 @@ failed/partial operation and never applies product missing-state reconciliation.
 
 Final states are `succeeded`, `partial`, `failed`, or `interrupted`. Scan history
 is finalized from a `finally` path, so scanner or ingestion exceptions release the
-process lock. Notification failures retain the existing best-effort behavior and
+process lock. Notification failures retain the existing best-effort behaviour and
 do not turn an otherwise successful scan into a failure. If final history writing
 itself fails, the in-process lock is still released and the unfinished row is
 recoverable at the next startup.
@@ -72,3 +80,8 @@ history, not a distributed mutex or queue. The supported Phase 1 deployment is
 therefore one Gunicorn worker in one application replica. A multi-worker or
 multi-replica deployment requires both a shared operation coordinator and a
 separate, single-owner migration execution step before replicas start.
+
+The newest 20 ordinary completed live run records remain in memory. Active and
+recovery-required runs are not counted toward eviction. Each scan log transport
+is capped at 2,000 retained lines and approximately 2 MiB; truncation removes the
+oldest text and is explicitly reported without removing the completion summary.

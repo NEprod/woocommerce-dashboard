@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import os
 import json
 import re
+from urllib.parse import unquote, urlsplit
 from sqlalchemy import select
 
 from app import db
@@ -26,14 +27,17 @@ from app.utils.discord import notify_ingest_product  # NEW
 from app.utils.file_markers import (
     PENDING_FILE,
     load_pending_scanned,
+    load_scanned,
     preserve_pending_identity,
 )
 from app.utils.operation_control import sanitize_operation_error
+from app.utils.catalogue_paths import find_reserved_directory, is_reserved_directory_name
 
 # CSV-style keys
 ATTR_NAME_FMT = "Attribute {} name"
 ATTR_VALUE_FMT = "Attribute {} value(s)"
 ATTR_SLOTS = range(1, 6)
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 
 # ---------------- helpers: parsing ----------------
 
@@ -49,6 +53,24 @@ def _first_or_none(csv_img_field: str):
         return None
     parts = [p.strip() for p in csv_img_field.split(",") if p.strip()]
     return parts[0] if parts else None
+
+
+def _notification_image_counts(parent_row, variation_rows):
+    seen = set()
+    parent_count = 0
+    variation_count = 0
+    for reference in _all_images(parent_row.get("Images", "")):
+        identity = reference.casefold()
+        if identity not in seen:
+            seen.add(identity)
+            parent_count += 1
+    for row in variation_rows:
+        for reference in _all_images(row.get("Images", "")):
+            identity = reference.casefold()
+            if identity not in seen:
+                seen.add(identity)
+                variation_count += 1
+    return parent_count, variation_count
 
 
 def _pick(v, default=None):
@@ -297,6 +319,151 @@ def _upsert_info_assets(
         asset.is_primary = label == "shared"
     for stale_asset in existing.values():
         db.session.delete(stale_asset)
+
+
+def _marker_for_folder(folder, log=print):
+    if not folder:
+        return {}
+    pending = load_pending_scanned(folder, log=log)
+    if pending:
+        return pending.get("marker", {})
+    return load_scanned(folder, log=log)
+
+
+def _confined_source(path, catalogue_root):
+    if not path or not catalogue_root:
+        return None
+    try:
+        resolved = os.path.realpath(path)
+        root = os.path.realpath(catalogue_root)
+        if os.path.commonpath([root, resolved]) != root:
+            return None
+    except ValueError:
+        return None
+    return resolved if os.path.isfile(resolved) else None
+
+
+def _source_directories(folder, context, *, attributes=None):
+    if not folder:
+        return []
+    collection_type = context.get("collection_type")
+    if collection_type != "Single Variable":
+        return [folder]
+    shared = _load_json_object(context.get("shared_json_path"))
+    image_attributes = shared.get("image_attributes")
+    if attributes is None:
+        parent = find_reserved_directory(folder)
+        if parent is not None:
+            return [str(parent)]
+        return []
+    if not isinstance(image_attributes, list):
+        return []
+    directories = []
+    current = folder
+    for index, name in enumerate(image_attributes):
+        value = attributes.get(name)
+        if not isinstance(value, str) or value in {"", ".", ".."}:
+            break
+        if os.path.basename(value) != value:
+            break
+        if index == 0 and is_reserved_directory_name(value):
+            return []
+        current = os.path.join(current, value)
+        directories.append(current)
+    return directories
+
+
+def _sync_source_image_assets(
+    product,
+    *,
+    variation=None,
+    filenames=(),
+    directories=(),
+    catalogue_root,
+):
+    variation_id = variation.id if variation is not None else None
+    owner = "variation" if variation is not None else "parent"
+    existing = {
+        asset.label: asset
+        for asset in ProductAsset.query.filter_by(
+            product_id=product.id,
+            variation_id=variation_id,
+            kind="image",
+        ).all()
+    }
+    for position, filename in enumerate(filenames):
+        if (
+            not isinstance(filename, str)
+            or os.path.basename(filename) != filename
+            or os.path.splitext(filename)[1].lower() not in IMAGE_SUFFIXES
+        ):
+            continue
+        source = next(
+            (
+                candidate
+                for directory in directories
+                if (candidate := _confined_source(
+                    os.path.join(directory, filename), catalogue_root
+                ))
+            ),
+            None,
+        )
+        if not source:
+            continue
+        label = f"{owner}:{position:04d}"
+        asset = existing.pop(label, None)
+        if not asset:
+            asset = ProductAsset(
+                product_id=product.id,
+                variation_id=variation_id,
+                kind="image",
+                label=label,
+            )
+            db.session.add(asset)
+        asset.path = source
+        asset.source_relpath = _portable_relpath(source, catalogue_root)
+        asset.is_primary = position == 0
+    for asset in existing.values():
+        db.session.delete(asset)
+
+
+def _variation_marker_images(marker, attributes):
+    for item in marker.get("variations", []):
+        if item.get("attributes") == attributes:
+            images = item.get("images_used", [])
+            return images if isinstance(images, list) else []
+    return []
+
+
+def _source_names_from_urls(row, directories):
+    """Recover scanner-owned source names from emitted stems within known folders."""
+
+    names = []
+    for reference in _all_images(row.get("Images", "")):
+        path = urlsplit(reference).path
+        stem = os.path.splitext(os.path.basename(unquote(path)))[0]
+        selected = None
+        for directory in directories:
+            try:
+                entries = sorted(
+                    os.listdir(directory), key=lambda value: (value.casefold(), value)
+                )
+            except OSError:
+                continue
+            selected = next(
+                (
+                    name
+                    for name in entries
+                    if os.path.splitext(name)[0] == stem
+                    and os.path.splitext(name)[1].lower() in IMAGE_SUFFIXES
+                ),
+                None,
+            )
+            if selected:
+                break
+        if selected:
+            names.append(selected)
+    return names
 
 
 # ---------------- mappers ----------------
@@ -592,7 +759,18 @@ def _ingest_complete_parent(
     db.session.flush()
     _checkpoint(failure_injector, "parent", sku)
 
+    marker = _marker_for_folder(folder, log=log)
     _sync_product_images(product, parent_row)
+    parent_directories = _source_directories(folder, context)
+    parent_sources = marker.get("images_used", [])
+    if not parent_sources:
+        parent_sources = _source_names_from_urls(parent_row, parent_directories)
+    _sync_source_image_assets(
+        product,
+        filenames=parent_sources,
+        directories=parent_directories,
+        catalogue_root=catalogue_root,
+    )
     db.session.flush()
     _checkpoint(failure_injector, "product_images", sku)
 
@@ -667,6 +845,24 @@ def _ingest_complete_parent(
         _checkpoint(failure_injector, "variation_attributes", sku)
 
         _sync_variation_images(variation, variation_row)
+        variation_attributes = {
+            item["name"]: item["value"] for item in attributes
+        }
+        variation_directories = _source_directories(
+            folder, context, attributes=variation_attributes
+        )
+        variation_sources = _variation_marker_images(marker, variation_attributes)
+        if not variation_sources:
+            variation_sources = _source_names_from_urls(
+                variation_row, variation_directories
+            )
+        _sync_source_image_assets(
+            product,
+            variation=variation,
+            filenames=variation_sources,
+            directories=variation_directories,
+            catalogue_root=catalogue_root,
+        )
         db.session.flush()
         _checkpoint(failure_injector, "variation_images", sku)
 
@@ -708,6 +904,9 @@ def _ingest_complete_parent(
         db.session.flush()
     _checkpoint(failure_injector, "operation_item", sku)
 
+    parent_image_count, variation_image_count = _notification_image_counts(
+        parent_row, variation_rows
+    )
     return {
         "sku": product.sku,
         "product_created": product_created,
@@ -719,10 +918,14 @@ def _ingest_complete_parent(
         "notification": {
             "name": fields.get("title"),
             "type": fields.get("product_type"),
-            "images_count": len(_all_images(parent_row.get("Images", ""))),
+            "parent_images_count": parent_image_count,
+            "variation_images_count": variation_image_count,
+            "total_images_count": parent_image_count + variation_image_count,
+            "output_images_copied": parent_image_count + variation_image_count,
             "has_shared": "shared" in info_paths,
             "has_override": "override" in info_paths,
-            "folder_path": folder,
+            # Discord receives only portable catalogue identity, never a host path.
+            "folder_path": context.get("product_relpath"),
             "variations_count": len(variation_rows),
         },
     }
@@ -845,7 +1048,10 @@ def ingest_rows_to_db(
                 sku=sku,
                 name=info["name"],
                 product_type=info["type"],
-                images_count=info["images_count"],
+                parent_images_count=info["parent_images_count"],
+                variation_images_count=info["variation_images_count"],
+                total_images_count=info["total_images_count"],
+                output_images_copied=info["output_images_copied"],
                 has_shared=info["has_shared"],
                 has_override=info["has_override"],
                 folder_path=info["folder_path"],

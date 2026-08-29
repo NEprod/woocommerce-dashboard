@@ -29,6 +29,9 @@ user catalogue share → /catalogue (read/write)
 
 Generated output:
 user output share → /output (read/write)
+
+Optional Catalogue Intake staging area:
+user-selected Unraid share or folder → /intake (read/write)
 ```
 
 All three mappings are required. `/app/instance` contains the application-owned
@@ -37,6 +40,36 @@ All three mappings are required. `/app/instance` contains the application-owned
 and `sku_index.json`; it must be writable. `/output` contains processed/generated
 images and must also be writable. Keep catalogue and output in purpose-specific
 shares rather than under appdata.
+
+`Catalogue Intake` is an optional fourth path. Leave its host path empty when
+the feature is not used. To enable it, edit the container, choose a user-owned
+Unraid share or folder as the host path, keep container path `/intake`, select
+Read/Write mode, apply the template change, and restart the container. Do not
+enter `/catalogue`, `/output`, `/app/instance`, or a personal path copied from
+another system. The application displays intake-relative paths only.
+
+Browsing and grouping/rename/metadata previews remain read-only. Explicitly confirmed
+grouping revalidates its preview, copies unchanged images through hidden private
+staging, and promotes a verified duplicate-safe provisional result below
+`/intake/Prepared/`. Later folder, image, and metadata steps advance that same
+visible result through hidden staging and rollback. Metadata save creates or
+updates only root `product_info.json`; it does not alter loose sources or invoke
+the scanner. The explicitly confirmed final handoff copies the complete verified
+Prepared result into hidden staging beneath `/catalogue`, then creates or safely
+replaces exactly one collection using protected rollback. Prepared remains
+unchanged and Append Scan remains a separate manual action. Both `/intake` and
+`/catalogue` must be genuine readable mounts; catalogue handoff additionally
+requires `/catalogue` to be writable. Read/write mode is required for confirmed
+operations; read-only mounts still permit previews where practical. See
+[Catalogue Intake](CATALOGUE_INTAKE.md).
+
+Unraid user shares may reject Linux `RENAME_NOREPLACE` with `EINVAL`. The
+application handles that capability result by retaining the dedicated mutation
+lock, confirming staging and `Prepared` are on the same mounted filesystem,
+rechecking that the selected destination is absent, and using the compatible
+ordinary directory rename. It never uses `os.replace()`, never copies into a
+visible partial result, and reports a controlled failure if safe promotion is
+not possible.
 
 Do not change the database mount to `/config` and do not rename `site.db`.
 Existing installations rely on `/app/instance/site.db`; changing either path can
@@ -66,26 +99,68 @@ only the result into the Unraid variable:
 openssl rand -hex 32
 ```
 
-Discord is disabled by default with `DISCORD_ENABLED=false`. Optional supported
-variables are `DISCORD_DEFAULT_USERNAME`, `DISCORD_DEFAULT_AVATAR_URL`,
-`DISCORD_WEBHOOK_SCANS_INFO`, `DISCORD_WEBHOOK_SCANS_ERRORS`,
-`DISCORD_WEBHOOK_EDITS`, `DISCORD_WEBHOOK_OVERRIDES`, and
-`DISCORD_WEBHOOK_INGEST`. Treat every webhook as a secret.
+**Before updating the development container to the storage-hardening image,
+confirm that its `SECRET_KEY` field contains a stable generated value.** The new
+image intentionally refuses missing values, `dev-secret`, `changeme`, and obvious
+example placeholders. It never prints or saves the supplied value.
+
+Discord is disabled by default with `DISCORD_ENABLED=false`. It is optional and
+delivery failure does not fail a scanner operation. All fields apply after a
+container restart:
+
+| Field label | Variable | Type | Default | Required | Secret | Placeholder example |
+|---|---|---|---|---|---|---|
+| Enable Discord Notifications | `DISCORD_ENABLED` | Variable | `false` | No | No | `true` |
+| Discord Display Name | `DISCORD_DEFAULT_USERNAME` | Variable | `WooCommerce Dashboard` | No | No | `Catalogue Scanner` |
+| Discord Avatar URL | `DISCORD_DEFAULT_AVATAR_URL` | Variable | empty | No | No | `https://example.invalid/avatar.png` |
+| Discord Scanner Updates Webhook | `DISCORD_WEBHOOK_SCANS_INFO` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
+| Discord Scanner Warnings and Failures Webhook | `DISCORD_WEBHOOK_SCANS_ERRORS` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
+| Discord Metadata Updates Webhook | `DISCORD_WEBHOOK_EDITS` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
+| Discord Product Overrides Webhook | `DISCORD_WEBHOOK_OVERRIDES` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
+| Discord Product Ingest Webhook | `DISCORD_WEBHOOK_INGEST` | Masked variable | empty | No | Yes | `https://discord.com/api/webhooks/REPLACE_ME` |
+
+Existing users should update their template to receive the clearer labels. The
+target environment variable names remain compatible, so existing values do not
+need renaming. Keep the ingest webhook empty if per-product messages would be
+noisy. Treat every webhook as a secret. See
+[Scanner, Operations, and Discord](SCANNER_OPERATIONS.md).
+
+The authenticated `/settings` page presents only safe availability and
+configured/not-configured states. It never renders mount paths, webhook values,
+`SECRET_KEY`, or an environment dump. Environment and Discord configuration
+remain owned by the Unraid container template; restart the container after a
+change. The page is diagnostic and read-only, not a secret editor.
 
 ## First start
 
-1. Create/select the three host directories and ensure the container can write
+1. Create/select the three required host directories and ensure the container can write
    to them.
-2. Install the XML as a user template or reproduce its fields manually.
-3. Set a generated `SECRET_KEY`; leave Discord disabled initially.
-4. Start the container and open `http://<unraid-ip>:7485/`.
-5. Complete `/setup`, then enter the container paths `/catalogue` and `/output`
+2. Optionally select a separate Catalogue Intake folder and map it read/write to
+   `/intake`.
+3. Install the XML as a user template or reproduce its fields manually.
+4. Set a generated `SECRET_KEY`; leave Discord disabled initially.
+5. Start the container and open `http://<unraid-ip>:7485/`.
+6. Complete `/setup`, then enter the container paths `/catalogue` and `/output`
    in initial settings.
-6. Review the initial-scan classification before starting any catalogue action.
+7. Review the initial-scan classification before starting any catalogue action.
+
+## Docker log retention
+
+Compose users receive the project policy automatically. For an Unraid container,
+add the equivalent Docker options in **Extra Parameters**:
+
+```text
+--log-driver local --log-opt max-size=10m --log-opt max-file=5 --log-opt compress=true
+```
+
+This retains five 10 MiB stdout/stderr files with compression where supported,
+an approximate 50 MiB pre-compression ceiling. If the Unraid host centrally
+manages Docker log rotation, verify that its effective policy is at least as
+strict and do not configure duplicate application file logging.
 
 Reconstruction preserves existing marker/SKU identities while rebuilding the
 database projection. Intentional full regeneration retains the protected
-SKU-reset behavior and must not be used as a substitute for reconstruction.
+SKU-reset behaviour and must not be used as a substitute for reconstruction.
 
 ## Updating and replacing the container
 
@@ -119,6 +194,11 @@ instance directory with ownership/permissions suitable for the container user,
 then start the pinned image. For an individual database backup, use the controlled
 restore procedure in [Database Migrations](MIGRATIONS.md); never replace SQLite
 while Gunicorn is running.
+
+The application bounds its own backup history as documented in
+[Storage and Retention](STORAGE_RETENTION.md). This does not replace an Unraid
+appdata/catalogue backup. `/app/instance/backups` is restricted to mode `0700`
+and database backups remain `0600`.
 
 ## Template use
 

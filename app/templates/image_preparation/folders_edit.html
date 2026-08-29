@@ -1,0 +1,54 @@
+{% extends 'layouts/base.html' %}
+{% from 'image_preparation/_shared.html' import readiness_panel, preview_banner, issue_list %}
+{% block title %}Edit Prepared Folders | WooCommerce Dashboard{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ url_for('main.image_preparation') }}">Catalogue Intake</a><span aria-hidden="true">/</span><a href="{{ url_for('main.image_preparation_folders') }}">Folder review</a><span aria-hidden="true">/</span><span aria-current="page">Edit structure</span></nav>
+<header class="page-header intake-page-header"><div><p class="eyebrow">Folder-only preparation</p><h1>Edit Folder Structure</h1><p>Rename collection, product, variation, and Parent folders through verified hidden staging while keeping the same visible Prepared-result identity.</p></div><a class="btn btn-ghost" href="{{ url_for('main.image_preparation_folders') }}">Choose another result</a></header>
+{{ readiness_panel(readiness) }}
+{{ preview_banner('Preview only — the current working result and every image filename remain unchanged until an explicitly confirmed rollback-protected replacement completes.') }}
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="intake-flash-list" aria-live="polite">{% for category,message in messages %}<div class="intake-error state-{{ category }}" role="{{ 'alert' if category == 'danger' else 'status' }}"><strong>{{ 'Folder changes not started' if category == 'danger' else 'Catalogue Intake status' }}</strong><span>{{ message }}</span></div>{% endfor %}</div>{% endif %}{% endwith %}
+{% if intake_error %}<div class="alert alert-danger" role="alert">{{ intake_error }}</div>{% endif %}
+{% if preview %}
+<form method="post" action="{{ url_for('main.image_preparation_folders_preview') }}" class="workspace-panel intake-folder-editor" aria-labelledby="folder-editor-heading">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="path" value="{{ preview.source }}">
+  <div class="panel-heading"><div><p class="eyebrow">Editable proposal</p><h2 id="folder-editor-heading">Folder names and hierarchy</h2></div><span class="status-badge">Source preserved</span></div>
+  <div class="intake-editor-grid">
+    <label><span>Working Prepared result</span><input name="root_name" value="{{ preview.source_name }}" maxlength="255" readonly required><small>The same visible identity <code>{{ preview.source }}</code> advances to the next preparation stage.</small></label>
+    <label><span>Temporary filename preview prefix</span><input name="preview_prefix" value="{{ preview.canonical_spec.entered_preview_prefix }}" maxlength="128" required><small>Preview-only. It is not persisted as metadata.</small></label>
+  </div>
+  <div class="intake-folder-edit-list" role="group" aria-label="Existing folder proposals">
+    {% for folder in preview.current_tree %}
+    <article>
+      <input type="hidden" name="folder_current" value="{{ folder.path }}">
+      <div><strong>{{ folder.path }}/</strong><small>{{ folder.role }} · {{ folder.image_count }} images · {{ folder.child_count }} child folders</small></div>
+      <label><span>Proposed path</span><input name="folder_proposed" value="{{ preview.canonical_spec.renames[folder.path] }}" required></label>
+      {% if folder.empty %}<label class="form-check"><input class="form-check-input" type="checkbox" name="remove_empty" value="{{ folder.path }}"{% if folder.path in preview.canonical_spec.remove_empty %} checked{% endif %}><span>Remove this empty folder from the new proposal</span></label>{% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  <label class="intake-created-folders"><span>Create new empty folders</span><textarea name="created_folders" rows="4" placeholder="One intake-relative folder path per line">{{ preview.canonical_spec.created|join('\n') }}</textarea><small>Use one path per line. Parent folders must be listed explicitly. No image files can be moved manually.</small></label>
+  <button class="btn btn-dark" type="submit">Preview Folder Changes</button>
+</form>
+
+{% if preview.canonical_spec.normalised %}<section class="workspace-panel" aria-labelledby="normalised-heading"><div class="panel-heading"><div><p class="eyebrow">Visible normalisation</p><h2 id="normalised-heading">Entered and normalised values</h2></div></div><ul class="intake-normalised-list">{% for item in preview.canonical_spec.normalised %}<li><code>{{ item.entered }}</code><span aria-hidden="true">→</span><code>{{ item.normalised }}</code></li>{% endfor %}</ul></section>{% endif %}
+
+<div class="detail-grid two-column intake-source-destination">
+  <article class="workspace-panel"><p class="eyebrow">Current tree</p><h2>{{ preview.source_name }}/</h2><ul class="intake-flat-tree">{% for folder in preview.current_tree %}<li><div><strong>{{ folder.path }}/</strong><span>{{ folder.role }}</span><small>{{ folder.image_count }} images · {{ folder.child_count }} children</small></div></li>{% endfor %}</ul></article>
+  <article class="workspace-panel"><p class="eyebrow">Complete proposed tree</p><h2>{{ preview.result_name }}/</h2><ul class="intake-flat-tree">{% for folder in preview.proposed_tree %}<li><div><strong>{{ folder.path }}/</strong><span>{{ folder.role }}</span><small>{% if folder.created %}Created empty folder{% else %}From {{ folder.current_path }}{% endif %}</small></div></li>{% endfor %}</ul></article>
+</div>
+
+<section class="workspace-panel intake-compatibility" aria-labelledby="folder-compatibility-heading"><p class="eyebrow">Scanner compatibility preview</p><h2 id="folder-compatibility-heading">{{ preview.compatibility.label }}</h2><p>{{ preview.compatibility.detail }}</p>{% if preview.parent.after %}<p><strong>Parent recognised:</strong> {{ preview.parent.after }}/ — parent-product imagery.</p>{% endif %}</section>
+
+<section class="workspace-panel" aria-labelledby="future-filenames-heading"><div class="panel-heading"><div><p class="eyebrow">Milestone 5 preview</p><h2 id="future-filenames-heading">Future image filenames</h2></div><span class="status-badge">Preview only</span></div><p><strong>Preview only — image files have not been renamed.</strong></p><div class="intake-filename-preview">{% for mapping in preview.mappings %}<article><div><strong>{{ mapping.current_filename }}</strong><small>{{ mapping.source_relpath }}</small></div><div><span>Proposed folder</span><code>{{ mapping.proposed_folder or 'Unassigned' }}</code></div><div><span>Future filename</span><code>{{ mapping.future_filename }}</code></div><span class="status-badge status-{{ 'failed' if mapping.state == 'blocking' else 'partial' }}">{{ 'Collision' if mapping.state == 'blocking' else 'Preview' }}</span></article>{% endfor %}</div></section>
+
+{{ issue_list(preview.issues, 'Folder conflicts and warnings') }}
+<section class="workspace-panel intake-confirm-panel" aria-labelledby="apply-folder-heading">
+  <div><p class="eyebrow">Copy-first confirmation</p><h2 id="apply-folder-heading">Apply Folder Changes</h2><p>The working result is copied to hidden staging, verified, and promoted under the same visible name. Hidden rollback preserves the current result until promoted verification succeeds.</p></div>
+  <dl class="intake-confirm-summary"><div><dt>Working result</dt><dd><code>{{ preview.source }}</code></dd></div><div><dt>Visible result after completion</dt><dd><code>{{ preview.proposed_result }}</code></dd></div><div><dt>Folders renamed</dt><dd>{{ preview.counts.renamed }}</dd></div><div><dt>Folders created</dt><dd>{{ preview.counts.created }}</dd></div><div><dt>Empty folders removed</dt><dd>{{ preview.counts.removed_empty }}</dd></div><div><dt>Parent change</dt><dd>{{ 'Yes' if preview.parent.changed else 'No' }}</dd></div><div><dt>Warnings</dt><dd>{{ preview.counts.warnings }}</dd></div><div><dt>Images unchanged</dt><dd>{{ preview.counts.images }}</dd></div></dl>
+  {% if preview.ready and readiness.writable %}<button class="btn btn-accent" type="button" data-bs-toggle="modal" data-bs-target="#confirmFolderDialog">Apply Folder Changes</button>{% else %}<div class="intake-confirm-blocked"><strong>Confirmation unavailable</strong><ul>{% if not readiness.writable %}<li>Catalogue Intake must be mounted read/write.</li>{% endif %}{% for blocker in preview.blockers %}<li>{{ blocker }}</li>{% endfor %}</ul></div>{% endif %}
+</section>
+<div class="intake-digest"><code>{{ preview.digest }}</code><span>Deterministic proposal digest; source or proposal changes require a fresh preview.</span></div>
+
+{% if preview.ready and readiness.writable %}<div class="modal fade" id="confirmFolderDialog" tabindex="-1" aria-labelledby="confirmFolderDialogTitle" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><div><p class="eyebrow">Same-name safe replacement</p><h2 class="modal-title" id="confirmFolderDialogTitle">Apply folder changes?</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><form method="post" action="{{ url_for('main.image_preparation_folders_confirm') }}"><div class="modal-body"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="path" value="{{ preview.source }}"><input type="hidden" name="digest" value="{{ preview.digest }}"><input type="hidden" name="proposal_spec" value="{{ preview.spec_json }}"><p><strong>Working result:</strong> <code>{{ preview.source }}</code></p><p><strong>Visible identity after completion:</strong> <code>{{ preview.proposed_result }}</code></p><p>Image filenames, metadata, catalogue data, and scanner state remain untouched. Rollback remains available until verification succeeds.</p><div class="form-check intake-confirm-check"><input class="form-check-input" type="checkbox" value="yes" id="confirmFolderAcknowledge" name="acknowledge" required><label class="form-check-label" for="confirmFolderAcknowledge">I understand that this Prepared result will be safely updated using hidden staging and rollback.</label></div></div><div class="modal-footer"><button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-accent">Apply Folder Changes Safely</button></div></form></div></div></div>{% endif %}
+{% endif %}
+{% endblock %}

@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import json
-import re
 import threading
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+from flask import current_app, has_app_context
 from app import db
-from app.models import CatalogueOperation
+from app.models import CatalogueOperation, Settings
+from app.utils.redaction import redact_diagnostic, runtime_redaction_paths
 
 
 ALLOWED_OPERATION_TYPES = {
@@ -20,12 +21,18 @@ ALLOWED_OPERATION_TYPES = {
     "shared_collection_update",
     "full",
     "reconstruction",
+    "intake_catalogue_handoff",
 }
 FINAL_STATUSES = {"succeeded", "partial", "failed", "interrupted"}
 
 _catalogue_lock = threading.Lock()
 _state_lock = threading.Lock()
 _active_operation: dict | None = None
+_operation_references: set[str] = set()
+
+ROUTINE_OPERATION_COUNT = 1000
+ROUTINE_OPERATION_AGE = timedelta(days=180)
+FAILURE_OPERATION_AGE = timedelta(days=365)
 
 
 class CatalogueOperationActive(RuntimeError):
@@ -61,27 +68,108 @@ def _safe_scope(scope) -> str:
     return json.dumps(clean(scope or {}), sort_keys=True)[:4000]
 
 
+def _redaction_paths():
+    if not has_app_context():
+        return runtime_redaction_paths()
+    try:
+        settings = Settings.query.first()
+        return runtime_redaction_paths(
+            catalogue=settings.product_folder if settings else None,
+            output=settings.output_folder if settings else None,
+            instance=current_app.instance_path,
+        )
+    except Exception:
+        return runtime_redaction_paths(instance=current_app.instance_path)
+
+
 def sanitize_operation_error(error) -> str:
-    text = str(error)
-    text = re.sub(
-        r"https?://(?:discord(?:app)?\.com)/api/webhooks/[^\s]+",
-        "[REDACTED]",
-        text,
-        flags=re.IGNORECASE,
+    return redact_diagnostic(error, paths=_redaction_paths(), limit=1000)
+
+
+def register_operation_reference(operation_id: str) -> None:
+    with _state_lock:
+        _operation_references.add(operation_id)
+
+
+def unregister_operation_reference(operation_id: str) -> None:
+    with _state_lock:
+        _operation_references.discard(operation_id)
+
+
+def prune_operation_history(*, now=None, protected_ids=None):
+    """Apply bounded completed-operation retention without touching active recovery."""
+
+    current = (now or datetime.now(UTC)).replace(tzinfo=None)
+    routine_cutoff = current - ROUTINE_OPERATION_AGE
+    failure_cutoff = current - FAILURE_OPERATION_AGE
+    with _state_lock:
+        protected = set(_operation_references)
+        if _active_operation:
+            protected.add(_active_operation["id"])
+    protected.update(protected_ids or ())
+
+    completed = CatalogueOperation.query.filter(
+        CatalogueOperation.finished_at.isnot(None),
+        ~CatalogueOperation.status.in_({"running", "pending"}),
+    ).all()
+    completed.sort(
+        key=lambda row: (row.finished_at or row.started_at, row.id), reverse=True
     )
-    text = re.sub(
-        r"\b(token|password|secret|api[_-]?key)\s*[:=]\s*[^\s,;]+",
-        r"\1=[REDACTED]",
-        text,
-        flags=re.IGNORECASE,
-    )
-    text = re.sub(
-        r"\bBearer\s+[^\s,;]+", "Bearer [REDACTED]", text, flags=re.IGNORECASE
-    )
-    return text[:1000]
+    newest_by_type = {}
+    for row in completed:
+        newest_by_type.setdefault(row.operation_type, row.id)
+    protected.update(newest_by_type.values())
+
+    routine = [
+        row
+        for row in completed
+        if row.status == "succeeded" and row.recovery_state in (None, "none")
+    ]
+    protected.update(row.id for row in routine[:ROUTINE_OPERATION_COUNT])
+
+    candidates = []
+    for row in completed:
+        if row.id in protected:
+            continue
+        if row.status == "succeeded" and row.recovery_state in (None, "none"):
+            if row.finished_at < routine_cutoff:
+                candidates.append(row)
+            continue
+        if row.recovery_state not in (None, "none"):
+            continue
+        if row.finished_at < failure_cutoff:
+            candidates.append(row)
+
+    candidates.sort(key=lambda row: (row.finished_at, row.id))
+    for row in candidates:
+        db.session.delete(row)
+    if candidates:
+        db.session.commit()
+    return {"deleted": len(candidates), "retained": len(completed) - len(candidates)}
 
 
 def get_active_operation() -> dict | None:
+    if has_app_context():
+        row = (
+            CatalogueOperation.query.filter(
+                CatalogueOperation.operation_type.in_(ALLOWED_OPERATION_TYPES),
+                CatalogueOperation.status.in_({"running", "pending"})
+            )
+            .order_by(CatalogueOperation.started_at.asc())
+            .first()
+        )
+        if row:
+            from app.utils.operation_live import persisted_live_state
+            live = persisted_live_state(row) or {}
+            return {
+                "id": row.id,
+                "operation_type": row.operation_type,
+                "started_at": row.started_at.isoformat() if row.started_at else None,
+                "stage": live.get("stage") or "running",
+                "heartbeat_at": live.get("heartbeat_at"),
+                "current_item": live.get("current_item"),
+                "elapsed_seconds": max(0, int((_utcnow() - row.started_at).total_seconds())) if row.started_at else None,
+            }
     with _state_lock:
         return dict(_active_operation) if _active_operation else None
 
@@ -104,6 +192,22 @@ def acquire_catalogue_operation(operation_type: str, scope=None) -> OperationLea
         "started_at": _utcnow().isoformat(),
     }
     try:
+        # A persisted preflight makes the authoritative lock visible to another
+        # worker even though the production runtime currently uses one worker.
+        existing = (
+            CatalogueOperation.query.filter(
+                CatalogueOperation.operation_type.in_(ALLOWED_OPERATION_TYPES),
+                CatalogueOperation.status.in_({"running", "pending"})
+            )
+            .order_by(CatalogueOperation.started_at.asc())
+            .first()
+        )
+        if existing:
+            raise CatalogueOperationActive({
+                "id": existing.id,
+                "operation_type": existing.operation_type,
+                "started_at": existing.started_at.isoformat() if existing.started_at else None,
+            })
         row = CatalogueOperation(
             id=operation_id,
             operation_type=operation_type,
@@ -136,6 +240,7 @@ def finish_catalogue_operation(
     products_restored: int | None = None,
     variations_missing: int | None = None,
     variations_restored: int | None = None,
+    operation_summary: dict | None = None,
 ) -> None:
     global _active_operation
 
@@ -166,6 +271,15 @@ def finish_catalogue_operation(
                 row.marker_state = marker_state
             if recovery_state is not None:
                 row.recovery_state = recovery_state
+            if operation_summary is not None:
+                try:
+                    scope = json.loads(row.scope or "{}")
+                except (TypeError, ValueError):
+                    scope = {}
+                if not isinstance(scope, dict):
+                    scope = {}
+                scope["operation_summary"] = operation_summary
+                row.scope = json.dumps(scope, ensure_ascii=False, separators=(",", ":"))
             db.session.commit()
     except Exception:
         db.session.rollback()
@@ -177,6 +291,15 @@ def finish_catalogue_operation(
                 _active_operation = None
         if matches and _catalogue_lock.locked():
             _catalogue_lock.release()
+    try:
+        prune_operation_history()
+    except Exception as cleanup_error:
+        db.session.rollback()
+        if has_app_context():
+            current_app.logger.warning(
+                "Operation retention cleanup failed: %s",
+                sanitize_operation_error(cleanup_error),
+            )
 
 
 @contextmanager
@@ -211,5 +334,6 @@ def reset_operation_control_for_tests() -> None:
     global _active_operation
     with _state_lock:
         _active_operation = None
+        _operation_references.clear()
     if _catalogue_lock.locked():
         _catalogue_lock.release()
