@@ -23,7 +23,13 @@ the Catalogue Intake workspace simply reports unavailable.
 
 Phase 2.5 Milestones 2–6 add authenticated routes at `/image-preparation`,
 `/image-preparation/group`, `/image-preparation/folders`, and
-`/image-preparation/rename`, plus `/image-preparation/metadata`. They browse only
+`/image-preparation/rename`, plus `/image-preparation/metadata`. RC4 adds the
+separate `/image-preparation/import-structured` path for a complete existing
+folder hierarchy. It copies a digest-revalidated tree through hidden staging
+into a new suffix-safe Prepared result while preserving the source. Review mode
+enters folder review; final-structure mode enters image renaming after stricter
+structure validation. Existing metadata is preserved byte-for-byte and does
+not cause later stages to be skipped. These workspaces browse only
 the canonical `/intake` root and render intake-relative breadcrumbs, supported,
 hidden, corrupt, unsupported, unreadable, and unsafe-entry counts.
 

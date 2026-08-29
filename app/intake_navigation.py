@@ -20,6 +20,7 @@ INTAKE_OPERATION_TYPES = {
     "intake_image_rename",
     "intake_metadata_save",
     "intake_catalogue_handoff",
+    "intake_structured_import",
 }
 
 WORKFLOW_STEPS = {
@@ -168,6 +169,9 @@ def prepared_result_navigation(root, relative):
         "warning_review_url": None,
         "completed_with_warnings": False,
         "blocking_count": 0,
+        "origin_label": None,
+        "import_mode": None,
+        "source_preserved": False,
     }
     row, scope, summary = _latest_operation(canonical)
     if row is None:
@@ -219,7 +223,17 @@ def prepared_result_navigation(root, relative):
         )
         return base
     step = WORKFLOW_STEPS.get(state)
-    if step is None or row.operation_type != step["operation_type"]:
+    operation_matches = bool(
+        step
+        and (
+            row.operation_type == step["operation_type"]
+            or (
+                row.operation_type == "intake_structured_import"
+                and state in {"folder_review_required", "image_renaming_required"}
+            )
+        )
+    )
+    if step is None or not operation_matches:
         base.update(
             explanation="The latest workflow metadata is incomplete or no longer eligible for a direct next action."
         )
@@ -245,6 +259,13 @@ def prepared_result_navigation(root, relative):
             "kwargs": ({"path": canonical} if step["endpoint"] != "main.scanner" else {})
             | dict(step.get("extra") or {}),
         },
+        origin_label=(
+            "Imported structured source"
+            if row.operation_type == "intake_structured_import"
+            else None
+        ),
+        import_mode=summary.get("import_mode"),
+        source_preserved=bool(summary.get("source_preserved")),
     )
     return base
 

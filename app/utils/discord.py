@@ -292,6 +292,45 @@ def notify_intake_grouping_failed(*, source_name, error_text, operation_id):
     return send_discord_message(embeds=[embed], channels=["scans_errors"])
 
 
+def notify_intake_structured_import_completed(summary, *, operation_id):
+    """Send one bounded terminal summary for a structured-folder import."""
+
+    warning_count = max(0, int(summary.get("warnings", 0) or 0))
+    mode = "Review folder structure" if summary.get("import_mode") == "review" else "Final folder structure"
+    fields = [
+        {"name": "Source", "value": _truncate(str(summary.get("source_relpath") or "Structured source").rsplit("/", 1)[-1]), "inline": True},
+        {"name": "Prepared result", "value": _truncate(summary.get("result_name")), "inline": True},
+        {"name": "Import mode", "value": mode, "inline": True},
+        {"name": "Folders", "value": str(max(0, int(summary.get("folder_count", 0) or 0))), "inline": True},
+        {"name": "Images", "value": str(max(0, int(summary.get("source_images", 0) or 0))), "inline": True},
+        {"name": "Parent detected", "value": "Yes" if summary.get("parent_detected") else "No", "inline": True},
+        {"name": "Warnings", "value": str(warning_count), "inline": True},
+        {"name": "Duration", "value": f"{float(summary.get('duration_seconds', 0) or 0):.1f}s", "inline": True},
+        {"name": "Next step", "value": "Review and rename folders" if summary.get("import_mode") == "review" else "Rename images", "inline": False},
+    ]
+    embed = build_embed(
+        "Structured Folder Imported with Warnings" if warning_count else "Structured Folder Imported",
+        f"Operation: `{_truncate(operation_id)}`\nThe source folder was preserved and a verified Prepared result was created.",
+        COLORS["warn"] if warning_count else COLORS["success"],
+        fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_errors" if warning_count else "scans_info"])
+
+
+def notify_intake_structured_import_failed(source_name, error_text, *, operation_id):
+    fields = [
+        {"name": "Source", "value": _truncate(source_name), "inline": True},
+        {"name": "Operation", "value": f"`{_truncate(operation_id)}`", "inline": True},
+    ]
+    embed = build_embed(
+        "Structured Folder Import Failed",
+        f"No unverified Prepared result was exposed.\nError: `{_truncate(error_text)}`",
+        COLORS["error"],
+        fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_errors"])
+
+
 def notify_intake_folder_edit_completed(
     *, source_name, result_name, renamed, created, warnings, elapsed_text, operation_id
 ):

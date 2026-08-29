@@ -288,6 +288,86 @@ def image_preparation_group_confirm():
     return redirect(url_for("main.operation_detail", operation_id=operation_id))
 
 
+@main.route("/image-preparation/import-structured")
+@login_required
+def image_preparation_import_structured():
+    relative = request.args.get("path", "")[:1024]
+    mode = request.args.get("mode", "review")[:32]
+    readiness, browser, error = _intake_page_context(relative)
+    return render_template(
+        "image_preparation/import_structured.html",
+        readiness=readiness,
+        browser=browser,
+        preview=None,
+        selected_mode=mode if mode in {"review", "final"} else "review",
+        can_confirm=False,
+        intake_error=error,
+    ), (400 if error else 200)
+
+
+@main.route("/image-preparation/import-structured/preview", methods=["POST"])
+@login_required
+def image_preparation_import_structured_preview():
+    from app.intake_structured_import import structured_import_preview
+
+    relative = request.form.get("path", "")[:1024]
+    mode = request.form.get("mode", "review")[:32]
+    readiness, browser, error = _intake_page_context(relative)
+    preview = None
+    if browser and not error:
+        try:
+            preview = structured_import_preview(configured_intake_root(), relative, mode)
+        except ValueError as preview_error:
+            error = str(preview_error)
+    return render_template(
+        "image_preparation/import_structured.html",
+        readiness=readiness,
+        browser=browser,
+        preview=preview,
+        selected_mode=mode,
+        can_confirm=bool(preview and preview["ready"] and readiness["writable"]),
+        intake_error=error,
+    ), (400 if error else 200)
+
+
+@main.route("/image-preparation/import-structured/confirm", methods=["POST"])
+@login_required
+def image_preparation_import_structured_confirm():
+    from app.intake_grouping import IntakeOperationActive
+    from app.intake_structured_import import (
+        IMPORT_FINAL,
+        StructuredImportRejected,
+        start_structured_import,
+    )
+
+    relative = request.form.get("path", "")[:1024]
+    mode = request.form.get("mode", "review")[:32]
+    digest = request.form.get("digest", "")[:128]
+    if request.form.get("acknowledge") != "yes":
+        flash("Confirm that a new Prepared result will be created while the source remains unchanged.", "danger")
+        return redirect(url_for("main.image_preparation_import_structured", path=relative, mode=mode))
+    if mode == IMPORT_FINAL and request.form.get("acknowledge_final") != "yes":
+        flash("Confirm that the current folder names and hierarchy are final.", "danger")
+        return redirect(url_for("main.image_preparation_import_structured", path=relative, mode=mode))
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        flash("The structured-folder proposal is invalid. Generate a fresh preview.", "danger")
+        return redirect(url_for("main.image_preparation_import_structured", path=relative, mode=mode))
+    try:
+        operation_id = start_structured_import(
+            current_app._get_current_object(), relative, mode, digest
+        )
+    except (ValueError, StructuredImportRejected) as error:
+        flash(str(error), "danger")
+        return redirect(url_for("main.image_preparation_import_structured", path=relative, mode=mode))
+    except IntakeOperationActive as error:
+        operation_id = str((error.active or {}).get("id") or "")
+        flash("A Catalogue Intake preparation operation is already running.", "warning")
+        if re.fullmatch(r"[0-9a-f]{32}", operation_id):
+            return redirect(url_for("main.operation_detail", operation_id=operation_id))
+        return redirect(url_for("main.image_preparation_import_structured", path=relative, mode=mode))
+    return redirect(url_for("main.operation_detail", operation_id=operation_id))
+
+
 def _folder_editor_spec_from_form():
     current_paths = request.form.getlist("folder_current")[:5000]
     proposed_paths = request.form.getlist("folder_proposed")[:5000]

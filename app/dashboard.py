@@ -32,6 +32,7 @@ OPERATION_LABELS = {
     "full": "Full regeneration",
     "reconstruction": "Catalogue reconstruction",
     "intake_group": "Catalogue Intake — Group Images",
+    "intake_structured_import": "Catalogue Intake — Import Structured Folder",
 }
 
 METADATA_ISSUE_DEFINITIONS = {

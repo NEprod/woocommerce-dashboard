@@ -43,11 +43,13 @@ INTAKE_OPERATION_TYPE = "intake_group"
 INTAKE_FOLDER_OPERATION_TYPE = "intake_folder_edit"
 INTAKE_RENAME_OPERATION_TYPE = "intake_image_rename"
 INTAKE_METADATA_OPERATION_TYPE = "intake_metadata_save"
+INTAKE_STRUCTURED_IMPORT_OPERATION_TYPE = "intake_structured_import"
 INTAKE_OPERATION_TYPES = (
     INTAKE_OPERATION_TYPE,
     INTAKE_FOLDER_OPERATION_TYPE,
     INTAKE_RENAME_OPERATION_TYPE,
     INTAKE_METADATA_OPERATION_TYPE,
+    INTAKE_STRUCTURED_IMPORT_OPERATION_TYPE,
 )
 STALE_STAGING_AGE = timedelta(hours=24)
 _OPERATION_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -109,6 +111,9 @@ def _safe_scope(scope, *, operation_type=INTAKE_OPERATION_TYPE):
         "source_images": max(0, int(scope.get("source_images") or 0)),
         "group_count": max(0, int(scope.get("group_count") or 0)),
         "workflow_status": (
+            str(scope.get("workflow_status") or "folder_review_required")[:64]
+            if operation_type == INTAKE_STRUCTURED_IMPORT_OPERATION_TYPE
+            else
             "image_renaming_required"
             if operation_type == INTAKE_FOLDER_OPERATION_TYPE
             else "metadata_required"
@@ -118,6 +123,9 @@ def _safe_scope(scope, *, operation_type=INTAKE_OPERATION_TYPE):
             else "folder_review_required"
         ),
     }
+    if operation_type == INTAKE_STRUCTURED_IMPORT_OPERATION_TYPE:
+        safe["import_mode"] = str(scope.get("import_mode") or "review")[:32]
+        safe["source_preserved"] = True
     return json.dumps(safe, ensure_ascii=False, separators=(",", ":"))
 
 
