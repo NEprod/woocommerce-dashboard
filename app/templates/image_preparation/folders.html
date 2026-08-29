@@ -9,10 +9,10 @@
 {% if intake_error %}<div class="alert alert-warning" role="alert">{{ intake_error }}</div>{% endif %}
 {% if prepared %}
 <section class="workspace-panel" aria-labelledby="prepared-results-heading">
-  <div class="panel-heading"><div><p class="eyebrow">Prepared results</p><h2 id="prepared-results-heading">Choose a grouped result</h2></div><span class="status-badge">{{ prepared.directories|length }} available</span></div>
+  <div class="panel-heading"><div><p class="eyebrow">Prepared results</p><h2 id="prepared-results-heading">Choose the current next action</h2></div><span class="status-badge">{{ prepared_results|length }} available</span></div>
   <p>The selected working result is updated safely under the same visible name using private staging and rollback. Loose source images remain unchanged.</p>
   <div class="intake-folder-list" role="list" aria-label="Prepared results">
-    {% for folder in prepared.directories %}<a class="intake-folder-row" role="listitem" href="{{ url_for('main.image_preparation_folders_edit', path=folder.path) }}">{{ icon('folder') }}<span><strong>{{ folder.name }}</strong><small>{{ folder.path }}</small></span><span>Review and rename folders</span></a>{% else %}<div class="empty-state compact"><h3>No prepared results</h3><p>Complete copy-first grouping before reviewing folder names.</p></div>{% endfor %}
+    {% for result in prepared_results %}<div class="intake-folder-row is-workflow-result" role="listitem">{{ icon('folder') }}<span><strong>{{ result.name }}</strong><small>{{ result.state_label }} · {{ result.path }}</small></span><div class="intake-folder-actions"><a class="btn btn-ghost" href="{{ url_for('main.image_preparation', path=result.path) }}">Open Prepared Result</a>{% if result.primary_action %}<a class="btn btn-accent intake-next-action" href="{{ result.primary_action.url }}">{{ result.primary_action.label }}</a>{% else %}<span class="muted-copy">{{ result.explanation }}</span>{% endif %}</div></div>{% else %}<div class="empty-state compact"><h3>No prepared results</h3><p>Complete copy-first grouping before reviewing folder names.</p></div>{% endfor %}
   </div>
 </section>
 {% endif %}

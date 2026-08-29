@@ -263,7 +263,7 @@ def test_safe_rename_replaces_same_result_preserves_bytes_and_boundaries(rename_
     detail = rename_client.get(response.headers["Location"]).get_data(as_text=True)
     assert '<h1 data-operation-heading>Images renamed — metadata required</h1>' in detail
     assert "Images renamed — metadata required" in detail
-    assert "Create product metadata" in detail
+    assert "Create Product Metadata" in detail
     assert "Run Append Scan" not in detail
 
 

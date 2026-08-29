@@ -926,6 +926,11 @@ code { color: var(--color-lime-ink); font-family: var(--font-mono); }
 .intake-folder-row .app-icon { width: 20px; height: 20px; color: var(--color-teal); }
 .intake-folder-row span { display: flex; min-width: 0; flex-direction: column; }
 .intake-folder-row small { overflow-wrap: anywhere; color: var(--color-text-muted); }
+.intake-folder-row.is-workflow-result { justify-content: space-between; }
+.intake-folder-actions { display: flex; margin-left: auto; align-items: center; justify-content: flex-end; gap: var(--space-3); }
+.intake-folder-actions .muted-copy { max-width: 320px; }
+.intake-next-step-panel { margin-bottom: var(--space-7); }
+.intake-next-step-panel > p { color: var(--color-text-secondary); }
 .intake-issues { margin-top: var(--space-5); border-top: var(--border-subtle); padding-top: var(--space-4); }
 .intake-issues summary { min-height: 44px; cursor: pointer; font-weight: 700; }
 .intake-issues ul { display: grid; gap: var(--space-3); padding: 0; list-style: none; }
@@ -1049,6 +1054,9 @@ code { color: var(--color-lime-ink); font-family: var(--font-mono); }
   .intake-mapping-card dl { grid-template-columns: 1fr; }
   .intake-prefix-control { align-items: stretch; flex-direction: column; }
   .intake-prefix-control .btn, .intake-folder-row { min-height: 44px; }
+  .intake-folder-row.is-workflow-result, .intake-folder-actions { align-items: stretch; flex-direction: column; }
+  .intake-folder-actions { width: 100%; margin-left: 0; }
+  .intake-folder-actions .btn, .intake-next-step-panel .btn { width: 100%; }
   .intake-folder-row:is(form) { align-items: stretch; flex-direction: column; }
   .intake-folder-row:is(form) .btn { width: 100%; }
   .intake-digest { align-items: flex-start; flex-direction: column; }

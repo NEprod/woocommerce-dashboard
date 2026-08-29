@@ -296,3 +296,19 @@ request-scoped and does not grow SQLite.
 
 Catalogue handoff is complete but scanning remains separately gated. A handoff
 copies source material only; the user must start Append Scan manually.
+
+## Next-step navigation
+
+Every direct Prepared result now exposes one primary action derived from its
+latest durable workflow operation: folder review, image renaming, metadata
+creation or editing, final validation, or Scanner. The action carries a signed
+opaque result token. Opening it performs a fresh server-side existence,
+operation-status, recovery-state, workflow-state, and stage-eligibility check
+before redirecting to the established preview or editor route.
+
+These links are navigation only. They never confirm an operation, bypass a
+proposal digest or acknowledgement, mutate Intake or Catalogue, emit Discord,
+or start the scanner. A stale token follows the result's current valid state; a
+missing, failed, interrupted, recovery-required, or incomplete result returns a
+controlled explanation instead of a broken action. After catalogue handoff the
+primary action opens Scanner and explicitly leaves Append Scan as a manual step.

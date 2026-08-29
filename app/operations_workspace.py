@@ -287,6 +287,7 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
         prepared_relpath = summary.get("prepared_relpath")
         groups = []
         prepared_url = None
+        navigation = None
         if isinstance(prepared_relpath, str) and prepared_relpath.startswith("Prepared/"):
             try:
                 from app.image_preparation import browse_intake, configured_intake_root
@@ -310,6 +311,33 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
                 prepared_url = url_for("main.image_preparation", path=prepared_relpath)
             except (OSError, ValueError):
                 groups = []
+        if (
+            prepared_url
+            and row.status in {"succeeded", "partial"}
+            and not view["recoverable"]
+        ):
+            try:
+                from app.intake_navigation import prepared_result_navigation
+
+                navigation = prepared_result_navigation(
+                    configured_intake_root(), prepared_relpath
+                )
+            except (OSError, ValueError):
+                navigation = None
+        if navigation is None:
+            explanation = (
+                "Prepared result is no longer available. Return to Catalogue Intake to review current results."
+                if row.status in {"succeeded", "partial"} and not prepared_url
+                else "Recovery must be resolved before another Catalogue Intake stage can be opened."
+                if view["recoverable"]
+                else "No next action is available because this Catalogue Intake operation did not complete successfully."
+            )
+            navigation = {
+                "primary_action": None,
+                "explanation": explanation,
+                "heading": "Catalogue Intake action unavailable",
+                "state_label": "Action unavailable",
+            }
         intake = {
             "is_grouping": row.operation_type == "intake_group",
             "is_folder_edit": row.operation_type == "intake_folder_edit",
@@ -319,6 +347,8 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             "source_relpath": view["scope"].get("source_relpath"),
             "prepared_relpath": prepared_relpath,
             "prepared_url": prepared_url,
+            "navigation": navigation,
+            "next_action": navigation.get("primary_action"),
             "groups": groups,
             "workflow_status": summary.get("workflow_status") or view["scope"].get("workflow_status"),
             "failed_stage": summary.get("failed_stage"),

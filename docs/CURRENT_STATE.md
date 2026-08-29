@@ -92,6 +92,14 @@ staging; replacement uses protected rollback and no merge. The Prepared result
 remains unchanged. Success records **Catalogue handoff complete** and directs
 the user to **Run Append Scan** manually. No scan, marker, SKU allocation,
 database projection, output write, conversion, or upload occurs.
+
+Catalogue Intake completion and Prepared-result views derive a single prominent
+next action from that durable state. Signed result tokens are revalidated on
+every navigation request, so stale, missing, failed, interrupted,
+recovery-required, and ineligible results cannot enter a later stage. The
+mapping is folder review → image renaming → metadata creation/editing → final
+validation → Scanner. These GET links perform no mutation, and opening Scanner
+after handoff does not start Append Scan.
 See [Catalogue Intake](CATALOGUE_INTAKE.md).
 
 ## Scanner modes

@@ -488,7 +488,7 @@ def test_operation_detail_exposes_metadata_summary_and_next_step(metadata_app, m
     body = page.get_data(as_text=True)
     assert "Catalogue Intake — Save Metadata" in body
     assert "Metadata complete — validation required" in body
-    assert "Validate prepared collection" in body
+    assert "Validate and Copy to Catalogue" in body
     assert "Edit Product Metadata" in body
     assert preview["json_text"] not in body
 

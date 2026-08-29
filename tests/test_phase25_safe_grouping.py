@@ -673,7 +673,7 @@ def test_operation_detail_and_prepared_browser_use_provisional_language(grouping
     assert _wait_for_operation(app, operation_id) in {"succeeded", "partial"}
     html = grouping_client.get(f"/operations/{operation_id}").get_data(as_text=True)
     assert "Grouping complete — folder review required" in html
-    assert "Review and rename folders" in html
+    assert "Review and Rename Folders" in html
     assert "Open Prepared Result" in html
     assert "Ready for Catalogue" not in html
     assert "Rename Images" not in html

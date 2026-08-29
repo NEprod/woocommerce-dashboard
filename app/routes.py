@@ -167,12 +167,68 @@ def _intake_page_context(relative=""):
 def image_preparation():
     relative = request.args.get("path", "")[:1024]
     readiness, browser, error = _intake_page_context(relative)
+    selected_prepared = None
+    prepared_results = {}
+    if browser and not error:
+        from app.intake_navigation import (
+            prepared_result_navigation,
+            prepared_result_navigations,
+        )
+
+        try:
+            if browser["path"] == "Prepared":
+                prepared_results = {
+                    item["path"]: item
+                    for item in prepared_result_navigations(configured_intake_root())
+                }
+            elif browser["path"].startswith("Prepared/") and len(browser["path"].split("/")) == 2:
+                selected_prepared = prepared_result_navigation(
+                    configured_intake_root(), browser["path"]
+                )
+        except (OSError, ValueError):
+            selected_prepared = None
     return render_template(
         "image_preparation/index.html",
         readiness=readiness,
         browser=browser,
+        selected_prepared=selected_prepared,
+        prepared_results=prepared_results,
         intake_error=error,
     ), (400 if error else 200)
+
+
+@main.route("/image-preparation/next/<token>")
+@login_required
+def image_preparation_next(token):
+    """Revalidate one signed Prepared identity and navigate without mutation."""
+
+    from app.intake_navigation import (
+        decode_navigation_token,
+        navigation_destination,
+        prepared_result_navigation,
+    )
+
+    decoded = decode_navigation_token(token)
+    if decoded is None:
+        flash("That Catalogue Intake next-step link is invalid or no longer available.", "warning")
+        return redirect(url_for("main.image_preparation"))
+    try:
+        navigation = prepared_result_navigation(
+            configured_intake_root(), decoded["result"]
+        )
+    except (OSError, ValueError):
+        navigation = None
+    destination = navigation_destination(navigation)
+    if destination is None:
+        message = (navigation or {}).get("explanation") or "The Prepared result is unavailable or no longer eligible."
+        flash(message, "warning")
+        return redirect(url_for("main.image_preparation"))
+    if decoded["expected_state"] != navigation["workflow_state"]:
+        flash(
+            "The Prepared result workflow state changed. The currently valid next step has been selected.",
+            "warning",
+        )
+    return redirect(destination)
 
 
 @main.route("/image-preparation/group")
@@ -257,17 +313,22 @@ def _folder_editor_spec_from_form():
 @main.route("/image-preparation/folders")
 @login_required
 def image_preparation_folders():
+    from app.intake_navigation import prepared_result_navigations
+
     readiness = intake_readiness()
     prepared = None
+    prepared_results = []
     error = None
     try:
         prepared = browse_intake(configured_intake_root(), "Prepared")
+        prepared_results = prepared_result_navigations(configured_intake_root())
     except ValueError:
         error = "No safe prepared results are available for folder review."
     return render_template(
         "image_preparation/folders.html",
         readiness=readiness,
         prepared=prepared,
+        prepared_results=prepared_results,
         intake_error=error,
     ), (400 if error else 200)
 
@@ -276,12 +337,18 @@ def image_preparation_folders():
 @login_required
 def image_preparation_folders_edit():
     from app.intake_folder_editor import folder_editor_preview
+    from app.intake_navigation import prepared_result_navigation
 
     relative = request.args.get("path", "")[:1024]
     readiness = intake_readiness()
     preview = None
     error = None
     try:
+        navigation = prepared_result_navigation(configured_intake_root(), relative)
+        if navigation["workflow_state"] != "folder_review_required" or not navigation["primary_action"]:
+            raise ValueError(
+                "This Prepared result is not currently eligible for folder review. Open its current next action instead."
+            )
         preview = folder_editor_preview(configured_intake_root(), relative)
     except ValueError as preview_error:
         error = str(preview_error)
@@ -367,6 +434,22 @@ def image_preparation_rename():
     eligible_results = []
     if relative:
         readiness, browser, error = _intake_page_context(relative)
+        if browser and relative.startswith("Prepared/"):
+            from app.intake_navigation import prepared_result_navigation
+
+            try:
+                navigation = prepared_result_navigation(
+                    configured_intake_root(), relative
+                )
+                if (
+                    navigation["workflow_state"] != "image_renaming_required"
+                    or not navigation["primary_action"]
+                ):
+                    error = "This Prepared result is not currently eligible for image renaming. Open its current next action instead."
+                    browser = None
+            except (OSError, ValueError):
+                error = "The selected Prepared result is invalid, unavailable, or ineligible for image renaming."
+                browser = None
     else:
         try:
             eligible_results = eligible_image_rename_results(configured_intake_root())
@@ -478,11 +561,16 @@ def image_preparation_rename_confirm():
 @login_required
 def image_preparation_metadata():
     from app.intake_metadata_builder import eligible_metadata_results
+    from app.intake_navigation import prepared_result_navigation
 
     readiness = intake_readiness()
     error = None
     try:
         results = eligible_metadata_results(configured_intake_root()) if readiness["readable"] else []
+        for result in results:
+            result["navigation"] = prepared_result_navigation(
+                configured_intake_root(), result["path"]
+            )
     except (OSError, ValueError):
         results = []
         error = "No safe image-renamed Prepared results are available."
@@ -573,11 +661,16 @@ def image_preparation_metadata_confirm():
 @login_required
 def image_preparation_handoff():
     from app.intake_handoff import eligible_handoff_results
+    from app.intake_navigation import prepared_result_navigation
 
     readiness = intake_readiness()
     error = None
     try:
         results = eligible_handoff_results(configured_intake_root()) if readiness["readable"] else []
+        for result in results:
+            result["navigation"] = prepared_result_navigation(
+                configured_intake_root(), result["path"]
+            )
     except (OSError, ValueError):
         results = []
         error = "No safe metadata-complete Prepared results are available."
