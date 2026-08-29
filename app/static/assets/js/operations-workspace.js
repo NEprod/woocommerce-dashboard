@@ -13,7 +13,32 @@
 
   function shouldPause(failures) { return failures >= 3; }
 
-  root.OperationsWorkspaceClient = {liveUrl, nextCursor, shouldPause};
+  function shouldRefreshIntakeResult(wasTerminal, isTerminal, hasPanel) {
+    return !wasTerminal && isTerminal && hasPanel;
+  }
+
+  const resultRefreshFallback = "Operation completed. Refresh this page to load the next action.";
+
+  async function requestResultFragment(fetchImpl, url) {
+    const response = await fetchImpl(url, {
+      headers: {"Accept": "text/html", "Cache-Control": "no-cache"},
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error("result request failed");
+    const html = await response.text();
+    if (!html.trim()) throw new Error("empty result response");
+    return html;
+  }
+
+  root.OperationsWorkspaceClient = {
+    liveUrl,
+    nextCursor,
+    shouldPause,
+    shouldRefreshIntakeResult,
+    resultRefreshFallback,
+    requestResultFragment,
+  };
   const documentRef = root.document;
   if (!documentRef || typeof documentRef.querySelector !== "function") return;
 
@@ -26,8 +51,10 @@
   const logNote = documentRef.querySelector("[data-log-note]");
   const retry = documentRef.querySelector("[data-live-retry]");
   const connectivity = documentRef.querySelector("[data-live-connectivity]");
+  const intakeResultPanel = documentRef.querySelector("[data-intake-result-panel]");
   let cursor = 0;
   let terminal = hero.dataset.terminal === "true";
+  let intakeResultReady = terminal || !intakeResultPanel;
   let paused = false;
   let failures = 0;
   let statusBusy = false;
@@ -177,14 +204,45 @@
     try {
       const response = await root.fetch(liveUrl(operationId, "status"), {headers: {"Accept": "application/json", "Cache-Control": "no-cache"}, credentials: "same-origin", cache: "no-store"});
       if (!response.ok) throw new Error("status request failed");
-      renderStatus(await response.json());
+      const payload = await response.json();
+      const wasTerminal = terminal;
+      renderStatus(payload);
+      if (shouldRefreshIntakeResult(wasTerminal, terminal, Boolean(intakeResultPanel))) {
+        intakeResultReady = await refreshIntakeResult();
+      }
       if (terminal) await pollLogs();
     } catch (_error) { markFailure(); }
     finally { statusBusy = false; }
   }
 
+  async function refreshIntakeResult() {
+    intakeResultPanel.setAttribute("aria-busy", "true");
+    try {
+      const html = await requestResultFragment(root.fetch, intakeResultPanel.dataset.resultUrl);
+      intakeResultPanel.innerHTML = html;
+      return true;
+    } catch (_error) {
+      const section = documentRef.createElement("section");
+      section.className = "workspace-panel intake-operation-result";
+      section.setAttribute("role", "status");
+      const heading = documentRef.createElement("h2");
+      heading.textContent = "Operation completed";
+      const message = documentRef.createElement("p");
+      message.textContent = resultRefreshFallback;
+      const refresh = documentRef.createElement("a");
+      refresh.className = "btn btn-ghost";
+      refresh.href = root.location && root.location.href ? root.location.href : "";
+      refresh.textContent = "Refresh page";
+      section.append(heading, message, refresh);
+      intakeResultPanel.replaceChildren(section);
+      return true;
+    } finally {
+      intakeResultPanel.removeAttribute("aria-busy");
+    }
+  }
+
   function schedule() {
-    if (pollTimer !== null || paused || terminal || documentRef.hidden) return;
+    if (pollTimer !== null || paused || (terminal && intakeResultReady) || documentRef.hidden) return;
     pollTimer = root.setTimeout(async function () {
       pollTimer = null;
       await pollStatus();
@@ -196,7 +254,7 @@
   logForm.addEventListener("submit", function (event) { event.preventDefault(); loadFilteredLogs(); });
   if (retry) retry.addEventListener("click", async function () { paused = false; failures = 0; await pollStatus(); await pollLogs(); schedule(); });
   documentRef.addEventListener("visibilitychange", function () {
-    if (!documentRef.hidden && !terminal) { paused = false; failures = 0; pollStatus().then(pollLogs).then(schedule); }
+    if (!documentRef.hidden && (!terminal || !intakeResultReady)) { paused = false; failures = 0; pollStatus().then(pollLogs).then(schedule); }
   });
   logs.replaceChildren();
   pollLogs();

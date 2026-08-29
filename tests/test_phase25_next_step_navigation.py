@@ -66,6 +66,7 @@ def navigation_app(tmp_path):
         "Metadata Warnings": ("intake_metadata_save", "validation_required"),
         "Handoff Warnings": ("intake_catalogue_handoff", "catalogue_handoff_complete"),
         "Blocked Metadata": ("intake_metadata_save", "validation_required"),
+        "Live Grouping": ("intake_group", "grouping_running"),
     }
     for name in states:
         prepared = intake / "Prepared" / name
@@ -108,6 +109,8 @@ def navigation_app(tmp_path):
             status = (
                 "failed"
                 if name == "Failed Result"
+                else "running"
+                if name == "Live Grouping"
                 else "partial"
                 if name in {"Metadata Warnings", "Handoff Warnings", "Blocked Metadata"}
                 else "succeeded"
@@ -158,7 +161,9 @@ def navigation_app(tmp_path):
                     recovery_state="manual_recovery_required" if name == "Recovery Result" else "none",
                     scope=_scope(f"Prepared/{name}", state, **extra),
                     started_at=started + timedelta(minutes=index),
-                    finished_at=started + timedelta(minutes=index, seconds=20),
+                    finished_at=None
+                    if name == "Live Grouping"
+                    else started + timedelta(minutes=index, seconds=20),
                 )
             )
         db.session.add(
@@ -277,6 +282,139 @@ def test_operation_detail_uses_next_action_and_suppresses_failed_recovery_and_mi
     assert "Prepared result is no longer available" in missing
 
 
+def test_running_intake_detail_promises_live_action_without_failure_wording(navigation_client):
+    html = navigation_client.get("/operations/" + "c" * 32).get_data(as_text=True)
+    assert "This operation is still running" in html
+    assert "The next action will appear automatically after successful completion" in html
+    assert "did not complete successfully" not in html
+    assert "/image-preparation/next/" not in html
+    assert 'data-intake-result-panel' in html
+
+
+def test_same_open_operation_exposes_action_after_terminal_transition(
+    navigation_app, navigation_client
+):
+    app, *_ = navigation_app
+    operation_id = "c" * 32
+    initial = navigation_client.get(f"/operations/{operation_id}").get_data(
+        as_text=True
+    )
+    assert "This operation is still running" in initial
+    assert "Review and Rename Folders" not in initial
+
+    with app.app_context():
+        operation = db.session.get(CatalogueOperation, operation_id)
+        operation.status = "succeeded"
+        operation.scope = _scope(
+            "Prepared/Live Grouping", "folder_review_required"
+        )
+        operation.finished_at = datetime(2026, 8, 29, 10, 0)
+        db.session.commit()
+
+    status = navigation_client.get(f"/api/operations/{operation_id}/status")
+    assert status.get_json()["terminal"] is True
+    fragment = navigation_client.get(
+        f"/operations/{operation_id}/intake-result"
+    ).get_data(as_text=True)
+    assert "Review and Rename Folders" in fragment
+    assert fragment.count("/image-preparation/next/") == 1
+    assert "still running" not in fragment
+
+
+@pytest.mark.parametrize(
+    ("operation_id", "label"),
+    [
+        ("1" * 32, "Review and Rename Folders"),
+        ("2" * 32, "Rename Images"),
+        ("3" * 32, "Create Product Metadata"),
+        ("5" * 32, "Validate and Copy to Catalogue"),
+        ("6" * 32, "Open Scanner"),
+    ],
+)
+def test_live_intake_result_fragment_returns_authoritative_signed_action(
+    navigation_client, operation_id, label
+):
+    response = navigation_client.get(f"/operations/{operation_id}/intake-result")
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"].startswith("no-store")
+    assert label in html
+    assert html.count("/image-preparation/next/") == 1
+    assert "Prepared/" not in _next_href(html)
+    assert "/Users/" not in html
+
+
+def test_live_result_fragment_preserves_warning_details_and_action(navigation_client):
+    response = navigation_client.get("/operations/" + "9" * 32 + "/intake-result")
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Validate and Copy to Catalogue" in html
+    assert "Completed with warnings" in html
+    assert "Image fallback" in html
+    assert "SEO" in html
+    assert "You may continue" in html
+
+
+@pytest.mark.parametrize("operation_id", ["7" * 32, "8" * 32])
+def test_live_result_fragment_hides_action_for_failed_and_recovery_states(
+    navigation_client, operation_id
+):
+    html = navigation_client.get(
+        f"/operations/{operation_id}/intake-result"
+    ).get_data(as_text=True)
+    assert "/image-preparation/next/" not in html
+    assert "Review and Rename Folders" not in html
+
+
+def test_interrupted_live_result_hides_action(navigation_app, navigation_client):
+    app, *_ = navigation_app
+    with app.app_context():
+        operation = db.session.get(CatalogueOperation, "c" * 32)
+        operation.status = "interrupted"
+        operation.finished_at = datetime(2026, 8, 29, 10, 0)
+        db.session.commit()
+    html = navigation_client.get(
+        "/operations/" + "c" * 32 + "/intake-result"
+    ).get_data(as_text=True)
+    assert "Operation interrupted" in html
+    assert "/image-preparation/next/" not in html
+
+
+def test_live_result_refresh_is_authenticated_and_observational(
+    navigation_app, navigation_client, monkeypatch
+):
+    app, intake, *_ = navigation_app
+    sent = []
+    monkeypatch.setattr(
+        "app.utils.discord.send_discord_message",
+        lambda *args, **kwargs: sent.append((args, kwargs)),
+    )
+    before_files = sorted(
+        (path.relative_to(intake).as_posix(), path.stat().st_mtime_ns)
+        for path in intake.rglob("*")
+        if path.is_file()
+    )
+    with app.app_context():
+        before_operations = CatalogueOperation.query.count()
+    assert navigation_client.get(
+        "/operations/" + "1" * 32 + "/intake-result"
+    ).status_code == 200
+    with app.app_context():
+        assert CatalogueOperation.query.count() == before_operations
+    after_files = sorted(
+        (path.relative_to(intake).as_posix(), path.stat().st_mtime_ns)
+        for path in intake.rglob("*")
+        if path.is_file()
+    )
+    assert after_files == before_files
+    assert sent == []
+
+    anonymous = app.test_client().get(
+        "/operations/" + "1" * 32 + "/intake-result"
+    )
+    assert anonymous.status_code == 401
+
+
 def test_stale_link_revalidates_and_opens_the_current_valid_stage(navigation_app, navigation_client):
     html = navigation_client.get(
         "/image-preparation", query_string={"path": "Prepared/Grouped"}
@@ -285,7 +423,7 @@ def test_stale_link_revalidates_and_opens_the_current_valid_stage(navigation_app
     with navigation_app[0].app_context():
         db.session.add(
             CatalogueOperation(
-                    id="c" * 32,
+                    id="d" * 32,
                 operation_type="intake_folder_edit",
                 status="succeeded",
                 scope=_scope("Prepared/Grouped", "image_renaming_required"),

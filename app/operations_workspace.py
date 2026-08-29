@@ -330,18 +330,38 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             except (OSError, ValueError):
                 navigation = None
         if navigation is None:
-            explanation = (
-                "Prepared result is no longer available. Return to Catalogue Intake to review current results."
-                if row.status in {"succeeded", "partial"} and not prepared_url
-                else "Recovery must be resolved before another Catalogue Intake stage can be opened."
-                if view["recoverable"]
-                else "No next action is available because this Catalogue Intake operation did not complete successfully."
-            )
+            if view["recoverable"]:
+                heading = "Catalogue Intake recovery required"
+                state_label = "Recovery required"
+                explanation = "Recovery must be resolved before another Catalogue Intake stage can be opened."
+            elif row.status in {"running", "pending"}:
+                heading = "Catalogue Intake operation in progress"
+                state_label = "Running"
+                explanation = (
+                    "This operation is still running. The next action will appear automatically "
+                    "after successful completion."
+                )
+            elif row.status == "interrupted":
+                heading = "Operation interrupted"
+                state_label = "Interrupted"
+                explanation = "This operation was interrupted. Review its recovery state before continuing."
+            elif row.status == "failed":
+                heading = "Catalogue Intake operation failed"
+                state_label = "Failed"
+                explanation = "This operation failed. No next action is available. Review the failure details before continuing."
+            elif row.status in {"succeeded", "partial"} and not prepared_url:
+                heading = "Prepared result unavailable"
+                state_label = "Action unavailable"
+                explanation = "Prepared result is no longer available. Return to Catalogue Intake to review current results."
+            else:
+                heading = "Catalogue Intake action unavailable"
+                state_label = "Action unavailable"
+                explanation = "No safe next action is currently available for this Catalogue Intake operation."
             navigation = {
                 "primary_action": None,
                 "explanation": explanation,
-                "heading": "Catalogue Intake action unavailable",
-                "state_label": "Action unavailable",
+                "heading": heading,
+                "state_label": state_label,
             }
         intake = {
             "is_grouping": row.operation_type == "intake_group",
