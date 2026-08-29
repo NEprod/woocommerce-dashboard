@@ -37,6 +37,7 @@ from app.intake_grouping import (
     cleanup_stale_staging,
     finish_intake_operation,
 )
+from app.intake_warnings import bounded_warning_findings
 from app.intake_working_result import WorkingResultRecoveryRequired, replace_working_result
 from app.models import CatalogueOperation
 from app.product_info import FIELD_INVENTORY, validate_product_info
@@ -653,6 +654,8 @@ def execute_metadata_operation(lease, relative, proposed, submitted_digest):
             "image_attribute_count": preview["counts"]["image_attributes"],
             "modifier_count": preview["counts"]["modifiers"],
             "warnings": preview["counts"]["warnings"],
+            "blocking_errors": preview["counts"]["errors"],
+            "warning_findings": bounded_warning_findings(preview["warnings"]),
             "failures": 0,
             "proposal_digest": preview["digest"],
             "workflow_status": METADATA_STATUS,

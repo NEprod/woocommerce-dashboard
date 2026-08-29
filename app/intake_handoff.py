@@ -28,6 +28,7 @@ from app.intake_grouping import (
     release_intake_mutation_guard,
 )
 from app.intake_metadata_builder import METADATA_FILENAME, METADATA_STATUS, metadata_preview
+from app.intake_warnings import bounded_warning_findings, warning_presentation
 from app.product_info import validate_product_info
 from app.models import CatalogueOperation, Settings
 from app.utils.catalogue_paths import is_reserved_directory_name
@@ -627,7 +628,8 @@ def execute_handoff_operation(lease, relative, digest, fresh_review, acknowledge
             "product_images": fresh["counts"]["product_images"], "variation_images": fresh["counts"]["variation_images"],
             "category_count": fresh["counts"]["categories"], "tag_count": fresh["counts"]["tags"],
             "attribute_count": fresh["counts"]["attributes"], "image_attribute_count": fresh["counts"]["image_attributes"],
-            "modifier_count": fresh["counts"]["modifiers"], "warnings": fresh["counts"]["warnings"], "failures": 0,
+            "modifier_count": fresh["counts"]["modifiers"], "warnings": fresh["counts"]["warnings"],
+            "blocking_errors": fresh["counts"]["errors"], "warning_findings": bounded_warning_findings(fresh["warnings"]), "failures": 0,
             "proposal_digest": fresh["digest"], "validation_digest": fresh["metadata_digest"], "source_tree_digest": fresh["source_tree"]["identity"],
             "staged_verification": "matched", "promoted_verification": "matched", "rollback_state": rollback_state,
             "recovery_state": recovery_state, "workflow_status": HANDOFF_STATUS, "completion_time": _utcnow().isoformat(),
@@ -703,4 +705,10 @@ def handoff_review(relative):
         raise HandoffRejected("No completed catalogue handoff is available for this Prepared result")
     catalogue = _catalogue_readiness()
     destination_exists = bool(catalogue["readable"] and (catalogue["root"] / str(summary.get("catalogue_destination") or "")).is_dir())
-    return {"operation": row, "summary": summary, "source": canonical, "destination_exists": destination_exists}
+    return {
+        "operation": row,
+        "summary": summary,
+        "source": canonical,
+        "destination_exists": destination_exists,
+        "warning": warning_presentation(summary, status=row.status),
+    }

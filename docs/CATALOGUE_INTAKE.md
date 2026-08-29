@@ -238,7 +238,7 @@ verifies the prior result.
 The bounded operation is **Catalogue Intake — Save Metadata**. Logs do not retain
 the full JSON or descriptions. Terminal Discord delivery remains bounded and
 non-fatal. Success is **Metadata complete — validation required** and the next
-step is **Validate prepared collection**.
+step is **Validate and Copy to Catalogue**.
 
 ## Final validation and catalogue handoff
 
@@ -312,3 +312,13 @@ or start the scanner. A stale token follows the result's current valid state; a
 missing, failed, interrupted, recovery-required, or incomplete result returns a
 controlled explanation instead of a broken action. After catalogue handoff the
 primary action opens Scanner and explicitly leaves Append Scan as a manual step.
+
+Warning-only completion is stored as the existing `partial` operation status.
+It remains eligible for the next stage when the persisted blocking/failure count
+is zero and the destination stage still passes its own fresh validation.
+Warnings never become blocking errors. Operation Detail and Prepared-result
+cards show a bounded grouped warning summary; Operation Detail uses an
+expandable panel with concise category, affected field/folder where available,
+continuation guidance, and a recommended review action. Blocking, failed,
+interrupted, recovery-required, stale, and missing states expose no unsafe
+primary action.

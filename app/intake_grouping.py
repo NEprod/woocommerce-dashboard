@@ -34,6 +34,7 @@ from app.image_preparation import (
     resolve_intake_folder,
 )
 from app.models import CatalogueOperation
+from app.intake_warnings import bounded_warning_findings
 from app.utils.operation_control import finish_catalogue_operation, sanitize_operation_error
 from app.utils.operation_live import persist_live_state, utcnow_iso
 
@@ -723,6 +724,8 @@ def execute_grouping_operation(lease, relative, submitted_digest):
             "unsupported_ignored": counts["unsupported_entries"],
             "corrupt_images": counts["corrupt_images"],
             "warnings": progress.warnings,
+            "blocking_errors": 0,
+            "warning_findings": bounded_warning_findings(preview["issues"]),
             "warning_summary": warning_summary,
             "warning_entries": warning_entries,
             "workflow_status": "folder_review_required",
@@ -750,6 +753,14 @@ def execute_grouping_operation(lease, relative, submitted_digest):
                 "group_count": len(preview["groups"]) if preview else progress.groups,
                 "ignored_entries": 0,
                 "warnings": progress.warnings,
+                "blocking_errors": 0,
+                "warning_findings": [
+                    {
+                        "state": "warning",
+                        "code": "post_promotion_cleanup",
+                        "message": "A post-promotion bookkeeping step requires review.",
+                    }
+                ],
                 "warning_summary": [{"category": "post-promotion", "count": 1, "samples": []}],
                 "warning_entries": ["A post-promotion bookkeeping step requires review"],
                 "workflow_status": "folder_review_required",

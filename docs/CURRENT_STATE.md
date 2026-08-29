@@ -360,3 +360,10 @@ does not alter scanner success. Delivery state is not durable after restart.
 
 The protected scanner discrepancies and intentional full-scan semantics remain
 unchanged.
+
+Catalogue Intake warning-only completions retain their next-step navigation.
+The shared helper requires zero blocking/failure findings, revalidates the
+durable Prepared identity and current stage, and leaves destination validation
+authoritative. Bounded grouped warning details appear on Prepared-result cards,
+Operation Detail, and completed handoff review without changing validation,
+mutation, scanning, or Discord behavior.

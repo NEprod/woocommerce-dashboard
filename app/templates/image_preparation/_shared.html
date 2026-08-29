@@ -14,3 +14,33 @@
   {% if issues %}<div class="intake-diagnostic-list">{% for issue in issues %}<article class="intake-diagnostic is-{{ issue.state }}"><span class="status-badge status-{{ 'failed' if issue.state == 'blocking' else 'partial' }}">{{ 'Conflict' if issue.state == 'blocking' else 'Warning' }}</span><div><h3>{{ issue.name }}</h3><p>{{ issue.message }}</p></div></article>{% endfor %}</div>{% else %}<p class="intake-success-copy">No conflicts were detected in this read-only preview.</p>{% endif %}
 </section>
 {%- endmacro %}
+
+{% macro warning_card(view, compact=false) -%}
+{% if view.warning_count %}
+<div class="intake-warning-card{{ ' is-compact' if compact else '' }}" role="status">
+  <div><strong>{{ view.warning_count }} warning{{ '' if view.warning_count == 1 else 's' }}</strong><span>Completed with warnings. You may continue.</span></div>
+  {% if view.warning_groups %}<ul aria-label="Warning categories">{% for group in view.warning_groups[:3] %}<li>{{ group.category }}</li>{% endfor %}</ul>{% endif %}
+  {% if view.warning_review_url %}<a href="{{ view.warning_review_url }}">Review warnings</a>{% endif %}
+</div>
+{% endif %}
+{%- endmacro %}
+
+{% macro warning_details(view) -%}
+{% if view.warning_count %}
+<details class="operation-warning-details">
+  <summary>Review warnings</summary>
+  <p>Completed with warnings. <strong>You may continue.</strong> Review the warnings below.</p>
+  <div class="warning-group-list">
+    {% for group in view.warning_groups %}
+    <article>
+      <h3>{{ group.category }} ({{ group.count }})</h3>
+      <p>{{ group.explanation }}</p>
+      {% if group.affected %}<ul>{% for affected in group.affected %}<li><code>{{ affected }}</code></li>{% endfor %}</ul>{% endif %}
+      {% if group.more_count %}<p>{{ group.more_count }} more affected item{{ '' if group.more_count == 1 else 's' }}…</p>{% endif %}
+      <p><strong>{{ group.continuation }}</strong> {{ group.recommendation }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+{%- endmacro %}

@@ -35,6 +35,7 @@ from app.image_preparation import (
     normalize_prefix,
     resolve_intake_folder,
 )
+from app.intake_warnings import bounded_warning_findings
 from app.intake_grouping import (
     INTAKE_FOLDER_OPERATION_TYPE,
     GroupingRejected,
@@ -612,6 +613,8 @@ def execute_folder_edit_operation(lease, relative, spec, submitted_digest):
             "removed_empty_folders": preview["counts"]["removed_empty"],
             "parent_changed": preview["parent"]["changed"],
             "warnings": progress.warnings,
+            "blocking_errors": 0,
+            "warning_findings": bounded_warning_findings(preview["issues"]),
             "workflow_status": FOLDER_EDIT_STATUS,
             "source_identity": preview["source_identity"],
             "result_identity": _snapshot_identity(

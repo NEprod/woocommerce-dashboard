@@ -10,6 +10,7 @@ from flask import current_app, url_for
 from itsdangerous import BadData, URLSafeSerializer
 
 from app.image_preparation import PREPARED_DIRECTORY, _ordered, _portable_parts
+from app.intake_warnings import blocking_count, warning_presentation
 from app.models import CatalogueOperation
 
 
@@ -162,12 +163,37 @@ def prepared_result_navigation(root, relative):
         "primary_action": None,
         "explanation": "No durable Catalogue Intake workflow state is available.",
         "operation_id": None,
+        "warning_count": 0,
+        "warning_groups": [],
+        "warning_review_url": None,
+        "completed_with_warnings": False,
+        "blocking_count": 0,
     }
     row, scope, summary = _latest_operation(canonical)
     if row is None:
         return base
     state = summary.get("workflow_status") or scope.get("workflow_status")
-    base.update({"workflow_state": state, "operation_id": row.id})
+    warning_view = warning_presentation(summary, status=row.status)
+    blockers = blocking_count(summary, row=row)
+    base.update(
+        {
+            "workflow_state": state,
+            "operation_id": row.id,
+            "warning_count": warning_view["count"],
+            "warning_groups": warning_view["groups"],
+            "warning_review_url": (
+                url_for("main.operation_detail", operation_id=row.id)
+                if warning_view["count"]
+                else None
+            ),
+            "completed_with_warnings": bool(
+                row.status in {"succeeded", "partial"}
+                and warning_view["count"]
+                and not blockers
+            ),
+            "blocking_count": blockers,
+        }
+    )
     if folder is None:
         base["explanation"] = "Prepared result is no longer available. Return to Catalogue Intake to review current results."
         return base
@@ -176,6 +202,13 @@ def prepared_result_navigation(root, relative):
             state_label="Action unavailable",
             heading="Catalogue Intake step did not complete",
             explanation="No next action is available because the latest Catalogue Intake operation did not complete successfully.",
+        )
+        return base
+    if blockers:
+        base.update(
+            state_label="Blocking errors",
+            heading="Catalogue Intake blocking errors",
+            explanation="Blocking errors must be fixed before proceeding.",
         )
         return base
     if row.recovery_state not in {None, "", "none"}:
@@ -199,8 +232,12 @@ def prepared_result_navigation(root, relative):
     base.update(
         state_label=step["state_label"],
         heading=step["heading"],
-        explanation=step.get("detail")
-        or "The next page will revalidate this Prepared result before opening.",
+        explanation=(
+            "Completed with warnings. You may continue. Review the warnings below."
+            if warning_view["count"]
+            else step.get("detail")
+            or "The next page will revalidate this Prepared result before opening."
+        ),
         primary_action={
             "label": label,
             "url": url_for("main.image_preparation_next", token=token),

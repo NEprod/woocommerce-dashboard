@@ -12,6 +12,7 @@ from sqlalchemy import or_, text
 from app import db
 from app.collection_identity import collection_display_name
 from app.database import migration_head
+from app.intake_warnings import blocking_count, warning_presentation
 from app.models import CatalogueOperation, CatalogueOperationItem, Collection, Product, Settings
 from app.utils.discord import configuration_summary
 from app.utils.operation_control import get_active_operation
@@ -137,9 +138,11 @@ def operation_view(row, *, redaction_paths=None):
     scope = _safe_scope(row)
     persisted_summary = scope.get("operation_summary") if isinstance(scope.get("operation_summary"), dict) else {}
     live = _live_run(row.id, row)
+    active_summary = (live or {}).get("summary") or persisted_summary
     source = scope.get("collection_relpath") or scope.get("source_relpath")
     live_warnings = int((live or {}).get("counts", {}).get("warnings", 0) or 0)
-    warning_count = max(live_warnings, int(persisted_summary.get("warnings", 0) or 0))
+    warning_view = warning_presentation(active_summary, status=row.status)
+    warning_count = max(live_warnings, warning_view["count"])
     status_label = STATUS_LABELS.get(row.status, row.status.title())
     if row.status == "succeeded" and live_warnings:
         status_label = "Completed with warnings"
@@ -151,14 +154,16 @@ def operation_view(row, *, redaction_paths=None):
         "attempted": row.products_attempted, "succeeded": row.products_succeeded,
         "failed": row.products_failed, "missing": row.products_missing, "restored": row.products_restored,
         "warning_count": max(warning_count, int(row.status == "partial") + int(row.recovery_state not in (None, "none"))),
+        "warning_groups": warning_view["groups"],
+        "blocking_count": blocking_count(active_summary, row=row),
         "error_count": max(int((live or {}).get("counts", {}).get("failures", 0) or 0), row.products_failed + int(bool(row.error))),
         "scope": scope, "scope_label": source or scope.get("sku") or "Catalogue",
         "recovery_state": row.recovery_state or "none", "recoverable": row.recovery_state not in (None, "none"),
         "marker_state": row.marker_state, "error": redact_diagnostic(row.error, paths=redaction_paths, limit=1000) if row.error else None,
         "discord": _discord_view(row.id, row), "live": live,
-        "summary": (live or {}).get("summary") or persisted_summary,
-        "warning_summary": ((live or {}).get("summary") or persisted_summary).get("warning_summary", []),
-        "warning_entries": ((live or {}).get("summary") or persisted_summary).get("warning_entries", []),
+        "summary": active_summary,
+        "warning_summary": active_summary.get("warning_summary", []),
+        "warning_entries": active_summary.get("warning_entries", []),
         "detail_url": url_for("main.operation_detail", operation_id=row.id),
     }
 

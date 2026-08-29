@@ -63,11 +63,21 @@ def navigation_app(tmp_path):
         "Handoff Complete": ("intake_catalogue_handoff", "catalogue_handoff_complete"),
         "Failed Result": ("intake_group", "failed"),
         "Recovery Result": ("intake_group", "folder_review_required"),
+        "Metadata Warnings": ("intake_metadata_save", "validation_required"),
+        "Handoff Warnings": ("intake_catalogue_handoff", "catalogue_handoff_complete"),
+        "Blocked Metadata": ("intake_metadata_save", "validation_required"),
     }
     for name in states:
         prepared = intake / "Prepared" / name
         _image(prepared / "Product" / "image.png")
-        if name in {"Existing Metadata", "Metadata Complete", "Handoff Complete"}:
+        if name in {
+            "Existing Metadata",
+            "Metadata Complete",
+            "Handoff Complete",
+            "Metadata Warnings",
+            "Handoff Warnings",
+            "Blocked Metadata",
+        }:
             (prepared / "product_info.json").write_text(
                 json.dumps(_metadata(), ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
@@ -95,9 +105,15 @@ def navigation_app(tmp_path):
             )
         )
         for index, (name, (operation_type, state)) in enumerate(states.items(), 1):
-            status = "failed" if name == "Failed Result" else "succeeded"
+            status = (
+                "failed"
+                if name == "Failed Result"
+                else "partial"
+                if name in {"Metadata Warnings", "Handoff Warnings", "Blocked Metadata"}
+                else "succeeded"
+            )
             extra = {}
-            if name == "Handoff Complete":
+            if name in {"Handoff Complete", "Handoff Warnings"}:
                 extra = {
                     "catalogue_destination": name,
                     "handoff_action": "created",
@@ -105,6 +121,35 @@ def navigation_app(tmp_path):
                     "rollback_state": "not_required",
                     "recovery_state": "none",
                 }
+            if name in {"Metadata Warnings", "Handoff Warnings"}:
+                extra.update(
+                    {
+                        "warnings": 4 if name == "Metadata Warnings" else 7,
+                        "blocking_errors": 0,
+                        "warning_findings": [
+                            {
+                                "state": "warning",
+                                "code": "image_fallback_broader",
+                                "message": "Large variations reuse Style-level images from Gnome/. Handoff remains allowed.",
+                                "path": "Gnome/",
+                            },
+                            {
+                                "state": "warning",
+                                "code": "image_fallback_broader",
+                                "message": "Large variations reuse Style-level images from Snowman/. Handoff remains allowed.",
+                                "path": "Snowman/",
+                            },
+                            {
+                                "state": "warning",
+                                "code": "optional_meta_description",
+                                "message": "Meta description is missing.",
+                                "path": "$.meta_description",
+                            },
+                        ],
+                    }
+                )
+            if name == "Blocked Metadata":
+                extra.update({"warnings": 2, "blocking_errors": 1, "failures": 0})
             db.session.add(
                 CatalogueOperation(
                     id=f"{index:x}" * 32,
@@ -240,7 +285,7 @@ def test_stale_link_revalidates_and_opens_the_current_valid_stage(navigation_app
     with navigation_app[0].app_context():
         db.session.add(
             CatalogueOperation(
-                id="a" * 32,
+                    id="c" * 32,
                 operation_type="intake_folder_edit",
                 status="succeeded",
                 scope=_scope("Prepared/Grouped", "image_renaming_required"),
@@ -300,3 +345,47 @@ def test_navigation_actions_retain_accessible_mobile_touch_targets(navigation_cl
     css = navigation_client.get("/static/assets/css/custom.css").get_data(as_text=True)
     assert ".btn { display: inline-flex; min-height: 44px" in css
     assert "@media (max-width: 767px)" in css
+
+
+def test_completed_with_warnings_allows_navigation_and_blockers_do_not(
+    navigation_client,
+):
+    warning_page = navigation_client.get(
+        "/image-preparation", query_string={"path": "Prepared/Metadata Warnings"}
+    ).get_data(as_text=True)
+    assert "Completed with warnings" in warning_page
+    assert "You may continue." in warning_page
+    assert "Validate and Copy to Catalogue" in warning_page
+
+    blocked_page = navigation_client.get(
+        "/image-preparation", query_string={"path": "Prepared/Blocked Metadata"}
+    ).get_data(as_text=True)
+    assert "Blocking errors must be fixed before proceeding." in blocked_page
+    assert "Validate and Copy to Catalogue" not in blocked_page
+
+
+def test_warning_details_are_grouped_expandable_and_keep_operation_next_action(
+    navigation_client,
+):
+    operation = navigation_client.get("/operations/" + "9" * 32)
+    body = operation.get_data(as_text=True)
+    assert operation.status_code == 200
+    assert "Review warnings" in body
+    assert "Image fallback (2)" in body
+    assert "Gnome/" in body and "Snowman/" in body
+    assert "SEO (1)" in body
+    assert "Safe to continue." in body
+    assert "Optional." in body
+    assert "Validate and Copy to Catalogue" in body
+    assert '<details class="operation-warning-details"' in body
+
+
+def test_prepared_cards_show_warning_summary_and_safe_next_action(navigation_client):
+    page = navigation_client.get(
+        "/image-preparation", query_string={"path": "Prepared"}
+    ).get_data(as_text=True)
+    assert "4 warnings" in page
+    assert "Image fallback" in page
+    assert "SEO" in page
+    assert "Review warnings" in page
+    assert "Validate and Copy to Catalogue" in page

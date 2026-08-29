@@ -929,6 +929,16 @@ code { color: var(--color-lime-ink); font-family: var(--font-mono); }
 .intake-folder-row.is-workflow-result { justify-content: space-between; }
 .intake-folder-actions { display: flex; margin-left: auto; align-items: center; justify-content: flex-end; gap: var(--space-3); }
 .intake-folder-actions .muted-copy { max-width: 320px; }
+.intake-warning-card { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin: var(--space-3) 0; padding: var(--space-3); border: 1px solid rgba(217, 142, 28, .28); border-radius: var(--radius-md); background: rgba(255, 247, 224, .72); }
+.intake-warning-card > div { display: grid; gap: 2px; }
+.intake-warning-card ul { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.intake-warning-card li { padding: 3px 8px; border-radius: 999px; background: rgba(217, 142, 28, .12); font-size: .78rem; }
+.intake-warning-card a { margin-left: auto; font-weight: 700; }
+.intake-warning-card.is-compact { margin-bottom: 0; font-size: .8rem; }
+.operation-warning-details > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 700; }
+.warning-group-list { display: grid; gap: var(--space-3); }
+.warning-group-list article { padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-soft); }
+.warning-group-list h3, .warning-group-list p { margin-top: 0; }
 .intake-next-step-panel { margin-bottom: var(--space-7); }
 .intake-next-step-panel > p { color: var(--color-text-secondary); }
 .intake-issues { margin-top: var(--space-5); border-top: var(--border-subtle); padding-top: var(--space-4); }

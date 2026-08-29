@@ -1,7 +1,7 @@
 {% extends 'layouts/base.html' %}
 {% from 'includes/icons.html' import icon %}
 {% from 'image_preparation/_browser.html' import intake_browser %}
-{% from 'image_preparation/_shared.html' import readiness_panel, preview_banner %}
+{% from 'image_preparation/_shared.html' import readiness_panel, preview_banner, warning_card %}
 {% block title %}Catalogue Intake{% endblock %}
 {% block content %}
 <header class="page-header intake-page-header"><div><p class="eyebrow">Pre-catalogue preparation</p><h1>Catalogue Intake</h1><p>Inspect loose and prepared images before manually transferring a verified result into the catalogue.</p></div></header>
@@ -14,6 +14,7 @@
   <div class="panel-heading"><div><p class="eyebrow">Current Prepared-result state</p><h2 id="prepared-next-step-heading">{{ selected_prepared.heading }}</h2></div><span class="status-badge status-{{ 'succeeded' if selected_prepared.primary_action else 'partial' }}">{{ selected_prepared.state_label }}</span></div>
   <p><strong>{{ selected_prepared.name }}</strong> · <code>{{ selected_prepared.path }}</code></p>
   <p>{{ selected_prepared.explanation }}</p>
+  {{ warning_card(selected_prepared) }}
   <div class="button-row">{% if selected_prepared.primary_action %}<a class="btn btn-accent intake-next-action" href="{{ selected_prepared.primary_action.url }}">{{ selected_prepared.primary_action.label }}</a>{% endif %}<a class="btn btn-ghost" href="{{ url_for('main.image_preparation', path='Prepared') }}">View Prepared Results</a></div>
 </section>
 {% else %}

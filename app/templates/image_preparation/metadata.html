@@ -1,6 +1,6 @@
 {% extends 'layouts/base.html' %}
 {% from 'includes/icons.html' import icon %}
-{% from 'image_preparation/_shared.html' import readiness_panel %}
+{% from 'image_preparation/_shared.html' import readiness_panel, warning_card %}
 {% block title %}Prepared Metadata Builder{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ url_for('main.image_preparation') }}">Catalogue Intake</a><span aria-hidden="true">/</span><span aria-current="page">Product metadata</span></nav>
@@ -8,7 +8,7 @@
 {{ readiness_panel(readiness) }}
 {% if intake_error %}<div class="alert alert-danger" role="alert">{{ intake_error }}</div>{% endif %}
 <section class="workspace-panel" aria-labelledby="eligible-metadata-heading"><div class="panel-heading"><div><p class="eyebrow">Eligible working results</p><h2 id="eligible-metadata-heading">Choose a Prepared result</h2></div><span class="status-badge">{{ eligible_results|length }} eligible</span></div>
-{% if eligible_results %}<div class="intake-folder-list" role="list" aria-label="Eligible Prepared results">{% for result in eligible_results %}{% set workflow = result.navigation %}<div class="intake-folder-row is-workflow-result" role="listitem"><span><strong>{{ result.name }}</strong><small>{{ workflow.state_label }} · {{ result.path }}</small></span><div class="intake-folder-actions">{% if result.workflow_status == 'validation_required' %}<a class="btn btn-ghost" href="{{ url_for('main.image_preparation_metadata_edit', path=result.path) }}">Edit Product Metadata</a>{% endif %}{% if workflow.primary_action %}<a class="btn btn-accent intake-next-action" href="{{ workflow.primary_action.url }}">{{ workflow.primary_action.label }}</a>{% endif %}</div></div>{% endfor %}</div>{% else %}<div class="empty-state compact"><h3>No eligible results</h3><p>Complete safe image renaming before creating product metadata.</p></div>{% endif %}
+{% if eligible_results %}<div class="intake-folder-list" role="list" aria-label="Eligible Prepared results">{% for result in eligible_results %}{% set workflow = result.navigation %}<div class="intake-folder-row is-workflow-result" role="listitem"><span><strong>{{ result.name }}</strong><small>{{ workflow.state_label }} · {{ result.path }}</small>{{ warning_card(workflow, true) }}</span><div class="intake-folder-actions">{% if result.workflow_status == 'validation_required' %}<a class="btn btn-ghost" href="{{ url_for('main.image_preparation_metadata_edit', path=result.path) }}">Edit Product Metadata</a>{% endif %}{% if workflow.primary_action %}<a class="btn btn-accent intake-next-action" href="{{ workflow.primary_action.url }}">{{ workflow.primary_action.label }}</a>{% endif %}</div></div>{% endfor %}</div>{% else %}<div class="empty-state compact"><h3>No eligible results</h3><p>Complete safe image renaming before creating product metadata.</p></div>{% endif %}
 </section>
 <section class="workspace-panel intake-compatibility" aria-labelledby="metadata-boundary-heading"><p class="eyebrow">Workflow boundary</p><h2 id="metadata-boundary-heading">Prepared only</h2><p>This builder does not copy to Catalogue, invoke the scanner, create markers, allocate SKUs, or write product rows.</p></section>
 {% endblock %}
