@@ -34,6 +34,7 @@ from app.image_preparation import (
     resolve_intake_folder,
 )
 from app.models import CatalogueOperation
+from app.intake_warnings import bounded_warning_findings
 from app.utils.operation_control import finish_catalogue_operation, sanitize_operation_error
 from app.utils.operation_live import persist_live_state, utcnow_iso
 
@@ -42,11 +43,13 @@ INTAKE_OPERATION_TYPE = "intake_group"
 INTAKE_FOLDER_OPERATION_TYPE = "intake_folder_edit"
 INTAKE_RENAME_OPERATION_TYPE = "intake_image_rename"
 INTAKE_METADATA_OPERATION_TYPE = "intake_metadata_save"
+INTAKE_STRUCTURED_IMPORT_OPERATION_TYPE = "intake_structured_import"
 INTAKE_OPERATION_TYPES = (
     INTAKE_OPERATION_TYPE,
     INTAKE_FOLDER_OPERATION_TYPE,
     INTAKE_RENAME_OPERATION_TYPE,
     INTAKE_METADATA_OPERATION_TYPE,
+    INTAKE_STRUCTURED_IMPORT_OPERATION_TYPE,
 )
 STALE_STAGING_AGE = timedelta(hours=24)
 _OPERATION_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -108,6 +111,9 @@ def _safe_scope(scope, *, operation_type=INTAKE_OPERATION_TYPE):
         "source_images": max(0, int(scope.get("source_images") or 0)),
         "group_count": max(0, int(scope.get("group_count") or 0)),
         "workflow_status": (
+            str(scope.get("workflow_status") or "folder_review_required")[:64]
+            if operation_type == INTAKE_STRUCTURED_IMPORT_OPERATION_TYPE
+            else
             "image_renaming_required"
             if operation_type == INTAKE_FOLDER_OPERATION_TYPE
             else "metadata_required"
@@ -117,6 +123,9 @@ def _safe_scope(scope, *, operation_type=INTAKE_OPERATION_TYPE):
             else "folder_review_required"
         ),
     }
+    if operation_type == INTAKE_STRUCTURED_IMPORT_OPERATION_TYPE:
+        safe["import_mode"] = str(scope.get("import_mode") or "review")[:32]
+        safe["source_preserved"] = True
     return json.dumps(safe, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -723,6 +732,8 @@ def execute_grouping_operation(lease, relative, submitted_digest):
             "unsupported_ignored": counts["unsupported_entries"],
             "corrupt_images": counts["corrupt_images"],
             "warnings": progress.warnings,
+            "blocking_errors": 0,
+            "warning_findings": bounded_warning_findings(preview["issues"]),
             "warning_summary": warning_summary,
             "warning_entries": warning_entries,
             "workflow_status": "folder_review_required",
@@ -750,6 +761,14 @@ def execute_grouping_operation(lease, relative, submitted_digest):
                 "group_count": len(preview["groups"]) if preview else progress.groups,
                 "ignored_entries": 0,
                 "warnings": progress.warnings,
+                "blocking_errors": 0,
+                "warning_findings": [
+                    {
+                        "state": "warning",
+                        "code": "post_promotion_cleanup",
+                        "message": "A post-promotion bookkeeping step requires review.",
+                    }
+                ],
                 "warning_summary": [{"category": "post-promotion", "count": 1, "samples": []}],
                 "warning_entries": ["A post-promotion bookkeeping step requires review"],
                 "workflow_status": "folder_review_required",

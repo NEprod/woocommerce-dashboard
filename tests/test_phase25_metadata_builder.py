@@ -475,21 +475,27 @@ def test_post_promotion_failure_restores_original(metadata_app, metadata_client,
 
 def test_operation_detail_exposes_metadata_summary_and_next_step(metadata_app, metadata_client):
     app, intake, *_ = metadata_app
+    document = {**_document(), "future_field": "preserved warning fixture"}
     with app.app_context():
-        preview = metadata_preview(intake, "Prepared/Simple Cards", _document())
+        preview = metadata_preview(intake, "Prepared/Simple Cards", document)
     response = metadata_client.post(
         "/image-preparation/metadata/confirm",
         data={"path": preview["source"], "document": preview["json_text"], "digest": preview["digest"], "acknowledge": "yes"},
     )
     operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    _wait(app, operation_id)
+    row = _wait(app, operation_id)
+    summary = json.loads(row.scope)["operation_summary"]
+    assert summary["blocking_errors"] == 0
+    assert summary["warning_findings"]
     page = metadata_client.get(f"/operations/{operation_id}")
     assert page.status_code == 200
     body = page.get_data(as_text=True)
     assert "Catalogue Intake — Save Metadata" in body
     assert "Metadata complete — validation required" in body
-    assert "Validate prepared collection" in body
+    assert "Validate and Copy to Catalogue" in body
     assert "Edit Product Metadata" in body
+    assert "Completed with warnings" in body
+    assert "Review warnings" in body
     assert preview["json_text"] not in body
 
 

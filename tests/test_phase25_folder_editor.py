@@ -61,6 +61,25 @@ def folder_app(tmp_path):
     )
     with app.app_context():
         db.session.add(User(email="folders@example.test", username="folders-admin", password="unused"))
+        db.session.add(
+            CatalogueOperation(
+                id="0" * 32,
+                operation_type="intake_group",
+                status="succeeded",
+                scope=json.dumps(
+                    {
+                        "source_relpath": "Prepared/Grouped Result",
+                        "workflow_status": "folder_review_required",
+                        "operation_summary": {
+                            "prepared_relpath": "Prepared/Grouped Result",
+                            "workflow_status": "folder_review_required",
+                            "warnings": 0,
+                        },
+                    },
+                    separators=(",", ":"),
+                ),
+            )
+        )
         db.session.commit()
     reset_intake_operation_control_for_tests()
     try:

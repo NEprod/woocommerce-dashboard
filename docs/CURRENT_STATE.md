@@ -23,7 +23,13 @@ the Catalogue Intake workspace simply reports unavailable.
 
 Phase 2.5 Milestones 2–6 add authenticated routes at `/image-preparation`,
 `/image-preparation/group`, `/image-preparation/folders`, and
-`/image-preparation/rename`, plus `/image-preparation/metadata`. They browse only
+`/image-preparation/rename`, plus `/image-preparation/metadata`. RC4 adds the
+separate `/image-preparation/import-structured` path for a complete existing
+folder hierarchy. It copies a digest-revalidated tree through hidden staging
+into a new suffix-safe Prepared result while preserving the source. Review mode
+enters folder review; final-structure mode enters image renaming after stricter
+structure validation. Existing metadata is preserved byte-for-byte and does
+not cause later stages to be skipped. These workspaces browse only
 the canonical `/intake` root and render intake-relative breadcrumbs, supported,
 hidden, corrupt, unsupported, unreadable, and unsafe-entry counts.
 
@@ -92,6 +98,14 @@ staging; replacement uses protected rollback and no merge. The Prepared result
 remains unchanged. Success records **Catalogue handoff complete** and directs
 the user to **Run Append Scan** manually. No scan, marker, SKU allocation,
 database projection, output write, conversion, or upload occurs.
+
+Catalogue Intake completion and Prepared-result views derive a single prominent
+next action from that durable state. Signed result tokens are revalidated on
+every navigation request, so stale, missing, failed, interrupted,
+recovery-required, and ineligible results cannot enter a later stage. The
+mapping is folder review → image renaming → metadata creation/editing → final
+validation → Scanner. These GET links perform no mutation, and opening Scanner
+after handoff does not start Append Scan.
 See [Catalogue Intake](CATALOGUE_INTAKE.md).
 
 ## Scanner modes
@@ -352,3 +366,10 @@ does not alter scanner success. Delivery state is not durable after restart.
 
 The protected scanner discrepancies and intentional full-scan semantics remain
 unchanged.
+
+Catalogue Intake warning-only completions retain their next-step navigation.
+The shared helper requires zero blocking/failure findings, revalidates the
+durable Prepared identity and current stage, and leaves destination validation
+authoritative. Bounded grouped warning details appear on Prepared-result cards,
+Operation Detail, and completed handoff review without changing validation,
+mutation, scanning, or Discord behavior.

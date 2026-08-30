@@ -1,7 +1,7 @@
 {% extends 'layouts/base.html' %}
 {% from 'includes/icons.html' import icon %}
 {% from 'image_preparation/_browser.html' import intake_browser %}
-{% from 'image_preparation/_shared.html' import readiness_panel, preview_banner %}
+{% from 'image_preparation/_shared.html' import readiness_panel, preview_banner, warning_card %}
 {% block title %}Catalogue Intake{% endblock %}
 {% block content %}
 <header class="page-header intake-page-header"><div><p class="eyebrow">Pre-catalogue preparation</p><h1>Catalogue Intake</h1><p>Inspect loose and prepared images before manually transferring a verified result into the catalogue.</p></div></header>
@@ -9,14 +9,25 @@
 {{ readiness_panel(readiness) }}
 {% if intake_error %}<div class="intake-error" role="alert"><strong>Folder unavailable</strong><span>{{ intake_error }}</span></div>{% endif %}
 {% if readiness.readable %}
+{% if selected_prepared %}
+<section class="workspace-panel intake-next-step-panel" aria-labelledby="prepared-next-step-heading">
+  <div class="panel-heading"><div><p class="eyebrow">Current Prepared-result state</p><h2 id="prepared-next-step-heading">{{ selected_prepared.heading }}</h2></div><span class="status-badge status-{{ 'succeeded' if selected_prepared.primary_action else 'partial' }}">{{ selected_prepared.state_label }}</span></div>
+  <p><strong>{{ selected_prepared.name }}</strong> · <code>{{ selected_prepared.path }}</code></p>
+  <p>{{ selected_prepared.explanation }}</p>
+  {{ warning_card(selected_prepared) }}
+  <div class="button-row">{% if selected_prepared.primary_action %}<a class="btn btn-accent intake-next-action" href="{{ selected_prepared.primary_action.url }}">{{ selected_prepared.primary_action.label }}</a>{% endif %}<a class="btn btn-ghost" href="{{ url_for('main.image_preparation', path='Prepared') }}">View Prepared Results</a></div>
+</section>
+{% else %}
 <section class="intake-task-grid" aria-label="Catalogue Intake preview tasks">
   <article class="intake-task-card"><span class="intake-task-icon">{{ icon('collection') }}</span><p class="eyebrow">Loose images</p><h2>Group loose images</h2><p>Detect legacy trailing-number groups, safe folder names, Parent proposals, ambiguities, and future destinations.</p><a class="btn btn-dark" href="{{ url_for('main.image_preparation_group', path=browser.path if browser else '') }}">Open grouping preview</a></article>
+  <article class="intake-task-card"><span class="intake-task-icon">{{ icon('folder') }}</span><p class="eyebrow">Existing structure</p><h2>Import structured folder</h2><p>Inspect an existing product, variation, and Parent hierarchy, then copy it safely into Prepared without changing the source.</p><a class="btn btn-dark" href="{{ url_for('main.image_preparation_import_structured', path=browser.path if browser and not browser.path.startswith('Prepared') else '') }}">Import Structured Folder</a></article>
   <article class="intake-task-card"><span class="intake-task-icon">{{ icon('folder') }}</span><p class="eyebrow">Grouped results</p><h2>Review and rename folders</h2><p>Create a new duplicate-safe prepared result with confirmed collection, product, variation, and Parent folder names.</p><a class="btn btn-dark" href="{{ url_for('main.image_preparation_folders') }}">Open folder editor</a></article>
   <article class="intake-task-card"><span class="intake-task-icon">{{ icon('file') }}</span><p class="eyebrow">Prepared hierarchy</p><h2>Preview image renaming</h2><p>Enter a naming prefix and inspect every proposed filename, hierarchy component, scanner warning, and collision.</p><a class="btn btn-dark" href="{{ url_for('main.image_preparation_rename', path=browser.path if browser else '') }}">Open rename preview</a></article>
   <article class="intake-task-card"><span class="intake-task-icon">{{ icon('file') }}</span><p class="eyebrow">Image-renamed results</p><h2>Create product metadata</h2><p>Build or safely correct collection-level product_info.json inside the single Prepared working result.</p><a class="btn btn-dark" href="{{ url_for('main.image_preparation_metadata') }}">Open metadata builder</a></article>
   <article class="intake-task-card"><span class="intake-task-icon">{{ icon('collection') }}</span><p class="eyebrow">Metadata-complete results</p><h2>Validate and copy to Catalogue</h2><p>Run final scanner-aware validation, review the exact destination, and safely copy without starting a scan.</p><a class="btn btn-dark" href="{{ url_for('main.image_preparation_handoff') }}">Open catalogue handoff</a></article>
 </section>
-{% if browser %}{{ intake_browser(browser, 'main.image_preparation') }}{% endif %}
+{% endif %}
+{% if browser %}{{ intake_browser(browser, 'main.image_preparation', prepared_results) }}{% endif %}
 {% else %}
 <section class="empty-state"><h2>Catalogue Intake is not mounted</h2><p>Add the optional <code>/intake</code> path in the Unraid container template to use this workspace. The rest of the application remains available.</p><p>After adding or changing the mount, restart the container.</p></section>
 {% endif %}

@@ -230,6 +230,8 @@ def test_new_destination_handoff_preserves_prepared_and_never_scans(handoff_app,
         assert summary["workflow_status"] == HANDOFF_STATUS
         assert summary["handoff_action"] == "create"
         assert summary["next_step"] == "Run Append Scan"
+        assert summary["blocking_errors"] == 0
+        assert summary["warning_findings"]
 
 
 def test_existing_destination_replaced_without_merge_and_markers_not_copied(handoff_app, handoff_client):
@@ -290,6 +292,8 @@ def test_success_updates_eligibility_review_and_requires_fresh_repeat(handoff_ap
     assert history.status_code == 200
     assert b"Catalogue handoff complete" in history.data
     assert b"Run Append Scan" in history.data
+    assert b"Completed with warnings" in history.data
+    assert b"Review warnings" in history.data
 
 
 def test_routes_render_semantics_without_unsupported_actions(handoff_app, handoff_client):

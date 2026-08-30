@@ -42,6 +42,7 @@ from app.intake_grouping import (
     cleanup_stale_staging,
     finish_intake_operation,
 )
+from app.intake_warnings import bounded_warning_findings
 from app.intake_working_result import (
     WorkingResultRecoveryRequired,
     replace_working_result,
@@ -589,6 +590,8 @@ def execute_image_rename_operation(
             "variation_images": preview["counts"]["variation"],
             "other_images": preview["counts"]["other"],
             "warnings": progress.warnings,
+            "blocking_errors": 0,
+            "warning_findings": bounded_warning_findings(preview["issues"]),
             "workflow_status": RENAME_STATUS,
             "source_identity": preview["source_identity"],
             "result_identity": _snapshot_identity(_snapshot_prepared_result(root, relative)),

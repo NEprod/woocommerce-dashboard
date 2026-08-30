@@ -12,6 +12,7 @@ from sqlalchemy import or_, text
 from app import db
 from app.collection_identity import collection_display_name
 from app.database import migration_head
+from app.intake_warnings import blocking_count, warning_presentation
 from app.models import CatalogueOperation, CatalogueOperationItem, Collection, Product, Settings
 from app.utils.discord import configuration_summary
 from app.utils.operation_control import get_active_operation
@@ -30,6 +31,7 @@ TYPE_LABELS = {
     "intake_image_rename": "Catalogue Intake — Rename Images",
     "intake_metadata_save": "Catalogue Intake — Save Metadata",
     "intake_catalogue_handoff": "Catalogue Intake — Catalogue Handoff",
+    "intake_structured_import": "Catalogue Intake — Import Structured Folder",
 }
 SCAN_MODES = (
     {
@@ -137,9 +139,11 @@ def operation_view(row, *, redaction_paths=None):
     scope = _safe_scope(row)
     persisted_summary = scope.get("operation_summary") if isinstance(scope.get("operation_summary"), dict) else {}
     live = _live_run(row.id, row)
+    active_summary = (live or {}).get("summary") or persisted_summary
     source = scope.get("collection_relpath") or scope.get("source_relpath")
     live_warnings = int((live or {}).get("counts", {}).get("warnings", 0) or 0)
-    warning_count = max(live_warnings, int(persisted_summary.get("warnings", 0) or 0))
+    warning_view = warning_presentation(active_summary, status=row.status)
+    warning_count = max(live_warnings, warning_view["count"])
     status_label = STATUS_LABELS.get(row.status, row.status.title())
     if row.status == "succeeded" and live_warnings:
         status_label = "Completed with warnings"
@@ -151,14 +155,16 @@ def operation_view(row, *, redaction_paths=None):
         "attempted": row.products_attempted, "succeeded": row.products_succeeded,
         "failed": row.products_failed, "missing": row.products_missing, "restored": row.products_restored,
         "warning_count": max(warning_count, int(row.status == "partial") + int(row.recovery_state not in (None, "none"))),
+        "warning_groups": warning_view["groups"],
+        "blocking_count": blocking_count(active_summary, row=row),
         "error_count": max(int((live or {}).get("counts", {}).get("failures", 0) or 0), row.products_failed + int(bool(row.error))),
         "scope": scope, "scope_label": source or scope.get("sku") or "Catalogue",
         "recovery_state": row.recovery_state or "none", "recoverable": row.recovery_state not in (None, "none"),
         "marker_state": row.marker_state, "error": redact_diagnostic(row.error, paths=redaction_paths, limit=1000) if row.error else None,
         "discord": _discord_view(row.id, row), "live": live,
-        "summary": (live or {}).get("summary") or persisted_summary,
-        "warning_summary": ((live or {}).get("summary") or persisted_summary).get("warning_summary", []),
-        "warning_entries": ((live or {}).get("summary") or persisted_summary).get("warning_entries", []),
+        "summary": active_summary,
+        "warning_summary": active_summary.get("warning_summary", []),
+        "warning_entries": active_summary.get("warning_entries", []),
         "detail_url": url_for("main.operation_detail", operation_id=row.id),
     }
 
@@ -282,11 +288,12 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
         timeline.append({"label": view["status_label"], "state": "error" if row.status == "failed" else "complete", "at": row.finished_at})
     retry_mode = {"append": "append", "product_update": "update", "full": "full"}.get(row.operation_type)
     intake = None
-    if row.operation_type in {"intake_group", "intake_folder_edit", "intake_image_rename", "intake_metadata_save", "intake_catalogue_handoff"}:
+    if row.operation_type in {"intake_group", "intake_folder_edit", "intake_image_rename", "intake_metadata_save", "intake_catalogue_handoff", "intake_structured_import"}:
         summary = view.get("summary") or {}
         prepared_relpath = summary.get("prepared_relpath")
         groups = []
         prepared_url = None
+        navigation = None
         if isinstance(prepared_relpath, str) and prepared_relpath.startswith("Prepared/"):
             try:
                 from app.image_preparation import browse_intake, configured_intake_root
@@ -310,15 +317,65 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
                 prepared_url = url_for("main.image_preparation", path=prepared_relpath)
             except (OSError, ValueError):
                 groups = []
+        if (
+            prepared_url
+            and row.status in {"succeeded", "partial"}
+            and not view["recoverable"]
+        ):
+            try:
+                from app.intake_navigation import prepared_result_navigation
+
+                navigation = prepared_result_navigation(
+                    configured_intake_root(), prepared_relpath
+                )
+            except (OSError, ValueError):
+                navigation = None
+        if navigation is None:
+            if view["recoverable"]:
+                heading = "Catalogue Intake recovery required"
+                state_label = "Recovery required"
+                explanation = "Recovery must be resolved before another Catalogue Intake stage can be opened."
+            elif row.status in {"running", "pending"}:
+                heading = "Catalogue Intake operation in progress"
+                state_label = "Running"
+                explanation = (
+                    "This operation is still running. The next action will appear automatically "
+                    "after successful completion."
+                )
+            elif row.status == "interrupted":
+                heading = "Operation interrupted"
+                state_label = "Interrupted"
+                explanation = "This operation was interrupted. Review its recovery state before continuing."
+            elif row.status == "failed":
+                heading = "Catalogue Intake operation failed"
+                state_label = "Failed"
+                explanation = "This operation failed. No next action is available. Review the failure details before continuing."
+            elif row.status in {"succeeded", "partial"} and not prepared_url:
+                heading = "Prepared result unavailable"
+                state_label = "Action unavailable"
+                explanation = "Prepared result is no longer available. Return to Catalogue Intake to review current results."
+            else:
+                heading = "Catalogue Intake action unavailable"
+                state_label = "Action unavailable"
+                explanation = "No safe next action is currently available for this Catalogue Intake operation."
+            navigation = {
+                "primary_action": None,
+                "explanation": explanation,
+                "heading": heading,
+                "state_label": state_label,
+            }
         intake = {
             "is_grouping": row.operation_type == "intake_group",
             "is_folder_edit": row.operation_type == "intake_folder_edit",
             "is_image_rename": row.operation_type == "intake_image_rename",
             "is_metadata_save": row.operation_type == "intake_metadata_save",
             "is_handoff": row.operation_type == "intake_catalogue_handoff",
+            "is_structured_import": row.operation_type == "intake_structured_import",
             "source_relpath": view["scope"].get("source_relpath"),
             "prepared_relpath": prepared_relpath,
             "prepared_url": prepared_url,
+            "navigation": navigation,
+            "next_action": navigation.get("primary_action"),
             "groups": groups,
             "workflow_status": summary.get("workflow_status") or view["scope"].get("workflow_status"),
             "failed_stage": summary.get("failed_stage"),
@@ -345,6 +402,12 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             "retry_url": (
                 url_for("main.image_preparation_handoff", path=view["scope"].get("source_relpath"))
                 if row.operation_type == "intake_catalogue_handoff" and view["scope"].get("source_relpath")
+                else url_for(
+                    "main.image_preparation_import_structured",
+                    path=view["scope"].get("source_relpath"),
+                    mode=summary.get("import_mode") or view["scope"].get("import_mode") or "review",
+                )
+                if row.operation_type == "intake_structured_import" and view["scope"].get("source_relpath")
                 else url_for("main.image_preparation_folders_edit", path=view["scope"].get("source_relpath"))
                 if row.operation_type == "intake_folder_edit" and view["scope"].get("source_relpath")
                 else url_for("main.image_preparation_rename", path=view["scope"].get("source_relpath"))
@@ -366,6 +429,8 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             "staged_verification": summary.get("staged_verification"),
             "promoted_verification": summary.get("promoted_verification"),
             "next_step": summary.get("next_step"),
+            "import_mode": summary.get("import_mode") or view["scope"].get("import_mode"),
+            "source_preserved": bool(summary.get("source_preserved") or view["scope"].get("source_preserved")),
         }
     return {
         "operation": view, "items": item_views,

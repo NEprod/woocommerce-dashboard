@@ -9,6 +9,7 @@ Phase 2.5 Milestones 2–6 supply:
 - an optional dedicated `/intake` mount;
 - an intake-confined folder browser;
 - deterministic loose-image grouping previews;
+- safe import previews for already-organised image folders;
 - deterministic prefix-renaming previews;
 - complete intake-relative source, folder-tree, destination, and filename views;
 - conflict, corrupt-image, unsafe-entry, Parent, and scanner-compatibility diagnostics.
@@ -20,6 +21,55 @@ Discord events. Confirmed grouping, folder editing, image renaming, and Prepared
 metadata saving are separately gated mutations under one Intake lock. None
 moves or deletes loose sources, uploads, imports, scans, creates markers, or
 hands anything to `/catalogue`.
+
+## Importing an existing structured folder
+
+The separate authenticated **Import Structured Folder** workflow accepts one
+existing directory beneath `/intake`, but never `Prepared/`, private staging,
+rollback storage, hidden operation directories, the Intake root itself, or a
+path outside the mount. It inspects the complete tree and classifies supported
+PNG, JPG, JPEG, and WebP images, hidden/system entries, unsupported files,
+corrupt images, unsafe/unreadable entries, existing `product_info.json`, folder
+depth, and a case-insensitive collection-root `Parent/`. Real source spelling,
+Unicode, extensions, folder hierarchy, and bytes are preserved.
+
+The preview is read-only and offers two explicit entry states:
+
+- **Import and Review Folder Structure** creates a proven
+  `folder_review_required` result whose next action is **Review and Rename
+  Folders**. Safe naming and hierarchy warnings may remain for that editor.
+- **Import as Final Folder Structure** applies stricter collision, Parent,
+  ownership, and hierarchy checks, creates an `image_renaming_required` result,
+  and continues to **Rename Images**.
+
+Neither choice infers metadata completion. A valid or malformed existing
+`product_info.json` is reported and copied byte-for-byte without being rewritten;
+malformed metadata remains a visible warning for later correction. Metadata is
+not generated during import.
+
+Confirmation covers source directory and file identities, sizes, modification
+times, efficient hashes, classifications, complete tree, findings, selected
+mode, and deterministic destination in one digest. The server recomputes the
+proposal before acquiring the shared Intake mutation lock. Any changed source,
+mode, or destination requires a new preview.
+
+Approved regular files and directories are copied into the existing hidden,
+operation-owned staging tree, verified for exact paths, counts, image
+readability, sizes, and SHA-256 identity, then promoted with the existing
+no-replace/FUSE-compatible helper. The source is never moved or changed. The
+operation never merges or overwrites a result; an unrelated name receives a
+deterministic ` (2)`, ` (3)`, or later suffix. Excluded entries are not silently
+copied, and failure before verified promotion exposes no Prepared result.
+
+The bounded operation type is **Catalogue Intake — Import Structured Folder**.
+Operation Detail, the live RC3 result fragment, and Prepared-result cards show
+accurate imported-source wording, import mode, source-preserved state, warnings,
+and the signed server-authorised next action. Destination routes still perform
+their established eligibility validation. Previewing does not notify Discord;
+one bounded terminal summary uses the existing information or warning/error
+webhook, and notification failure remains non-fatal. No scanner, marker,
+catalogue/output write, image transformation, dependency, migration, or new
+mount is involved.
 
 ## Storage boundary
 
@@ -238,7 +288,7 @@ verifies the prior result.
 The bounded operation is **Catalogue Intake — Save Metadata**. Logs do not retain
 the full JSON or descriptions. Terminal Discord delivery remains bounded and
 non-fatal. Success is **Metadata complete — validation required** and the next
-step is **Validate prepared collection**.
+step is **Validate and Copy to Catalogue**.
 
 ## Final validation and catalogue handoff
 
@@ -296,3 +346,29 @@ request-scoped and does not grow SQLite.
 
 Catalogue handoff is complete but scanning remains separately gated. A handoff
 copies source material only; the user must start Append Scan manually.
+
+## Next-step navigation
+
+Every direct Prepared result now exposes one primary action derived from its
+latest durable workflow operation: folder review, image renaming, metadata
+creation or editing, final validation, or Scanner. The action carries a signed
+opaque result token. Opening it performs a fresh server-side existence,
+operation-status, recovery-state, workflow-state, and stage-eligibility check
+before redirecting to the established preview or editor route.
+
+These links are navigation only. They never confirm an operation, bypass a
+proposal digest or acknowledgement, mutate Intake or Catalogue, emit Discord,
+or start the scanner. A stale token follows the result's current valid state; a
+missing, failed, interrupted, recovery-required, or incomplete result returns a
+controlled explanation instead of a broken action. After catalogue handoff the
+primary action opens Scanner and explicitly leaves Append Scan as a manual step.
+
+Warning-only completion is stored as the existing `partial` operation status.
+It remains eligible for the next stage when the persisted blocking/failure count
+is zero and the destination stage still passes its own fresh validation.
+Warnings never become blocking errors. Operation Detail and Prepared-result
+cards show a bounded grouped warning summary; Operation Detail uses an
+expandable panel with concise category, affected field/folder where available,
+continuation guidance, and a recommended review action. Blocking, failed,
+interrupted, recovery-required, stale, and missing states expose no unsafe
+primary action.

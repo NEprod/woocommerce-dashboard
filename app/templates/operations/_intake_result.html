@@ -1,0 +1,61 @@
+{% from 'image_preparation/_shared.html' import warning_details %}
+{% set terminal_success = workspace.operation.status in ['succeeded', 'partial'] and not workspace.operation.recoverable %}
+{% if not terminal_success %}
+<section class="workspace-panel intake-operation-result" aria-labelledby="intake-live-result-heading">
+  <div class="panel-heading">
+    <div><p class="eyebrow">Catalogue Intake workflow</p><h2 id="intake-live-result-heading">{{ workspace.intake.navigation.heading }}</h2></div>
+    <span class="status-badge status-{{ workspace.operation.status }}">{{ workspace.intake.navigation.state_label }}</span>
+  </div>
+  <p>{{ workspace.intake.navigation.explanation }}</p>
+  {% if workspace.operation.status in ['running', 'pending'] %}<p class="panel-note" role="status" aria-live="polite">Live progress and retained logs will continue updating below.</p>{% endif %}
+</section>
+{% elif workspace.intake.is_handoff %}
+<section class="workspace-panel intake-operation-result" aria-labelledby="catalogue-handoff-result-heading">
+  <div class="panel-heading"><div><p class="eyebrow">Final catalogue handoff</p><h2 id="catalogue-handoff-result-heading">Catalogue handoff complete</h2></div><span class="status-badge status-{{ workspace.operation.status }}">{{ workspace.operation.status_label }}</span></div>
+  <dl class="intake-confirm-summary">
+    <div><dt>Prepared result</dt><dd><code>{{ workspace.intake.prepared_relpath or workspace.intake.source_relpath }}</code></dd></div>
+    <div><dt>Catalogue destination</dt><dd><code>{{ workspace.intake.catalogue_destination or 'Unavailable' }}</code></dd></div>
+    <div><dt>Action</dt><dd>{{ (workspace.intake.handoff_action or 'Unavailable')|title }}</dd></div>
+    <div><dt>Staged verification</dt><dd>{{ (workspace.intake.staged_verification or 'Not completed')|title }}</dd></div>
+    <div><dt>Promoted verification</dt><dd>{{ (workspace.intake.promoted_verification or 'Not completed')|title }}</dd></div>
+    <div><dt>Rollback / recovery</dt><dd>{{ (workspace.intake.rollback_state or 'Not required')|replace('_',' ')|title }} / {{ (workspace.intake.recovery_state or 'None')|replace('_',' ')|title }}</dd></div>
+    <div><dt>Completed</dt><dd>{{ workspace.intake.completion_time or 'Not completed' }}</dd></div>
+    <div><dt>Current state</dt><dd>{{ workspace.intake.navigation.state_label }}</dd></div>
+  </dl>
+  <div class="button-row">{% if workspace.intake.next_action %}<a class="btn btn-accent intake-next-action" href="{{ workspace.intake.next_action.url }}">{{ workspace.intake.next_action.label }}</a>{% endif %}{% if workspace.intake.handoff_review_url %}<a class="btn btn-ghost" href="{{ workspace.intake.handoff_review_url }}">Review Handoff</a>{% endif %}{% if workspace.intake.prepared_url %}<a class="btn btn-ghost" href="{{ workspace.intake.prepared_url }}">Open Prepared Result</a>{% endif %}</div>
+  <p class="panel-note">{{ workspace.intake.navigation.explanation }}{% if workspace.intake.next_action and workspace.intake.next_action.label == 'Open Scanner' %} Opening Scanner does not start a scan.{% endif %}</p>
+</section>
+{% elif workspace.intake.is_metadata_save %}
+<section class="workspace-panel intake-operation-result" aria-labelledby="prepared-metadata-result-heading">
+  <div class="panel-heading"><div><p class="eyebrow">Prepared metadata result</p><h2 id="prepared-metadata-result-heading">{{ workspace.intake.navigation.heading }}</h2></div><span class="status-badge status-{{ workspace.operation.status }}">{{ workspace.intake.navigation.state_label }}</span></div>
+  <dl class="intake-confirm-summary">
+    <div><dt>Working result</dt><dd><code>{{ workspace.intake.prepared_relpath or workspace.intake.source_relpath or 'Unavailable' }}</code></dd></div>
+    <div><dt>Action</dt><dd>{{ (workspace.intake.metadata_action or 'save')|title }}</dd></div>
+    <div><dt>Collection type</dt><dd>{{ workspace.intake.collection_type or 'Unavailable' }}</dd></div>
+    <div><dt>SKU prefix</dt><dd><code>{{ workspace.intake.sku_prefix or 'Unavailable' }}</code></dd></div>
+    <div><dt>Publishing intent</dt><dd>{{ (workspace.intake.publishing_intent or 'not_set')|replace('_',' ')|title }}</dd></div>
+    <div><dt>Categories / tags</dt><dd>{{ workspace.intake.category_count or 0 }} / {{ workspace.intake.tag_count or 0 }}</dd></div>
+    <div><dt>Attributes / image attributes</dt><dd>{{ workspace.intake.attribute_count or 0 }} / {{ workspace.intake.image_attribute_count or 0 }}</dd></div>
+    <div><dt>Modifiers</dt><dd>{{ workspace.intake.modifier_count or 0 }}</dd></div>
+    <div><dt>Proposal digest</dt><dd><code>{{ workspace.intake.proposal_digest or 'Unavailable' }}</code></dd></div>
+    <div><dt>Rollback / recovery</dt><dd>{{ (workspace.intake.rollback_state or workspace.intake.recovery_state or 'Not required')|replace('_',' ')|title }}</dd></div>
+    <div><dt>Current state</dt><dd>{{ workspace.intake.navigation.state_label }}</dd></div>
+  </dl>
+  <div class="button-row">{% if workspace.intake.next_action %}<a class="btn btn-accent intake-next-action" href="{{ workspace.intake.next_action.url }}">{{ workspace.intake.next_action.label }}</a>{% endif %}{% if workspace.intake.metadata_editor_url %}<a class="btn btn-ghost" href="{{ workspace.intake.metadata_editor_url }}">Edit Product Metadata</a>{% endif %}{% if workspace.intake.prepared_url %}<a class="btn btn-ghost" href="{{ workspace.intake.prepared_url }}">Open Prepared Result</a>{% endif %}</div>
+  <p class="panel-note">{{ workspace.intake.navigation.explanation }}</p>
+</section>
+{% else %}
+<section class="workspace-panel intake-operation-result" aria-labelledby="prepared-result-heading">
+  <div class="panel-heading"><div><p class="eyebrow">{{ 'Imported structured source' if workspace.intake.is_structured_import else 'Renamed working result' if workspace.intake.is_image_rename else 'Folder-edited result' if workspace.intake.is_folder_edit else 'Grouped result' }}</p><h2 id="prepared-result-heading">{{ workspace.intake.navigation.heading }}</h2></div><span class="status-badge status-{{ workspace.operation.status }}">{{ workspace.intake.navigation.state_label }}</span></div>
+  <dl class="intake-confirm-summary">
+    <div><dt>Working result</dt><dd><code>{{ workspace.intake.prepared_relpath or workspace.intake.source_relpath or 'Unavailable' }}</code></dd></div>
+    {% if workspace.intake.is_structured_import %}<div><dt>Import mode</dt><dd>{{ 'Folder structure is final' if workspace.intake.import_mode == 'final' else 'Review folder structure first' }}</dd></div><div><dt>Source</dt><dd>Preserved unchanged</dd></div>{% endif %}
+    {% if workspace.intake.is_image_rename %}<div><dt>Prefix</dt><dd><code>{{ workspace.intake.prefix or 'Unavailable' }}</code></dd></div><div><dt>Images renamed</dt><dd>{{ workspace.intake.renamed_images or 0 }}</dd></div><div><dt>Parent / variation</dt><dd>{{ workspace.intake.parent_images or 0 }} / {{ workspace.intake.variation_images or 0 }}</dd></div><div><dt>Rollback</dt><dd>{{ (workspace.intake.rollback_state or workspace.intake.recovery_state or 'Not required')|replace('_',' ')|title }}</dd></div><div><dt>Predecessor cleanup</dt><dd>{{ (workspace.intake.predecessor_cleanup or 'Preserved')|replace('_',' ')|title }}</dd></div><div><dt>Proposal digest</dt><dd><code>{{ workspace.intake.proposal_digest or 'Unavailable' }}</code></dd></div>{% endif %}
+    <div><dt>Current state</dt><dd>{{ workspace.intake.navigation.state_label }}</dd></div>
+  </dl>
+  {% if workspace.intake.groups %}<ul class="intake-tree" aria-label="Completed prepared tree">{% for group in workspace.intake.groups %}<li><div class="intake-tree-folder"><strong>{{ group.name }}/</strong><span>{{ group.path }}</span></div>{% if group.files %}<ul>{% for filename in group.files %}<li><span>{{ filename }}</span></li>{% endfor %}</ul>{% endif %}</li>{% endfor %}</ul>{% else %}<p>The prepared result is no longer available at its recorded intake-relative location.</p>{% endif %}
+  <div class="button-row">{% if workspace.intake.next_action %}<a class="btn btn-accent intake-next-action" href="{{ workspace.intake.next_action.url }}">{{ workspace.intake.next_action.label }}</a>{% endif %}{% if workspace.intake.prepared_url %}<a class="btn btn-ghost" href="{{ workspace.intake.prepared_url }}">Open Prepared Result</a>{% endif %}</div>
+  <p class="panel-note">{{ workspace.intake.navigation.explanation }}</p>
+</section>
+{% endif %}
+{% if workspace.operation.warning_count %}<section class="workspace-panel operation-warning-summary" aria-labelledby="warning-summary-heading"><div class="panel-heading"><div><p class="eyebrow">Completed with warnings</p><h2 id="warning-summary-heading">{{ workspace.operation.warning_count }} warning{{ '' if workspace.operation.warning_count == 1 else 's' }}</h2></div><span class="status-badge status-partial">Continuation allowed</span></div>{{ warning_details(workspace.operation) }}</section>{% endif %}

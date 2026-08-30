@@ -25,3 +25,38 @@ test("automatic polling pauses only after three consecutive failures", () => {
   assert.equal(client.shouldPause(2), false);
   assert.equal(client.shouldPause(3), true);
 });
+
+test("Intake result refresh is requested exactly on the first terminal transition", () => {
+  assert.equal(client.shouldRefreshIntakeResult(false, true, true), true);
+  assert.equal(client.shouldRefreshIntakeResult(true, true, true), false);
+  assert.equal(client.shouldRefreshIntakeResult(false, false, true), false);
+  assert.equal(client.shouldRefreshIntakeResult(false, true, false), false);
+});
+
+test("result refresh failure has a controlled manual-refresh message", () => {
+  assert.match(client.resultRefreshFallback, /Operation completed/);
+  assert.match(client.resultRefreshFallback, /Refresh this page/);
+});
+
+test("authoritative result fragment request returns terminal action markup", async () => {
+  const calls = [];
+  const html = await client.requestResultFragment(async (url, options) => {
+    calls.push({url, options});
+    return {ok: true, text: async () => '<a href="/image-preparation/next/signed">Rename Images</a>'};
+  }, "/operations/safe-id/intake-result");
+  assert.match(html, /Rename Images/);
+  assert.equal(calls[0].url, "/operations/safe-id/intake-result");
+  assert.equal(calls[0].options.credentials, "same-origin");
+  assert.equal(calls[0].options.headers.Accept, "text/html");
+});
+
+test("non-success and empty result fragments are rejected for controlled fallback", async () => {
+  await assert.rejects(
+    client.requestResultFragment(async () => ({ok: false, text: async () => "login"}), "/result"),
+    /result request failed/,
+  );
+  await assert.rejects(
+    client.requestResultFragment(async () => ({ok: true, text: async () => "  "}), "/result"),
+    /empty result response/,
+  );
+});
