@@ -24,6 +24,9 @@ CONNECT_TIMEOUT = 3.05
 READ_TIMEOUT = 8
 MAX_REDIRECTS = 3
 MAX_RESPONSE_BYTES = 1024 * 1024
+MAX_DISCOVERY_INDEX_BYTES = 8 * 1024 * 1024
+MAX_JSON_NESTING = 128
+STREAM_CHUNK_BYTES = 64 * 1024
 MAX_NAMESPACES = 20
 MAX_CAPABILITIES = 12
 SAFE_METHODS = {"GET", "HEAD"}
@@ -32,11 +35,20 @@ SAFE_METHODS = {"GET", "HEAD"}
 class WooConnectionError(RuntimeError):
     """A controlled, safe connection-test failure."""
 
-    def __init__(self, category, message, *, status_code=None):
+    def __init__(self, category, message, *, status_code=None, diagnostics=None):
         super().__init__(message)
         self.category = str(category)[:64]
         self.message = redact_diagnostic(message, limit=300)
         self.status_code = status_code
+        self.diagnostics = {
+            key: value
+            for key, value in (diagnostics or {}).items()
+            if key in {
+                "endpoint_category", "compressed_bytes", "decompressed_bytes",
+                "configured_limit", "content_length", "content_encoding", "failure_phase",
+            }
+            and (value is None or isinstance(value, (str, int, float, bool)))
+        }
 
 
 @dataclass(frozen=True)
@@ -109,19 +121,61 @@ def _origin(url):
     return parsed.scheme.lower(), (parsed.hostname or "").lower(), port
 
 
+def _safe_header_integer(value):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def _safe_content_encoding(value):
+    encoding = str(value or "identity").strip().lower()[:32]
+    return encoding if encoding in {"identity", "gzip", "br", "deflate"} else "other"
+
+
+def _compressed_bytes_read(response):
+    try:
+        value = response.raw.tell()
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+    return value if isinstance(value, int) and value >= 0 else None
+
+
+def _json_nesting_is_bounded(payload):
+    stack = [(payload, 1)]
+    while stack:
+        value, depth = stack.pop()
+        if depth > MAX_JSON_NESTING:
+            return False
+        if isinstance(value, dict):
+            stack.extend((child, depth + 1) for child in value.values())
+        elif isinstance(value, list):
+            stack.extend((child, depth + 1) for child in value)
+    return True
+
+
 class ReadOnlyWooClient:
     def __init__(self, configuration, *, session=None):
         self.configuration = configuration
         self.base_url = normalize_store_url(configuration.store_url)
         self.session = session or requests.Session()
         self.request_count = 0
+        self.last_transfer = {}
 
-    def request_json(self, method, url, *, authenticated=False):
+    def request_json(
+        self, method, url, *, authenticated=False,
+        response_limit=MAX_RESPONSE_BYTES, endpoint_category="ordinary_api",
+    ):
         method = str(method).upper()
         if method not in SAFE_METHODS:
             raise WooConnectionError("unsafe_method", "WooCommerce discovery permits read-only requests only.")
+        response_limit = int(response_limit)
+        if response_limit <= 0 or response_limit > MAX_DISCOVERY_INDEX_BYTES:
+            raise ValueError("Invalid bounded response policy")
         current = url
         for redirect_number in range(MAX_REDIRECTS + 1):
+            response = None
             try:
                 response = self.session.request(
                     method,
@@ -150,12 +204,16 @@ class ReadOnlyWooClient:
             if response.status_code in {301, 302, 303, 307, 308}:
                 location = response.headers.get("Location", "")
                 if not location:
+                    response.close()
                     raise WooConnectionError("invalid_redirect", "The store returned an invalid redirect.")
                 destination = urljoin(current, location)
                 if _origin(destination) != _origin(self.base_url):
+                    response.close()
                     raise WooConnectionError("cross_origin_redirect", "The store redirected to another origin; credentials were not forwarded.")
                 if redirect_number >= MAX_REDIRECTS:
+                    response.close()
                     raise WooConnectionError("redirect_loop", "The store exceeded the safe redirect limit.")
+                response.close()
                 current = destination
                 continue
 
@@ -171,27 +229,73 @@ class ReadOnlyWooClient:
                     404: "The requested REST resource is unavailable.",
                     429: "The store rate-limited the connection test.",
                 }
+                response.close()
                 raise WooConnectionError(category, messages.get(response.status_code, f"The store returned HTTP {response.status_code}."), status_code=response.status_code)
 
-            length = response.headers.get("Content-Length")
-            if length:
-                try:
-                    if int(length) > MAX_RESPONSE_BYTES:
-                        raise WooConnectionError("response_too_large", "The store response exceeded the safe size limit.")
-                except ValueError:
-                    pass
+            content_length = _safe_header_integer(response.headers.get("Content-Length"))
+            content_encoding = _safe_content_encoding(response.headers.get("Content-Encoding"))
             chunks, total = [], 0
-            for chunk in response.iter_content(chunk_size=65536):
-                if not chunk:
-                    continue
-                total += len(chunk)
-                if total > MAX_RESPONSE_BYTES:
-                    raise WooConnectionError("response_too_large", "The store response exceeded the safe size limit.")
-                chunks.append(chunk)
             try:
-                return json.loads(b"".join(chunks).decode(response.encoding or "utf-8")), response
-            except (UnicodeDecodeError, json.JSONDecodeError, TypeError) as error:
-                raise WooConnectionError("malformed_json", "The store returned malformed JSON.") from error
+                try:
+                    for chunk in response.iter_content(chunk_size=STREAM_CHUNK_BYTES):
+                        if not chunk:
+                            continue
+                        total += len(chunk)
+                        if total > response_limit:
+                            diagnostics = {
+                                "endpoint_category": endpoint_category,
+                                "compressed_bytes": _compressed_bytes_read(response),
+                                "decompressed_bytes": total,
+                                "configured_limit": response_limit,
+                                "content_length": content_length,
+                                "content_encoding": content_encoding,
+                                "failure_phase": "streaming",
+                            }
+                            if endpoint_category == "wordpress_rest_index":
+                                raise WooConnectionError(
+                                    "discovery_index_too_large",
+                                    "The WordPress REST API index is larger than the current safe discovery limit. "
+                                    "This is commonly caused by many plugins registering REST routes. "
+                                    "No credentials were exposed and no write request was sent.",
+                                    diagnostics=diagnostics,
+                                )
+                            raise WooConnectionError(
+                                "response_too_large", "The store response exceeded the safe size limit.",
+                                diagnostics=diagnostics,
+                            )
+                        chunks.append(chunk)
+                except WooConnectionError:
+                    raise
+                except requests.ReadTimeout as error:
+                    raise WooConnectionError("read_timeout", "The response timed out.") from error
+                except requests.exceptions.ContentDecodingError as error:
+                    raise WooConnectionError("content_decoding_failed", "The compressed store response could not be decoded safely.") from error
+                except requests.ConnectionError as error:
+                    raise WooConnectionError("connection_failed", "The store response stream ended unexpectedly.") from error
+                transfer = {
+                    "endpoint_category": endpoint_category,
+                    "compressed_bytes": _compressed_bytes_read(response),
+                    "decompressed_bytes": total,
+                    "configured_limit": response_limit,
+                    "content_length": content_length,
+                    "content_encoding": content_encoding,
+                }
+                self.last_transfer = transfer
+                try:
+                    payload = json.loads(b"".join(chunks).decode(response.encoding or "utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, TypeError) as error:
+                    raise WooConnectionError(
+                        "malformed_json", "The store returned malformed JSON.",
+                        diagnostics={**transfer, "failure_phase": "json_parsing"},
+                    ) from error
+                if not _json_nesting_is_bounded(payload):
+                    raise WooConnectionError(
+                        "json_too_deep", "The store response exceeded the safe JSON nesting limit.",
+                        diagnostics={**transfer, "failure_phase": "json_validation"},
+                    )
+                return payload, response
+            finally:
+                response.close()
         raise WooConnectionError("redirect_loop", "The store exceeded the safe redirect limit.")
 
 
@@ -241,11 +345,17 @@ def run_connection_discovery(configuration=None, *, session=None):
     client = ReadOnlyWooClient(configuration, session=session)
     started = time.monotonic()
     index_started = time.monotonic()
-    index, index_response = client.request_json("GET", f"{client.base_url}/wp-json/")
+    index, index_response = client.request_json(
+        "GET", f"{client.base_url}/wp-json/",
+        response_limit=MAX_DISCOVERY_INDEX_BYTES,
+        endpoint_category="wordpress_rest_index",
+    )
+    discovery_transfer = dict(client.last_transfer)
     index_latency = round((time.monotonic() - index_started) * 1000)
     if not isinstance(index, dict) or not isinstance(index.get("routes"), dict):
         raise WooConnectionError("rest_unavailable", "WordPress responded, but a valid REST index was not available.")
-    namespaces = [_safe_scalar(value, 80) for value in index.get("namespaces", []) if isinstance(value, str)][:MAX_NAMESPACES]
+    raw_namespaces = index.get("namespaces", [])
+    namespaces = [_safe_scalar(value, 80) for value in raw_namespaces if isinstance(value, str)][:MAX_NAMESPACES]
     woo_namespaces = sorted(
         (value for value in namespaces if re.fullmatch(r"wc/v\d+", value)),
         key=lambda value: int(value.rsplit("v", 1)[1]), reverse=True,
@@ -255,6 +365,15 @@ def run_connection_discovery(configuration=None, *, session=None):
     namespace = woo_namespaces[0]
     routes = index["routes"]
     specs = _capability_specs(namespace)[:MAX_CAPABILITIES]
+    route_summaries = {
+        spec["name"]: _route_methods(routes, spec["patterns"])
+        for spec in specs
+    }
+    store_name = _safe_scalar(index.get("name")) or "Not exposed"
+    canonical = index.get("home") or index.get("url")
+    namespace_count = len(raw_namespaces)
+    rate_limit = _safe_scalar(index_response.headers.get("X-RateLimit-Remaining")) or "Not exposed"
+    del routes, index, raw_namespaces
     capabilities = []
     product_id = None
     attribute_id = None
@@ -262,7 +381,7 @@ def run_connection_discovery(configuration=None, *, session=None):
     system_data = {}
 
     for spec in specs:
-        discovered, methods = _route_methods(routes, spec["patterns"])
+        discovered, methods = route_summaries[spec["name"]]
         read_state = "Unavailable"
         status_code = None
         route = spec["route"]
@@ -308,7 +427,6 @@ def run_connection_discovery(configuration=None, *, session=None):
 
     environment = system_data.get("environment") if isinstance(system_data.get("environment"), dict) else {}
     settings = system_data.get("settings") if isinstance(system_data.get("settings"), dict) else {}
-    canonical = index.get("home") or index.get("url")
     canonical_url = "Verified store origin"
     if isinstance(canonical, str):
         try:
@@ -321,11 +439,11 @@ def run_connection_discovery(configuration=None, *, session=None):
         "state": "connected_with_limitations" if optional_limitations else "connected",
         "hostname": urlsplit(client.base_url).hostname or "",
         "canonical_store_url": canonical_url,
-        "store_name": _safe_scalar(index.get("name")) or "Not exposed",
+        "store_name": store_name,
         "store_reachability": "Reachable",
         "wordpress_rest": "Available", "woo_rest": "Available", "authentication": "Verified",
         "tls": "Verified", "selected_namespace": namespace,
-        "namespaces": namespaces, "namespaces_truncated": len(index.get("namespaces", [])) > len(namespaces),
+        "namespaces": namespaces, "namespaces_truncated": namespace_count > len(namespaces),
         "wordpress_version": _safe_scalar(environment.get("wp_version")) or "Not exposed",
         "woocommerce_version": _safe_scalar(environment.get("version")) or "Not exposed",
         "currency": _safe_scalar(settings.get("currency")) or "Not exposed",
@@ -335,16 +453,20 @@ def run_connection_discovery(configuration=None, *, session=None):
         "required_total": len(required), "optional_limitations": len(optional_limitations),
         "wordpress_latency_ms": index_latency, "authenticated_latency_ms": authenticated_latency,
         "duration_ms": duration, "request_count": client.request_count,
-        "rate_limit": _safe_scalar(index_response.headers.get("X-RateLimit-Remaining")) or "Not exposed",
+        "rate_limit": rate_limit,
+        "discovery_transfer": discovery_transfer,
     }
 
 
 def _operation_summary(result, *, failure=None):
     if failure:
-        return {
+        summary = {
             "health_state": "failed", "failure_category": failure.category,
             "failure_reason": failure.message, "status_code": failure.status_code,
         }
+        if failure.diagnostics:
+            summary["transfer_diagnostics"] = failure.diagnostics
+        return summary
     return {
         key: result[key]
         for key in (
@@ -353,7 +475,7 @@ def _operation_summary(result, *, failure=None):
             "wordpress_version", "woocommerce_version", "currency", "timezone",
             "permalink_compatibility", "capabilities", "required_verified", "required_total",
             "optional_limitations", "wordpress_latency_ms", "authenticated_latency_ms",
-            "duration_ms", "request_count", "rate_limit",
+            "duration_ms", "request_count", "rate_limit", "discovery_transfer",
         )
     }
 

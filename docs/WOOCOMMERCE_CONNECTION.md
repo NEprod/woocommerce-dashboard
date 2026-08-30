@@ -46,6 +46,16 @@ followed only on the configured origin; credentials are never forwarded to
 another origin. Raw API indexes and response bodies are neither rendered nor
 persisted.
 
+The public `/wp-json/` discovery index has a separate 8 MiB decompressed-body
+limit because plugin-heavy WordPress sites may register thousands of routes.
+Ordinary WooCommerce and WordPress capability responses retain the smaller
+1 MiB limit. Both policies stream in 64 KiB chunks and count the bytes produced
+after HTTP decompression; `Content-Length` is recorded when valid but is never
+trusted as the enforcement boundary. Missing, incorrect, chunked, gzip, Brotli,
+and deflate transfer metadata cannot bypass the decompressed limit. Responses
+are closed after success or abort, and the raw index is discarded immediately
+after namespaces and relevant route methods have been summarized.
+
 Required publishing reads are Products, Product categories, Product tags, and
 Product attributes. A failure in those resources fails the health check. Later
 or optional resources such as Orders or Customers may produce **Connected with
@@ -74,6 +84,9 @@ REST index.
   forbidden or unavailable resources. Required product reads have still passed.
 - **Rate limited:** wait before running another manual test. The application does
   not repeatedly probe or benchmark the store.
+- **REST index exceeds the discovery limit:** a plugin-heavy site registered an
+  unusually large route index above 8 MiB. The operation reports only safe byte,
+  encoding, and endpoint-category diagnostics; it never stores the index body.
 
 Later Phase 3 milestones may consume these discovered capabilities. This
 milestone does not implement WooCommerce synchronization.

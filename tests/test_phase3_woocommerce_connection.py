@@ -9,8 +9,10 @@ from app.models import CatalogueOperation, Settings, User
 from app.utils.operation_control import reset_operation_control_for_tests
 from app.utils.redaction import redact_diagnostic
 from app.woocommerce_connection import (
+    MAX_DISCOVERY_INDEX_BYTES,
     MAX_RESPONSE_BYTES,
     ReadOnlyWooClient,
+    STREAM_CHUNK_BYTES,
     WooConfiguration,
     WooConnectionError,
     execute_connection_test,
@@ -31,10 +33,15 @@ class FakeResponse:
         self.headers = headers or {}
         self.encoding = "utf-8"
         self._raw = raw if raw is not None else json.dumps(payload).encode()
+        self.closed = False
+        self.raw = type("RawCounter", (), {"tell": lambda counter: int(self.headers.get("X-Compressed-Bytes", len(self._raw)))})()
 
     def iter_content(self, chunk_size=65536):
         for offset in range(0, len(self._raw), chunk_size):
             yield self._raw[offset:offset + chunk_size]
+
+    def close(self):
+        self.closed = True
 
 
 def _rest_index():
@@ -55,6 +62,19 @@ def _rest_index():
             "/wc/v3/system_status": route(["GET"]),
         },
     }
+
+
+def _large_index_bytes(size, *, include_routes=True):
+    document = _rest_index() if include_routes else {"namespaces": ["wc/v3"], "routes": {}}
+    document["routes"]["/plugin-heavy/v1/private/(?P<token>.*)"] = {
+        "endpoints": [{"methods": ["GET", "POST"], "args": {"secret": "must-not-persist"}}]
+    }
+    document["plugin_padding"] = ""
+    baseline = json.dumps(document, separators=(",", ":")).encode()
+    document["plugin_padding"] = "x" * max(0, size - len(baseline))
+    raw = json.dumps(document, separators=(",", ":")).encode()
+    assert len(raw) == size
+    return raw
 
 
 class FakeSession:
@@ -182,6 +202,134 @@ def test_response_size_and_malformed_json_are_controlled():
     with pytest.raises(WooConnectionError) as malformed:
         ReadOnlyWooClient(config, session=ResponseSession(FakeResponse(raw=b"not-json"))).request_json("GET", "https://shop.example.test/data")
     assert malformed.value.category == "malformed_json"
+
+
+def test_plugin_heavy_index_uses_larger_endpoint_specific_limit():
+    raw = _large_index_bytes(MAX_RESPONSE_BYTES + 512 * 1024)
+    response = FakeResponse(raw=raw, headers={"Content-Encoding": "gzip", "X-Compressed-Bytes": "145000"})
+    class ResponseSession:
+        def request(self, *args, **kwargs): return response
+    client = ReadOnlyWooClient(WooConfiguration("https://shop.example.test", KEY, SECRET), session=ResponseSession())
+    payload, _ = client.request_json(
+        "GET", "https://shop.example.test/wp-json/",
+        response_limit=MAX_DISCOVERY_INDEX_BYTES,
+        endpoint_category="wordpress_rest_index",
+    )
+    assert payload["namespaces"][-1] == "unrelated/v9"
+    assert client.last_transfer["decompressed_bytes"] == len(raw)
+    assert client.last_transfer["compressed_bytes"] == 145000
+    assert client.last_transfer["content_encoding"] == "gzip"
+    assert response.closed is True
+
+
+def test_index_just_below_limit_succeeds_and_above_limit_closes_cleanly():
+    class ResponseSession:
+        def __init__(self, response): self.response = response
+        def request(self, *args, **kwargs): return self.response
+    config = WooConfiguration("https://shop.example.test", KEY, SECRET)
+    permitted = FakeResponse(raw=_large_index_bytes(MAX_DISCOVERY_INDEX_BYTES - 256))
+    ReadOnlyWooClient(config, session=ResponseSession(permitted)).request_json(
+        "GET", "https://shop.example.test/wp-json/",
+        response_limit=MAX_DISCOVERY_INDEX_BYTES,
+        endpoint_category="wordpress_rest_index",
+    )
+    assert permitted.closed is True
+    oversized = FakeResponse(raw=_large_index_bytes(MAX_DISCOVERY_INDEX_BYTES + 1))
+    with pytest.raises(WooConnectionError) as caught:
+        ReadOnlyWooClient(config, session=ResponseSession(oversized)).request_json(
+            "GET", "https://shop.example.test/wp-json/",
+            response_limit=MAX_DISCOVERY_INDEX_BYTES,
+            endpoint_category="wordpress_rest_index",
+        )
+    assert caught.value.category == "discovery_index_too_large"
+    assert "WordPress REST API index" in caught.value.message
+    assert "credentials" in caught.value.message
+    assert caught.value.diagnostics["configured_limit"] == MAX_DISCOVERY_INDEX_BYTES
+    assert caught.value.diagnostics["decompressed_bytes"] > MAX_DISCOVERY_INDEX_BYTES
+    assert caught.value.diagnostics["failure_phase"] == "streaming"
+    assert oversized.closed is True
+
+
+@pytest.mark.parametrize("headers", [
+    {},
+    {"Content-Length": "12"},
+    {"Transfer-Encoding": "chunked"},
+    {"Content-Encoding": "gzip", "Content-Length": "8192", "X-Compressed-Bytes": "8192"},
+])
+def test_decompressed_index_bytes_cannot_bypass_limit(headers):
+    class ResponseSession:
+        def __init__(self, response): self.response = response
+        def request(self, *args, **kwargs): return self.response
+    response = FakeResponse(raw=_large_index_bytes(MAX_DISCOVERY_INDEX_BYTES + 65536), headers=headers)
+    client = ReadOnlyWooClient(WooConfiguration("https://shop.example.test", KEY, SECRET), session=ResponseSession(response))
+    with pytest.raises(WooConnectionError) as caught:
+        client.request_json(
+            "GET", "https://shop.example.test/wp-json/",
+            response_limit=MAX_DISCOVERY_INDEX_BYTES,
+            endpoint_category="wordpress_rest_index",
+        )
+    assert caught.value.category == "discovery_index_too_large"
+    assert caught.value.category != "authentication_rejected"
+    assert response.closed is True
+
+
+def test_ordinary_api_response_keeps_one_mib_limit():
+    class ResponseSession:
+        def __init__(self, response): self.response = response
+        def request(self, *args, **kwargs): return self.response
+    response = FakeResponse(raw=json.dumps({"payload": "x" * (MAX_RESPONSE_BYTES + 1)}).encode())
+    client = ReadOnlyWooClient(WooConfiguration("https://shop.example.test", KEY, SECRET), session=ResponseSession(response))
+    with pytest.raises(WooConnectionError) as caught:
+        client.request_json("GET", "https://shop.example.test/wp-json/wc/v3/products?per_page=1", authenticated=True)
+    assert caught.value.category == "response_too_large"
+    assert caught.value.diagnostics["configured_limit"] == MAX_RESPONSE_BYTES
+
+
+def test_large_permitted_index_persists_only_bounded_relevant_summary():
+    session = FakeSession(index=json.loads(_large_index_bytes(MAX_RESPONSE_BYTES + 256 * 1024)))
+    result = run_connection_discovery(WooConfiguration("https://shop.example.test", KEY, SECRET), session=session)
+    serialized = json.dumps(result)
+    assert result["selected_namespace"] == "wc/v3"
+    assert len(result["capabilities"]) == 10
+    assert "plugin-heavy" not in serialized
+    assert "must-not-persist" not in serialized
+    assert "plugin_padding" not in serialized
+    assert result["discovery_transfer"]["configured_limit"] == MAX_DISCOVERY_INDEX_BYTES
+
+
+def test_oversized_index_operation_reports_safe_discovery_diagnostics(woo_app, monkeypatch):
+    from app import woocommerce_connection
+    response = FakeResponse(
+        raw=_large_index_bytes(MAX_DISCOVERY_INDEX_BYTES + STREAM_CHUNK_BYTES),
+        headers={"Content-Encoding": "gzip", "Content-Length": "4096", "X-Compressed-Bytes": "4096"},
+    )
+    class OversizedSession:
+        def __init__(self): self.calls = []
+        def request(self, method, url, **kwargs):
+            self.calls.append((method, url, kwargs))
+            return response
+    session = OversizedSession()
+    discord = []
+    monkeypatch.setattr(woocommerce_connection, "notify_woo_connection_failed", lambda summary, **kwargs: discord.append(summary) or (True, "sent"))
+    with woo_app.app_context():
+        operation_id = execute_connection_test(session=session)
+        row = db.session.get(CatalogueOperation, operation_id)
+        assert row.status == "failed"
+        assert "WordPress REST API index" in row.error
+        assert "invalid credential" not in row.error.lower()
+        assert "plugin_padding" not in row.scope
+        assert KEY not in row.scope and SECRET not in row.scope
+        summary = json.loads(row.scope)["operation_summary"]
+        assert summary["failure_category"] == "discovery_index_too_large"
+        assert summary["transfer_diagnostics"]["endpoint_category"] == "wordpress_rest_index"
+        assert summary["transfer_diagnostics"]["content_encoding"] == "gzip"
+    html = _client(woo_app).get(f"/operations/{operation_id}").get_data(as_text=True)
+    assert "safe discovery limit" in html
+    assert "No credentials were exposed" in html
+    assert KEY not in html and SECRET not in html
+    assert len(session.calls) == 1 and session.calls[0][0] == "GET"
+    assert len(discord) == 1
+    assert KEY not in json.dumps(discord) and SECRET not in json.dumps(discord)
 
 
 def test_discovery_verifies_required_reads_and_never_mutates():

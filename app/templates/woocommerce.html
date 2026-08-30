@@ -34,7 +34,7 @@
 {% if latest %}
 <section class="workspace-panel panel-dark" aria-labelledby="woo-health-heading">
   <div class="panel-heading"><div><p class="eyebrow">Latest health</p><h2 id="woo-health-heading">Connection result</h2></div><span class="status-badge status-{{ 'succeeded' if state == 'connected' else 'partial' if state == 'connected_with_limitations' else 'failed' }}">{{ state|replace('_',' ')|title }}</span></div>
-  {% if state == 'failed' %}<div class="alert alert-danger" role="alert"><strong>{{ latest.failure_category|default('Connection failed')|replace('_',' ')|title }}</strong><p>{{ latest.failure_reason|default('The connection test did not complete.') }}</p></div>{% else %}
+  {% if state == 'failed' %}<div class="alert alert-danger" role="alert"><strong>{{ latest.failure_category|default('Connection failed')|replace('_',' ')|title }}</strong><p>{{ latest.failure_reason|default('The connection test did not complete.') }}</p>{% if latest.transfer_diagnostics %}<p>Endpoint: {{ latest.transfer_diagnostics.endpoint_category|replace('_',' ')|title }} · Decompressed bytes read: {{ '{:,}'.format(latest.transfer_diagnostics.decompressed_bytes or 0) }} · Safe limit: {{ '{:,}'.format(latest.transfer_diagnostics.configured_limit or 0) }} bytes · Content encoding: {{ latest.transfer_diagnostics.content_encoding or 'not exposed' }}.</p>{% endif %}</div>{% else %}
   <dl class="detail-definition-grid">
     <div><dt>Store</dt><dd>{{ latest.store_name or 'Not exposed' }}</dd></div><div><dt>Store host</dt><dd>{{ latest.hostname or 'Unavailable' }}</dd></div><div><dt>Store reachability</dt><dd>{{ latest.store_reachability or 'Unavailable' }}</dd></div>
     <div><dt>TLS/SSL</dt><dd>{{ latest.tls or 'Unavailable' }}</dd></div><div><dt>WordPress REST</dt><dd>{{ latest.wordpress_rest or 'Unavailable' }}</dd></div>
@@ -45,6 +45,7 @@
     <div><dt>Optional limitations</dt><dd>{{ latest.optional_limitations or 0 }}</dd></div><div><dt>Requests</dt><dd>{{ latest.request_count or 0 }}</dd></div>
     <div><dt>REST index latency</dt><dd>{{ latest.wordpress_latency_ms if latest.wordpress_latency_ms is not none else 'Unavailable' }}{% if latest.wordpress_latency_ms is not none %} ms{% endif %}</dd></div><div><dt>Authenticated API latency</dt><dd>{{ latest.authenticated_latency_ms if latest.authenticated_latency_ms is not none else 'Unavailable' }}{% if latest.authenticated_latency_ms is not none %} ms{% endif %}</dd></div>
     <div><dt>Total duration</dt><dd>{{ latest.duration_ms if latest.duration_ms is not none else 'Unavailable' }}{% if latest.duration_ms is not none %} ms{% endif %}</dd></div><div><dt>Rate limit</dt><dd>{{ latest.rate_limit or 'Not exposed' }}</dd></div>
+    {% if latest.discovery_transfer %}<div><dt>REST index body</dt><dd>{{ '{:,}'.format(latest.discovery_transfer.decompressed_bytes or 0) }} decompressed bytes</dd></div><div><dt>Discovery limit</dt><dd>{{ '{:,}'.format(latest.discovery_transfer.configured_limit or 0) }} bytes</dd></div><div><dt>Content encoding</dt><dd>{{ latest.discovery_transfer.content_encoding or 'Not exposed' }}</dd></div><div><dt>Compressed bytes</dt><dd>{{ '{:,}'.format(latest.discovery_transfer.compressed_bytes) if latest.discovery_transfer.compressed_bytes is not none else 'Not available' }}</dd></div>{% endif %}
   </dl>{% endif %}
 </section>
 

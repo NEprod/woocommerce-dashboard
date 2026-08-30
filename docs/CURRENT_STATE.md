@@ -388,3 +388,10 @@ same-origin, and raw indexes/responses are never retained. Verified reads,
 advertised write methods, and unverified credential write permission are shown
 as separate concepts. Woo publishing, upload, synchronization, relationships,
 orders, and remote mutation remain unimplemented.
+
+The Phase 3 Milestone 1 API-index compatibility hotfix applies an explicit 8 MiB
+decompressed limit only to the public WordPress `/wp-json/` discovery index.
+Ordinary capability reads remain capped at 1 MiB. Streaming counts decompressed
+chunks regardless of `Content-Length` or content encoding, closes responses on
+abort, and reduces the decoded index to bounded relevant route/method summaries
+before any operation state is retained.
