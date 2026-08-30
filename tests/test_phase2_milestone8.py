@@ -74,7 +74,7 @@ def test_settings_renders_safe_application_storage_scanner_and_retention_state(s
         "Discord notifications",
         "Retention and safety",
         "Migration head",
-        "0004_lifecycle",
+        "0005_relationships",
         "SQLite integrity",
         "Passed",
         "Catalogue available",
@@ -200,10 +200,10 @@ def test_settings_styles_include_responsive_overflow_touch_and_reduced_motion_co
     assert "min-height: 44px" in stylesheet
 
 
-def test_milestone8_adds_no_migration():
+def test_post_milestone8_relationship_migration_is_the_only_next_revision():
     revisions = sorted(path.name for path in (ROOT / "migrations/versions").glob("*.py"))
     assert any("0004_catalogue_lifecycle" in name for name in revisions)
-    assert not any("0005" in name for name in revisions)
+    assert [name for name in revisions if "0005" in name] == ["0005_product_relationships.py"]
 
 
 def test_authentication_and_setup_templates_have_one_semantic_h1():

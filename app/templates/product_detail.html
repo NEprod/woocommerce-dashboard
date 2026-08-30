@@ -122,6 +122,62 @@
   {% else %}<div class="workspace-empty"><span aria-hidden="true">{{ icon('alert') }}</span><div><strong>No projected variations</strong><p>This variable parent currently has no variation records.</p></div></div>{% endif %}
 </section>
 
+<section class="workspace-card relationship-workspace" aria-labelledby="relationships-title"
+  data-relationship-workspace
+  data-product-id="{{ product.id }}"
+  data-search-url="{{ url_for('main.api_product_relationship_search', product_id=product.id) }}"
+  data-preview-url="{{ url_for('main.api_product_relationship_preview', product_id=product.id) }}"
+  data-confirm-url="{{ url_for('main.api_product_relationship_confirm', product_id=product.id) }}"
+  data-mutual-preview-url="{{ url_for('main.api_mutual_cross_sell_preview') }}"
+  data-mutual-confirm-url="{{ url_for('main.api_mutual_cross_sell_confirm') }}"
+  data-csrf-token="{{ csrf_token() }}">
+  <header class="workspace-card-header">
+    <div><p class="eyebrow">Local merchandising source of truth</p><h2 id="relationships-title">Product Relationships</h2><p>Choose local products now. A later publishing pass will translate these stable SKUs into WooCommerce IDs.</p><span class="catalogue-pill is-neutral">{{ workspace.relationships.source_label }}</span>{% if workspace.relationships.source == 'legacy' %}<p class="text-muted">These values come from resolved legacy metadata. The first intentional save writes the ordered product-specific relationship contract.</p>{% endif %}</div>
+    <button class="btn btn-dark" type="button" data-open-relationship-picker>Add related products</button>
+  </header>
+  <div class="relationship-columns">
+    {% for type in ['cross_sell', 'upsell'] %}
+    {% set group = workspace.relationships[type] %}
+    <section class="relationship-group" aria-labelledby="relationship-{{ type }}-title" data-relationship-group="{{ type }}">
+      <header><div><h3 id="relationship-{{ type }}-title">{{ group.label }}</h3><p>{{ 'Complementary products shown alongside this product.' if type == 'cross_sell' else 'Directional upgrades or premium alternatives.' }}</p></div><span class="catalogue-pill is-neutral" data-relationship-count>{{ group.count }}</span></header>
+      <ol class="relationship-list" data-relationship-list="{{ type }}">
+        {% for target in group['items'] %}
+        <li class="relationship-card{% if target.broken %} is-broken{% endif %}" draggable="{{ 'false' if target.broken else 'true' }}" data-target-sku="{{ target.sku }}">
+          <button class="relationship-drag" type="button" aria-label="Reorder {{ target.title }}" data-drag-handle>⋮⋮</button>
+          <div class="relationship-thumbnail">{% if target.thumbnail %}<img src="{{ target.thumbnail }}" alt="" loading="lazy">{% else %}<span aria-hidden="true">{{ icon('box') }}</span>{% endif %}</div>
+          <div class="relationship-copy"><strong>{{ target.title }}</strong><code>{{ target.sku }}</code><small>{{ target.collection }} · {{ target.product_type }}</small>{% for warning in target.warnings %}<span class="relationship-warning">{{ warning }}</span>{% endfor %}</div>
+          <div class="relationship-card-actions"><button class="btn btn-sm btn-ghost" type="button" data-move-relationship="up" aria-label="Move {{ target.title }} up">↑</button><button class="btn btn-sm btn-ghost" type="button" data-move-relationship="down" aria-label="Move {{ target.title }} down">↓</button><button class="btn btn-sm btn-outline-danger" type="button" data-remove-relationship aria-label="Remove {{ target.title }}">Remove</button></div>
+        </li>
+        {% else %}
+        <li class="workspace-empty" data-relationship-empty><span aria-hidden="true">{{ icon('link') }}</span><div><strong>No related products selected.</strong><p>Search the local catalogue to add {{ group.label|lower }}.</p></div></li>
+        {% endfor %}
+      </ol>
+      <button class="btn btn-outline-primary" type="button" data-save-relationship-order="{{ type }}" hidden>Review and save changes</button>
+    </section>
+    {% endfor %}
+  </div>
+
+  <dialog class="relationship-picker" data-relationship-picker aria-labelledby="relationship-picker-title">
+    <form method="dialog" class="relationship-picker-shell">
+      <header><div><p class="eyebrow">Local database only</p><h2 id="relationship-picker-title">Find related products</h2></div><button class="btn btn-ghost" value="cancel" aria-label="Close relationship picker">Close</button></header>
+      <label for="relationship-search">Search by title, SKU, collection, category, tag, attribute, publishing intent, type, or state</label>
+      <input id="relationship-search" type="search" autocomplete="off" data-relationship-search>
+      <div class="relationship-selection-toolbar"><span data-selection-summary aria-live="polite">0 products selected</span><div><button class="btn btn-sm btn-ghost" type="button" data-select-visible>Select all visible</button><button class="btn btn-sm btn-ghost" type="button" data-clear-selection>Clear selection</button></div></div>
+      <div class="relationship-search-results" data-relationship-results role="listbox" aria-label="Local product search results" aria-multiselectable="true"></div>
+      <div class="relationship-picker-actions">
+        <button class="btn btn-outline-primary" type="button" data-preview-add="cross_sell" disabled>Add as cross-sells</button>
+        <button class="btn btn-outline-primary" type="button" data-preview-add="upsell" disabled>Add as upsells</button>
+        <button class="btn btn-dark" type="button" data-preview-mutual disabled>Create mutual cross-sells</button>
+      </div>
+      <section class="relationship-confirmation" data-relationship-preview hidden aria-live="polite">
+        <h3>Confirm relationship update</h3><p data-preview-summary></p><div data-preview-warnings></div>
+        <div><button class="btn btn-ghost" type="button" data-cancel-relationship-preview>Back</button><button class="btn btn-accent" type="button" data-confirm-relationship-update>Confirm local update</button></div>
+      </section>
+      <p class="field-error" role="alert" data-relationship-error hidden></p>
+    </form>
+  </dialog>
+</section>
+
 <section class="workspace-card" aria-labelledby="operations-title">
   <header class="workspace-card-header"><div><p class="eyebrow">Local catalogue activity</p><h2 id="operations-title">Recent relevant operations</h2></div></header>
   {% if workspace.operations %}<ol class="operation-history-list">{% for operation in workspace.operations %}<li><span class="catalogue-pill is-{{ 'active' if operation.status == 'succeeded' else operation.status }}">{{ operation.status|replace('_', ' ')|title }}</span><div><strong>{{ operation.type|replace('_', ' ')|title }}</strong><small>{{ operation.started_at.strftime('%d %b %Y, %H:%M') if operation.started_at else 'Time not recorded' }}</small></div></li>{% endfor %}</ol>{% else %}<p class="text-muted">No product-specific operation history is recorded.</p>{% endif %}
@@ -130,4 +186,5 @@
 
 {% block javascripts %}
 <script src="{{ url_for('static', filename='assets/js/product-workspace.js') }}"></script>
+<script src="{{ url_for('static', filename='assets/js/product-relationships.js') }}"></script>
 {% endblock %}

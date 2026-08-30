@@ -295,6 +295,23 @@ def notify_woo_connection_failed(summary, *, operation_id):
     return send_discord_message(embeds=[embed], channels=["scans_errors"])
 
 
+def notify_product_relationships_completed(summary, *, operation_id):
+    """Send one bounded terminal summary without target lists or media."""
+
+    fields = [
+        {"name": "Product", "value": _truncate(summary.get("product") or "Product family"), "inline": True},
+        {"name": "Cross-sells", "value": str(max(0, int(summary.get("cross_sell_count", 0) or 0))), "inline": True},
+        {"name": "Upsells", "value": str(max(0, int(summary.get("upsell_count", 0) or 0))), "inline": True},
+    ]
+    embed = build_embed(
+        "Product Relationships Updated",
+        f"Operation: `{_truncate(operation_id)}`\nLocal relationship data was updated. No WooCommerce request was made.",
+        COLORS["success"],
+        fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_info"])
+
+
 def notify_intake_grouping_completed(
     *, source_name, result_name, groups, copied_images, warnings, elapsed_text, operation_id
 ):

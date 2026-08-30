@@ -40,6 +40,15 @@ from app.models import (
     ProductAsset,
     Variation,
 )
+from app.product_relationships import (
+    RelationshipValidationError,
+    apply_mutual_cross_sells,
+    apply_update as apply_relationship_update,
+    preview_mutual_cross_sells,
+    preview_update as preview_relationship_update,
+    relationship_workspace,
+    search_products as search_relationship_products,
+)
 from app.utils.token_utils import generate_reset_token, verify_reset_token
 from app.utils.scan_runner import (
     start_scan,
@@ -962,6 +971,101 @@ def product_detail(product_id):
         .first_or_404()
     )
     return render_template("product_detail.html", workspace=product_workspace(product))
+
+
+def _relationship_payload():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        raise RelationshipValidationError("A valid JSON request is required.")
+    return payload
+
+
+def _relationship_error(error):
+    return jsonify({"ok": False, "error": str(error), "details": error.details}), 422
+
+
+@main.route("/api/products/<int:product_id>/relationship-search")
+@login_required
+def api_product_relationship_search(product_id):
+    product = db.get_or_404(Product, product_id)
+    return jsonify(
+        {
+            "ok": True,
+            "query": (request.args.get("q") or "")[:120],
+            "items": search_relationship_products(product.id, request.args.get("q")),
+        }
+    )
+
+
+@main.route("/api/products/<int:product_id>/relationships")
+@login_required
+def api_product_relationships(product_id):
+    product = db.get_or_404(Product, product_id)
+    return jsonify({"ok": True, "relationships": relationship_workspace(product)})
+
+
+@main.route("/api/products/<int:product_id>/relationships/preview", methods=["POST"])
+@login_required
+def api_product_relationship_preview(product_id):
+    product = db.get_or_404(Product, product_id)
+    try:
+        payload = _relationship_payload()
+        preview = preview_relationship_update(
+            product,
+            payload.get("relationship_type"),
+            payload.get("target_skus"),
+            mode=payload.get("mode", "replace"),
+        )
+    except RelationshipValidationError as error:
+        return _relationship_error(error)
+    return jsonify({"ok": True, "preview": preview})
+
+
+@main.route("/api/products/<int:product_id>/relationships/confirm", methods=["POST"])
+@login_required
+def api_product_relationship_confirm(product_id):
+    product = db.get_or_404(Product, product_id)
+    try:
+        payload = _relationship_payload()
+        if payload.get("confirm") is not True:
+            raise RelationshipValidationError("Explicit confirmation is required.")
+        result = apply_relationship_update(
+            product,
+            payload.get("relationship_type"),
+            payload.get("target_skus"),
+            mode=payload.get("mode", "replace"),
+        )
+    except RelationshipValidationError as error:
+        return _relationship_error(error)
+    except CatalogueOperationActive as error:
+        return _operation_conflict(error)
+    return jsonify({"ok": True, **result})
+
+
+@main.route("/api/product-relationships/mutual-cross-sells/preview", methods=["POST"])
+@login_required
+def api_mutual_cross_sell_preview():
+    try:
+        payload = _relationship_payload()
+        preview = preview_mutual_cross_sells(payload.get("product_skus"))
+    except RelationshipValidationError as error:
+        return _relationship_error(error)
+    return jsonify({"ok": True, "preview": preview})
+
+
+@main.route("/api/product-relationships/mutual-cross-sells/confirm", methods=["POST"])
+@login_required
+def api_mutual_cross_sell_confirm():
+    try:
+        payload = _relationship_payload()
+        if payload.get("confirm") is not True:
+            raise RelationshipValidationError("Explicit confirmation is required.")
+        result = apply_mutual_cross_sells(payload.get("product_skus"))
+    except RelationshipValidationError as error:
+        return _relationship_error(error)
+    except CatalogueOperationActive as error:
+        return _operation_conflict(error)
+    return jsonify({"ok": True, **result})
 
 
 @main.route("/api/products/<int:product_id>/detail-variations")

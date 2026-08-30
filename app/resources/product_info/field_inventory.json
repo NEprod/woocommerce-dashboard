@@ -187,6 +187,13 @@
     "classification": "canonical and active", "implementation_status": "Active scanner spelling.", "example": ["FIC-CROSS-1"], "warning_error": "Wrong type blocks editor save."
   },
   {
+    "key": "relationships", "aliases": [], "type": "object of ordered SKU arrays", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "A product-specific block is a complete relationship set; it takes precedence over resolved legacy lists.", "merge": "No merge with legacy relationship fields.", "parent_effect": "Authoritative local cross-sell and upsell source.", "variation_effect": "None.",
+    "woo_field": "Future cross_sell_ids and upsell_ids translation", "sqlite_destination": "product_relationship reconstructable projection",
+    "classification": "canonical and active", "implementation_status": "Filesystem-authored Phase 3 relationship contract.", "example": {"cross_sells": ["FIC-CROSS-1"], "upsells": ["FIC-UP-1"]}, "warning_error": "Invalid, duplicate, or malformed SKU arrays block relationship save."
+  },
+  {
     "key": "meta_title", "aliases": [], "type": "string", "units": null,
     "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
     "inheritance": "Inherited unless overridden.", "merge": "Scalar replacement.", "parent_effect": "Sets SEO title metadata.", "variation_effect": "Inherited row metadata only.",

@@ -403,3 +403,12 @@ and one grouped Discord terminal summary. Historical count-only operations retai
 a controlled detail-unavailable message. The shared light-card primitive also
 resets inherited foreground text to the design-system light-surface token, so
 light health metric cards remain readable inside purposeful dark panels.
+
+Phase 3 Milestone 2 adds an entirely local Product Relationships editor to
+Product Detail. Ordered cross-sell and upsell SKU lists are authored in the
+appropriate catalogue JSON and projected for bounded database search and preview,
+prevent self/duplicate/invalid links, retain broken references for repair, and
+support recoverable all-file mutual cross-sell families. Scanner-emitted relationship text
+columns remain untouched. No Woo request, payload generation, media action,
+scanner invocation, or Catalogue Intake mutation occurs. A later two-pass
+publisher will persist Woo product IDs and then translate these local edges.

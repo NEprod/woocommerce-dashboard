@@ -30,6 +30,10 @@
   "cross_sell_ids": ["FIC-LEGACY-CROSS-1"],
   "upsells": ["FIC-UP-1"],
   "crosssells": ["FIC-CROSS-1"],
+  "relationships": {
+    "cross_sells": ["FIC-CROSS-ORDERED-1", "FIC-CROSS-ORDERED-2"],
+    "upsells": ["FIC-UP-ORDERED-1"]
+  },
   "meta_title": "Fictional SEO title",
   "meta_description": "Fictional SEO description for schema documentation."
 }

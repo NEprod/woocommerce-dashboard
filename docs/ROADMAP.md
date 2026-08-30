@@ -33,8 +33,12 @@
   source, and an explicitly separate manual Append Scan.
 - **Phase 3 — WooCommerce integration:** Milestone 1 implements environment-only
   credentials, secure read-only API discovery, capability auditing, and bounded
-  health history. Mapping, comparison, publishing, relationships, and media
-  synchronization remain later milestones.
+  health history. Milestone 2 adds the entirely local Product Relationships
+  source of truth for ordered cross-sells and directional upsells. Milestone 3
+  will preview Woo payloads without mutation; later publishing uses two passes:
+  persist Woo product IDs first, then translate these local relationship edges
+  into `cross_sell_ids` and `upsell_ids`. Publishing and media synchronization
+  remain later milestones.
 - **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.
 

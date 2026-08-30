@@ -265,6 +265,53 @@ class Product(db.Model):
         cascade="all, delete-orphan",
         order_by="ProductAttribute.position.asc()",
     )
+    relationship_edges = db.relationship(
+        "ProductRelationship",
+        backref="source_product",
+        cascade="all, delete-orphan",
+        order_by="ProductRelationship.position.asc()",
+        foreign_keys="ProductRelationship.source_product_id",
+    )
+
+
+class ProductRelationship(db.Model):
+    """Reconstructable projection of filesystem-authored relationships."""
+
+    __tablename__ = "product_relationship"
+    __table_args__ = (
+        db.UniqueConstraint(
+            "source_product_id",
+            "relationship_type",
+            "target_sku",
+            name="uq_product_relationship_edge",
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    source_product_id = db.Column(
+        db.Integer,
+        db.ForeignKey("product.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    target_sku = db.Column(db.String(64), nullable=False, index=True)
+    resolved_target_product_id = db.Column(
+        db.Integer,
+        db.ForeignKey("product.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    relationship_type = db.Column(db.String(32), nullable=False, index=True)
+    position = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, nullable=False, server_default=func.now())
+    updated_at = db.Column(
+        db.DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    resolved_target_product = db.relationship(
+        "Product",
+        foreign_keys=[resolved_target_product_id],
+        passive_deletes=True,
+    )
 
 
 class ProductAttribute(db.Model):

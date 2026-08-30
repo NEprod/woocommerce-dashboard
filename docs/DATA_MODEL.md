@@ -34,7 +34,7 @@ they do not turn SQLite into the metadata source of truth.
 
 ## Schema versioning
 
-Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the Phase 0 tables and is also the adoption point for structurally matching unversioned Phase 0 databases. Revision `0002_operations` adds catalogue operation history. Revision `0003_projection` activates catalogue relationships, complete emitted-row storage, normalized metadata, and portable provenance. Revision `0004_lifecycle` adds soft missing/restored state, variation source identity, and lifecycle outcome counts. Application models do not create or alter tables directly at startup. See [Database Migrations](MIGRATIONS.md).
+Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the Phase 0 tables and is also the adoption point for structurally matching unversioned Phase 0 databases. Revision `0002_operations` adds catalogue operation history. Revision `0003_projection` activates catalogue relationships, complete emitted-row storage, normalized metadata, and portable provenance. Revision `0004_lifecycle` adds soft missing/restored state, variation source identity, and lifecycle outcome counts. Revision `0005_relationships` adds ordered local product-relationship edges without reusing scanner-owned emitted-row fields. Application models do not create or alter tables directly at startup. See [Database Migrations](MIGRATIONS.md).
 
 ## Models
 
@@ -44,6 +44,11 @@ Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the P
 - `CatalogueOperationItem`: per-parent ingestion/lifecycle outcome, portable source path, sanitized failure, database state, and marker-recovery state.
 - `Collection`: stable catalogue-relative source identity, exact collection type, SKU prefix, runtime root, shared JSON provenance, and child products.
 - `Product`: resolved parent identity, collection relationship, complete emitted row JSON, normalized commercial/content/publication/SEO fields, portable and runtime provenance, and future Woo sync fields.
+- `ProductRelationship`: a reconstructable ordered projection from a source
+  `Product.id` to an authoritative target SKU, with nullable resolved target
+  Product identity for query acceleration. Only `cross_sell` and `upsell` are
+  accepted. Missing targets retain their SKU for repair. Scanner-emitted `Product.cross_sell_ids` and
+  `Product.upsell_ids` remain protected projection fields and are not edited.
 - `ProductAttribute`: emitted parent attribute definitions, values, visibility/global flags, and position.
 - `Variation`: child of Product with complete emitted row JSON, portable source provenance, canonical emitted-attribute identity, normalized SKU/price/dimension/image fields, lifecycle state, and future Woo fields.
 - `ProductImage` / `VariationImage`: ordered Woo-facing image URL galleries.

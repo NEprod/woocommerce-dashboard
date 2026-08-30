@@ -33,6 +33,7 @@ TYPE_LABELS = {
     "intake_catalogue_handoff": "Catalogue Intake — Catalogue Handoff",
     "intake_structured_import": "Catalogue Intake — Import Structured Folder",
     "woo_connection_test": "WooCommerce Connection Test",
+    "product_relationship_update": "Product Relationships Update",
 }
 SCAN_MODES = (
     {
@@ -444,4 +445,5 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
         "related_collections": list(related_collections.values()), "retry_mode": retry_mode,
         "cancellation_supported": False, "intake": intake,
         "woo_connection": view["summary"] if row.operation_type == "woo_connection_test" else None,
+        "product_relationships": view["summary"] if row.operation_type == "product_relationship_update" else None,
     }

@@ -274,6 +274,8 @@ def variation_page(product_id: int, page=1, per_page=24):
 
 
 def product_workspace(product: Product):
+    from app.product_relationships import relationship_workspace
+
     shared_source = metadata_source(product, "shared")
     override_source = metadata_source(product, "override")
     override_data = override_source["data"] if override_source["exists"] else {}
@@ -341,6 +343,7 @@ def product_workspace(product: Product):
             }
             for item, operation in operations
         ],
+        "relationships": relationship_workspace(product),
     }
 
 

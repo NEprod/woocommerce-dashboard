@@ -12,6 +12,7 @@ from app.models import (
     CatalogueOperationItem,
     Collection,
     Product,
+    ProductRelationship,
     Settings,
     User,
     Variation,
@@ -93,7 +94,7 @@ def _write_catalogue(catalogue):
         encoding="utf-8",
     )
     (first / "product_info.json").write_text(
-        json.dumps({"title": "Existing Simple"}), encoding="utf-8"
+        json.dumps({"title": "Existing Simple", "relationships": {"cross_sells": ["REC-V-0007"], "upsells": []}}), encoding="utf-8"
     )
     (first / ".scanned").write_text(
         json.dumps(
@@ -126,7 +127,10 @@ def _write_catalogue(catalogue):
         ),
         encoding="utf-8",
     )
-    (product / "product_info.json").write_text("{}", encoding="utf-8")
+    (product / "product_info.json").write_text(
+        json.dumps({"relationships": {"cross_sells": [], "upsells": ["REC-S-0042"]}}),
+        encoding="utf-8",
+    )
     (product / ".scanned").write_text(
         json.dumps(
             {
@@ -254,6 +258,15 @@ def test_reconstruction_preserves_all_existing_identities_and_state(
         variable = Product.query.filter_by(sku="REC-V-0007").one()
         assert variable.collection.source_relpath == "Variable Collection"
         assert all(row.product_id == variable.id for row in variable.variations)
+        simple = Product.query.filter_by(sku="REC-S-0042").one()
+        assert {
+            (row.relationship_type, row.target_sku, row.position)
+            for row in ProductRelationship.query.all()
+        } == {
+            ("cross_sell", "REC-V-0007", 0),
+            ("upsell", "REC-S-0042", 0),
+        }
+        assert ProductRelationship.query.filter_by(source_product_id=simple.id).one().resolved_target_product_id == variable.id
         assert User.query.filter_by(id=91).one()
         assert Settings.query.filter_by(id=92).one()
         assert db.session.get(CatalogueOperation, "historical-operation")

@@ -134,7 +134,15 @@ product metadata. This resolver performs no filesystem reads or mutations.
 
 ## Persistence
 
-SQLite stores users, settings, the complete emitted parent/variation row projection, exact Collection → Product → Variation relationships, images, attributes, taxonomy, JSON provenance, operation history, and dormant integration-oriented models. Product folders, authored JSON, scanner markers, and SKU counters remain independent filesystem state.
+SQLite stores users, settings, the complete emitted parent/variation row projection, exact Collection → Product → Variation relationships, a reconstructable product-relationship index, images, attributes, taxonomy, JSON provenance, operation history, and dormant integration-oriented models. Product folders, authored JSON, scanner markers, and SKU counters remain independent filesystem state.
+
+Product relationships are filesystem-authored metadata, separate from protected
+scanner-emitted row fields. Stable target SKUs and explicit order live in the
+product-specific `relationships` block. SQLite indexes those edges with a
+nullable target Product resolution for search and reverse lookup. Missing target
+SKUs remain repairable, and reconstruction recreates the index. Mutual families
+use coordinated staging, persistent intent, verified backups, deterministic
+promotion, rollback/recovery, and the catalogue lock. No Woo client is invoked.
 
 Each collection and product has a POSIX-style source path relative to the configured catalogue root. This is the portable identity/provenance representation and remains stable when the catalogue mount point changes. Existing absolute path columns remain runtime locators for filesystem routes; they are not portable identity. Parent and variation `resolved_row_json` retain every key/value actually emitted by the protected scanner, while normalized columns and related tables provide common query fields.
 

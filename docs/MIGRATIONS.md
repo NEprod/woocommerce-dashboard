@@ -11,6 +11,8 @@ For a missing or empty database, startup applies every revision from the beginni
 - `0003_projection`: active collection relationships, full emitted-row projection, normalized metadata, and portable provenance.
 - `0004_lifecycle`: product/variation missing and restored state, variation
   source identity, and operation lifecycle counts.
+- `0005_relationships`: reconstructable ordered relationship projection keyed
+  by durable authored target SKU with nullable local target resolution.
 
 The baseline revision contains its own schema declarations. It does not import the current ORM model to create tables, so later model changes cannot rewrite the historical baseline.
 

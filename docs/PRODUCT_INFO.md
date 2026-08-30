@@ -75,6 +75,7 @@ shared/override resolution and does not change it.
 | `cross_sell_ids` | accepted alias | string array | either | Legacy/editor spelling related to `crosssells`; accepted and warned, but deliberately not normalized or consumed by the current row builder. |
 | `upsells` | canonical and active | string array | either | Current row-builder spelling; emits Upsells and maps to `Product.upsell_ids`. |
 | `crosssells` | canonical and active | string array | either | Current row-builder spelling; emits Cross-sells and maps to `Product.cross_sell_ids`. |
+| `relationships` | canonical and active | object of ordered SKU arrays | product override; Single Variable root | Durable local cross-sell/upsell source. A product-specific block is complete and takes precedence over resolved legacy lists; SQLite rows are reconstructable projection only. |
 | `meta_title` | canonical and active | string | either | Emits Yoast-style title metadata; stored on Product. |
 | `meta_description` | canonical and active | string | either | Emits Yoast-style description metadata; stored on Product. |
 

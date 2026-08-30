@@ -886,6 +886,14 @@ def _ingest_complete_parent(
             folder, product.sku, canonical_variations, log=log
         )
 
+    # Relationship JSON is authored catalogue state. Refresh its searchable
+    # projection inside the same complete-parent transaction.
+    from app.product_relationships import refresh_relationship_projection
+
+    refresh_relationship_projection(product)
+    db.session.flush()
+    _checkpoint(failure_injector, "relationships", sku)
+
     if operation_id:
         db.session.add(
             CatalogueOperationItem(
@@ -1041,6 +1049,12 @@ def ingest_rows_to_db(
         )
         log(f"❌ {error}", "ERROR")
 
+    # A target may have been ingested after its source parent. Resolve nullable
+    # target links after all independently committed parents are available.
+    from app.product_relationships import resolve_relationship_targets
+
+    resolve_relationship_targets()
+
     # Per-product notifications are best effort and run only after each parent commits.
     for sku, info in per_product.items():
         try:
@@ -1171,6 +1185,9 @@ def ingest_reconstruction_rows(
                         finished_at=now,
                     )
                 )
+        from app.product_relationships import resolve_relationship_targets
+
+        resolve_relationship_targets(commit=False)
         _checkpoint(failure_injector, "projection_replacement", None)
 
     return summary

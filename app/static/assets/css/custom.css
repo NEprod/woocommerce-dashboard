@@ -1184,3 +1184,45 @@ code { color: var(--color-lime-ink); font-family: var(--font-mono); }
   .settings-status-list li, .settings-future-panel { flex-direction: column; }
   .settings-status-list .status-badge { min-height: 28px; }
 }
+/* Local product relationships */
+.relationship-workspace .workspace-card-header > div { max-width: 780px; }
+.relationship-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5, 1.5rem); }
+.relationship-group { border: var(--border-default); border-radius: var(--radius-card-large); padding: var(--space-5); background: var(--color-surface-primary); min-width: 0; }
+.relationship-group > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.relationship-group h3 { margin: 0; font-size: 1.05rem; }
+.relationship-group header p { margin: .25rem 0 0; color: var(--color-text-muted); font-size: .875rem; }
+.relationship-list { display: grid; gap: .75rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+.relationship-card { display: grid; grid-template-columns: auto 48px minmax(0, 1fr) auto; align-items: center; gap: var(--space-4); padding: var(--space-4); border: var(--border-default); border-radius: var(--radius-card-small); background: var(--color-surface-primary); }
+.relationship-card.is-broken { border-color: var(--color-error); background: var(--color-error-soft); }
+.relationship-drag { border: 0; background: transparent; color: var(--color-text-muted); cursor: grab; font-weight: 700; letter-spacing: -3px; }
+.relationship-thumbnail { width: 48px; height: 48px; border-radius: var(--radius-input); display: grid; place-items: center; overflow: hidden; background: var(--color-surface-secondary); }
+.relationship-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
+.relationship-copy { display: grid; min-width: 0; gap: .15rem; }
+.relationship-copy strong, .relationship-copy small, .relationship-copy code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.relationship-copy small { color: var(--color-text-muted); }
+.relationship-warning { display: block; color: var(--color-warning-ink); font-size: .78rem; }
+.relationship-card-actions { display: flex; align-items: center; gap: .25rem; }
+.relationship-picker { width: min(920px, calc(100vw - 2rem)); max-height: min(780px, calc(100vh - 2rem)); padding: 0; border: 0; border-radius: 22px; box-shadow: 0 24px 80px rgba(12, 31, 38, .3); }
+.relationship-picker::backdrop { background: rgba(11, 28, 35, .55); }
+.relationship-picker-shell { display: grid; gap: 1rem; padding: 1.5rem; }
+.relationship-picker-shell > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.relationship-picker-shell h2 { margin: 0; }
+.relationship-picker-shell input[type="search"] { width: 100%; min-height: 48px; border: var(--border-default); border-radius: var(--radius-input); padding: .75rem 1rem; color: var(--color-text-primary); background: var(--color-surface-primary); }
+.relationship-selection-toolbar, .relationship-picker-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem; }
+.relationship-search-results { display: grid; gap: .5rem; max-height: 360px; overflow: auto; padding: .25rem; }
+.relationship-search-result { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: .75rem; width: 100%; text-align: left; border: var(--border-default); border-radius: var(--radius-card-small); padding: .65rem; color: var(--color-text-primary); background: var(--color-surface-primary); }
+.relationship-search-result > span:nth-child(2) { display: grid; min-width: 0; }
+.relationship-search-result[aria-selected="true"] { border-color: var(--color-lime-hover); box-shadow: var(--focus-ring); }
+.relationship-search-result:focus-visible { outline: 3px solid rgba(15, 139, 148, .35); outline-offset: 2px; }
+.relationship-confirmation { padding: var(--space-5); color: var(--color-text-inverse); background: var(--color-surface-dark); border-radius: var(--radius-group); }
+.relationship-confirmation h3 { color: inherit; }
+.relationship-confirmation > div:last-child { display: flex; justify-content: flex-end; gap: .75rem; margin-top: 1rem; }
+@media (max-width: 900px) { .relationship-columns { grid-template-columns: 1fr; } }
+@media (max-width: 575px) {
+  .relationship-card { grid-template-columns: auto 42px minmax(0, 1fr); }
+  .relationship-card-actions { grid-column: 2 / -1; justify-content: flex-end; }
+  .relationship-picker-actions { align-items: stretch; }
+  .relationship-picker-actions .btn { width: 100%; }
+  .relationship-search-result { grid-template-columns: 42px minmax(0, 1fr); }
+  .relationship-search-result > .catalogue-pill { grid-column: 2; justify-self: start; }
+}

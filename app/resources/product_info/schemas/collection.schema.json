@@ -29,6 +29,7 @@
     "cross_sell_ids": {"$ref": "#/$defs/stringArray"},
     "upsells": {"$ref": "#/$defs/stringArray"},
     "crosssells": {"$ref": "#/$defs/stringArray"},
+    "relationships": {"$ref": "#/$defs/relationships"},
     "meta_title": {"type": "string"},
     "meta_description": {"type": "string"}
   },
@@ -43,6 +44,19 @@
     "stringArray": {
       "type": "array",
       "items": {"type": "string"}
+    },
+    "relationshipArray": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1, "maxLength": 64},
+      "uniqueItems": true
+    },
+    "relationships": {
+      "type": "object",
+      "properties": {
+        "cross_sells": {"$ref": "#/$defs/relationshipArray"},
+        "upsells": {"$ref": "#/$defs/relationshipArray"}
+      },
+      "additionalProperties": false
     },
     "dimensions": {
       "type": "object",

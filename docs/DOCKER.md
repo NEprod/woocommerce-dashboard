@@ -148,7 +148,7 @@ docker buildx build \
 
 The immutable milestone tag and `develop` must share one manifest digest. Test
 both architectures with separate temporary instance, catalogue, and output
-mounts. Milestone routes, Gunicorn startup, migration head `0004_lifecycle`,
+mounts. Milestone routes, Gunicorn startup, migration head `0005_relationships`,
 SQLite integrity, and image-content exclusions must pass before the milestone
 is reported. A separate Unraid development container must never share writable
 storage with the stable deployment.
