@@ -1,8 +1,10 @@
 import json
 import sqlite3
+from time import monotonic
 
 import pytest
 from alembic import command
+from sqlalchemy import event
 
 from app import create_app, db
 from app.database import _alembic_config
@@ -20,6 +22,7 @@ from app.product_relationships import (
     relationship_workspace,
     search_products,
 )
+from app.relationships_workspace import build_relationship_browser, parse_relationship_filters
 from app.utils.operation_control import reset_operation_control_for_tests
 from config import Config
 
@@ -91,7 +94,9 @@ def test_migration_is_sku_projection_and_preserves_product(tmp_path):
     columns = {row[1] for row in connection.execute("PRAGMA table_info(product_relationship)")}
     assert {"source_product_id", "target_sku", "resolved_target_product_id", "relationship_type", "position"} <= columns
     assert connection.execute("SELECT sku FROM product WHERE id=41").fetchone() == ("KEEP",)
-    assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0005_relationships"
+    product_columns = {row[1] for row in connection.execute("PRAGMA table_info(product)")}
+    assert {"relationship_source_kind", "relationships_updated_at"} <= product_columns
+    assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0006_relationship_workspace"
     connection.close()
 
 
@@ -273,3 +278,108 @@ def test_product_detail_relationship_landmarks_and_keyboard_hooks(relationship_a
     assert "Product Relationships" in html and "Legacy resolved metadata" in html
     script = (__import__("pathlib").Path("app/static/assets/js/product-relationships.js")).read_text(encoding="utf-8")
     assert all(value in script for value in ("ArrowDown", "ArrowUp", "Enter", "data-target-sku"))
+
+
+def test_relationship_workspace_requires_auth_and_has_active_navigation(relationship_app):
+    assert relationship_app.test_client().get("/relationships").status_code == 401
+    response = _client(relationship_app).get("/relationships")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert html.count("<h1") == 1
+    assert 'aria-current="page"' in html
+    assert "Product Relationships" in html
+    assert "Explicit JSON" in html and "Legacy-derived" in html
+    assert "Create Mutual Cross-Sell Family" in html
+
+
+def test_relationship_workspace_filters_searches_and_paginates(relationship_app):
+    client = _client(relationship_app)
+    assert "AKITA-CARD" in client.get("/relationships?q=PREMIUM").get_data(as_text=True)
+    explicit = client.get("/relationships?relationship=explicit")
+    assert explicit.status_code == 200 and "SINGLE-001" in explicit.get_data(as_text=True)
+    assert client.get("/relationships?per_page=100&sort=sku&active_only=1").status_code == 200
+    assert client.get("/relationships?per_page=12").status_code == 400
+
+
+def test_relationship_workspace_summary_and_broken_target(relationship_app):
+    with relationship_app.app_context():
+        source = db.session.get(Product, 101)
+        path = relationship_source(source)["owner"]["path"]
+        value = json.loads(path.read_text())
+        value["relationships"] = {"cross_sells": ["REMOVED-SKU"], "upsells": []}
+        _write(path, value)
+        rebuild_relationship_projection()
+    html = _client(relationship_app).get("/relationships?relationship=unresolved").get_data(as_text=True)
+    assert "AKITA-CARD" in html and "1 unresolved" in html
+    assert "Unresolved target SKUs" in html
+
+
+def test_mutual_workspace_preview_is_signed_bounded_and_non_mutating(relationship_app):
+    client = _client(relationship_app)
+    before = {}
+    with relationship_app.app_context():
+        for sku in ["AKITA-CARD", "AKITA-PRINT", "AKITA-LIGHT"]:
+            product = Product.query.filter_by(sku=sku).one()
+            before[sku] = relationship_source(product)["owner"]["path"].read_bytes()
+    response = client.post("/relationships/mutual/preview", json={"product_skus": ["AKITA-CARD", "AKITA-PRINT", "AKITA-LIGHT"]})
+    assert response.status_code == 200
+    preview = response.json["preview"]
+    assert preview["exact_relationship_count"] == 6
+    assert len(preview["proposal_digest"]) == 64
+    assert preview["woo_activity"] is False
+    assert preview["affected_documents"] == sorted(preview["affected_documents"])
+    with relationship_app.app_context():
+        for sku, content in before.items():
+            assert relationship_source(Product.query.filter_by(sku=sku).one())["owner"]["path"].read_bytes() == content
+
+
+def test_mutual_workspace_requires_ack_and_rejects_stale_digest(relationship_app):
+    client = _client(relationship_app)
+    skus = ["AKITA-CARD", "AKITA-PRINT"]
+    preview = client.post("/relationships/mutual/preview", json={"product_skus": skus}).json["preview"]
+    assert client.post("/relationships/mutual/confirm", json={"product_skus": skus, "proposal_digest": preview["proposal_digest"]}).status_code == 422
+    with relationship_app.app_context():
+        product = Product.query.filter_by(sku="AKITA-CARD").one()
+        path = relationship_source(product)["owner"]["path"]
+        value = json.loads(path.read_text()); value["unrelated"] = "changed"; _write(path, value)
+    stale = client.post("/relationships/mutual/confirm", json={"product_skus": skus, "proposal_digest": preview["proposal_digest"], "acknowledged": True})
+    assert stale.status_code == 422 and "stale" in stale.json["error"].lower()
+
+
+def test_mutual_workspace_confirm_reuses_atomic_service(relationship_app, monkeypatch):
+    monkeypatch.setattr("app.product_relationships.notify_product_relationships_completed", lambda *args, **kwargs: None)
+    client = _client(relationship_app)
+    skus = ["AKITA-CARD", "AKITA-PRINT", "AKITA-LIGHT"]
+    preview = client.post("/relationships/mutual/preview", json={"product_skus": skus}).json["preview"]
+    done = client.post("/relationships/mutual/confirm", json={"product_skus": skus, "proposal_digest": preview["proposal_digest"], "acknowledged": True})
+    assert done.status_code == 200
+    assert done.json["summary"]["directed_edge_count"] == 6
+    assert done.json["summary"]["woo_activity"] is False
+    with relationship_app.app_context():
+        operation = db.session.get(CatalogueOperation, done.json["operation_id"])
+        assert operation.status == "succeeded"
+        assert all(not _edges(Product.query.filter_by(sku=sku).one().id, "upsell") for sku in skus)
+
+
+def test_relationship_browser_large_projection_is_paginated_and_query_bounded(relationship_app):
+    with relationship_app.app_context():
+        collection = Collection.query.first()
+        products = [Product(collection_id=collection.id, sku=f"LOAD-{index:04d}", title=f"Load product {index:04d}", product_type="simple", catalogue_status="active", published=True, relationship_source_kind="none") for index in range(500)]
+        db.session.add_all(products); db.session.flush()
+        for index, product in enumerate(products):
+            for offset in range(1, 5):
+                target = products[(index + offset) % len(products)]
+                db.session.add(ProductRelationship(source_product_id=product.id, target_sku=target.sku, resolved_target_product_id=target.id, relationship_type="cross_sell", position=offset - 1))
+        db.session.commit()
+        queries = []
+        def before_cursor(*args): queries.append(args[2])
+        event.listen(db.engine, "before_cursor_execute", before_cursor)
+        started = monotonic()
+        try:
+            with relationship_app.test_request_context("/relationships"):
+                workspace = build_relationship_browser(parse_relationship_filters({"q": "Load product", "per_page": "25"}))
+        finally:
+            event.remove(db.engine, "before_cursor_execute", before_cursor)
+        assert workspace["pagination"]["total"] == 500 and len(workspace["items"]) == 25
+        assert len(queries) <= 20
+        assert monotonic() - started < 5

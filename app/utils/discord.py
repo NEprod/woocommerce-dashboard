@@ -303,6 +303,15 @@ def notify_product_relationships_completed(summary, *, operation_id):
         {"name": "Cross-sells", "value": str(max(0, int(summary.get("cross_sell_count", 0) or 0))), "inline": True},
         {"name": "Upsells", "value": str(max(0, int(summary.get("upsell_count", 0) or 0))), "inline": True},
     ]
+    if int(summary.get("product_count", 0) or 0) > 1:
+        fields = [
+            {"name": "Operation", "value": "Mutual cross-sell family", "inline": True},
+            {"name": "Selected products", "value": str(int(summary.get("product_count", 0) or 0)), "inline": True},
+            {"name": "New directed edges", "value": str(int(summary.get("new_relationship_count", 0) or 0)), "inline": True},
+            {"name": "Existing preserved", "value": str(int(summary.get("existing_relationship_count", 0) or 0)), "inline": True},
+            {"name": "Warnings", "value": str(int(summary.get("warning_count", 0) or 0)), "inline": True},
+            {"name": "Duration", "value": f"{int(summary.get('duration_ms', 0) or 0)} ms", "inline": True},
+        ]
     embed = build_embed(
         "Product Relationships Updated",
         f"Operation: `{_truncate(operation_id)}`\nLocal relationship data was updated. No WooCommerce request was made.",

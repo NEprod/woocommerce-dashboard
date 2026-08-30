@@ -27,6 +27,22 @@ A missing target retains its SKU and appears as repairable rather than being
 silently deleted. Database deletion/reconstruction recreates ordered projection
 rows from the catalogue JSON.
 
+## Relationships workspace
+
+The authenticated `/relationships` workspace provides catalogue-wide counts,
+search, filters, deterministic sorting, and 25/50/100-row pagination over the
+SQLite projection. Product actions return to the existing Product Detail editor.
+
+The mutual-family flow retains selection across paginated local search. Its
+server preview reports exact directed-edge and affected-document counts,
+warnings, existing links, and portable authored document identities. A signed
+proposal digest covers product state and authored file content; confirmation
+revalidates it before the existing all-document staged transaction. GET requests
+never mutate authored files and these routes never contact WooCommerce.
+
+Revision `0006_relationship_workspace` adds only reconstructable source-kind
+and last-change metadata. Authored JSON remains authoritative.
+
 ## Validation and operations
 
 Search is local. Self-links, duplicates, unknown additions, missing additions,

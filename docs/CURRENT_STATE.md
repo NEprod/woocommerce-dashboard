@@ -412,3 +412,9 @@ support recoverable all-file mutual cross-sell families. Scanner-emitted relatio
 columns remain untouched. No Woo request, payload generation, media action,
 scanner invocation, or Catalogue Intake mutation occurs. A later two-pass
 publisher will persist Woo product IDs and then translate these local edges.
+
+The Milestone 2 follow-up adds the authenticated `/relationships` catalogue
+workspace and signed mutual cross-sell family builder. JSON remains the durable
+source and SQLite remains a reconstructable, searchable projection. Revision
+`0006_relationship_workspace` adds indexed source-kind and last-change metadata
+without changing authored relationship shape or scanner fields.

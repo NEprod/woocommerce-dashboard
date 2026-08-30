@@ -1226,3 +1226,51 @@ code { color: var(--color-lime-ink); font-family: var(--font-mono); }
   .relationship-search-result { grid-template-columns: 42px minmax(0, 1fr); }
   .relationship-search-result > .catalogue-pill { grid-column: 2; justify-self: start; }
 }
+/* Catalogue-wide Product Relationships workspace */
+.relationship-page-header { align-items: flex-end; }
+.relationship-summary-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-5); }
+.relationship-toolbar { flex-wrap: wrap; }
+.relationship-toolbar .relationship-check { min-height: 44px; display: inline-flex; align-items: center; gap: var(--space-2); color: var(--color-text-inverse); }
+.relationship-browser { background: var(--color-surface-primary); border: 1px solid var(--color-border); border-radius: var(--radius-card-large); box-shadow: var(--shadow-card); overflow: hidden; }
+.relationship-browser-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-5); background: var(--color-surface-dark); color: var(--color-text-inverse); }
+.relationship-browser-header h2 { margin: 0; color: inherit; }
+.relationship-table-head, .relationship-browser-row { display: grid; grid-template-columns: minmax(260px, 2.2fr) minmax(130px, 1fr) 88px 88px minmax(120px, 1fr) minmax(110px, 1fr) minmax(150px, auto); align-items: center; gap: var(--space-3); }
+.relationship-table-head { padding: var(--space-3) var(--space-5); background: var(--color-surface-secondary); color: var(--color-text-muted); font-size: 12px; font-weight: 700; }
+.relationship-browser-row { padding: var(--space-4) var(--space-5); border-top: 1px solid var(--color-border); min-width: 0; }
+.relationship-browser-product { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.relationship-browser-product img, .relationship-browser-product > .product-thumbnail-fallback { width: 48px; height: 48px; border-radius: var(--radius-input); object-fit: cover; flex: 0 0 auto; }
+.relationship-browser-product span { min-width: 0; display: grid; gap: 2px; }
+.relationship-browser-product strong, .relationship-browser-product code, .relationship-browser-product small { overflow-wrap: anywhere; }
+.relationship-browser-row [role="cell"] { min-width: 0; }
+.relationship-browser-row [role="cell"] small { display: block; margin-top: 4px; color: var(--color-text-muted); }
+.mutual-family-workspace { padding: var(--space-5); }
+.family-search-results { display: grid; gap: var(--space-2); margin: var(--space-4) 0; }
+.family-search-card { display: grid; grid-template-columns: 44px 48px minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-card-small); background: var(--color-surface-primary); cursor: pointer; min-height: 72px; }
+.family-search-card:focus-within { outline: 2px solid var(--color-lime-hover); outline-offset: 2px; box-shadow: var(--focus-ring); }
+.family-search-card input { width: 22px; height: 22px; }
+.family-search-card > span:nth-child(3) { display: grid; min-width: 0; gap: 3px; }
+.family-search-card strong, .family-search-card code, .family-search-card small { overflow-wrap: anywhere; }
+.mutual-preview { margin-top: var(--space-6); padding-top: var(--space-5); border-top: 1px solid var(--color-border); scroll-margin-top: var(--space-4); }
+.family-preview-list { display: grid; gap: var(--space-2); margin: var(--space-4) 0; padding-left: var(--space-5); }
+.relationship-confirm { display: flex; align-items: flex-start; gap: var(--space-3); min-height: 44px; margin: var(--space-4) 0; }
+.relationship-confirm input { width: 22px; height: 22px; flex: 0 0 auto; }
+
+@media (max-width: 1180px) {
+  .relationship-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .relationship-table-head { display: none; }
+  .relationship-browser-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .relationship-browser-product { grid-column: 1 / -1; }
+  .relationship-browser-row [role="cell"]::before { content: attr(data-label); display: block; color: var(--color-text-muted); font-size: 11px; font-weight: 700; }
+}
+@media (max-width: 576px) {
+  .relationship-page-header { align-items: stretch; }
+  .relationship-page-header .btn { width: 100%; }
+  .relationship-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .relationship-browser-row { grid-template-columns: 1fr; padding: var(--space-4); }
+  .relationship-browser-product { grid-column: auto; }
+  .family-search-card { grid-template-columns: 36px 42px minmax(0, 1fr); }
+  .family-search-card > .catalogue-pill { grid-column: 2 / -1; justify-self: start; }
+  .relationship-selection-toolbar { align-items: stretch; }
+  .relationship-selection-toolbar > div { display: grid; grid-template-columns: 1fr 1fr; }
+  .relationship-selection-toolbar .btn, .mutual-family-workspace > .btn, .mutual-preview > .btn { min-height: 44px; }
+}

@@ -49,6 +49,13 @@ from app.product_relationships import (
     relationship_workspace,
     search_products as search_relationship_products,
 )
+from app.relationships_workspace import (
+    build_relationship_browser,
+    family_search,
+    mutual_proposal,
+    parse_relationship_filters,
+    verify_mutual_proposal,
+)
 from app.utils.token_utils import generate_reset_token, verify_reset_token
 from app.utils.scan_runner import (
     start_scan,
@@ -1061,6 +1068,64 @@ def api_mutual_cross_sell_confirm():
         if payload.get("confirm") is not True:
             raise RelationshipValidationError("Explicit confirmation is required.")
         result = apply_mutual_cross_sells(payload.get("product_skus"))
+    except RelationshipValidationError as error:
+        return _relationship_error(error)
+    except CatalogueOperationActive as error:
+        return _operation_conflict(error)
+    return jsonify({"ok": True, **result})
+
+
+@main.route("/relationships")
+@login_required
+def relationships():
+    try:
+        filters = parse_relationship_filters(request.args)
+    except ValueError as error:
+        raise BadRequest(str(error)) from error
+    data = build_relationship_browser(filters)
+    collections = [
+        {"id": row.id, "name": collection_display_name(row)}
+        for row in Collection.query.order_by(Collection.name.asc(), Collection.id.asc()).all()
+    ]
+    return render_template("relationships.html", workspace=data, collections=collections)
+
+
+@main.route("/relationships/mutual")
+@login_required
+def relationships_mutual():
+    query = (request.args.get("q") or "").strip()[:191]
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except ValueError as error:
+        raise BadRequest("Invalid family-search page") from error
+    results = family_search(query, page=page) if query else None
+    return render_template("relationships_mutual.html", search_query=query, search_results=results)
+
+
+@main.route("/relationships/mutual/preview", methods=["POST"])
+@login_required
+def relationships_mutual_preview():
+    try:
+        payload = _relationship_payload()
+        preview = mutual_proposal(payload.get("product_skus"))
+    except RelationshipValidationError as error:
+        return _relationship_error(error)
+    return jsonify({"ok": True, "preview": preview})
+
+
+@main.route("/relationships/mutual/confirm", methods=["POST"])
+@login_required
+def relationships_mutual_confirm():
+    try:
+        payload = _relationship_payload()
+        if payload.get("acknowledged") is not True:
+            raise RelationshipValidationError("Explicit acknowledgement is required.")
+        preview = verify_mutual_proposal(
+            payload.get("product_skus"), payload.get("proposal_digest")
+        )
+        result = apply_mutual_cross_sells(
+            preview["selected_skus"], verified_preview=preview
+        )
     except RelationshipValidationError as error:
         return _relationship_error(error)
     except CatalogueOperationActive as error:

@@ -220,15 +220,49 @@ def search_products(source_product_id, query, *, limit=MAX_SEARCH_RESULTS):
 
 def refresh_relationship_projection(product, *, commit=False):
     source = relationship_source(product)
+    previous = [
+        (edge.relationship_type, edge.position, edge.target_sku)
+        for edge in _ordered_edges(product.id, "cross_sell")
+        + _ordered_edges(product.id, "upsell")
+    ]
+    source_kind = (
+        source["source"]
+        if any(source["relationships"].values()) or source["source"] == "authored"
+        else "none"
+    )
+    projected = [
+        (kind, position, sku)
+        for kind, skus in source["relationships"].items()
+        for position, sku in enumerate(skus)
+    ]
     ProductRelationship.query.filter_by(source_product_id=product.id).delete(synchronize_session=False)
     targets = _targets_by_sku(sku for values in source["relationships"].values() for sku in values)
     for kind, skus in source["relationships"].items():
         for position, sku in enumerate(skus):
             target = targets.get(sku)
             db.session.add(ProductRelationship(source_product_id=product.id, target_sku=sku, resolved_target_product_id=target.id if target else None, relationship_type=kind, position=position))
+    if previous != projected or product.relationship_source_kind != source_kind:
+        product.relationships_updated_at = datetime.now(UTC).replace(tzinfo=None)
+    product.relationship_source_kind = source_kind
     if commit:
         db.session.commit()
     return source
+
+
+def adopt_relationship_workspace_metadata(*, commit=True):
+    """Populate new projection metadata once from authoritative catalogue JSON."""
+    adopted = 0
+    for product in Product.query.filter(Product.relationship_source_kind.is_(None)).order_by(Product.id.asc()):
+        try:
+            refresh_relationship_projection(product)
+            adopted += 1
+        except RelationshipValidationError:
+            # An unavailable mount must not prevent the existing SQLite
+            # projection from remaining browseable. Adoption retries later.
+            continue
+    if commit:
+        db.session.commit()
+    return adopted
 
 
 def rebuild_relationship_projection(*, commit=True):
@@ -416,7 +450,7 @@ def _complete_transaction(products, relationship_sets, *, action, relationship_t
             refresh_relationship_projection(product)
         resolve_relationship_targets(commit=False)
         rows = ProductRelationship.query.filter(ProductRelationship.source_product_id.in_([row.id for row in products])).all()
-        summary = {"product": products[0].title if len(products) == 1 else f"{len(products)}-product family", "product_count": len(products), "relationship_type": relationship_type, "relationship_count": preview.get("exact_relationship_count", len(relationship_sets[products[0].sku][relationship_type])), "new_relationship_count": preview.get("new_count", 0), "cross_sell_count": sum(row.relationship_type == "cross_sell" for row in rows), "upsell_count": sum(row.relationship_type == "upsell" for row in rows), "duration_ms": max(0, int((monotonic() - started) * 1000)), "woo_activity": False}
+        summary = {"product": products[0].title if len(products) == 1 else f"{len(products)}-product family", "product_id": products[0].id if len(products) == 1 else None, "product_count": len(products), "relationship_type": relationship_type, "relationship_count": preview.get("exact_relationship_count", len(relationship_sets[products[0].sku][relationship_type])), "directed_edge_count": preview.get("exact_relationship_count"), "new_relationship_count": preview.get("new_count", 0), "existing_relationship_count": preview.get("already_linked_count", 0), "affected_document_count": preview.get("affected_document_count", len(products)), "skipped_count": preview.get("skipped_count", 0), "warning_count": preview.get("warning_count", len(preview.get("warnings", []))), "cross_sell_count": sum(row.relationship_type == "cross_sell" for row in rows), "upsell_count": sum(row.relationship_type == "upsell" for row in rows), "affected_products": [{"id": row.id, "sku": row.sku, "title": row.title} for row in products[:8]], "duration_ms": max(0, int((monotonic() - started) * 1000)), "woo_activity": False}
         finish_catalogue_operation(lease.id, status="succeeded", products_attempted=len(products), products_succeeded=len(products), operation_summary=summary)
         path.unlink(missing_ok=True)
         try:
@@ -443,8 +477,8 @@ def apply_update(source_product, relationship_type, target_skus, *, mode="replac
     return _complete_transaction([source_product], {source_product.sku: state}, action="update", relationship_type=relationship_type, preview=preview)
 
 
-def apply_mutual_cross_sells(selected_skus):
-    preview = preview_mutual_cross_sells(selected_skus)
+def apply_mutual_cross_sells(selected_skus, *, verified_preview=None):
+    preview = verified_preview or preview_mutual_cross_sells(selected_skus)
     if not preview["continuation_allowed"]:
         raise RelationshipValidationError("Mutual cross-sell operation contains blocking validation errors.", details=preview)
     target_map = _targets_by_sku(preview["selected_skus"])

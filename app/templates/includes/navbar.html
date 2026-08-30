@@ -1,12 +1,13 @@
 {% from 'includes/icons.html' import icon %}
 {% set product_endpoints = ['main.products', 'main.edit_products', 'main.product_edit', 'main.product_detail'] %}
 {% set collection_endpoints = ['main.collections', 'main.collection_detail', 'main.collection_metadata_edit'] %}
-{% set catalogue_endpoints = product_endpoints + collection_endpoints %}
+{% set relationship_endpoints = ['main.relationships', 'main.relationships_mutual', 'main.relationships_mutual_preview', 'main.relationships_mutual_confirm'] %}
+{% set catalogue_endpoints = product_endpoints + collection_endpoints + relationship_endpoints %}
 {% set scanner_endpoints = ['main.scanner', 'main.initial_scan_page'] %}
 {% set operation_endpoints = ['main.operations', 'main.operation_detail'] %}
 {% set intake_endpoints = ['main.image_preparation', 'main.image_preparation_group', 'main.image_preparation_rename', 'main.image_preparation_rename_preview', 'main.image_preparation_rename_confirm', 'main.image_preparation_folders', 'main.image_preparation_folders_edit', 'main.image_preparation_folders_preview', 'main.image_preparation_folders_confirm', 'main.image_preparation_metadata', 'main.image_preparation_metadata_edit', 'main.image_preparation_metadata_preview', 'main.image_preparation_metadata_confirm'] %}
 {% set woo_endpoints = ['main.woocommerce', 'main.woocommerce_test'] %}
-{% set more_endpoints = collection_endpoints + intake_endpoints + woo_endpoints + ['main.metadata_reference', 'main.settings', 'main.woo_sync', 'main.orders', 'main.website_automation', 'main.analytics'] %}
+{% set more_endpoints = collection_endpoints + relationship_endpoints + intake_endpoints + woo_endpoints + ['main.metadata_reference', 'main.settings', 'main.woo_sync', 'main.orders', 'main.website_automation', 'main.analytics'] %}
 
 <aside class="app-sidebar" aria-label="Primary navigation">
   <div class="sidebar-brand">
@@ -19,6 +20,7 @@
       <p class="sidebar-group-label sidebar-label">Catalogue</p>
       <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in product_endpoints }}" href="{{ url_for('main.products') }}"{% if request.endpoint in product_endpoints %} aria-current="page"{% endif %} title="Products">{{ icon('box') }} <span class="sidebar-label">Products</span></a>
       <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in collection_endpoints }}" href="{{ url_for('main.collections') }}"{% if request.endpoint in collection_endpoints %} aria-current="page"{% endif %} title="Collections">{{ icon('collection') }} <span class="sidebar-label">Collections</span></a>
+      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in relationship_endpoints }}" href="{{ url_for('main.relationships') }}"{% if request.endpoint in relationship_endpoints %} aria-current="page"{% endif %} title="Relationships">{{ icon('link') }} <span class="sidebar-label">Relationships</span></a>
       <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in intake_endpoints }}" href="{{ url_for('main.image_preparation') }}"{% if request.endpoint in intake_endpoints %} aria-current="page"{% endif %} title="Catalogue Intake">{{ icon('folder') }} <span class="sidebar-label">Catalogue Intake</span></a>
     </div>
     <div class="sidebar-group">
@@ -61,7 +63,7 @@
   </div>
   <div class="offcanvas-body">
     <nav aria-label="Secondary navigation">
-      <div class="mobile-nav-section"><p class="mobile-nav-label">Catalogue</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint in collection_endpoints }}" href="{{ url_for('main.collections') }}"{% if request.endpoint in collection_endpoints %} aria-current="page"{% endif %}>{{ icon('collection') }} Collections</a><a class="mobile-nav-link {{ 'is-active' if request.endpoint in intake_endpoints }}" href="{{ url_for('main.image_preparation') }}"{% if request.endpoint in intake_endpoints %} aria-current="page"{% endif %}>{{ icon('folder') }} Catalogue Intake</a></div>
+      <div class="mobile-nav-section"><p class="mobile-nav-label">Catalogue</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint in collection_endpoints }}" href="{{ url_for('main.collections') }}"{% if request.endpoint in collection_endpoints %} aria-current="page"{% endif %}>{{ icon('collection') }} Collections</a><a class="mobile-nav-link {{ 'is-active' if request.endpoint in relationship_endpoints }}" href="{{ url_for('main.relationships') }}"{% if request.endpoint in relationship_endpoints %} aria-current="page"{% endif %}>{{ icon('link') }} Relationships</a><a class="mobile-nav-link {{ 'is-active' if request.endpoint in intake_endpoints }}" href="{{ url_for('main.image_preparation') }}"{% if request.endpoint in intake_endpoints %} aria-current="page"{% endif %}>{{ icon('folder') }} Catalogue Intake</a></div>
       <div class="mobile-nav-section"><p class="mobile-nav-label">Metadata</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.metadata_reference' }}" href="{{ url_for('main.metadata_reference') }}"{% if request.endpoint == 'main.metadata_reference' %} aria-current="page"{% endif %}>{{ icon('book') }} Metadata Reference</a></div>
       <div class="mobile-nav-section"><p class="mobile-nav-label">Integrations</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint in woo_endpoints }}" href="{{ url_for('main.woocommerce') }}"{% if request.endpoint in woo_endpoints %} aria-current="page"{% endif %}>{{ icon('plug') }} WooCommerce</a></div>
       <div class="mobile-nav-section"><p class="mobile-nav-label">System</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.settings' }}" href="{{ url_for('main.settings') }}"{% if request.endpoint == 'main.settings' %} aria-current="page"{% endif %}>{{ icon('settings') }} Settings</a></div>

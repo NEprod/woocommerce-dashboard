@@ -231,6 +231,8 @@ class Product(db.Model):
     local_updated_at = db.Column(
         db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+    relationship_source_kind = db.Column(db.String(16), index=True)
+    relationships_updated_at = db.Column(db.DateTime)
 
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

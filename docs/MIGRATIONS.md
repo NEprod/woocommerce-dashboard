@@ -13,6 +13,8 @@ For a missing or empty database, startup applies every revision from the beginni
   source identity, and operation lifecycle counts.
 - `0005_relationships`: reconstructable ordered relationship projection keyed
   by durable authored target SKU with nullable local target resolution.
+- `0006_relationship_workspace`: reconstructable relationship source-kind and
+  last-change metadata for bounded catalogue-wide browsing.
 
 The baseline revision contains its own schema declarations. It does not import the current ORM model to create tables, so later model changes cannot rewrite the historical baseline.
 

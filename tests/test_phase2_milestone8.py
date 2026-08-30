@@ -74,7 +74,7 @@ def test_settings_renders_safe_application_storage_scanner_and_retention_state(s
         "Discord notifications",
         "Retention and safety",
         "Migration head",
-        "0005_relationships",
+        "0006_relationship_workspace",
         "SQLite integrity",
         "Passed",
         "Catalogue available",
