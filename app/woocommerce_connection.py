@@ -29,6 +29,7 @@ MAX_JSON_NESTING = 128
 STREAM_CHUNK_BYTES = 64 * 1024
 MAX_NAMESPACES = 20
 MAX_CAPABILITIES = 12
+MAX_LIMITATION_FINDINGS = 12
 SAFE_METHODS = {"GET", "HEAD"}
 
 
@@ -314,28 +315,85 @@ def _route_methods(routes, candidates):
     return discovered, sorted(methods)
 
 
-def _capability(name, group, route, patterns, *, required=False, dependent=None):
-    return {"name": name, "group": group, "route": route, "patterns": patterns, "required": required, "dependent": dependent}
+def _capability(
+    key, name, group, route, patterns, *, requirement, current_impact,
+    future_impact, recommendation, required=False, dependent=None,
+):
+    return {
+        "key": key, "name": name, "group": group, "route": route,
+        "patterns": patterns, "required": required, "dependent": dependent,
+        "requirement": requirement, "current_impact": current_impact,
+        "future_impact": future_impact, "recommendation": recommendation,
+    }
 
 
 def _capability_specs(namespace):
     root = f"/{namespace}"
     return [
-        _capability("Products", "Publishing", f"{root}/products", [rf"{re.escape(root)}/products"], required=True),
-        _capability("Product variations", "Publishing", None, [rf"{re.escape(root)}/products/\(\?P<product_id>.*\)/variations"], dependent="product"),
-        _capability("Product categories", "Publishing", f"{root}/products/categories", [rf"{re.escape(root)}/products/categories"], required=True),
-        _capability("Product tags", "Publishing", f"{root}/products/tags", [rf"{re.escape(root)}/products/tags"], required=True),
-        _capability("Product attributes", "Publishing", f"{root}/products/attributes", [rf"{re.escape(root)}/products/attributes"], required=True),
-        _capability("Attribute terms", "Publishing", None, [rf"{re.escape(root)}/products/attributes/\(\?P<attribute_id>.*\)/terms"], dependent="attribute"),
-        _capability("Media", "Media", "/wp/v2/media", [r"/wp/v2/media"]),
-        _capability("Orders", "Later milestones", f"{root}/orders", [rf"{re.escape(root)}/orders"]),
-        _capability("Customers", "Later milestones", f"{root}/customers", [rf"{re.escape(root)}/customers"]),
-        _capability("System status", "Diagnostics", f"{root}/system_status", [rf"{re.escape(root)}/system_status"]),
+        _capability("products", "Products", "Publishing", f"{root}/products", [rf"{re.escape(root)}/products"], requirement="required_product_publishing", current_impact="Blocks product publishing.", future_impact="Required for product publishing.", recommendation="Restore authenticated read access before product publishing is enabled.", required=True),
+        _capability("product_variations", "Product variations", "Publishing", None, [rf"{re.escape(root)}/products/\(\?P<product_id>.*\)/variations"], requirement="later_variation_publishing", current_impact="Required for variation publishing.", future_impact="Required by a later Phase 3 variation-publishing milestone.", recommendation="Review this capability before variation publishing is enabled.", dependent="product"),
+        _capability("product_categories", "Product categories", "Publishing", f"{root}/products/categories", [rf"{re.escape(root)}/products/categories"], requirement="required_product_publishing", current_impact="Blocks product publishing.", future_impact="Required for product publishing.", recommendation="Restore authenticated read access before product publishing is enabled.", required=True),
+        _capability("product_tags", "Product tags", "Publishing", f"{root}/products/tags", [rf"{re.escape(root)}/products/tags"], requirement="required_product_publishing", current_impact="Blocks product publishing.", future_impact="Required for product publishing.", recommendation="Restore authenticated read access before product publishing is enabled.", required=True),
+        _capability("product_attributes", "Product attributes", "Publishing", f"{root}/products/attributes", [rf"{re.escape(root)}/products/attributes"], requirement="required_product_publishing", current_impact="Blocks product publishing.", future_impact="Required for product publishing.", recommendation="Restore authenticated read access before product publishing is enabled.", required=True),
+        _capability("attribute_terms", "Attribute terms", "Publishing", None, [rf"{re.escape(root)}/products/attributes/\(\?P<attribute_id>.*\)/terms"], requirement="later_variation_publishing", current_impact="Required for variation publishing.", future_impact="Required by a later Phase 3 variation-publishing milestone.", recommendation="Review this capability before variation publishing is enabled.", dependent="attribute"),
+        _capability("media", "Media", "Media", "/wp/v2/media", [r"/wp/v2/media"], requirement="later_media_synchronisation", current_impact="Required for media synchronisation.", future_impact="Required by a later Phase 3 media-synchronisation milestone.", recommendation="Review this capability before media synchronisation is enabled."),
+        _capability("orders", "Orders", "Later milestones", f"{root}/orders", [rf"{re.escape(root)}/orders"], requirement="future_optional", current_impact="Does not affect product publishing.", future_impact="Required only for future order features.", recommendation="No action required for current Phase 3 publishing work."),
+        _capability("customers", "Customers", "Later milestones", f"{root}/customers", [rf"{re.escape(root)}/customers"], requirement="future_optional", current_impact="Does not affect product publishing.", future_impact="Required only for future customer features.", recommendation="No action required for current Phase 3 publishing work."),
+        _capability("system_status", "System status", "Diagnostics", f"{root}/system_status", [rf"{re.escape(root)}/system_status"], requirement="future_optional", current_impact="Does not affect product publishing.", future_impact="Required only for diagnostics.", recommendation="No action required unless expanded store diagnostics are needed."),
     ]
 
 
 def _safe_scalar(value, limit=120):
     return redact_diagnostic(value if isinstance(value, (str, int, float, bool)) else "", limit=limit)
+
+
+def _read_status(error):
+    if error.category in {"authentication_rejected", "forbidden"}:
+        return "forbidden"
+    if error.category == "not_found":
+        return "not_exposed"
+    if error.category in {"malformed_json", "json_too_deep"}:
+        return "malformed_response"
+    if error.category in {"connect_timeout", "read_timeout"}:
+        return "timeout"
+    if error.category in {"dns_failure", "connection_failed", "network_failure", "tls_failure", "content_decoding_failed"}:
+        return "transport_failure"
+    return "unavailable"
+
+
+def _read_label(status):
+    return {
+        "verified": "Read access verified", "forbidden": "Forbidden",
+        "unavailable": "Unavailable", "not_exposed": "Not exposed",
+        "not_tested": "Not tested", "malformed_response": "Malformed response",
+        "timeout": "Timeout", "transport_failure": "Transport failure",
+    }.get(status, "Unavailable")
+
+
+def _limitation_explanation(read_status, status_code):
+    if status_code:
+        return f"Read access returned HTTP {int(status_code)}."
+    return {
+        "not_exposed": "The REST route was not exposed by the store.",
+        "not_tested": "The route was discovered but could not be tested without a dependent record.",
+        "malformed_response": "The resource returned a malformed or excessively nested response.",
+        "timeout": "The bounded read request timed out.",
+        "transport_failure": "The bounded read request ended with a transport failure.",
+    }.get(read_status, "Authenticated read access could not be verified.")
+
+
+def _limitation_finding(item):
+    return {
+        "key": item["key"], "label": item["name"],
+        "requirement": item["requirement"],
+        "route_discovered": bool(item["route_discovered"]),
+        "read_status": item["read_status"], "http_status": item["status_code"],
+        "severity": "warning", "continuation_allowed": True,
+        "current_impact": item["current_impact"],
+        "future_impact": item["future_impact"],
+        "recommendation": item["recommendation"],
+        "explanation": _limitation_explanation(item["read_status"], item["status_code"]),
+    }
 
 
 def run_connection_discovery(configuration=None, *, session=None):
@@ -382,7 +440,7 @@ def run_connection_discovery(configuration=None, *, session=None):
 
     for spec in specs:
         discovered, methods = route_summaries[spec["name"]]
-        read_state = "Unavailable"
+        read_status = "not_exposed" if not discovered else "not_tested"
         status_code = None
         route = spec["route"]
         if spec["dependent"] == "product" and product_id is not None:
@@ -396,7 +454,7 @@ def run_connection_discovery(configuration=None, *, session=None):
                 elapsed = round((time.monotonic() - request_started) * 1000)
                 authenticated_latency = elapsed if authenticated_latency is None else authenticated_latency
                 status_code = response.status_code
-                read_state = "Read access verified"
+                read_status = "verified"
                 if spec["name"] == "Products" and isinstance(payload, list) and payload and isinstance(payload[0], dict):
                     identifier = payload[0].get("id")
                     product_id = identifier if isinstance(identifier, int) and identifier > 0 else None
@@ -407,20 +465,23 @@ def run_connection_discovery(configuration=None, *, session=None):
                     system_data = payload
             except WooConnectionError as error:
                 status_code = error.status_code
-                read_state = "Forbidden" if error.category in {"authentication_rejected", "forbidden"} else "Unavailable"
-        elif discovered:
-            read_state = "Not tested"
+                read_status = _read_status(error)
         capabilities.append({
-            "name": spec["name"], "group": spec["group"], "required": spec["required"],
-            "route_discovered": discovered, "read_state": read_state,
+            "key": spec["key"], "name": spec["name"], "group": spec["group"],
+            "required": spec["required"], "requirement": spec["requirement"],
+            "route_discovered": discovered, "route_status": "discovered" if discovered else "not_exposed",
+            "read_status": read_status, "read_state": _read_label(read_status),
+            "advertised_methods": methods,
             "advertised_write_methods": [value for value in methods if value not in SAFE_METHODS],
             "write_permission": "Not verified", "status_code": status_code,
+            "current_impact": spec["current_impact"], "future_impact": spec["future_impact"],
+            "recommendation": spec["recommendation"],
         })
 
     required = [item for item in capabilities if item["required"]]
-    required_verified = sum(item["read_state"] == "Read access verified" for item in required)
-    required_failed = [item for item in required if item["read_state"] != "Read access verified"]
-    optional_limitations = [item for item in capabilities if not item["required"] and item["read_state"] != "Read access verified"]
+    required_verified = sum(item["read_status"] == "verified" for item in required)
+    required_failed = [item for item in required if item["read_status"] != "verified"]
+    optional_limitations = [item for item in capabilities if not item["required"] and item["read_status"] != "verified"]
     if required_failed:
         names = ", ".join(item["name"] for item in required_failed[:4])
         raise WooConnectionError("required_capability_failed", f"Required WooCommerce reads could not be verified: {names}.")
@@ -435,6 +496,7 @@ def run_connection_discovery(configuration=None, *, session=None):
         except WooConnectionError:
             pass
     duration = round((time.monotonic() - started) * 1000)
+    limitation_findings = [_limitation_finding(item) for item in optional_limitations[:MAX_LIMITATION_FINDINGS]]
     return {
         "state": "connected_with_limitations" if optional_limitations else "connected",
         "hostname": urlsplit(client.base_url).hostname or "",
@@ -451,6 +513,8 @@ def run_connection_discovery(configuration=None, *, session=None):
         "permalink_compatibility": "Available" if woo_namespaces else "Unavailable",
         "capabilities": capabilities, "required_verified": required_verified,
         "required_total": len(required), "optional_limitations": len(optional_limitations),
+        "limitation_findings": limitation_findings,
+        "limitation_findings_truncated": max(0, len(optional_limitations) - len(limitation_findings)),
         "wordpress_latency_ms": index_latency, "authenticated_latency_ms": authenticated_latency,
         "duration_ms": duration, "request_count": client.request_count,
         "rate_limit": rate_limit,
@@ -474,7 +538,8 @@ def _operation_summary(result, *, failure=None):
             "authentication", "tls", "selected_namespace", "namespaces", "namespaces_truncated",
             "wordpress_version", "woocommerce_version", "currency", "timezone",
             "permalink_compatibility", "capabilities", "required_verified", "required_total",
-            "optional_limitations", "wordpress_latency_ms", "authenticated_latency_ms",
+            "optional_limitations", "limitation_findings", "limitation_findings_truncated",
+            "wordpress_latency_ms", "authenticated_latency_ms",
             "duration_ms", "request_count", "rate_limit", "discovery_transfer",
         )
     }
@@ -503,11 +568,24 @@ def execute_connection_test(*, session=None):
         except Exception:
             discord_ok, discord_message = False, "delivery failed"
         discord = {"state": "sent" if discord_ok else discord_message.replace(" ", "_"), "label": "Discord sent" if discord_ok else f"Discord {discord_message}", "events": [{"event": "terminal_summary", "state": "sent" if discord_ok else discord_message}]}
-        live.update({"stage": "completed", "status": status, "latest_message": "Read-only WooCommerce discovery completed.", "progress": {"completed": 1, "total": 1, "percent": 100}, "counts": {"warnings": result["optional_limitations"]}, "summary": summary, "discord": discord, "next_sequence": 3})
-        persist_live_state(lease.id, live, [
-            {"sequence": 1, "severity": "info", "line": "WooCommerce read-only connection test started."},
-            {"sequence": 2, "severity": "warning" if status == "partial" else "info", "line": "Connection test completed with limitations." if status == "partial" else "Connection test completed successfully."},
-        ])
+        logs = [{"sequence": 1, "severity": "info", "line": "WooCommerce read-only connection test started."}]
+        for finding in summary.get("limitation_findings", []):
+            suffix = f" — HTTP {finding['http_status']}" if finding.get("http_status") else ""
+            logs.append({
+                "sequence": len(logs) + 1, "severity": "warning",
+                "line": f"Optional capability limited: {finding['label']}{suffix}. {finding['current_impact']}",
+            })
+        if status == "partial":
+            logs.append({
+                "sequence": len(logs) + 1, "severity": "info",
+                "line": "Current product-publishing capabilities remain available.",
+            })
+        logs.append({
+            "sequence": len(logs) + 1, "severity": "warning" if status == "partial" else "info",
+            "line": "Connection test completed with limitations." if status == "partial" else "Connection test completed successfully.",
+        })
+        live.update({"stage": "completed", "status": status, "latest_message": "Read-only WooCommerce discovery completed.", "progress": {"completed": 1, "total": 1, "percent": 100}, "counts": {"warnings": result["optional_limitations"]}, "summary": summary, "discord": discord, "next_sequence": len(logs) + 1})
+        persist_live_state(lease.id, live, logs)
         finish_catalogue_operation(
             lease.id, status=status, products_attempted=result["request_count"],
             products_succeeded=result["required_verified"], operation_summary=summary,

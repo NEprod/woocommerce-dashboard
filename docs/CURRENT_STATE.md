@@ -395,3 +395,11 @@ Ordinary capability reads remain capped at 1 MiB. Streaming counts decompressed
 chunks regardless of `Content-Length` or content encoding, closes responses on
 abort, and reduces the decoded index to bounded relevant route/method summaries
 before any operation state is retained.
+
+New Woo connection tests persist bounded structured capability-limit findings,
+including safe status codes and roadmap-derived current/future impact. Exact
+limitations now appear in the Woo workspace, Operation Detail, bounded logs,
+and one grouped Discord terminal summary. Historical count-only operations retain
+a controlled detail-unavailable message. The shared light-card primitive also
+resets inherited foreground text to the design-system light-surface token, so
+light health metric cards remain readable inside purposeful dark panels.

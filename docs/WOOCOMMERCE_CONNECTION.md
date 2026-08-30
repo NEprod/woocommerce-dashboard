@@ -58,14 +58,27 @@ after namespaces and relevant route methods have been summarized.
 
 Required publishing reads are Products, Product categories, Product tags, and
 Product attributes. A failure in those resources fails the health check. Later
-or optional resources such as Orders or Customers may produce **Connected with
-limitations** without falsely failing product-resource health.
+resources classify Product variations and Attribute terms as variation-publishing
+requirements and Media as a media-synchronisation requirement. Orders, Customers,
+and System status remain future/diagnostic capabilities. A limitation in these
+later or optional resources may produce **Connected with limitations** without
+falsely failing the four current product-publishing reads.
 
 Capability rows distinguish:
 
 - **Read access verified** — a safe authenticated GET succeeded;
 - **Write methods advertised by API** — route metadata only;
 - **Write permission not verified** — no write execution occurred.
+
+New connection operations also retain one bounded structured finding for each
+limited later/optional capability. A finding contains only its stable key and
+label, requirement class, discovered/read state, safe HTTP status, severity,
+continuation flag, concise current/future impact, and recommended action. The
+WooCommerce workspace, Operation Detail, safe operation log, and the single
+terminal Discord notification use those same findings. Raw bodies, complete
+route schemas, headers, cookies, credentials, and sensitive URLs are never part
+of a finding. Earlier operations without structured findings show an explicit
+historical-detail fallback instead of attempting reconstruction.
 
 Operation history uses the established retention and redaction policies. It
 stores only safe host/status/capability/latency summaries, not credentials,
@@ -80,8 +93,9 @@ REST index.
 - **Authentication rejected:** verify the Consumer Key and Consumer Secret and
   their read access without pasting them into logs or support messages.
 - **Woo namespace absent:** verify WooCommerce and its REST API are enabled.
-- **Connected with limitations:** expand API capabilities to identify optional
-  forbidden or unavailable resources. Required product reads have still passed.
+- **Connected with limitations:** review the named limitation cards and capability
+  table. Each finding explains whether it affects current publishing or only a
+  later feature. Required product reads have still passed.
 - **Rate limited:** wait before running another manual test. The application does
   not repeatedly probe or benchmark the store.
 - **REST index exceeds the discovery limit:** a plugin-heavy site registered an

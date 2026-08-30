@@ -78,9 +78,10 @@ def _large_index_bytes(size, *, include_routes=True):
 
 
 class FakeSession:
-    def __init__(self, *, optional_forbidden=False, required_status=None, index=None):
+    def __init__(self, *, optional_forbidden=False, optional_statuses=None, required_status=None, index=None):
         self.calls = []
         self.optional_forbidden = optional_forbidden
+        self.optional_statuses = optional_statuses or {}
         self.required_status = required_status
         self.index = index
 
@@ -92,6 +93,9 @@ class FakeSession:
             return FakeResponse(status=self.required_status, payload={"code": "controlled"})
         if self.optional_forbidden and any(value in url for value in ("/orders?", "/customers?")):
             return FakeResponse(status=403, payload={"code": "forbidden"})
+        for resource, status in self.optional_statuses.items():
+            if f"/{resource}?" in url:
+                return FakeResponse(status=status, payload={"code": "controlled", "secret": SECRET})
         if "/products?" in url:
             return FakeResponse(payload=[{"id": 44, "name": "Do not persist me"}])
         if "/products/attributes?" in url:
@@ -356,6 +360,145 @@ def test_optional_forbidden_resources_are_limitations_not_required_failure():
     assert next(item for item in result["capabilities"] if item["name"] == "Orders")["read_state"] == "Forbidden"
 
 
+def test_one_optional_forbidden_capability_creates_bounded_structured_finding():
+    session = FakeSession(optional_statuses={"customers": 403})
+    result = run_connection_discovery(WooConfiguration("https://shop.example.test", KEY, SECRET), session=session)
+    assert result["state"] == "connected_with_limitations"
+    assert result["required_verified"] == result["required_total"] == 4
+    assert result["optional_limitations"] == len(result["limitation_findings"]) == 1
+    finding = result["limitation_findings"][0]
+    assert finding == {
+        "key": "customers",
+        "label": "Customers",
+        "requirement": "future_optional",
+        "route_discovered": True,
+        "read_status": "forbidden",
+        "http_status": 403,
+        "severity": "warning",
+        "continuation_allowed": True,
+        "current_impact": "Does not affect product publishing.",
+        "future_impact": "Required only for future customer features.",
+        "recommendation": "No action required for current Phase 3 publishing work.",
+        "explanation": "Read access returned HTTP 403.",
+    }
+    serialized = json.dumps(result)
+    assert SECRET not in serialized
+    assert "controlled" not in serialized
+    assert "headers" not in serialized.lower()
+
+
+@pytest.mark.parametrize("resource,status,read_status", [
+    ("customers", 404, "not_exposed"),
+    ("orders", 503, "unavailable"),
+])
+def test_optional_unavailable_capability_has_accurate_future_impact(resource, status, read_status):
+    result = run_connection_discovery(
+        WooConfiguration("https://shop.example.test", KEY, SECRET),
+        session=FakeSession(optional_statuses={resource: status}),
+    )
+    finding = result["limitation_findings"][0]
+    assert finding["read_status"] == read_status
+    assert finding["continuation_allowed"] is True
+    assert "Does not affect product publishing." == finding["current_impact"]
+    assert f"future {resource[:-1]} features" in finding["future_impact"]
+
+
+def test_successful_capabilities_have_classification_without_warning_findings():
+    result = run_connection_discovery(WooConfiguration("https://shop.example.test", KEY, SECRET), session=FakeSession())
+    products = next(item for item in result["capabilities"] if item["key"] == "products")
+    variations = next(item for item in result["capabilities"] if item["key"] == "product_variations")
+    assert products["requirement"] == "required_product_publishing"
+    assert products["read_status"] == "verified"
+    assert variations["requirement"] == "later_variation_publishing"
+    assert result["limitation_findings"] == []
+
+
+def test_capability_findings_and_logs_persist_and_render_without_generic_fallback(woo_app, monkeypatch):
+    from app import woocommerce_connection
+    notifications = []
+    monkeypatch.setattr(
+        woocommerce_connection,
+        "notify_woo_connection_completed",
+        lambda summary, **kwargs: notifications.append(summary) or (True, "sent"),
+    )
+    with woo_app.app_context():
+        operation_id = execute_connection_test(session=FakeSession(optional_statuses={"customers": 403}))
+        row = db.session.get(CatalogueOperation, operation_id)
+        persisted = json.loads(row.scope)["operation_summary"]
+        assert row.status == "partial"
+        assert persisted["optional_limitations"] == 1
+        assert persisted["limitation_findings"][0]["label"] == "Customers"
+        assert persisted["limitation_findings_truncated"] == 0
+        assert SECRET not in row.scope
+    client = _client(woo_app)
+    operation_html = client.get(f"/operations/{operation_id}").get_data(as_text=True)
+    workspace_html = client.get("/woocommerce").get_data(as_text=True)
+    combined = operation_html + workspace_html
+    assert "Completed with limitations" in operation_html
+    assert "Customers" in combined and "Forbidden (403)" in combined
+    assert "Does not affect product publishing." in combined
+    assert "Required only for future customer features." in combined
+    assert "No action required for current Phase 3 publishing work." in combined
+    assert "Additional bounded operation warnings" not in operation_html
+    assert "Detailed capability findings were not retained" not in operation_html
+    logs = client.get(f"/api/operations/{operation_id}/logs?after=0").get_json()
+    assert any("Optional capability limited: Customers" in entry["line"] for entry in logs["entries"])
+    assert len(notifications) == 1
+    assert notifications[0]["limitation_findings"][0]["label"] == "Customers"
+    assert KEY not in combined and SECRET not in combined
+
+
+def test_historical_woo_warning_uses_controlled_detail_fallback(woo_app):
+    with woo_app.app_context():
+        row = CatalogueOperation(
+            id="b" * 32,
+            operation_type="woo_connection_test",
+            status="partial",
+            scope=json.dumps({"operation_summary": {"state": "connected_with_limitations", "optional_limitations": 1}}),
+        )
+        db.session.add(row)
+        db.session.commit()
+        operation_id = row.id
+    html = _client(woo_app).get(f"/operations/{operation_id}").get_data(as_text=True)
+    assert "Detailed capability findings were not retained for this earlier operation." in html
+    assert "Additional bounded operation warnings" not in html
+
+
+def test_multiple_limitations_are_bounded_with_accurate_truncation(monkeypatch):
+    from app import woocommerce_connection
+    monkeypatch.setattr(woocommerce_connection, "MAX_LIMITATION_FINDINGS", 2)
+    result = run_connection_discovery(
+        WooConfiguration("https://shop.example.test", KEY, SECRET),
+        session=FakeSession(optional_statuses={"orders": 403, "customers": 403, "system_status": 404}),
+    )
+    assert result["optional_limitations"] == 3
+    assert len(result["limitation_findings"]) == 2
+    assert result["limitation_findings_truncated"] == 1
+
+
+def test_discord_uses_one_bounded_grouped_limitation_summary(monkeypatch):
+    from app import woocommerce_connection
+    from app.utils import discord
+    sent = []
+    monkeypatch.setattr(discord, "send_discord_message", lambda **payload: sent.append(payload) or (True, "sent"))
+    result = run_connection_discovery(
+        WooConfiguration("https://shop.example.test", KEY, SECRET),
+        session=FakeSession(optional_statuses={"customers": 403}),
+    )
+    assert discord.notify_woo_connection_completed(result, operation_id="fictional-operation") == (True, "sent")
+    assert len(sent) == 1
+    serialized = json.dumps(sent)
+    assert "Customers" in serialized and "Forbidden (403)" in serialized
+    assert "Does not affect product publishing." in serialized
+    assert KEY not in serialized and SECRET not in serialized
+
+
+def test_light_detail_cards_reset_inherited_dark_panel_foreground():
+    css = (ROOT / "app" / "static" / "assets" / "css" / "custom.css").read_text()
+    rule = next(line for line in css.splitlines() if line.startswith(".collection-card-metrics > div, .detail-definition-grid > div"))
+    assert "color: var(--color-text-primary)" in rule
+
+
 @pytest.mark.parametrize("status", [401, 403, 404, 429, 500, 502, 503, 504])
 def test_required_resource_http_failures_are_controlled(status):
     with pytest.raises(WooConnectionError) as caught:
@@ -473,8 +616,8 @@ def test_capability_workspace_is_bounded_expandable_and_contains_no_raw_index(wo
     assert "API capabilities" in html
     assert "Read access verified" in html
     assert "Credential write permission" in html and "Not verified" in html
-    assert "Write methods advertised" not in html  # table uses the shorter, equivalent heading
-    assert "Advertised writes" in html
+    assert "Write methods advertised" not in html
+    assert "Advertised methods" in html
     assert "consumer_secret" not in html and "must never render" not in html
     assert html.count("<tr>") <= 12
 

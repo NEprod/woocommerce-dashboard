@@ -145,7 +145,11 @@ def operation_view(row, *, redaction_paths=None):
     live_warnings = int((live or {}).get("counts", {}).get("warnings", 0) or 0)
     warning_view = warning_presentation(active_summary, status=row.status)
     warning_count = max(live_warnings, warning_view["count"])
+    if row.operation_type == "woo_connection_test":
+        warning_count = max(warning_count, int(active_summary.get("optional_limitations", 0) or 0))
     status_label = STATUS_LABELS.get(row.status, row.status.title())
+    if row.operation_type == "woo_connection_test" and row.status == "partial":
+        status_label = "Completed with limitations"
     if row.status == "succeeded" and live_warnings:
         status_label = "Completed with warnings"
     return {

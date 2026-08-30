@@ -253,6 +253,7 @@ def notify_scan_failed(mode, error_text, *, summary=None, elapsed_text=None, ope
 
 def notify_woo_connection_completed(summary, *, operation_id):
     limitations = max(0, int(summary.get("optional_limitations", 0) or 0))
+    findings = [item for item in (summary.get("limitation_findings") or []) if isinstance(item, dict)][:5]
     fields = [
         {"name": "Store host", "value": _truncate(summary.get("hostname") or "Unavailable"), "inline": True},
         {"name": "Result", "value": "Connected with limitations" if limitations else "Connected", "inline": True},
@@ -263,6 +264,16 @@ def notify_woo_connection_completed(summary, *, operation_id):
         {"name": "Required reads", "value": f"{int(summary.get('required_verified', 0) or 0)} / {int(summary.get('required_total', 0) or 0)}", "inline": True},
         {"name": "Limitations", "value": str(limitations), "inline": True},
     ]
+    if findings:
+        lines = []
+        for item in findings:
+            status = str(item.get("read_status") or "limited").replace("_", " ").title()
+            code = f" ({int(item['http_status'])})" if isinstance(item.get("http_status"), int) else ""
+            lines.append(f"**{_truncate(item.get('label') or 'Capability')}** — {status}{code}\n{_truncate(item.get('current_impact') or 'Review the operation for impact.')}")
+        omitted = max(0, limitations - len(findings))
+        if omitted:
+            lines.append(f"{omitted} additional bounded limitation{'s' if omitted != 1 else ''} retained in Operations.")
+        fields.append({"name": "Limitation details", "value": _truncate("\n".join(lines)), "inline": False})
     embed = build_embed(
         "WooCommerce Connection Verified with Limitations" if limitations else "WooCommerce Connection Verified",
         f"Operation: `{_truncate(operation_id)}`\nRead-only API discovery completed. No write was attempted.",
