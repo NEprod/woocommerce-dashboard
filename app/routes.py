@@ -109,6 +109,10 @@ from app.operations_workspace import (
     parse_operation_filters,
     scanner_readiness,
 )
+from app.woocommerce_connection import (
+    build_woocommerce_workspace,
+    execute_connection_test,
+)
 from app.image_preparation import (
     browse_intake,
     configured_intake_root,
@@ -2200,6 +2204,25 @@ def settings():
     from app.settings_workspace import build_settings_workspace
 
     return render_template("settings.html", workspace=build_settings_workspace())
+
+
+@main.route("/woocommerce")
+@login_required
+def woocommerce():
+    return render_template(
+        "woocommerce.html", workspace=build_woocommerce_workspace()
+    )
+
+
+@main.route("/woocommerce/test", methods=["POST"])
+@login_required
+def woocommerce_test():
+    try:
+        operation_id = execute_connection_test()
+    except CatalogueOperationActive as error:
+        flash("Another operation is already active. Follow it before testing again.", "warning")
+        return redirect(url_for("main.operation_detail", operation_id=error.active["id"]))
+    return redirect(url_for("main.operation_detail", operation_id=operation_id))
 
 
 # ---------- Auth ----------

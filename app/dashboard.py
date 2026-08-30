@@ -33,6 +33,7 @@ OPERATION_LABELS = {
     "reconstruction": "Catalogue reconstruction",
     "intake_group": "Catalogue Intake — Group Images",
     "intake_structured_import": "Catalogue Intake — Import Structured Folder",
+    "woo_connection_test": "WooCommerce connection test",
 }
 
 METADATA_ISSUE_DEFINITIONS = {

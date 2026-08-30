@@ -14,6 +14,9 @@ services:
       PUID: "${PUID:-100}"
       PGID: "${PGID:-100}"
       UMASK: "${UMASK:-002}"
+      WOO_STORE_URL: "${WOO_STORE_URL:-}"
+      WOO_CONSUMER_KEY: "${WOO_CONSUMER_KEY:-}"
+      WOO_CONSUMER_SECRET: "${WOO_CONSUMER_SECRET:-}"
     volumes:
       - "${INSTANCE_FOLDER_HOST}:/app/instance"
       - "${PRODUCT_FOLDER_HOST}:/catalogue"

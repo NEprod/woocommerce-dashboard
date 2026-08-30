@@ -72,9 +72,10 @@
     </ul>
   </section>
 
-  <section class="workspace-panel settings-panel settings-future-panel" aria-labelledby="settings-woo-heading">
-    <div><p class="eyebrow">Future integration</p><h2 id="settings-woo-heading">WooCommerce synchronization</h2><p>Not implemented in Phase 2</p><small>No connection, credential, upload, or synchronization control is available in this release.</small></div>
-    <span class="status-badge">Unavailable</span>
+  <section class="workspace-panel settings-panel" aria-labelledby="settings-woo-heading">
+    <div class="panel-heading"><div><p class="eyebrow">Read-only integration</p><h2 id="settings-woo-heading">WooCommerce connection</h2></div><span class="status-badge {{ 'status-healthy' if workspace.woocommerce.configured else '' }}">{{ 'Configured' if workspace.woocommerce.configured else 'Not configured' }}</span></div>
+    <dl class="settings-definition-list"><div><dt>Store URL</dt><dd>{{ 'Configured' if workspace.woocommerce.store_url_configured else 'Not configured' }}</dd></div><div><dt>Consumer Key</dt><dd>{{ 'Configured' if workspace.woocommerce.consumer_key_configured else 'Not configured' }}</dd></div><div><dt>Consumer Secret</dt><dd>{{ 'Configured' if workspace.woocommerce.consumer_secret_configured else 'Not configured' }}</dd></div><div><dt>Configuration source</dt><dd>{{ workspace.woocommerce.configuration_source }}</dd></div><div><dt>Last result</dt><dd>{{ workspace.woocommerce.last_result|replace('_',' ')|title }}</dd></div><div><dt>Selected namespace</dt><dd>{{ workspace.woocommerce.selected_namespace }}</dd></div><div><dt>Woo writes</dt><dd>Disabled for this milestone</dd></div></dl>
+    <a class="btn btn-ghost btn-sm" href="{{ url_for('main.woocommerce') }}">Open WooCommerce connection</a>
   </section>
 </div>
 {% endblock %}

@@ -32,6 +32,7 @@ TYPE_LABELS = {
     "intake_metadata_save": "Catalogue Intake — Save Metadata",
     "intake_catalogue_handoff": "Catalogue Intake — Catalogue Handoff",
     "intake_structured_import": "Catalogue Intake — Import Structured Folder",
+    "woo_connection_test": "WooCommerce Connection Test",
 }
 SCAN_MODES = (
     {
@@ -158,7 +159,7 @@ def operation_view(row, *, redaction_paths=None):
         "warning_groups": warning_view["groups"],
         "blocking_count": blocking_count(active_summary, row=row),
         "error_count": max(int((live or {}).get("counts", {}).get("failures", 0) or 0), row.products_failed + int(bool(row.error))),
-        "scope": scope, "scope_label": source or scope.get("sku") or "Catalogue",
+        "scope": scope, "scope_label": source or scope.get("sku") or scope.get("store_hostname") or "Catalogue",
         "recovery_state": row.recovery_state or "none", "recoverable": row.recovery_state not in (None, "none"),
         "marker_state": row.marker_state, "error": redact_diagnostic(row.error, paths=redaction_paths, limit=1000) if row.error else None,
         "discord": _discord_view(row.id, row), "live": live,
@@ -438,4 +439,5 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
         "timeline": timeline, "related_products": list(related_products.values()),
         "related_collections": list(related_collections.values()), "retry_mode": retry_mode,
         "cancellation_supported": False, "intake": intake,
+        "woo_connection": view["summary"] if row.operation_type == "woo_connection_test" else None,
     }

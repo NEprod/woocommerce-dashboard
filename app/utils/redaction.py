@@ -20,6 +20,11 @@ _DISCORD_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _BEARER_PATTERN = re.compile(r"\bBearer\s+[^\s,;]+", re.IGNORECASE)
+_BASIC_PATTERN = re.compile(r"\bBasic\s+[^\s,;]+", re.IGNORECASE)
+_WOO_TOKEN_PATTERN = re.compile(r"(?<![A-Za-z0-9_])(?:ck|cs)_[A-Za-z0-9_-]{8,}", re.IGNORECASE)
+_SENSITIVE_QUERY_PATTERN = re.compile(
+    r"(?i)([?&](?:consumer_key|consumer_secret|oauth_consumer_key|oauth_signature|oauth_token|access_token)=)[^&#\s]+"
+)
 _ASSIGNMENT_PATTERN = re.compile(
     r"\b(consumer[_-]?(?:key|secret)|api[_-]?key|access[_-]?token|"
     r"refresh[_-]?token|session[_-]?secret|client[_-]?secret|token|password|"
@@ -34,6 +39,11 @@ _QUOTED_ASSIGNMENT_PATTERN = re.compile(
 _POSIX_HOME_PATTERN = re.compile(r"(?<![\w.-])/(?:Users|home)/[^/\s]+")
 _WINDOWS_HOME_PATTERN = re.compile(
     r"(?i)(?<![\w.-])[A-Z]:\\Users\\[^\\\s]+"
+)
+_RUNTIME_SECRET_NAMES = (
+    "SECRET_KEY", "WOO_CONSUMER_KEY", "WOO_CONSUMER_SECRET",
+    "DISCORD_WEBHOOK_SCANS_INFO", "DISCORD_WEBHOOK_SCANS_ERRORS",
+    "DISCORD_WEBHOOK_EDITS", "DISCORD_WEBHOOK_OVERRIDES", "DISCORD_WEBHOOK_INGEST",
 )
 
 
@@ -52,6 +62,10 @@ def redact_diagnostic(value, *, paths=None, limit: int | None = None) -> str:
     """Redact credentials and sensitive path prefixes while keeping context."""
 
     text = str(value)
+    for name in _RUNTIME_SECRET_NAMES:
+        secret = os.environ.get(name, "")
+        if len(secret) >= 8:
+            text = text.replace(secret, f"[REDACTED_{name}]")
     for prefix, label in _normalized_paths(paths):
         text = text.replace(prefix, label)
     text = _DISCORD_PATTERN.sub("[REDACTED_WEBHOOK]", text)
@@ -60,6 +74,9 @@ def redact_diagnostic(value, *, paths=None, limit: int | None = None) -> str:
         lambda match: f"{match.group(2)}: [REDACTED]", text
     )
     text = _BEARER_PATTERN.sub("Bearer [REDACTED]", text)
+    text = _BASIC_PATTERN.sub("Basic [REDACTED]", text)
+    text = _SENSITIVE_QUERY_PATTERN.sub(lambda match: f"{match.group(1)}[REDACTED]", text)
+    text = _WOO_TOKEN_PATTERN.sub("[REDACTED_WOO_CREDENTIAL]", text)
     text = _QUOTED_ASSIGNMENT_PATTERN.sub(
         lambda match: f"{match.group(2)}=[REDACTED]", text
     )

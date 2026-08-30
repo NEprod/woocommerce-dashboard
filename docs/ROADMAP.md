@@ -31,7 +31,10 @@
   complete scanner-aware validation and a digest-protected, copy-only catalogue
   handoff using hidden staging, safe replacement rollback, preserved Prepared
   source, and an explicitly separate manual Append Scan.
-- **Phase 3 — Read-only WooCommerce mapping and comparison:** planned.
+- **Phase 3 — WooCommerce integration:** Milestone 1 implements environment-only
+  credentials, secure read-only API discovery, capability auditing, and bounded
+  health history. Mapping, comparison, publishing, relationships, and media
+  synchronization remain later milestones.
 - **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.
 

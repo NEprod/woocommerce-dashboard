@@ -166,10 +166,11 @@ def test_settings_reports_missing_output_without_showing_path(settings_client, s
     assert missing not in html
 
 
-def test_settings_marks_woo_sync_as_future_without_connection_claim(settings_client):
+def test_settings_reports_safe_read_only_woo_connection_state(settings_client):
     html = settings_client.get("/settings").get_data(as_text=True)
-    assert "WooCommerce synchronization" in html
-    assert "Not implemented in Phase 2" in html
+    assert "WooCommerce connection" in html
+    assert "Woo writes" in html
+    assert "Disabled for this milestone" in html
     assert "WooCommerce connected" not in html
     assert "Woo credentials" not in html
 

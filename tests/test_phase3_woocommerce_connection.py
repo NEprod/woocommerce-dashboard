@@ -1,0 +1,388 @@
+import json
+from pathlib import Path
+
+import pytest
+import requests
+
+from app import create_app, db
+from app.models import CatalogueOperation, Settings, User
+from app.utils.operation_control import reset_operation_control_for_tests
+from app.utils.redaction import redact_diagnostic
+from app.woocommerce_connection import (
+    MAX_RESPONSE_BYTES,
+    ReadOnlyWooClient,
+    WooConfiguration,
+    WooConnectionError,
+    execute_connection_test,
+    normalize_store_url,
+    run_connection_discovery,
+)
+from config import Config
+
+
+ROOT = Path(__file__).resolve().parents[1]
+KEY = "ck_" + "k" * 40
+SECRET = "cs_" + "s" * 40
+
+
+class FakeResponse:
+    def __init__(self, status=200, payload=None, *, headers=None, raw=None):
+        self.status_code = status
+        self.headers = headers or {}
+        self.encoding = "utf-8"
+        self._raw = raw if raw is not None else json.dumps(payload).encode()
+
+    def iter_content(self, chunk_size=65536):
+        for offset in range(0, len(self._raw), chunk_size):
+            yield self._raw[offset:offset + chunk_size]
+
+
+def _rest_index():
+    route = lambda methods: {"endpoints": [{"methods": methods, "args": {"consumer_secret": {"description": "must never render"}}}]}
+    return {
+        "name": "Fictional Shop", "home": "https://shop.example.test/",
+        "namespaces": ["wp/v2", "wc/v1", "wc/v3", "unrelated/v9"],
+        "routes": {
+            "/wc/v3/products": route(["GET", "POST"]),
+            "/wc/v3/products/(?P<product_id>[\\d]+)/variations": route(["GET", "POST", "PUT", "DELETE"]),
+            "/wc/v3/products/categories": route(["GET", "POST"]),
+            "/wc/v3/products/tags": route(["GET", "POST"]),
+            "/wc/v3/products/attributes": route(["GET", "POST"]),
+            "/wc/v3/products/attributes/(?P<attribute_id>[\\d]+)/terms": route(["GET", "POST"]),
+            "/wp/v2/media": route(["GET", "POST", "DELETE"]),
+            "/wc/v3/orders": route(["GET", "POST"]),
+            "/wc/v3/customers": route(["GET", "POST"]),
+            "/wc/v3/system_status": route(["GET"]),
+        },
+    }
+
+
+class FakeSession:
+    def __init__(self, *, optional_forbidden=False, required_status=None, index=None):
+        self.calls = []
+        self.optional_forbidden = optional_forbidden
+        self.required_status = required_status
+        self.index = index
+
+    def request(self, method, url, **kwargs):
+        self.calls.append((method, url, kwargs))
+        if url.endswith("/wp-json/"):
+            return FakeResponse(payload=self.index if self.index is not None else _rest_index())
+        if self.required_status and any(value in url for value in ("/products?", "/products/categories?", "/products/tags?", "/products/attributes?")):
+            return FakeResponse(status=self.required_status, payload={"code": "controlled"})
+        if self.optional_forbidden and any(value in url for value in ("/orders?", "/customers?")):
+            return FakeResponse(status=403, payload={"code": "forbidden"})
+        if "/products?" in url:
+            return FakeResponse(payload=[{"id": 44, "name": "Do not persist me"}])
+        if "/products/attributes?" in url:
+            return FakeResponse(payload=[{"id": 8}])
+        if "/system_status?" in url:
+            return FakeResponse(payload={"environment": {"version": "9.9", "wp_version": "6.8", "site_timezone": "Europe/London"}, "settings": {"currency": "GBP"}})
+        return FakeResponse(payload=[])
+
+
+@pytest.fixture
+def woo_app(tmp_path, monkeypatch):
+    instance = tmp_path / "instance"
+    catalogue = tmp_path / "catalogue"
+    output = tmp_path / "output"
+    for path in (instance, catalogue, output):
+        path.mkdir()
+    original_uri = Config.SQLALCHEMY_DATABASE_URI
+    Config.SQLALCHEMY_DATABASE_URI = f"sqlite:///{instance / 'site.db'}"
+    monkeypatch.setenv("WOO_STORE_URL", "https://shop.example.test/wp-json/")
+    monkeypatch.setenv("WOO_CONSUMER_KEY", KEY)
+    monkeypatch.setenv("WOO_CONSUMER_SECRET", SECRET)
+    try:
+        app = create_app()
+        app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+        with app.app_context():
+            db.session.add(User(email="woo@example.test", username="woo-admin", password="unused"))
+            db.session.add(Settings(product_folder=str(catalogue), output_folder=str(output), url_prefix="https://uploads.invalid/"))
+            db.session.commit()
+        yield app
+    finally:
+        with app.app_context():
+            db.session.remove()
+        reset_operation_control_for_tests()
+        Config.SQLALCHEMY_DATABASE_URI = original_uri
+
+
+def _client(app):
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session["_user_id"] = "1"
+        session["_fresh"] = True
+    return client
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("https://shop.example.test/", "https://shop.example.test"),
+    ("https://SHOP.example.test/base/wp-json/wc/v3", "https://shop.example.test/base"),
+])
+def test_store_url_normalisation(value, expected):
+    assert normalize_store_url(value) == expected
+
+
+@pytest.mark.parametrize("value,category", [
+    ("http://shop.example.test", "invalid_scheme"),
+    ("ftp://shop.example.test", "invalid_scheme"),
+    ("https://user:password@shop.example.test", "embedded_credentials"),
+    ("https://", "invalid_url"),
+    ("https://shop.example.test/?consumer_secret=value", "invalid_url"),
+])
+def test_store_url_rejects_unsafe_values(value, category):
+    with pytest.raises(WooConnectionError) as caught:
+        normalize_store_url(value)
+    assert caught.value.category == category
+
+
+def test_read_only_client_rejects_mutating_methods():
+    client = ReadOnlyWooClient(WooConfiguration("https://shop.example.test", KEY, SECRET), session=FakeSession())
+    for method in ("POST", "PUT", "PATCH", "DELETE"):
+        with pytest.raises(WooConnectionError, match="read-only"):
+            client.request_json(method, "https://shop.example.test/wp-json/wc/v3/products", authenticated=True)
+    assert client.request_count == 0
+
+
+def test_cross_origin_redirect_is_blocked_without_forwarding_credentials():
+    class RedirectSession:
+        def __init__(self): self.calls = []
+        def request(self, method, url, **kwargs):
+            self.calls.append((url, kwargs))
+            return FakeResponse(302, {}, headers={"Location": "https://attacker.invalid/steal"})
+    session = RedirectSession()
+    client = ReadOnlyWooClient(WooConfiguration("https://shop.example.test", KEY, SECRET), session=session)
+    with pytest.raises(WooConnectionError) as caught:
+        client.request_json("GET", "https://shop.example.test/private", authenticated=True)
+    assert caught.value.category == "cross_origin_redirect"
+    assert len(session.calls) == 1
+
+
+def test_same_origin_redirect_is_followed_with_a_strict_limit():
+    class RedirectSession:
+        def __init__(self): self.count = 0
+        def request(self, method, url, **kwargs):
+            self.count += 1
+            return FakeResponse(302, {}, headers={"Location": "/next"}) if self.count == 1 else FakeResponse(payload={"ok": True})
+    session = RedirectSession()
+    client = ReadOnlyWooClient(WooConfiguration("https://shop.example.test", KEY, SECRET), session=session)
+    assert client.request_json("GET", "https://shop.example.test/start", authenticated=True)[0] == {"ok": True}
+    assert session.count == 2
+
+
+def test_response_size_and_malformed_json_are_controlled():
+    class ResponseSession:
+        def __init__(self, response): self.response = response
+        def request(self, *args, **kwargs): return self.response
+    config = WooConfiguration("https://shop.example.test", KEY, SECRET)
+    with pytest.raises(WooConnectionError) as large:
+        ReadOnlyWooClient(config, session=ResponseSession(FakeResponse(raw=b"x" * (MAX_RESPONSE_BYTES + 1)))).request_json("GET", "https://shop.example.test/data")
+    assert large.value.category == "response_too_large"
+    with pytest.raises(WooConnectionError) as malformed:
+        ReadOnlyWooClient(config, session=ResponseSession(FakeResponse(raw=b"not-json"))).request_json("GET", "https://shop.example.test/data")
+    assert malformed.value.category == "malformed_json"
+
+
+def test_discovery_verifies_required_reads_and_never_mutates():
+    session = FakeSession()
+    result = run_connection_discovery(WooConfiguration("https://shop.example.test", KEY, SECRET), session=session)
+    assert result["state"] in {"connected", "connected_with_limitations"}
+    assert result["selected_namespace"] == "wc/v3"
+    assert result["required_verified"] == result["required_total"] == 4
+    assert result["wordpress_version"] == "6.8"
+    assert result["woocommerce_version"] == "9.9"
+    products = next(item for item in result["capabilities"] if item["name"] == "Products")
+    assert products["read_state"] == "Read access verified"
+    assert "POST" in products["advertised_write_methods"]
+    assert products["write_permission"] == "Not verified"
+    assert {method for method, _, _ in session.calls} == {"GET"}
+    assert all(call[2]["auth"] == (KEY, SECRET) for call in session.calls[1:])
+    assert session.calls[0][2]["auth"] is None
+
+
+def test_optional_forbidden_resources_are_limitations_not_required_failure():
+    result = run_connection_discovery(WooConfiguration("https://shop.example.test", KEY, SECRET), session=FakeSession(optional_forbidden=True))
+    assert result["state"] == "connected_with_limitations"
+    assert result["optional_limitations"] >= 2
+    assert next(item for item in result["capabilities"] if item["name"] == "Orders")["read_state"] == "Forbidden"
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 429, 500, 502, 503, 504])
+def test_required_resource_http_failures_are_controlled(status):
+    with pytest.raises(WooConnectionError) as caught:
+        run_connection_discovery(WooConfiguration("https://shop.example.test", KEY, SECRET), session=FakeSession(required_status=status))
+    assert caught.value.category == "required_capability_failed"
+    assert KEY not in caught.value.message and SECRET not in caught.value.message
+
+
+def test_wordpress_without_woo_namespace_is_controlled():
+    index = _rest_index()
+    index["namespaces"] = ["wp/v2", "custom/v1"]
+    with pytest.raises(WooConnectionError) as caught:
+        run_connection_discovery(WooConfiguration("https://shop.example.test", KEY, SECRET), session=FakeSession(index=index))
+    assert caught.value.category == "woo_namespace_absent"
+
+
+@pytest.mark.parametrize("exception,category", [
+    (requests.ConnectTimeout(), "connect_timeout"),
+    (requests.ReadTimeout(), "read_timeout"),
+    (requests.exceptions.SSLError(), "tls_failure"),
+    (requests.ConnectionError("DNS name resolution failed"), "dns_failure"),
+    (requests.ConnectionError("connection refused"), "connection_failed"),
+])
+def test_transport_failures_are_controlled(exception, category):
+    class FailingSession:
+        def request(self, *args, **kwargs): raise exception
+    client = ReadOnlyWooClient(WooConfiguration("https://shop.example.test", KEY, SECRET), session=FailingSession())
+    with pytest.raises(WooConnectionError) as caught:
+        client.request_json("GET", "https://shop.example.test/wp-json/")
+    assert caught.value.category == category
+
+
+def test_workspace_requires_authentication_and_page_view_never_contacts_store(woo_app, monkeypatch):
+    monkeypatch.setattr(requests, "Session", lambda: (_ for _ in ()).throw(AssertionError("page view contacted store")))
+    assert woo_app.test_client().get("/woocommerce").status_code in {302, 401}
+    html = _client(woo_app).get("/woocommerce").get_data(as_text=True)
+    assert "WooCommerce Connection" in html
+    assert "Test Connection" in html
+    assert "Read-only discovery" in html
+    assert KEY not in html and SECRET not in html
+    assert 'aria-label="Primary navigation"' in html
+    assert 'aria-current="page"' in html
+    assert "API credentials" in html
+
+
+def test_not_configured_workspace_gives_environment_setup_guidance(woo_app, monkeypatch):
+    for name in ("WOO_STORE_URL", "WOO_CONSUMER_KEY", "WOO_CONSUMER_SECRET"):
+        monkeypatch.delenv(name, raising=False)
+    html = _client(woo_app).get("/woocommerce").get_data(as_text=True)
+    assert "Not configured" in html
+    assert "Configure the runtime environment" in html
+    assert all(name in html for name in ("WOO_STORE_URL", "WOO_CONSUMER_KEY", "WOO_CONSUMER_SECRET"))
+    assert 'disabled aria-disabled="true"' in html
+
+
+def test_connection_action_records_one_bounded_operation_and_safe_history(woo_app, monkeypatch):
+    from app import woocommerce_connection
+    session = FakeSession(optional_forbidden=True)
+    monkeypatch.setattr(woocommerce_connection.requests, "Session", lambda: session)
+    response = _client(woo_app).post("/woocommerce/test", follow_redirects=False)
+    assert response.status_code == 302
+    with woo_app.app_context():
+        rows = CatalogueOperation.query.filter_by(operation_type="woo_connection_test").all()
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status == "partial"
+        assert response.headers["Location"].endswith(f"/operations/{row.id}")
+        persisted = row.scope
+        assert KEY not in persisted and SECRET not in persisted
+        assert "routes" not in persisted and "consumer_secret" not in persisted
+    html = _client(woo_app).get(response.headers["Location"]).get_data(as_text=True)
+    assert "Connection health" in html
+    assert "No mutating request was issued" in html
+    assert KEY not in html and SECRET not in html
+    status_json = _client(woo_app).get(f"/api/operations/{row.id}/status").get_data(as_text=True)
+    assert KEY not in status_json and SECRET not in status_json
+
+
+def test_existing_running_operation_blocks_duplicate_connection_test(woo_app):
+    with woo_app.app_context():
+        existing = CatalogueOperation(id="a" * 32, operation_type="woo_connection_test", status="running", scope="{}")
+        db.session.add(existing)
+        db.session.commit()
+    response = _client(woo_app).post("/woocommerce/test", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/operations/" + "a" * 32)
+    with woo_app.app_context():
+        assert CatalogueOperation.query.filter_by(operation_type="woo_connection_test").count() == 1
+
+
+def test_success_and_failure_operation_details_are_safe(woo_app, monkeypatch):
+    from app import woocommerce_connection
+    notifications = []
+    monkeypatch.setattr(woocommerce_connection, "notify_woo_connection_completed", lambda summary, **kwargs: notifications.append(("success", summary)) or (True, "sent"))
+    monkeypatch.setattr(woocommerce_connection, "notify_woo_connection_failed", lambda summary, **kwargs: notifications.append(("failure", summary)) or (True, "sent"))
+    with woo_app.app_context():
+        success_id = execute_connection_test(session=FakeSession())
+        failure_id = execute_connection_test(session=FakeSession(required_status=401))
+        assert db.session.get(CatalogueOperation, success_id).status == "succeeded"
+        assert db.session.get(CatalogueOperation, failure_id).status == "failed"
+    success_html = _client(woo_app).get(f"/operations/{success_id}").get_data(as_text=True)
+    failure_html = _client(woo_app).get(f"/operations/{failure_id}").get_data(as_text=True)
+    assert "Connection health" in success_html and "Read access" not in success_html
+    assert "Required Capability Failed" in failure_html
+    assert "No mutating request was issued" in success_html
+    assert KEY not in success_html + failure_html and SECRET not in success_html + failure_html
+    assert [kind for kind, _ in notifications] == ["success", "failure"]
+    assert KEY not in json.dumps(notifications) and SECRET not in json.dumps(notifications)
+
+
+def test_capability_workspace_is_bounded_expandable_and_contains_no_raw_index(woo_app):
+    with woo_app.app_context():
+        execute_connection_test(session=FakeSession())
+    html = _client(woo_app).get("/woocommerce").get_data(as_text=True)
+    assert "API capabilities" in html
+    assert "Read access verified" in html
+    assert "Credential write permission" in html and "Not verified" in html
+    assert "Write methods advertised" not in html  # table uses the shorter, equivalent heading
+    assert "Advertised writes" in html
+    assert "consumer_secret" not in html and "must never render" not in html
+    assert html.count("<tr>") <= 12
+
+
+def test_transport_policy_uses_tls_bounded_timeouts_and_minimal_pages():
+    session = FakeSession()
+    run_connection_discovery(WooConfiguration("https://shop.example.test", KEY, SECRET), session=session)
+    assert len(session.calls) <= 11
+    for method, url, kwargs in session.calls:
+        assert method == "GET"
+        assert kwargs["verify"] is True
+        assert kwargs["timeout"] == (3.05, 8)
+        assert kwargs["allow_redirects"] is False
+        if not url.endswith("/wp-json/"):
+            assert "per_page=1" in url
+
+
+def test_woo_workspace_responsive_and_accessible_structure_is_shared(woo_app):
+    html = _client(woo_app).get("/woocommerce").get_data(as_text=True)
+    css = (ROOT / "app" / "static" / "assets" / "css" / "custom.css").read_text()
+    assert html.count("<h1") == 1
+    assert html.count("<main") == 1
+    assert 'aria-label="WooCommerce connection overview"' in html
+    assert 'aria-label="Primary navigation"' in html
+    assert 'aria-label="Mobile primary navigation"' in html
+    assert "@media (max-width: 640px)" in css
+    assert "overflow-x: auto" in css
+
+
+def test_missing_configuration_starts_application_and_records_controlled_failure(woo_app, monkeypatch):
+    monkeypatch.delenv("WOO_CONSUMER_SECRET")
+    operation_id = None
+    with woo_app.app_context():
+        operation_id = execute_connection_test()
+        row = db.session.get(CatalogueOperation, operation_id)
+        assert row.status == "failed"
+        assert "must be configured" in row.error
+
+
+def test_woocommerce_credentials_are_redacted_from_diagnostics():
+    value = f"Authorization: Basic abc Consumer_key={KEY} https://x.test/?consumer_secret={SECRET}&oauth_signature=signed ck_1234567890 cs_1234567890"
+    redacted = redact_diagnostic(value)
+    assert KEY not in redacted and SECRET not in redacted
+    assert "Basic abc" not in redacted
+    assert "oauth_signature=signed" not in redacted
+    assert "ck_1234567890" not in redacted and "cs_1234567890" not in redacted
+
+
+def test_settings_and_unraid_are_safe_and_environment_only(woo_app):
+    html = _client(woo_app).get("/settings").get_data(as_text=True)
+    assert "WooCommerce connection" in html
+    assert "Runtime environment" in html
+    assert "Woo writes" in html and "Disabled for this milestone" in html
+    assert KEY not in html and SECRET not in html
+    xml = (ROOT / "unraid" / "my-woocommerce-dashboard.xml").read_text()
+    for variable in ("WOO_STORE_URL", "WOO_CONSUMER_KEY", "WOO_CONSUMER_SECRET"):
+        assert f'Target="{variable}"' in xml
+    assert xml.count('Mask="true"') >= 3
+    assert KEY not in xml and SECRET not in xml

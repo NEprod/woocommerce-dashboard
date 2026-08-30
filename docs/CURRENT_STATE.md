@@ -1,6 +1,6 @@
 # Current State
 
-This document records the completed Phase 1 (`0.2.3`) catalogue-integrity release, the completed Phase 2 release-candidate baseline, and current Phase 2.5 development. Phase 1 builds on the Phase 0 baseline without changing protected scanner row semantics.
+This document records the completed Phase 1 (`0.2.3`) catalogue-integrity release, the completed Phase 2/2.5 (`0.3.1`) catalogue-management release, and current Phase 3 development. Phase 1 builds on the Phase 0 baseline without changing protected scanner row semantics.
 
 ## Startup and setup
 
@@ -306,7 +306,8 @@ only one catalogue mutation may run; live progress persists independently of the
 browser; Discord delivery detail is not guaranteed across every restart;
 multi-replica mutation execution, WooCommerce synchronisation, image upload or
 conversion, filesystem collection management, confirmed pre-catalogue file mutation,
-and remote media management remain outside Phase 2. Phase 3 has not begun.
+and remote media management remain outside Phase 2. Phase 3 Milestone 1 is
+described below.
 `Product.published` is the normalized projection of that resolved intent; it is
 not evidence that a product currently exists or is published in WooCommerce.
 
@@ -347,8 +348,9 @@ Scanner characterization also confirms that variation modifier sale prices are n
 
 ## Integrations
 
-WooCommerce-compatible rows and future Woo ID columns exist, but there is no
-live WooCommerce or WordPress API client. Optional Discord webhooks can receive
+WooCommerce-compatible rows and future Woo ID columns exist. Phase 3 Milestone
+1 adds a read-only WooCommerce/WordPress REST discovery client, but no publishing
+or remote mutation. Optional Discord webhooks can receive
 scanner start, clean/warning completion, failure, metadata, override, and the
 existing product-ingest events. Delivery uses bounded process-local retry and
 does not alter scanner success. Delivery state is not durable after restart.
@@ -372,4 +374,17 @@ The shared helper requires zero blocking/failure findings, revalidates the
 durable Prepared identity and current stage, and leaves destination validation
 authoritative. Bounded grouped warning details appear on Prepared-result cards,
 Operation Detail, and completed handoff review without changing validation,
-mutation, scanning, or Discord behavior.
+  mutation, scanning, or Discord behavior.
+
+Phase 3 Milestone 1 adds the authenticated `/woocommerce` workspace. Optional
+store URL and API credentials are read exclusively from `WOO_STORE_URL`,
+`WOO_CONSUMER_KEY`, and `WOO_CONSUMER_SECRET`; missing configuration does not
+block startup. Opening the workspace is offline. The explicit Test Connection
+action creates one retained operation, discovers the public WordPress REST index,
+selects the highest advertised `wc/vN` namespace, and performs minimal bounded
+authenticated GET checks for publishing and later resource groups. A central
+request guard rejects mutation, TLS verification is enabled, redirects remain
+same-origin, and raw indexes/responses are never retained. Verified reads,
+advertised write methods, and unverified credential write permission are shown
+as separate concepts. Woo publishing, upload, synchronization, relationships,
+orders, and remote mutation remain unimplemented.

@@ -125,9 +125,25 @@ need renaming. Keep the ingest webhook empty if per-product messages would be
 noisy. Treat every webhook as a secret. See
 [Scanner, Operations, and Discord](SCANNER_OPERATIONS.md).
 
+WooCommerce connection discovery is optional and disabled until all three
+runtime variables are supplied:
+
+| Field label | Variable | Type | Required | Secret |
+|---|---|---|---|---|
+| WooCommerce Store URL | `WOO_STORE_URL` | Variable | No | No |
+| WooCommerce Consumer Key | `WOO_CONSUMER_KEY` | Masked variable | No | Yes |
+| WooCommerce Consumer Secret | `WOO_CONSUMER_SECRET` | Masked variable | No | Yes |
+
+Use an HTTPS store origin such as `https://shop.example.com`; do not include
+credentials or query strings. Values are supplied only to the container runtime
+and require a restart after changes. The application never writes a plaintext
+`.env` under `/app/instance` and never saves Woo credentials to SQLite. The
+authenticated WooCommerce workspace issues bounded read-only discovery requests;
+it does not publish or upload. See [WooCommerce Connection](WOOCOMMERCE_CONNECTION.md).
+
 The authenticated `/settings` page presents only safe availability and
 configured/not-configured states. It never renders mount paths, webhook values,
-`SECRET_KEY`, or an environment dump. Environment and Discord configuration
+`SECRET_KEY`, WooCommerce credentials, or an environment dump. Environment and Discord configuration
 remain owned by the Unraid container template; restart the container after a
 change. The page is diagnostic and read-only, not a secret editor.
 

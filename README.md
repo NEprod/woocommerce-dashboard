@@ -8,8 +8,10 @@ WooCommerce Dashboard is a local Flask application that scans a structured produ
 
 Phase 0 (`0.1.0`) established the secure, documented, tested, and containerised baseline. Phase 1 (`0.2.3`) makes SQLite a complete, recoverable projection of resolved scanner output while preserving the protected scanner contract and adds a reusable Unraid installation template.
 
-Phase 2 development takes place on `develop`. Its first milestone introduces a
-neutral, responsive WooCommerce Dashboard shell with centralized design tokens,
+Phase 2 and the Catalogue Intake workflow are released in `v0.3.1`. Phase 3
+development takes place on `develop`; its first milestone adds a secure,
+read-only WooCommerce connection and API capability workspace. The established
+responsive WooCommerce Dashboard shell uses centralized design tokens,
 local project-owned UI assets, accessible grouped navigation, and explicit safe
 pages for workspaces that are not available yet. The approved design-system
 reconciliation makes `docs/DESIGN_SYSTEM.md` authoritative: warm-white canvas
@@ -57,8 +59,9 @@ authoritative shared `product_info.json`. Metadata completion remains
 - Image preparation and SQLite ingestion.
 - Single-process catalogue operation locking and persistent operation history.
 - A schema-backed product JSON editor, in-app metadata reference/templates, and Discord scan/ingest notifications.
+- Environment-only WooCommerce credentials with bounded, read-only REST discovery and capability health history.
 
-The catalogue projection retains every emitted scanner row, exact collection relationships, queryable taxonomy/publication metadata, and portable source provenance. Ordinary append/update ingestion commits each complete parent graph as one SQLite transaction, with atomic marker/index replacement and recoverable pending identities across filesystem/database failures. Emitted variation sets reconcile in place, and only explicitly exhaustive successful scopes can mark catalogue products missing. Shared metadata edits use an exhaustive collection-limited refresh. Setup distinguishes new catalogues from existing marker identities and offers identity-preserving reconstruction without turning an empty database into a full SKU reset. The complete `product_info.json` contract has runtime schemas, fictional examples, editor-safe validation, templates, and an in-app reference. Live WooCommerce integration remains outside Phase 1. See [Current State](docs/CURRENT_STATE.md).
+The catalogue projection retains every emitted scanner row, exact collection relationships, queryable taxonomy/publication metadata, and portable source provenance. Ordinary append/update ingestion commits each complete parent graph as one SQLite transaction, with atomic marker/index replacement and recoverable pending identities across filesystem/database failures. Emitted variation sets reconcile in place, and only explicitly exhaustive successful scopes can mark catalogue products missing. Shared metadata edits use an exhaustive collection-limited refresh. Setup distinguishes new catalogues from existing marker identities and offers identity-preserving reconstruction without turning an empty database into a full SKU reset. The complete `product_info.json` contract has runtime schemas, fictional examples, editor-safe validation, templates, and an in-app reference. Phase 3 connection discovery is read-only; publishing and remote mutation remain unimplemented. See [Current State](docs/CURRENT_STATE.md).
 
 ## Local development
 
@@ -119,4 +122,5 @@ Suggested Docker Hub overview: “WooCommerce Dashboard is a self-hosted Flask a
 - [Development](docs/DEVELOPMENT.md)
 - [Docker](docs/DOCKER.md)
 - [Unraid](docs/UNRAID.md)
+- [WooCommerce Connection](docs/WOOCOMMERCE_CONNECTION.md)
 - [Security](docs/SECURITY.md)

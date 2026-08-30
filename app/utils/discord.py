@@ -251,6 +251,39 @@ def notify_scan_failed(mode, error_text, *, summary=None, elapsed_text=None, ope
     return send_discord_message(embeds=[embed], channels=["scans_errors"])
 
 
+def notify_woo_connection_completed(summary, *, operation_id):
+    limitations = max(0, int(summary.get("optional_limitations", 0) or 0))
+    fields = [
+        {"name": "Store host", "value": _truncate(summary.get("hostname") or "Unavailable"), "inline": True},
+        {"name": "Result", "value": "Connected with limitations" if limitations else "Connected", "inline": True},
+        {"name": "WordPress REST", "value": _truncate(summary.get("wordpress_rest") or "Unavailable"), "inline": True},
+        {"name": "WooCommerce REST", "value": _truncate(summary.get("woo_rest") or "Unavailable"), "inline": True},
+        {"name": "Authentication", "value": _truncate(summary.get("authentication") or "Unavailable"), "inline": True},
+        {"name": "API namespace", "value": _truncate(summary.get("selected_namespace") or "Unavailable"), "inline": True},
+        {"name": "Required reads", "value": f"{int(summary.get('required_verified', 0) or 0)} / {int(summary.get('required_total', 0) or 0)}", "inline": True},
+        {"name": "Limitations", "value": str(limitations), "inline": True},
+    ]
+    embed = build_embed(
+        "WooCommerce Connection Verified with Limitations" if limitations else "WooCommerce Connection Verified",
+        f"Operation: `{_truncate(operation_id)}`\nRead-only API discovery completed. No write was attempted.",
+        COLORS["warn"] if limitations else COLORS["success"], fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_info"])
+
+
+def notify_woo_connection_failed(summary, *, operation_id):
+    fields = [
+        {"name": "Category", "value": _truncate(summary.get("failure_category") or "connection_failed"), "inline": True},
+        {"name": "Operation", "value": f"`{_truncate(operation_id)}`", "inline": True},
+    ]
+    embed = build_embed(
+        "WooCommerce Connection Failed",
+        f"Read-only discovery failed safely.\nReason: `{_truncate(summary.get('failure_reason') or 'Connection failed')}`",
+        COLORS["error"], fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_errors"])
+
+
 def notify_intake_grouping_completed(
     *, source_name, result_name, groups, copied_images, warnings, elapsed_text, operation_id
 ):

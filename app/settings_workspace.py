@@ -100,6 +100,8 @@ def build_settings_workspace():
     readiness = scanner_readiness()
     database = _database_state()
     discord = configuration_summary()
+    from app.woocommerce_connection import build_woocommerce_workspace
+    woo = build_woocommerce_workspace()
     catalogue_ok = _directory_state(settings.product_folder if settings else None)
     output_ok = _directory_state(settings.output_folder if settings else None, writable=True)
     app_data_ok = _directory_state(current_app.instance_path, writable=True)
@@ -160,6 +162,15 @@ def build_settings_workspace():
             "channels": channel_states,
             "display_name_state": discord["display_name_state"],
             "avatar_state": discord["avatar_state"],
+        },
+        "woocommerce": {
+            "configured": woo["configuration"]["configured"],
+            "store_url_configured": woo["configuration"]["store_url_configured"],
+            "consumer_key_configured": woo["configuration"]["consumer_key_configured"],
+            "consumer_secret_configured": woo["configuration"]["consumer_secret_configured"],
+            "configuration_source": woo["configuration"]["configuration_source"],
+            "last_result": woo["health"]["state"],
+            "selected_namespace": woo["health"]["latest"].get("selected_namespace") or "Not tested",
         },
         "retention": {
             "routine_count": ROUTINE_OPERATION_COUNT,

@@ -22,6 +22,7 @@ ALLOWED_OPERATION_TYPES = {
     "full",
     "reconstruction",
     "intake_catalogue_handoff",
+    "woo_connection_test",
 }
 FINAL_STATUSES = {"succeeded", "partial", "failed", "interrupted"}
 

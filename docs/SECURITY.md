@@ -9,7 +9,13 @@ This is a personal project baseline. Report suspected vulnerabilities privately 
 - Never commit `instance/site.db` or another database; it contains users and password hashes.
 - Never commit a real catalogue, `.scanned`, `.scanned.pending`, `.update`, `sku_index.json`, generated output, backups, or logs.
 - Protect Discord webhooks as credentials. Rotate any accidentally exposed webhook or token immediately.
-- Future WooCommerce consumer keys and WordPress credentials must remain runtime secrets.
+- WooCommerce Consumer Keys and Consumer Secrets are runtime-only secrets. They
+  must not be rendered, persisted, logged, included in operation payloads, or
+  sent to Discord. The Phase 3 connection client uses HTTP Basic authentication
+  only for same-origin HTTPS GET requests and never query-string credentials.
+- WooCommerce discovery rejects mutating methods, cross-origin redirects,
+  oversized responses, malformed URLs, and unbounded redirects. TLS certificate
+  verification remains enabled.
 - Do not expose Flask debug mode publicly.
 - Production refuses a missing or recognized placeholder `SECRET_KEY`. Supply a
   stable long random value only through the runtime environment; never generate

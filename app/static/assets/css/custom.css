@@ -936,6 +936,15 @@ code { color: var(--color-lime-ink); font-family: var(--font-mono); }
 .intake-warning-card a { margin-left: auto; font-weight: 700; }
 .intake-warning-card.is-compact { margin-bottom: 0; font-size: .8rem; }
 .operation-warning-details > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 700; }
+
+[data-woo-capabilities] > summary { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); cursor: pointer; }
+[data-woo-capabilities][open] > summary { margin-bottom: var(--space-5); }
+[data-woo-capabilities] th small { display: block; color: var(--color-text-muted); font-weight: 500; }
+
+@media (max-width: 640px) {
+  [data-woo-capabilities] .table-responsive { overflow-x: auto; overscroll-behavior-inline: contain; }
+  [data-woo-capabilities] table { min-width: 720px; }
+}
 .warning-group-list { display: grid; gap: var(--space-3); }
 .warning-group-list article { padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-soft); }
 .warning-group-list h3, .warning-group-list p { margin-top: 0; }

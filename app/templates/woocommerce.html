@@ -1,0 +1,68 @@
+{% extends 'layouts/base.html' %}
+{% from 'includes/icons.html' import icon %}
+{% block title %}WooCommerce Connection{% endblock %}
+{% block content %}
+<section class="page-heading page-heading-actions">
+  <div><p class="eyebrow">Integrations</p><h1>WooCommerce Connection</h1><p>Verify secure read access and discover the store capabilities needed by later Phase 3 milestones.</p></div>
+  <form method="post" action="{{ url_for('main.woocommerce_test') }}" data-woo-test-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-accent" type="submit"{% if not workspace.configuration.configured or workspace.health.state == 'testing' %} disabled aria-disabled="true"{% endif %}>{{ 'Testing…' if workspace.health.state == 'testing' else 'Test Connection' }}</button>
+  </form>
+</section>
+
+<div class="settings-guidance" role="note">
+  <div aria-hidden="true">i</div>
+  <p><strong>Read-only discovery</strong><span>This milestone issues bounded GET requests only. It does not publish products, upload media, change settings, or verify credential write permission.</span></p>
+</div>
+
+{% set state = workspace.health.state %}
+<section class="settings-summary-grid" aria-label="WooCommerce connection overview">
+  <article><span>Overall state</span><strong>{{ {'not_configured':'Not configured','not_tested':'Not tested','testing':'Testing','connected':'Connected','connected_with_limitations':'Connected with limitations','failed':'Failed'}.get(state, state|replace('_',' ')|title) }}</strong><small>Latest recorded health</small></article>
+  <article><span>Store URL</span><strong>{{ 'Configured' if workspace.configuration.store_url_configured else 'Not configured' }}</strong><small>Runtime environment</small></article>
+  <article><span>API credentials</span><strong>{{ 'Configured' if workspace.configuration.consumer_key_configured and workspace.configuration.consumer_secret_configured else 'Incomplete' }}</strong><small>Values are never displayed</small></article>
+  <article><span>Woo writes</span><strong>Disabled</strong><small>Deferred to a later milestone</small></article>
+</section>
+
+{% if not workspace.configuration.configured %}
+<section class="workspace-panel" aria-labelledby="woo-setup-heading">
+  <p class="eyebrow">Setup required</p><h2 id="woo-setup-heading">Configure the runtime environment</h2>
+  <p>Set <code>WOO_STORE_URL</code>, <code>WOO_CONSUMER_KEY</code>, and <code>WOO_CONSUMER_SECRET</code> in Unraid or your container runtime, then restart the container. Credentials are not saved by this application.</p>
+</section>
+{% endif %}
+
+{% set latest = workspace.health.latest %}
+{% if latest %}
+<section class="workspace-panel panel-dark" aria-labelledby="woo-health-heading">
+  <div class="panel-heading"><div><p class="eyebrow">Latest health</p><h2 id="woo-health-heading">Connection result</h2></div><span class="status-badge status-{{ 'succeeded' if state == 'connected' else 'partial' if state == 'connected_with_limitations' else 'failed' }}">{{ state|replace('_',' ')|title }}</span></div>
+  {% if state == 'failed' %}<div class="alert alert-danger" role="alert"><strong>{{ latest.failure_category|default('Connection failed')|replace('_',' ')|title }}</strong><p>{{ latest.failure_reason|default('The connection test did not complete.') }}</p></div>{% else %}
+  <dl class="detail-definition-grid">
+    <div><dt>Store</dt><dd>{{ latest.store_name or 'Not exposed' }}</dd></div><div><dt>Store host</dt><dd>{{ latest.hostname or 'Unavailable' }}</dd></div><div><dt>Store reachability</dt><dd>{{ latest.store_reachability or 'Unavailable' }}</dd></div>
+    <div><dt>TLS/SSL</dt><dd>{{ latest.tls or 'Unavailable' }}</dd></div><div><dt>WordPress REST</dt><dd>{{ latest.wordpress_rest or 'Unavailable' }}</dd></div>
+    <div><dt>WooCommerce REST</dt><dd>{{ latest.woo_rest or 'Unavailable' }}</dd></div><div><dt>Authentication</dt><dd>{{ latest.authentication or 'Unavailable' }}</dd></div>
+    <div><dt>Selected API namespace</dt><dd>{{ latest.selected_namespace or 'Not exposed' }}</dd></div><div><dt>Required resources</dt><dd>{{ latest.required_verified or 0 }} / {{ latest.required_total or 0 }} verified</dd></div>
+    <div><dt>WordPress version</dt><dd>{{ latest.wordpress_version or 'Not exposed' }}</dd></div><div><dt>WooCommerce version</dt><dd>{{ latest.woocommerce_version or 'Not exposed' }}</dd></div>
+    <div><dt>Currency</dt><dd>{{ latest.currency or 'Not exposed' }}</dd></div><div><dt>Timezone</dt><dd>{{ latest.timezone or 'Not exposed' }}</dd></div>
+    <div><dt>Optional limitations</dt><dd>{{ latest.optional_limitations or 0 }}</dd></div><div><dt>Requests</dt><dd>{{ latest.request_count or 0 }}</dd></div>
+    <div><dt>REST index latency</dt><dd>{{ latest.wordpress_latency_ms if latest.wordpress_latency_ms is not none else 'Unavailable' }}{% if latest.wordpress_latency_ms is not none %} ms{% endif %}</dd></div><div><dt>Authenticated API latency</dt><dd>{{ latest.authenticated_latency_ms if latest.authenticated_latency_ms is not none else 'Unavailable' }}{% if latest.authenticated_latency_ms is not none %} ms{% endif %}</dd></div>
+    <div><dt>Total duration</dt><dd>{{ latest.duration_ms if latest.duration_ms is not none else 'Unavailable' }}{% if latest.duration_ms is not none %} ms{% endif %}</dd></div><div><dt>Rate limit</dt><dd>{{ latest.rate_limit or 'Not exposed' }}</dd></div>
+  </dl>{% endif %}
+</section>
+
+{% if latest.capabilities %}
+<details class="workspace-panel" data-woo-capabilities>
+  <summary><strong>API capabilities</strong><span>{{ latest.capabilities|length }} bounded resource checks</span></summary>
+  <div class="table-responsive"><table class="table"><thead><tr><th scope="col">Resource</th><th scope="col">Route</th><th scope="col">Read access</th><th scope="col">Advertised writes</th><th scope="col">Credential write permission</th></tr></thead><tbody>
+  {% for item in latest.capabilities %}<tr><th scope="row">{{ item.name }}<small>{{ item.group }}</small></th><td>{{ 'Discovered' if item.route_discovered else 'Unavailable' }}</td><td>{{ item.read_state }}</td><td>{{ item.advertised_write_methods|join(', ') if item.advertised_write_methods else 'None advertised' }}</td><td>Not verified</td></tr>{% endfor %}
+  </tbody></table></div><p class="panel-note">Advertised methods describe registered API routes only. No write request has been attempted.</p>
+</details>
+{% endif %}
+{% endif %}
+
+<section class="workspace-panel" aria-labelledby="woo-health-history-heading"><div class="panel-heading"><div><p class="eyebrow">Health history</p><h2 id="woo-health-history-heading">Last terminal results</h2></div></div><dl class="detail-definition-grid"><div><dt>Last successful test</dt><dd>{{ workspace.health.last_success.finished_at.strftime('%d %b %Y %H:%M') if workspace.health.last_success and workspace.health.last_success.finished_at else 'None recorded' }}</dd></div><div><dt>Last failed test</dt><dd>{{ workspace.health.last_failure.finished_at.strftime('%d %b %Y %H:%M') if workspace.health.last_failure and workspace.health.last_failure.finished_at else 'None recorded' }}</dd></div></dl></section>
+
+<section class="workspace-panel" aria-labelledby="woo-history-heading">
+  <div class="panel-heading"><div><p class="eyebrow">Bounded history</p><h2 id="woo-history-heading">Connection tests</h2></div><span>{{ workspace.history|length }} shown</span></div>
+  {% if workspace.history %}<div class="operation-item-list">{% for item in workspace.history %}<article><span class="status-badge status-{{ item.status }}">{{ item.status|replace('_',' ')|title }}</span><div><strong>WooCommerce connection test</strong><small>{{ item.started_at.strftime('%d %b %Y %H:%M') if item.started_at else 'Time unavailable' }} · {{ item.summary.hostname or 'Store host unavailable' }}</small></div><a href="{{ url_for('main.operation_detail', operation_id=item.id) }}">View operation</a></article>{% endfor %}</div>{% else %}<div class="empty-state compact"><h3>No connection tests yet</h3><p>Configure the runtime variables and run Test Connection when ready.</p></div>{% endif %}
+</section>
+{% endblock %}
+{% block javascripts %}<script src="{{ url_for('static', filename='assets/js/woocommerce-connection.js') }}"></script>{% endblock %}
