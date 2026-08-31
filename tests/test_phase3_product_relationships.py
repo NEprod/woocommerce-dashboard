@@ -22,7 +22,7 @@ from app.product_relationships import (
     relationship_workspace,
     search_products,
 )
-from app.relationships_workspace import build_relationship_browser, parse_relationship_filters
+from app.relationships_workspace import build_relationship_browser, family_search, parse_relationship_filters
 from app.utils.operation_control import reset_operation_control_for_tests
 from config import Config
 
@@ -299,6 +299,66 @@ def test_relationship_workspace_filters_searches_and_paginates(relationship_app)
     assert explicit.status_code == 200 and "SINGLE-001" in explicit.get_data(as_text=True)
     assert client.get("/relationships?per_page=100&sort=sku&active_only=1").status_code == 200
     assert client.get("/relationships?per_page=12").status_code == 400
+
+
+def test_mutual_workspace_search_matches_product_detail_and_renders_warnings(relationship_app):
+    client = _client(relationship_app)
+    detail = client.get("/api/products/101/relationship-search?q=Companion")
+    assert detail.status_code == 200
+    detail_skus = {item["sku"] for item in detail.get_json()["items"]}
+    with relationship_app.test_request_context():
+        workspace_skus = {item["sku"] for item in family_search("Companion")["items"]}
+
+    queries = []
+    with relationship_app.app_context():
+        def count_query(*args):
+            queries.append(args[2])
+        event.listen(db.engine, "before_cursor_execute", count_query)
+        try:
+            workspace = client.get("/relationships/mutual?q=Companion")
+        finally:
+            event.remove(db.engine, "before_cursor_execute", count_query)
+
+    assert workspace.status_code == 200
+    html = workspace.get_data(as_text=True)
+    assert detail_skus == workspace_skus == {"PREMIUM"}
+    assert all(f'data-product-sku="{sku}"' in html for sku in detail_skus)
+    assert "Internal Server Error" not in html
+    assert len(queries) <= 25
+
+    warnings = client.get("/relationships/mutual?q=Akita").get_data(as_text=True)
+    assert "Publishing intent is not Published." in warnings
+    assert "Product is archived." in warnings
+
+
+def test_mutual_workspace_search_pagination_preserves_query(relationship_app):
+    with relationship_app.app_context():
+        collection = Collection.query.filter_by(name="Fictional Akita Collection").one()
+        db.session.add_all([
+            Product(
+                collection_id=collection.id,
+                sku=f"PAGE-{index:02d}",
+                title=f"Regression Page Product {index:02d}",
+                product_type="simple",
+                catalogue_status="active",
+                published=True,
+                description="Complete",
+                source_relpath=f"Fictional Akita Collection/PAGE-{index:02d}",
+                relationship_source_kind="none",
+            )
+            for index in range(27)
+        ])
+        db.session.commit()
+
+    client = _client(relationship_app)
+    first = client.get("/relationships/mutual?q=Regression+Page&page=1")
+    second = client.get("/relationships/mutual?q=Regression+Page&page=2")
+    assert first.status_code == second.status_code == 200
+    first_html, second_html = first.get_data(as_text=True), second.get_data(as_text=True)
+    assert "Page 1 of 2" in first_html and "Next" in first_html
+    assert "Page 2 of 2" in second_html and "Previous" in second_html
+    assert 'data-product-sku="PAGE-00"' in first_html
+    assert 'data-product-sku="PAGE-26"' in second_html
 
 
 def test_relationship_workspace_summary_and_broken_target(relationship_app):
