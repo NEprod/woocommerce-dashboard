@@ -31,6 +31,8 @@ MAX_NAMESPACES = 20
 MAX_CAPABILITIES = 12
 MAX_LIMITATION_FINDINGS = 12
 SAFE_METHODS = {"GET", "HEAD"}
+PUBLISH_METHODS = {"GET", "HEAD", "POST", "PUT", "PATCH"}
+MAX_WRITE_BODY_BYTES = 256 * 1024
 
 
 class WooConnectionError(RuntimeError):
@@ -157,6 +159,9 @@ def _json_nesting_is_bounded(payload):
 
 
 class ReadOnlyWooClient:
+    allowed_methods = SAFE_METHODS
+    unsafe_method_message = "WooCommerce discovery permits read-only requests only."
+
     def __init__(self, configuration, *, session=None):
         self.configuration = configuration
         self.base_url = normalize_store_url(configuration.store_url)
@@ -167,10 +172,18 @@ class ReadOnlyWooClient:
     def request_json(
         self, method, url, *, authenticated=False,
         response_limit=MAX_RESPONSE_BYTES, endpoint_category="ordinary_api",
+        json_body=None,
     ):
         method = str(method).upper()
-        if method not in SAFE_METHODS:
-            raise WooConnectionError("unsafe_method", "WooCommerce discovery permits read-only requests only.")
+        if method not in self.allowed_methods:
+            raise WooConnectionError("unsafe_method", self.unsafe_method_message)
+        if method in SAFE_METHODS and json_body is not None:
+            raise WooConnectionError("unsafe_body", "Read-only WooCommerce requests cannot contain a write body.")
+        if json_body is not None:
+            if not isinstance(json_body, (dict, list)):
+                raise WooConnectionError("invalid_write_body", "The WooCommerce write payload is invalid.")
+            if len(json.dumps(json_body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > MAX_WRITE_BODY_BYTES:
+                raise WooConnectionError("write_body_too_large", "The WooCommerce write payload exceeds the safe size limit.")
         response_limit = int(response_limit)
         if response_limit <= 0 or response_limit > MAX_DISCOVERY_INDEX_BYTES:
             raise ValueError("Invalid bounded response policy")
@@ -186,7 +199,8 @@ class ReadOnlyWooClient:
                     allow_redirects=False,
                     verify=True,
                     stream=True,
-                    headers={"Accept": "application/json", "User-Agent": "WooCommerce-Dashboard/connection-test"},
+                    json=json_body,
+                    headers={"Accept": "application/json", "User-Agent": "WooCommerce-Dashboard/controlled-publisher" if method not in SAFE_METHODS else "WooCommerce-Dashboard/connection-test"},
                 )
                 self.request_count += 1
             except requests.exceptions.SSLError as error:
@@ -211,6 +225,9 @@ class ReadOnlyWooClient:
                 if _origin(destination) != _origin(self.base_url):
                     response.close()
                     raise WooConnectionError("cross_origin_redirect", "The store redirected to another origin; credentials were not forwarded.")
+                if method not in SAFE_METHODS:
+                    response.close()
+                    raise WooConnectionError("write_redirect_refused", "WooCommerce redirected a mutating request; the write was not repeated automatically.")
                 if redirect_number >= MAX_REDIRECTS:
                     response.close()
                     raise WooConnectionError("redirect_loop", "The store exceeded the safe redirect limit.")
@@ -298,6 +315,13 @@ class ReadOnlyWooClient:
             finally:
                 response.close()
         raise WooConnectionError("redirect_loop", "The store exceeded the safe redirect limit.")
+
+
+class PublisherWooClient(ReadOnlyWooClient):
+    """The only transport policy that permits reviewed Woo mutations."""
+
+    allowed_methods = PUBLISH_METHODS
+    unsafe_method_message = "Controlled publishing permits GET, POST, PUT, and PATCH only; DELETE is forbidden."
 
 
 def _route_methods(routes, candidates):

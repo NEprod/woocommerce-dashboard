@@ -18,8 +18,17 @@ from app.woo_publish_preview import (
     _product_payload, _variation_payload, cached_plan, generate_publish_plan,
     plan_is_stale, reset_preview_cache_for_tests, scope_estimate, store_identity,
 )
+from app.woo_controlled_publish import (
+    ControlledPublishError,
+    MAX_PUBLISH_PRODUCTS,
+    PublishGateway,
+    execute_publish_operation,
+    prepare_publish_confirmation,
+    resume_confirmation,
+    start_publish_operation,
+)
 from app.utils.operation_control import reset_operation_control_for_tests
-from app.woocommerce_connection import WooConnectionError
+from app.woocommerce_connection import PublisherWooClient, WooConfiguration, WooConnectionError
 from config import Config
 
 
@@ -47,6 +56,75 @@ class FakeWooClient:
             return value, object()
         sku = query.get("sku", [""])[0]
         return self.by_sku.get(sku, []), object()
+
+
+class FakePublisherClient:
+    publisher_policy = True
+
+    def __init__(self, *, taxonomy=None, uncertain_product_create=False):
+        self.base_url = "https://shop.example.test"
+        self.taxonomy = taxonomy or _taxonomy()
+        self.request_count = 0
+        self.methods = []
+        self.writes = []
+        self.products = {}
+        self.variations = {}
+        self.next_product_id = 501
+        self.next_variation_id = 601
+        self.uncertain_product_create = uncertain_product_create
+
+    def _taxonomy_kind(self, path):
+        if path.endswith("/products/categories") or "/products/categories/" in path: return "categories"
+        if path.endswith("/products/tags") or "/products/tags/" in path: return "tags"
+        if path.endswith("/products/attributes") or "/products/attributes/" in path and "/terms" not in path: return "attributes"
+        return None
+
+    def request_json(self, method, url, **kwargs):
+        method = method.upper(); self.methods.append(method); self.request_count += 1
+        if method == "DELETE": raise AssertionError("DELETE attempted")
+        parsed = urlsplit(url); path = parsed.path; query = parse_qs(parsed.query)
+        body = kwargs.get("json_body") or {}
+        taxonomy_kind = self._taxonomy_kind(path)
+        if taxonomy_kind:
+            rows = self.taxonomy.setdefault(taxonomy_kind, [])
+            tail = path.rsplit("/", 1)[-1]
+            if method == "GET" and tail.isdigit():
+                return next(row for row in rows if row["id"] == int(tail)), object()
+            if method == "GET":
+                slug = query.get("slug", [None])[0]
+                return ([row for row in rows if row.get("slug") == slug] if slug else rows), object()
+            new = {"id": max([row["id"] for row in rows] or [10]) + 1, **body}; rows.append(new); self.writes.append((method, path, body)); return new, object()
+        if "/terms" in path:
+            key = path.split("/attributes/", 1)[1].split("/terms", 1)[0]
+            rows = self.taxonomy.setdefault(f"terms:{key}", [])
+            tail = path.rsplit("/", 1)[-1]
+            if method == "GET" and tail.isdigit(): return next(row for row in rows if row["id"] == int(tail)), object()
+            if method == "GET":
+                slug = query.get("slug", [None])[0]; return ([row for row in rows if row.get("slug") == slug] if slug else rows), object()
+            new = {"id": max([row["id"] for row in rows] or [80]) + 1, **body}; rows.append(new); self.writes.append((method, path, body)); return new, object()
+        if "/variations" in path:
+            parent_id = int(path.split("/products/", 1)[1].split("/", 1)[0])
+            rows = self.variations.setdefault(parent_id, {})
+            tail = path.rsplit("/", 1)[-1]
+            if method == "GET" and tail.isdigit(): return rows[int(tail)], object()
+            if method == "GET":
+                sku = query.get("sku", [None])[0]; values = list(rows.values()); return ([row for row in values if row.get("sku") == sku] if sku else values), object()
+            if method == "POST":
+                remote = {"id": self.next_variation_id, **body}; self.next_variation_id += 1; rows[remote["id"]] = remote
+            else:
+                remote_id = int(tail); remote = {**rows[remote_id], **body}; rows[remote_id] = remote
+            self.writes.append((method, path, body)); return remote, object()
+        tail = path.rsplit("/", 1)[-1]
+        if method == "GET" and tail.isdigit(): return self.products[int(tail)], object()
+        if method == "GET":
+            sku = query.get("sku", [None])[0]; values = list(self.products.values()); return ([row for row in values if row.get("sku") == sku] if sku else values), object()
+        if method == "POST":
+            remote = {"id": self.next_product_id, "cross_sell_ids": [], "upsell_ids": [], **body}; self.next_product_id += 1; self.products[remote["id"]] = remote; self.writes.append((method, path, body))
+            if self.uncertain_product_create:
+                self.uncertain_product_create = False
+                raise WooConnectionError("read_timeout", "Response timed out")
+            return remote, object()
+        remote_id = int(tail); remote = {**self.products[remote_id], **body}; self.products[remote_id] = remote; self.writes.append((method, path, body)); return remote, object()
 
 
 @pytest.fixture
@@ -203,15 +281,15 @@ def test_digest_is_deterministic_timing_free_and_stale_after_local_change(previe
         assert plan_is_stale(first) is True
 
 
-def test_route_generation_and_detail_render_without_publish_button(preview_app, monkeypatch):
+def test_route_generation_and_detail_render_with_only_reviewed_publish_entry(preview_app, monkeypatch):
     monkeypatch.setattr("app.woo_publish_preview.ReadOnlyWooClient", lambda *a, **k: FakeWooClient(taxonomy=_taxonomy()))
     monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
     client = _client(preview_app)
     response = client.post("/woocommerce/preview/generate", data={"scope_kind": "product", "product_id": "1"})
     assert response.status_code == 302 and "/woocommerce/preview/operations/" in response.location
     html = client.get(response.location).get_data(as_text=True)
-    assert "Pass 1" in html and "Pass 2" in html and "Safety checklist" in html and "No publish action exists" in html
-    assert ">Publish<" not in html
+    assert "Pass 1" in html and "Pass 2" in html and "Safety checklist" in html and "Review Final Confirmation" in html
+    assert "Publish Selected Products" not in html
     filtered = client.get(f"{response.location}?action=no_change").get_data(as_text=True)
     assert "No products in this state" in filtered
     operation_id = response.location.rsplit("/", 1)[-1]
@@ -326,3 +404,290 @@ def test_large_fixture_has_bounded_queries_requests_and_operation_state(preview_
         operation = db.session.get(CatalogueOperation, plan["operation_id"])
         assert len(operation.scope.encode()) <= 4000
         assert len(json.dumps(plan, default=str).encode()) < 12 * 1024 * 1024
+
+
+def _eligible_create_confirmation(preview_app, monkeypatch, *, publisher=None):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    monkeypatch.setattr("app.woo_controlled_publish.notify_woo_publish_completed", lambda *a, **k: (True, "sent"))
+    publisher = publisher or FakePublisherClient()
+    with preview_app.app_context():
+        store = store_identity()
+        db.session.add(WooProductIdentity(
+            product_id=3, stable_identity="Preview Cards/Link", sku="LINK-1",
+            store_key=store["key"], store_host=store["host"], woo_product_id=303,
+            sync_state="synced", verification_state="verified",
+        ))
+        db.session.commit()
+        preview = generate_publish_plan({"kind": "product", "product_id": 1}, client=publisher)
+        confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], [1], client=publisher)
+    return publisher, preview, confirmation
+
+
+def test_controlled_confirmation_requires_current_explicit_bounded_eligible_preview(preview_app, monkeypatch):
+    publisher, preview, confirmation = _eligible_create_confirmation(preview_app, monkeypatch)
+    assert confirmation["product_ids"] == [1]
+    assert confirmation["counts"]["create"] == 1 and confirmation["counts"]["blockers"] == 0
+    with preview_app.app_context():
+        with pytest.raises(ControlledPublishError, match="stale"):
+            prepare_publish_confirmation(preview["operation_id"], "wrong", [1], client=publisher)
+        with pytest.raises(ControlledPublishError, match="limited"):
+            prepare_publish_confirmation(preview["operation_id"], preview["digest"], list(range(1, MAX_PUBLISH_PRODUCTS + 2)), client=publisher)
+        WooProductIdentity.query.filter_by(product_id=3).delete()
+        db.session.commit()
+        publisher.products[303] = {"id": 303, "sku": "LINK-1", "type": "simple", "name": "Link Card", "status": "publish"}
+        link_preview = generate_publish_plan({"kind": "product", "product_id": 3}, client=publisher)
+        with pytest.raises(ControlledPublishError, match="link candidate"):
+            prepare_publish_confirmation(link_preview["operation_id"], link_preview["digest"], [3], client=publisher)
+
+
+def test_simple_draft_two_pass_publish_verifies_identity_relationships_and_no_json_write(preview_app, monkeypatch):
+    publisher, _preview, confirmation = _eligible_create_confirmation(preview_app, monkeypatch)
+    with preview_app.app_context():
+        catalogue = Path(db.session.get(Settings, 1).product_folder)
+        before = list(catalogue.rglob("*"))
+        operation_id = start_publish_operation(confirmation, client=publisher, run_async=False)
+        operation = db.session.get(CatalogueOperation, operation_id)
+        summary = json.loads(operation.scope)["operation_summary"]
+        identity = WooProductIdentity.query.filter_by(product_id=1, store_key=confirmation["store_identity"]).one()
+        assert operation.status == "succeeded" and summary["verified_products"] == 1
+        assert identity.woo_product_id == 501 and identity.verification_state == "verified"
+        assert publisher.products[501]["status"] == "draft"
+        assert publisher.products[501]["cross_sell_ids"] == [303]
+        assert all(method in {"GET", "POST", "PUT"} for method in publisher.methods)
+        assert not any(method == "DELETE" for method in publisher.methods)
+        assert list(catalogue.rglob("*")) == before
+        scope = json.loads(operation.scope)
+        assert "ck_fictional" not in operation.scope and "cs_fictional" not in operation.scope
+        assert "raw_response" not in scope and "payload" not in scope
+
+
+def test_variable_parent_precedes_variation_and_both_identities_are_verified(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    monkeypatch.setattr("app.woo_controlled_publish.notify_woo_publish_completed", lambda *a, **k: (True, "sent"))
+    publisher = FakePublisherClient()
+    with preview_app.app_context():
+        preview = generate_publish_plan({"kind": "product", "product_id": 4}, client=publisher)
+        confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], [4], client=publisher)
+        operation_id = start_publish_operation(confirmation, client=publisher, run_async=False)
+        parent = WooProductIdentity.query.filter_by(product_id=4).one()
+        variation = WooVariationIdentity.query.filter_by(variation_id=41).one()
+        assert parent.woo_product_id == 501 and variation.woo_parent_product_id == 501
+        assert variation.woo_variation_id == 601 and variation.verification_state == "verified"
+        write_paths = [path for method, path, _ in publisher.writes if method in {"POST", "PUT"}]
+        assert write_paths.index("/wp-json/wc/v3/products") < write_paths.index("/wp-json/wc/v3/products/501/variations")
+        assert db.session.get(CatalogueOperation, operation_id).status == "succeeded"
+
+
+def test_uncertain_create_reconciles_exact_sku_without_duplicate(preview_app, monkeypatch):
+    publisher, _preview, confirmation = _eligible_create_confirmation(
+        preview_app, monkeypatch, publisher=FakePublisherClient(uncertain_product_create=True)
+    )
+    with preview_app.app_context():
+        start_publish_operation(confirmation, client=publisher, run_async=False)
+        assert len(publisher.products) == 1
+        assert sum(method == "POST" and path.endswith("/products") for method, path, _ in publisher.writes) == 1
+        assert WooProductIdentity.query.filter_by(product_id=1).one().woo_product_id == 501
+
+
+def test_pending_relationship_does_not_erase_verified_pass_one(preview_app, monkeypatch):
+    publisher, _preview, confirmation = _eligible_create_confirmation(preview_app, monkeypatch)
+    confirmation["products"][0]["relationships"]["groups"]["cross_sell"][0].update({"woo_id": None, "sku": "MISSING-TARGET"})
+    with preview_app.app_context():
+        operation_id = start_publish_operation(confirmation, client=publisher, run_async=False)
+        operation = db.session.get(CatalogueOperation, operation_id)
+        summary = json.loads(operation.scope)["operation_summary"]
+        assert operation.status == "partial" and summary["verified_products"] == 1
+        assert summary["pending_relationship_count"] == 1
+        assert WooProductIdentity.query.filter_by(product_id=1).one().verification_state == "verified"
+
+
+def test_publisher_policy_forbids_delete_and_readonly_client_forbids_write():
+    configuration = WooConfiguration("https://shop.example.test", "ck_test", "cs_test")
+    with pytest.raises(WooConnectionError, match="DELETE"):
+        PublisherWooClient(configuration).request_json("DELETE", "https://shop.example.test/wp-json/wc/v3/products/1", authenticated=True)
+    with pytest.raises(ControlledPublishError, match="publisher-only"):
+        PublishGateway(FakeWooClient(), "wc/v3")
+
+
+def test_publish_routes_require_authentication_csrf_and_acknowledgement(preview_app, monkeypatch):
+    publisher, preview, confirmation = _eligible_create_confirmation(preview_app, monkeypatch)
+    unauthenticated = preview_app.test_client().post("/woocommerce/publish/confirm")
+    assert unauthenticated.status_code == 401
+    monkeypatch.setattr("app.routes.prepare_publish_confirmation", lambda *a, **k: confirmation)
+    monkeypatch.setattr("app.routes.start_publish_operation", lambda *a, **k: "fictional-publish-operation")
+    client = _client(preview_app)
+    page = client.post("/woocommerce/publish/confirm", data={"preview_operation_id": preview["operation_id"], "preview_digest": preview["digest"], "product_ids": "1"})
+    assert page.status_code == 200 and "Explicit acknowledgements" in page.get_data(as_text=True)
+    refused = client.post("/woocommerce/publish/start", data={"preview_operation_id": preview["operation_id"], "preview_digest": preview["digest"], "product_ids": "1"})
+    assert refused.status_code == 302
+    accepted = client.post("/woocommerce/publish/start", data={"preview_operation_id": preview["operation_id"], "preview_digest": preview["digest"], "product_ids": "1", "acknowledge_write": "yes"})
+    assert accepted.status_code == 302 and accepted.location.endswith("/operations/fictional-publish-operation")
+    assert client.get("/woocommerce/publish/confirm").status_code == 405
+
+    preview_app.config["WTF_CSRF_ENABLED"] = True
+    assert client.post("/woocommerce/publish/start", data={"acknowledge_write": "yes"}).status_code == 400
+    preview_app.config["WTF_CSRF_ENABLED"] = False
+
+
+def test_update_and_no_change_use_verified_id_and_skip_unchanged_write(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    monkeypatch.setattr("app.woo_controlled_publish.notify_woo_publish_completed", lambda *a, **k: (True, "sent"))
+    publisher = FakePublisherClient()
+    with preview_app.app_context():
+        store = store_identity()
+        db.session.add(WooProductIdentity(product_id=2, stable_identity="Preview Cards/Existing", sku="EXIST-1", store_key=store["key"], store_host=store["host"], woo_product_id=202, sync_state="synced", verification_state="verified"))
+        db.session.commit()
+        publisher.products[202] = {"id": 202, "sku": "EXIST-1", "type": "simple", "name": "Old title"}
+        preview = generate_publish_plan({"kind": "product", "product_id": 2}, client=publisher)
+        assert preview["products"][0]["action"] == "update"
+        confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], [2], client=publisher)
+        start_publish_operation(confirmation, client=publisher, run_async=False)
+        assert publisher.products[202]["name"] == "Existing Card"
+        update_writes = len(publisher.writes)
+
+        reset_operation_control_for_tests()
+        preview = generate_publish_plan({"kind": "product", "product_id": 2}, client=publisher)
+        assert preview["products"][0]["action"] == "no_change"
+        confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], [2], client=publisher)
+        start_publish_operation(confirmation, client=publisher, run_async=False)
+        assert len(publisher.writes) == update_writes
+
+
+def test_taxonomy_and_global_terms_are_created_once_and_reused(preview_app, monkeypatch):
+    from app.models import ProductAttribute
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    monkeypatch.setattr("app.woo_controlled_publish.notify_woo_publish_completed", lambda *a, **k: (True, "sent"))
+    publisher = FakePublisherClient(taxonomy={"categories": [], "tags": [], "attributes": []})
+    with preview_app.app_context():
+        ProductRelationship.query.filter_by(source_product_id=1).delete()
+        db.session.add(ProductAttribute(product_id=2, name="Size", values='["A5"]', visible=True, is_global=True, position=0))
+        db.session.commit()
+        preview = generate_publish_plan({"kind": "selected", "product_ids": [1, 2]}, client=publisher)
+        confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], [1, 2], client=publisher)
+        start_publish_operation(confirmation, client=publisher, run_async=False)
+        created_routes = [path for method, path, _ in publisher.writes if method == "POST"]
+        assert created_routes.count("/wp-json/wc/v3/products/categories") == 1
+        assert created_routes.count("/wp-json/wc/v3/products/tags") == 1
+        assert created_routes.count("/wp-json/wc/v3/products/attributes") == 1
+        assert sum(path.endswith("/terms") for path in created_routes) == 1
+        assert len(publisher.products) == 2
+
+
+def test_taxonomy_failure_blocks_only_affected_product(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    monkeypatch.setattr("app.woo_controlled_publish.notify_woo_publish_completed", lambda *a, **k: (True, "sent"))
+    publisher = FakePublisherClient(taxonomy={"categories": [], "tags": _taxonomy()["tags"], "attributes": []})
+    with preview_app.app_context():
+        unaffected = db.session.get(Product, 2)
+        unaffected.categories.clear()
+        store = store_identity()
+        db.session.add(WooProductIdentity(
+            product_id=3, stable_identity="Preview Cards/Link", sku="LINK-1",
+            store_key=store["key"], store_host=store["host"], woo_product_id=303,
+            sync_state="synced", verification_state="verified",
+        ))
+        db.session.commit()
+        preview = generate_publish_plan({"kind": "selected", "product_ids": [1, 2]}, client=publisher)
+        confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], [1, 2], client=publisher)
+        publisher.taxonomy["categories"] = [
+            {"id": 71, "name": "Cards", "slug": "cards"},
+            {"id": 72, "name": "Cards duplicate", "slug": "cards"},
+        ]
+        operation_id = start_publish_operation(confirmation, client=publisher, run_async=False)
+        summary = json.loads(db.session.get(CatalogueOperation, operation_id).scope)["operation_summary"]
+        results = {row["product_id"]: row for row in summary["product_results"]}
+        assert results[1]["status"] == "failed"
+        assert results[2]["status"] == "verified"
+        assert summary["taxonomy"]["failed"] == 1
+
+
+def test_same_batch_relationship_resolves_new_ids_in_authored_order(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    monkeypatch.setattr("app.woo_controlled_publish.notify_woo_publish_completed", lambda *a, **k: (True, "sent"))
+    publisher = FakePublisherClient()
+    with preview_app.app_context():
+        preview = generate_publish_plan({"kind": "selected", "product_ids": [1, 3]}, client=publisher)
+        assert preview["products"][0]["relationships"]["pending_count"] == 1
+        confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], [1, 3], client=publisher)
+        operation_id = start_publish_operation(confirmation, client=publisher, run_async=False)
+        identities = {row.product_id: row.woo_product_id for row in WooProductIdentity.query.all()}
+        assert publisher.products[identities[1]]["cross_sell_ids"] == [identities[3]]
+        summary = json.loads(db.session.get(CatalogueOperation, operation_id).scope)["operation_summary"]
+        assert summary["pending_relationship_count"] == 0 and summary["verified_products"] == 2
+
+
+def test_operation_detail_renders_bounded_publish_summary_and_safe_resume(preview_app, monkeypatch):
+    publisher, _preview, confirmation = _eligible_create_confirmation(preview_app, monkeypatch)
+    with preview_app.app_context():
+        operation_id = start_publish_operation(confirmation, client=publisher, run_async=False)
+    html = _client(preview_app).get(f"/operations/{operation_id}").get_data(as_text=True)
+    assert "Controlled two-pass publishing" in html
+    assert "Verified publication summary" in html
+    assert "Woo ID 501" in html
+    assert "Consumer" not in html and "ck_fictional" not in html and "cs_fictional" not in html
+    product_html = _client(preview_app).get("/products/1").get_data(as_text=True)
+    assert "Woo ID verified" in product_html and ">501<" in product_html
+
+
+def test_local_change_prevents_resume_and_concurrent_operation_blocks_start(preview_app, monkeypatch):
+    from app.utils.operation_control import acquire_catalogue_operation, CatalogueOperationActive
+    publisher, _preview, confirmation = _eligible_create_confirmation(preview_app, monkeypatch)
+    with preview_app.app_context():
+        operation_id = start_publish_operation(confirmation, client=publisher, run_async=False)
+        db.session.get(Product, 1).title = "Changed after reviewed plan"
+        db.session.commit()
+        with pytest.raises(ControlledPublishError, match="stale"):
+            resume_confirmation(operation_id, client=publisher)
+        reset_operation_control_for_tests()
+        lease = acquire_catalogue_operation("woo_connection_test", {"test": True})
+        with pytest.raises(CatalogueOperationActive):
+            start_publish_operation(confirmation, client=publisher, run_async=False)
+        from app.utils.operation_control import finish_catalogue_operation
+        finish_catalogue_operation(lease.id, status="succeeded")
+
+
+def test_safe_resume_reconciles_verified_parent_without_duplicate_create(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    monkeypatch.setattr("app.woo_controlled_publish.notify_woo_publish_completed", lambda *a, **k: (True, "sent"))
+    publisher = FakePublisherClient()
+    with preview_app.app_context():
+        preview = generate_publish_plan({"kind": "product", "product_id": 1}, client=publisher)
+        confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], [1], client=publisher)
+        first_operation = start_publish_operation(confirmation, client=publisher, run_async=False)
+        assert db.session.get(CatalogueOperation, first_operation).status == "partial"
+        assert sum(method == "POST" and path.endswith("/products") for method, path, _ in publisher.writes) == 1
+
+        retry = resume_confirmation(first_operation, client=publisher)
+        assert retry["products"][0]["action"] == "no_change"
+        second_operation = start_publish_operation(retry, client=publisher, run_async=False)
+        assert db.session.get(CatalogueOperation, second_operation).status == "partial"
+        assert sum(method == "POST" and path.endswith("/products") for method, path, _ in publisher.writes) == 1
+
+
+def test_ten_parent_publish_has_bounded_requests_queries_and_operation_state(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    monkeypatch.setattr("app.woo_controlled_publish.notify_woo_publish_completed", lambda *a, **k: (True, "sent"))
+    publisher = FakePublisherClient(taxonomy={"categories": [], "tags": [], "attributes": []})
+    with preview_app.app_context():
+        ProductRelationship.query.delete()
+        collection = db.session.get(Collection, 1)
+        products = [
+            Product(collection_id=collection.id, title=f"Controlled Batch {index}", sku=f"CONTROLLED-{index}", product_type="simple", catalogue_status="active", published=False, source_relpath=f"Controlled/{index}")
+            for index in range(10)
+        ]
+        db.session.add_all(products); db.session.commit()
+        ids = [product.id for product in products]
+        preview = generate_publish_plan({"kind": "selected", "product_ids": ids}, client=publisher)
+        confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], ids, client=publisher)
+        queries = []
+        def count_query(*args): queries.append(args[2])
+        event.listen(db.engine, "before_cursor_execute", count_query)
+        try:
+            operation_id = start_publish_operation(confirmation, client=publisher, run_async=False)
+        finally:
+            event.remove(db.engine, "before_cursor_execute", count_query)
+        operation = db.session.get(CatalogueOperation, operation_id)
+        summary = json.loads(operation.scope)["operation_summary"]
+        assert summary["verified_products"] == 10
+        assert publisher.request_count <= 100 and len(queries) <= 300
+        assert len(operation.scope.encode()) < 64 * 1024

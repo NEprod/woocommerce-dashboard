@@ -1,9 +1,12 @@
 # Woo Publish Preview
 
 Phase 3 Milestone 3 provides an authenticated, read-only planning workspace at
-`/woocommerce/preview`. It answers what a later controlled publisher would
-create, link, update, leave unchanged, defer, or block. It does not publish,
-upload, create taxonomy, or persist an exact-SKU link candidate.
+`/woocommerce/preview`. It answers what a controlled publisher would create,
+link, update, leave unchanged, defer, or block. Preview generation does not
+publish, upload, create taxonomy, or persist an exact-SKU link candidate.
+Milestone 4 may execute only a freshly regenerated, unchanged eligible subset
+through the separate controlled workflow described in
+[Controlled Woo Publishing](WOO_CONTROLLED_PUBLISHING.md).
 
 ## Authority and request boundary
 
@@ -65,14 +68,16 @@ translated only when a verified current-store Woo ID already exists. Targets
 included in the same plan remain `pending_pass_2`; SKU strings are never placed
 in Woo `cross_sell_ids` or `upsell_ids`.
 
-The future execution shape is deliberately explicit:
+The execution shape is deliberately explicit:
 
-1. Pass 1 resolves/creates taxonomy, parents, variations and media and would
-   persist verified IDs only after successful writes.
+1. Pass 1 resolves/creates taxonomy, parents and variations and persists
+   verified IDs only after successful writes and follow-up reads.
 2. Pass 2 translates ordered local relationship identities to those verified
    Woo IDs and applies cross-sells/upsells.
 
-Milestone 3 displays this shape but executes neither pass.
+Milestone 3 displays this shape. Milestone 4 executes it only for an explicitly
+selected set of at most ten eligible parents; image handling remains stored-URL
+attachment, not binary upload or conversion.
 
 ## Digest and staleness
 

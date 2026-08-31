@@ -11,11 +11,17 @@ This is a personal project baseline. Report suspected vulnerabilities privately 
 - Protect Discord webhooks as credentials. Rotate any accidentally exposed webhook or token immediately.
 - WooCommerce Consumer Keys and Consumer Secrets are runtime-only secrets. They
   must not be rendered, persisted, logged, included in operation payloads, or
-  sent to Discord. The Phase 3 connection client uses HTTP Basic authentication
-  only for same-origin HTTPS GET requests and never query-string credentials.
-- WooCommerce discovery rejects mutating methods, cross-origin redirects,
-  oversized responses, malformed URLs, and unbounded redirects. TLS certificate
-  verification remains enabled.
+  sent to Discord. Authentication is sent only to same-origin HTTPS routes and
+  never through query-string credentials.
+- WooCommerce discovery/preview remains GET-only. Controlled publishing uses a
+  distinct publisher transport limited to reviewed POST/PUT/PATCH requests;
+  DELETE is forbidden, mutating redirects are never replayed automatically,
+  and cross-origin redirects, oversized bodies/responses, malformed URLs and
+  unbounded redirects remain rejected. TLS verification stays enabled.
+- A publish request is accepted only from a current digest-bound preview for the
+  same configured store and at most ten eligible selected parents. Persisted
+  operation state contains bounded summaries/digests and verified IDs, never
+  complete payloads, raw Woo responses, headers, cookies or credentials.
 - Do not expose Flask debug mode publicly.
 - Production refuses a missing or recognized placeholder `SECRET_KEY`. Supply a
   stable long random value only through the runtime environment; never generate

@@ -35,6 +35,7 @@ TYPE_LABELS = {
     "woo_connection_test": "WooCommerce Connection Test",
     "product_relationship_update": "Product Relationships Update",
     "woo_publish_preview": "WooCommerce Publish Preview",
+    "woo_controlled_publish": "WooCommerce Controlled Publish",
 }
 SCAN_MODES = (
     {
@@ -448,4 +449,5 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
         "woo_connection": view["summary"] if row.operation_type == "woo_connection_test" else None,
         "product_relationships": view["summary"] if row.operation_type == "product_relationship_update" else None,
         "woo_publish_preview": view["summary"] if row.operation_type == "woo_publish_preview" else None,
+        "woo_controlled_publish": view["summary"] if row.operation_type == "woo_controlled_publish" else None,
     }

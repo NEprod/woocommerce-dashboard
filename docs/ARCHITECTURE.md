@@ -186,4 +186,12 @@ Atomic replacement prevents torn JSON files but does not make SQLite, marker fil
 
 ## External services
 
-Discord notifications are outbound webhook POST requests configured exclusively through runtime environment variables. WooCommerce support currently stops at CSV-compatible field construction and unused database mapping columns; no live WooCommerce or WordPress API integration exists.
+Discord notifications are outbound webhook POST requests configured exclusively
+through runtime environment variables. WooCommerce connection discovery and
+preview use a GET-only transport. Controlled publishing is isolated behind a
+publisher-only transport that permits authenticated same-origin POST/PUT/PATCH
+requests, refuses DELETE and mutating redirects, bounds request/response bodies,
+and never forwards credentials across origins. Each selected parent is verified
+after its write before its store-scoped identity is persisted; relationship
+writes occur only in Pass 2 after safe identity resolution. Authored catalogue
+JSON remains the source of truth and is never rewritten by publishing.

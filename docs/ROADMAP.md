@@ -37,11 +37,12 @@
   source of truth for ordered cross-sells and directional upsells, plus a
   catalogue-wide health workspace and signed mutual-family builder. Milestone 3
   provides a read-only, digest-bound Woo payload preview with store-scoped
-  identity resolution and a two-pass publish plan. Later publishing uses two passes:
-  persist Woo product IDs first, then translate these local relationship edges
-  into `cross_sell_ids` and `upsell_ids`. Publishing and media synchronization
-  remain later milestones.
-- **Phase 4 — Controlled WooCommerce publishing and updates:** planned.
+  identity resolution and a two-pass publish plan. Milestone 4 implements its
+  first bounded execution path: persist verified Woo product/variation IDs in
+  Pass 1, then translate local relationship edges into `cross_sell_ids` and
+  `upsell_ids` in Pass 2. Incremental synchronization, media upload and broad
+  remote management remain later milestones.
+- **Phase 4 — Extended WooCommerce updates and synchronization:** planned.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.
 
 Phase 1 is the current catalogue-integrity release. Future work must continue to treat its scanner contract and database/recovery behaviour as protected baselines.

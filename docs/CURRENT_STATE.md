@@ -348,9 +348,10 @@ Scanner characterization also confirms that variation modifier sale prices are n
 
 ## Integrations
 
-WooCommerce-compatible rows and future Woo ID columns exist. Phase 3 Milestone
-1 adds a read-only WooCommerce/WordPress REST discovery client, but no publishing
-or remote mutation. Optional Discord webhooks can receive
+WooCommerce-compatible rows and store-scoped verified identity tables exist.
+Phase 3 Milestone 1 adds read-only WooCommerce/WordPress REST discovery, and
+Milestone 4 adds a separately guarded, explicitly confirmed controlled publisher.
+Optional Discord webhooks can receive
 scanner start, clean/warning completion, failure, metadata, override, and the
 existing product-ingest events. Delivery uses bounded process-local retry and
 does not alter scanner success. Delivery state is not durable after restart.
@@ -386,8 +387,9 @@ authenticated GET checks for publishing and later resource groups. A central
 request guard rejects mutation, TLS verification is enabled, redirects remain
 same-origin, and raw indexes/responses are never retained. Verified reads,
 advertised write methods, and unverified credential write permission are shown
-as separate concepts. Woo publishing, upload, synchronization, relationships,
-orders, and remote mutation remain unimplemented.
+as separate concepts. Only the bounded Milestone 4 workflow may issue reviewed
+product/taxonomy writes; media upload, orders, broad synchronization, and other
+remote mutation remain unimplemented.
 
 The Phase 3 Milestone 1 API-index compatibility hotfix applies an explicit 8 MiB
 decompressed limit only to the public WordPress `/wp-json/` discovery index.
@@ -428,5 +430,18 @@ identity-producing work from Pass 2 relationship IDs. Complete payloads and raw
 responses are not persisted. Operation history retains only bounded counts,
 store hostname/fingerprint, builder/mapping versions, and deterministic source
 and plan digests. Revision `0007_woo_sync_identity` provides the minimal
-store-scoped identity projection needed by a later controlled publisher. No Woo
-write, taxonomy creation, media upload, ID linking, or publication exists.
+store-scoped identity projection used by controlled publishing. Preview itself
+does not write, create taxonomy, upload media, link IDs, or publish.
+
+Phase 3 Milestone 4 adds controlled two-pass publishing for one to ten explicitly
+selected eligible parent products. Final confirmation regenerates the exact
+Milestone 3 plan, requires an unchanged digest and current store identity, shows
+the bounded write estimate, and requires another acknowledgement when a selected
+product has Published intent. Pass 1 resolves exact taxonomy identities, creates
+or updates parents and variations, verifies managed fields through follow-up
+GETs, and persists store-scoped IDs only after verification. Pass 2 translates
+ordered local cross-sell/upsell SKUs to verified current-store Woo IDs;
+unresolved targets remain visible and are never guessed. Operations retain
+bounded progress, per-product outcomes, and recovery state rather than full
+payloads or responses. No DELETE, media upload, scanner, Catalogue Intake, or
+catalogue JSON mutation is part of this workflow.

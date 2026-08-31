@@ -22,7 +22,7 @@ SQLite:
 queryable resolved catalogue plus application/integration state
 
 WooCommerce:
-future downstream integration
+downstream controlled publication target; never authored catalogue truth
 ```
 
 SQLite is not independently authoritative for authored product metadata.
@@ -51,8 +51,10 @@ Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the P
   `Product.upsell_ids` remain protected projection fields and are not edited.
 - `WooProductIdentity` / `WooVariationIdentity`: application-owned,
   store-scoped Woo identity, verification, and last-successful-sync digest
-  state. These rows are not authored catalogue truth, contain no credentials or
-  payloads, and are never silently reused for another configured store.
+  state. Controlled publishing updates them only after follow-up remote
+  verification. These rows are not authored catalogue truth, contain no
+  credentials or payloads, and are never silently reused for another configured
+  store.
 - `ProductAttribute`: emitted parent attribute definitions, values, visibility/global flags, and position.
 - `Variation`: child of Product with complete emitted row JSON, portable source provenance, canonical emitted-attribute identity, normalized SKU/price/dimension/image fields, lifecycle state, and future Woo fields.
 - `ProductImage` / `VariationImage`: ordered Woo-facing image URL galleries.

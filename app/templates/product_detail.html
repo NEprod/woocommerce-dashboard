@@ -48,7 +48,8 @@
         <div><dt>Publishing intent source</dt><dd>{{ workspace.publishing_intent.source }}</dd></div>
         <div><dt>Inheritance</dt><dd>{{ workspace.publishing_intent.inheritance }}</dd></div>
       </dl>
-      <p class="publishing-intent-note">Future WooCommerce publishing intent only. Woo sync is not implemented, so this does not report current remote publication state.</p>
+      <p class="publishing-intent-note">Future WooCommerce publishing intent only. Controlled publishing uses this reviewed status; verified remote identity is reported separately from local catalogue lifecycle.</p>
+      <dl class="product-key-facts" aria-label="WooCommerce sync identity"><div><dt>Woo sync state</dt><dd>{{ workspace.woo_sync.label }}</dd></div><div><dt>Woo ID</dt><dd>{{ workspace.woo_sync.woo_id or 'Not assigned' }}</dd></div><div><dt>Current store</dt><dd>{{ workspace.woo_sync.store_host or 'Not linked' }}</dd></div><div><dt>Last successful sync</dt><dd>{{ workspace.woo_sync.last_successful_sync_at.strftime('%d %b %Y, %H:%M') if workspace.woo_sync.last_successful_sync_at else 'Never' }}</dd></div></dl>
     </div>
   </article>
 

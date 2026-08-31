@@ -27,6 +27,7 @@ from app.models import (
     Product,
     Settings,
     Variation,
+    WooProductIdentity,
 )
 from app.product_info import FIELD_BY_KEY, FIELD_INVENTORY, validate_product_info
 from app.publishing import resolved_publishing_intent
@@ -315,6 +316,25 @@ def product_workspace(product: Product):
             if primary_preview:
                 primary_preview = {**primary_preview, "variation_fallback": True}
                 break
+    woo_sync = {"state": "not_published", "label": "Not published", "woo_id": None, "store_host": None, "last_successful_sync_at": None}
+    try:
+        from app.woo_publish_preview import store_identity
+        from app.woocommerce_connection import WooConnectionError, effective_configuration
+
+        configuration = effective_configuration()
+        if configuration.complete:
+            store = store_identity(configuration)
+            identity = WooProductIdentity.query.filter_by(store_key=store["key"], product_id=product.id).one_or_none()
+            if identity:
+                woo_sync = {
+                    "state": identity.sync_state or identity.verification_state or "unverified",
+                    "label": "Woo ID verified" if identity.verification_state == "verified" else (identity.sync_state or "Unverified").replace("_", " ").title(),
+                    "woo_id": identity.woo_product_id,
+                    "store_host": identity.store_host,
+                    "last_successful_sync_at": identity.last_successful_sync_at,
+                }
+    except (ValueError, TypeError, WooConnectionError):
+        pass
     return {
         "product": product,
         "collection_display_name": (
@@ -344,6 +364,7 @@ def product_workspace(product: Product):
             for item, operation in operations
         ],
         "relationships": relationship_workspace(product),
+        "woo_sync": woo_sync,
     }
 
 

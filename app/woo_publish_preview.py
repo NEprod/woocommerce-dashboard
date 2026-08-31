@@ -393,7 +393,10 @@ def _relationship_plan(product, selected_ids, identities, targets):
             elif target.id in selected_ids:
                 item["state"] = "pending_pass_2"; pending += 1
             else:
-                item["state"] = "blocked"; blockers.append(f"Relationship target {edge.target_sku} has no current-store Woo identity and is outside this plan.")
+                # Milestone 4 may safely publish Pass 1 while leaving an
+                # outside-batch target without a verified Woo identity pending.
+                # The relationship is never sent as a SKU or guessed ID.
+                item["state"] = "pending_pass_2"; pending += 1
         groups.setdefault(edge.relationship_type, []).append(item)
     payload = {
         "cross_sell_ids": [item["woo_id"] for item in groups["cross_sell"] if item["woo_id"]],
@@ -447,7 +450,7 @@ def _scope_summary(scope):
     return clean
 
 
-def generate_publish_plan(scope, *, confirm_large=False, client=None):
+def generate_publish_plan(scope, *, confirm_large=False, client=None, record_operation=True):
     products = resolve_scope(scope)
     estimate = _estimate_products(products)
     if len(products) >= LARGE_SCOPE_THRESHOLD and not confirm_large:
@@ -462,7 +465,18 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None):
     woo_client = client or ReadOnlyWooClient(configuration)
     reader = PreviewWooReader(woo_client, (health.get("latest") or {}).get("selected_namespace") or "wc/v3")
     started = monotonic()
-    lease = acquire_catalogue_operation(OPERATION_TYPE, {"scope": _scope_summary(scope), "store_host": store["host"], "builder_version": BUILDER_VERSION})
+    lease = (
+        acquire_catalogue_operation(
+            OPERATION_TYPE,
+            {
+                "scope": _scope_summary(scope),
+                "store_host": store["host"],
+                "builder_version": BUILDER_VERSION,
+            },
+        )
+        if record_operation
+        else None
+    )
     try:
         # Operation acquisition commits its history row. SQLAlchemy expires the
         # previously loaded graph on that commit, so reload the bounded scope
@@ -606,17 +620,30 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None):
         }
         summary["capability"] = capability
         summary["checklist"] = checklist
-        plan = {"operation_id": lease.id, "summary": summary, "capability": capability, "products": plans, "taxonomy": taxonomy, "digest": plan_digest}
+        plan = {"operation_id": lease.id if lease else None, "summary": summary, "capability": capability, "products": plans, "taxonomy": taxonomy, "digest": plan_digest}
         failed_products = counts["blocked"] + counts["recovery_required"]
-        finish_catalogue_operation(lease.id, status="partial" if blocker_count or warning_count else "succeeded", products_attempted=len(products), products_succeeded=len(products) - failed_products, products_failed=failed_products, operation_summary=summary)
-        cache_plan(plan)
-        try: notify_woo_publish_preview_completed(summary, operation_id=lease.id)
-        except Exception: current_app.logger.warning("Discord Woo preview notification failed safely")
+        if lease:
+            finish_catalogue_operation(lease.id, status="partial" if blocker_count or warning_count else "succeeded", products_attempted=len(products), products_succeeded=len(products) - failed_products, products_failed=failed_products, operation_summary=summary)
+            cache_plan(plan)
+            try: notify_woo_publish_preview_completed(summary, operation_id=lease.id)
+            except Exception: current_app.logger.warning("Discord Woo preview notification failed safely")
         return plan
     except Exception as error:
         db.session.rollback()
-        finish_catalogue_operation(lease.id, status="failed", products_attempted=len(products), products_failed=len(products), error=error, operation_summary={"scope": _scope_summary(scope), "store_host": store["host"], "failure_category": getattr(error, "category", "preview_failed"), "woo_writes": 0})
+        if lease:
+            finish_catalogue_operation(lease.id, status="failed", products_attempted=len(products), products_failed=len(products), error=error, operation_summary={"scope": _scope_summary(scope), "store_host": store["host"], "failure_category": getattr(error, "category", "preview_failed"), "woo_writes": 0})
         raise
+
+
+def regenerate_publish_plan(scope, *, client=None):
+    """Rebuild the current plan without creating another preview operation."""
+
+    return generate_publish_plan(
+        scope,
+        confirm_large=True,
+        client=client,
+        record_operation=False,
+    )
 
 
 def cache_plan(plan):

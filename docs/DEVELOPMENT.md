@@ -60,6 +60,11 @@ not belong there. See [product_info.json Contract](PRODUCT_INFO.md).
 
 Tests must create temporary directories and SQLite databases. Fixtures under `tests/fixtures` must be fictional and contain no copied commercial catalogue text, customer information, live SKU, local personal path, credential, or webhook. Tests must never use the live `.env`, `instance/site.db`, catalogue, output folder, Discord, WooCommerce, WordPress, or internet.
 
+Controlled WooCommerce publishing tests must use fictional mocked publisher
+responses. Never point an automated test at a real Woo store or credential.
+Every mutating test must assert the bounded method sequence, follow-up
+verification, absence of DELETE, and sanitized retained operation state.
+
 Deployment-contract tests parse the tracked Unraid XML, verify every template
 static reference, and recreate the application against one temporary instance
 directory to prove `site.db` plus migration/reconstruction backups persist. Docker

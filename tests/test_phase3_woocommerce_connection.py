@@ -11,6 +11,7 @@ from app.utils.redaction import redact_diagnostic
 from app.woocommerce_connection import (
     MAX_DISCOVERY_INDEX_BYTES,
     MAX_RESPONSE_BYTES,
+    PublisherWooClient,
     ReadOnlyWooClient,
     STREAM_CHUNK_BYTES,
     WooConfiguration,
@@ -193,6 +194,26 @@ def test_same_origin_redirect_is_followed_with_a_strict_limit():
     client = ReadOnlyWooClient(WooConfiguration("https://shop.example.test", KEY, SECRET), session=session)
     assert client.request_json("GET", "https://shop.example.test/start", authenticated=True)[0] == {"ok": True}
     assert session.count == 2
+
+
+def test_publisher_refuses_mutating_redirect_without_replaying_credentials():
+    class RedirectSession:
+        def __init__(self): self.calls = []
+        def request(self, method, url, **kwargs):
+            self.calls.append((method, url, kwargs))
+            return FakeResponse(307, {}, headers={"Location": "/wp-json/wc/v3/products/9"})
+
+    session = RedirectSession()
+    client = PublisherWooClient(WooConfiguration("https://shop.example.test", KEY, SECRET), session=session)
+    with pytest.raises(WooConnectionError) as caught:
+        client.request_json(
+            "POST",
+            "https://shop.example.test/wp-json/wc/v3/products",
+            authenticated=True,
+            json_body={"sku": "FICTIONAL-1"},
+        )
+    assert caught.value.category == "write_redirect_refused"
+    assert len(session.calls) == 1
 
 
 def test_response_size_and_malformed_json_are_controlled():

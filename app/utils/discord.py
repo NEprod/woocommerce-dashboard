@@ -593,6 +593,30 @@ def notify_woo_publish_preview_completed(summary, *, operation_id):
     return send_discord_message(embeds=[embed], channels=["scans_errors" if summary.get("blocker_count") else "scans_info"])
 
 
+def notify_woo_publish_completed(summary, *, operation_id):
+    """Send one bounded terminal summary for a controlled Woo mutation."""
+
+    fields = [
+        {"name": "Selected", "value": str(int(summary.get("selected_products", 0))), "inline": True},
+        {"name": "Created / updated", "value": f"{int(summary.get('created', 0))} / {int(summary.get('updated', 0))}", "inline": True},
+        {"name": "Verified", "value": str(int(summary.get("verified_products", 0))), "inline": True},
+        {"name": "Variations", "value": str(int((summary.get("counts") or {}).get("variations_verified", 0))), "inline": True},
+        {"name": "Taxonomy created", "value": str(int((summary.get("taxonomy") or {}).get("created", 0))), "inline": True},
+        {"name": "Relationships", "value": str(int((summary.get("counts") or {}).get("relationships_applied", 0))), "inline": True},
+        {"name": "Pending relationships", "value": str(int(summary.get("pending_relationship_count", 0))), "inline": True},
+        {"name": "Failures / recovery", "value": f"{int(summary.get('failed_products', 0))} / {int(bool(summary.get('recovery_required')))}", "inline": True},
+        {"name": "Duration", "value": f"{int(summary.get('duration_ms', 0))} ms", "inline": True},
+    ]
+    has_attention = bool(summary.get("failed_products") or summary.get("recovery_required") or summary.get("pending_relationship_count"))
+    embed = build_embed(
+        "WooCommerce Controlled Publish Completed with Attention" if has_attention else "WooCommerce Controlled Publish Completed",
+        f"Operation: `{_truncate(operation_id)}`\nVerified two-pass publication finished. Review the operation before any retry.",
+        COLORS["warn"] if has_attention else COLORS["success"],
+        fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_errors" if has_attention else "scans_info"])
+
+
 def notify_override_created(sku, path=None, *, product=None, collection=None):
     fields = [{"name": "SKU", "value": sku, "inline": True}]
     if product:

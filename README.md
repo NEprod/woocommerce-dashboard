@@ -31,8 +31,9 @@ intentional differences. Advanced JSON remains available as an explicit expert
 mode, and every save continues through the protected backup, atomic-write, and
 scanner update workflow.
 Catalogue lifecycle labels remain local scanner state. Separately, resolved
-`live` is shown as Published or Draft intent for a future WooCommerce sync; the
-application does not claim that either state currently exists remotely.
+`live` is shown as Published or Draft intent. Controlled Woo publishing can now
+apply that reviewed intent to an explicitly selected set of at most ten parent
+products; catalogue lifecycle remains a separate local state.
 The released Phase 1 scanner and persistence contracts remain unchanged.
 The Collections workspace provides server-backed browsing and a resolved
 Collection Detail view for metadata health, catalogue lifecycle, publishing
@@ -59,9 +60,11 @@ authoritative shared `product_info.json`. Metadata completion remains
 - Image preparation and SQLite ingestion.
 - Single-process catalogue operation locking and persistent operation history.
 - A schema-backed product JSON editor, in-app metadata reference/templates, and Discord scan/ingest notifications.
-- Environment-only WooCommerce credentials with bounded, read-only REST discovery and capability health history.
+- Environment-only WooCommerce credentials with bounded REST discovery,
+  capability health history, digest-bound preview, and explicitly confirmed
+  two-pass publishing for at most ten selected parent products.
 
-The catalogue projection retains every emitted scanner row, exact collection relationships, queryable taxonomy/publication metadata, and portable source provenance. Ordinary append/update ingestion commits each complete parent graph as one SQLite transaction, with atomic marker/index replacement and recoverable pending identities across filesystem/database failures. Emitted variation sets reconcile in place, and only explicitly exhaustive successful scopes can mark catalogue products missing. Shared metadata edits use an exhaustive collection-limited refresh. Setup distinguishes new catalogues from existing marker identities and offers identity-preserving reconstruction without turning an empty database into a full SKU reset. The complete `product_info.json` contract has runtime schemas, fictional examples, editor-safe validation, templates, and an in-app reference. Phase 3 connection discovery and payload planning are read-only, and ordered cross-sell/upsell relationships are managed as a local source of truth. The preview workspace builds a digest-bound two-pass Woo plan without persisting full payloads or mutating Woo; publishing remains unimplemented. See [Current State](docs/CURRENT_STATE.md).
+The catalogue projection retains every emitted scanner row, exact collection relationships, queryable taxonomy/publication metadata, and portable source provenance. Ordinary append/update ingestion commits each complete parent graph as one SQLite transaction, with atomic marker/index replacement and recoverable pending identities across filesystem/database failures. Emitted variation sets reconcile in place, and only explicitly exhaustive successful scopes can mark catalogue products missing. Shared metadata edits use an exhaustive collection-limited refresh. Setup distinguishes new catalogues from existing marker identities and offers identity-preserving reconstruction without turning an empty database into a full SKU reset. The complete `product_info.json` contract has runtime schemas, fictional examples, editor-safe validation, templates, and an in-app reference. Ordered cross-sell/upsell relationships remain a local authored source of truth. Phase 3 controlled publishing regenerates the exact reviewed preview, resolves taxonomy, writes and verifies parents/variations in Pass 1, then applies only safely resolved ordered relationship IDs in Pass 2. See [Controlled Woo Publishing](docs/WOO_CONTROLLED_PUBLISHING.md) and [Current State](docs/CURRENT_STATE.md).
 
 ## Local development
 
@@ -124,4 +127,5 @@ Suggested Docker Hub overview: “WooCommerce Dashboard is a self-hosted Flask a
 - [Unraid](docs/UNRAID.md)
 - [WooCommerce Connection](docs/WOOCOMMERCE_CONNECTION.md)
 - [Woo Publish Preview](docs/WOO_PUBLISH_PREVIEW.md)
+- [Controlled Woo Publishing](docs/WOO_CONTROLLED_PUBLISHING.md)
 - [Security](docs/SECURITY.md)

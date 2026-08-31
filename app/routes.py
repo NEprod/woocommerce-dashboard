@@ -134,6 +134,12 @@ from app.woo_publish_preview import (
     PreviewError, cached_plan, generate_publish_plan, operation_summary as woo_preview_operation_summary,
     plan_is_stale, preview_landing, scope_estimate,
 )
+from app.woo_controlled_publish import (
+    ControlledPublishError,
+    prepare_publish_confirmation,
+    resume_confirmation,
+    start_publish_operation,
+)
 from app.image_preparation import (
     browse_intake,
     configured_intake_root,
@@ -2483,6 +2489,67 @@ def api_woocommerce_preview_product(product_id):
     product_plan = next((item for item in (plan or {}).get("products", []) if item["product_id"] == product_id), None)
     if not product_plan: return jsonify({"ok": False, "error": "Detailed preview is unavailable; generate a fresh preview."}), 404
     return jsonify({"ok": True, "product": product_plan, "preview_digest": plan["digest"], "stale": plan_is_stale(plan)})
+
+
+def _publish_product_ids(payload):
+    values = payload.getlist("product_ids") if hasattr(payload, "getlist") else payload.get("product_ids", [])
+    return values if isinstance(values, list) else [values]
+
+
+@main.route("/woocommerce/publish/confirm", methods=["POST"])
+@login_required
+def woocommerce_publish_confirm():
+    try:
+        confirmation = prepare_publish_confirmation(
+            request.form.get("preview_operation_id"),
+            request.form.get("preview_digest"),
+            _publish_product_ids(request.form),
+        )
+    except (ControlledPublishError, WooConnectionError, TypeError, ValueError) as error:
+        flash(str(error), "danger")
+        operation_id = (request.form.get("preview_operation_id") or "")[:32]
+        return redirect(url_for("main.woocommerce_preview_operation", operation_id=operation_id))
+    return render_template("woocommerce_publish_confirm.html", confirmation=confirmation)
+
+
+@main.route("/woocommerce/publish/start", methods=["POST"])
+@login_required
+def woocommerce_publish_start():
+    operation_id = (request.form.get("preview_operation_id") or "")[:32]
+    try:
+        if request.form.get("acknowledge_write") != "yes":
+            raise ControlledPublishError("Explicit WooCommerce write acknowledgement is required.")
+        retry_of = (request.form.get("retry_of") or "")[:32]
+        confirmation = (
+            resume_confirmation(retry_of)
+            if retry_of
+            else prepare_publish_confirmation(
+                operation_id,
+                request.form.get("preview_digest"),
+                _publish_product_ids(request.form),
+            )
+        )
+        if confirmation["requires_live_acknowledgement"] and request.form.get("acknowledge_live") != "yes":
+            raise ControlledPublishError("Published products require the customer-visibility acknowledgement.")
+        publish_operation_id = start_publish_operation(confirmation, app=current_app._get_current_object())
+    except CatalogueOperationActive as error:
+        flash("Another operation is active. Follow it before publishing.", "warning")
+        return redirect(url_for("main.operation_detail", operation_id=error.active["id"]))
+    except (ControlledPublishError, WooConnectionError, TypeError, ValueError) as error:
+        flash(str(error), "danger")
+        return redirect(url_for("main.woocommerce_preview_operation", operation_id=operation_id))
+    return redirect(url_for("main.operation_detail", operation_id=publish_operation_id))
+
+
+@main.route("/woocommerce/publish/operations/<operation_id>/resume", methods=["POST"])
+@login_required
+def woocommerce_publish_resume(operation_id):
+    try:
+        confirmation = resume_confirmation(operation_id)
+    except (ControlledPublishError, WooConnectionError, TypeError, ValueError) as error:
+        flash(str(error), "danger")
+        return redirect(url_for("main.operation_detail", operation_id=operation_id))
+    return render_template("woocommerce_publish_confirm.html", confirmation=confirmation, retry_of=operation_id)
 
 
 # ---------- Auth ----------
