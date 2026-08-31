@@ -1,0 +1,28 @@
+{% extends "layouts/base.html" %}
+{% from 'includes/icons.html' import icon %}
+{% block title %}Woo Publish Preview{% endblock %}
+{% block content %}
+<header class="page-header woo-preview-header"><div><p class="eyebrow">WooCommerce · Read only</p><h1 class="page-title">Build Publish Preview</h1><p class="page-lede">See exactly what a future controlled publish would create, update, defer, or block. Generating a preview sends bounded GET requests only.</p></div><a class="btn btn-ghost" href="{{ url_for('main.woocommerce') }}">Connection workspace</a></header>
+<section class="preview-readonly-banner" role="status">{{ icon('plug') }}<div><strong>Planning only</strong><p>No product, taxonomy, relationship, variation, or media write is available in this milestone.</p></div></section>
+
+<div class="preview-layout">
+<section class="workspace-panel" aria-labelledby="preview-scope-title"><div class="panel-heading"><div><p class="eyebrow">Step 1</p><h2 id="preview-scope-title">Choose preview scope</h2></div></div>
+  <form method="post" action="{{ url_for('main.woocommerce_preview_estimate') }}" class="preview-scope-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <fieldset><legend>Scope</legend>
+      <label class="preview-scope-option"><input type="radio" name="scope_kind" value="product" required><span><strong>One product</strong><small>Lowest read count.</small></span></label>
+      <label><span>Product</span><select name="product_id"><option value="">Choose a product</option>{% for product in workspace.products %}<option value="{{ product.id }}">{{ product.title }} — {{ product.sku }}</option>{% endfor %}</select></label>
+      <label class="preview-scope-option"><input type="radio" name="scope_kind" value="selected"><span><strong>Selected products</strong><small>Choose multiple local parent products.</small></span></label>
+      <label><span>Products</span><select name="product_ids" multiple size="6">{% for product in workspace.products %}<option value="{{ product.id }}">{{ product.title }} — {{ product.sku }}</option>{% endfor %}</select></label>
+      <label class="preview-scope-option"><input type="radio" name="scope_kind" value="collection"><span><strong>One collection</strong><small>All projected parents in the collection.</small></span></label>
+      <label><span>Collection</span><select name="collection_id"><option value="">Choose a collection</option>{% for collection in workspace.collections %}<option value="{{ collection.id }}">{{ collection.name }}</option>{% endfor %}</select></label>
+      <label class="preview-scope-option"><input type="radio" name="scope_kind" value="all_active"><span><strong>All active catalogue products</strong><small>{{ workspace.active_count }} parents. Large scopes require a second confirmation.</small></span></label>
+    </fieldset>
+    <button class="btn btn-dark" type="submit">Estimate Preview Scope</button>
+  </form>
+</section>
+<aside class="workspace-panel preview-readiness-card" aria-labelledby="preview-connection-title"><p class="eyebrow">Prerequisite</p><h2 id="preview-connection-title">Woo read health</h2><strong>{{ workspace.connection.health.state|replace('_',' ')|title }}</strong><p>A connected or connected-with-limitations result is required. Opening this page never contacts WooCommerce.</p></aside>
+</div>
+
+<section class="workspace-panel" aria-labelledby="preview-history-title"><div class="panel-heading"><div><p class="eyebrow">Bounded history</p><h2 id="preview-history-title">Publish previews</h2></div><span>{{ workspace.history|length }} shown</span></div>{% if workspace.history %}<div class="operation-item-list">{% for operation in workspace.history %}<article><span class="status-badge status-{{ operation.status }}">{{ operation.status|title }}</span><div><strong>WooCommerce Publish Preview</strong><small>{{ operation.started_at.strftime('%d %b %Y %H:%M') if operation.started_at else 'Time unavailable' }}</small></div><a href="{{ url_for('main.woocommerce_preview_operation', operation_id=operation.id) }}">Review summary</a></article>{% endfor %}</div>{% else %}<div class="empty-state compact"><h3>No previews generated</h3><p>Estimate a local scope, then explicitly generate its read-only plan.</p></div>{% endif %}</section>
+{% endblock %}

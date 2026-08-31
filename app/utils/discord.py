@@ -570,6 +570,29 @@ def notify_editor_saved(kind, sku, path=None, *, collection=None, affected=None)
     return send_discord_message(embeds=[embed], channels=["edits"])
 
 
+def notify_woo_publish_preview_completed(summary, *, operation_id):
+    """Send one bounded, secret-free terminal preview summary."""
+    counts = summary.get("product_counts") or {}
+    fields = [
+        {"name": "Scope", "value": _truncate((summary.get("scope") or {}).get("kind")), "inline": True},
+        {"name": "Create / update / unchanged", "value": f"{int(counts.get('create', 0))} / {int(counts.get('update', 0))} / {int(counts.get('no_change', 0))}", "inline": True},
+        {"name": "Blocked / recovery", "value": f"{int(counts.get('blocked', 0))} / {int(counts.get('recovery_required', 0))}", "inline": True},
+        {"name": "Pending Pass 2", "value": str(int((summary.get("relationship_counts") or {}).get("pending_pass_2", 0))), "inline": True},
+        {"name": "Taxonomy dependencies", "value": str(int((summary.get("taxonomy_counts") or {}).get("create_required", 0))), "inline": True},
+        {"name": "Media dependencies", "value": str(int((summary.get("media_counts") or {}).get("missing_url", 0))), "inline": True},
+        {"name": "Warnings / blockers", "value": f"{int(summary.get('warning_count', 0))} / {int(summary.get('blocker_count', 0))}", "inline": True},
+        {"name": "Readiness", "value": _truncate(summary.get("readiness")), "inline": True},
+        {"name": "Duration", "value": f"{int(summary.get('duration_ms', 0))} ms", "inline": True},
+    ]
+    embed = build_embed(
+        "WooCommerce Publish Preview Completed",
+        f"Operation: `{_truncate(operation_id)}`\nRead-only plan generated. No WooCommerce write was sent.",
+        COLORS["warn"] if summary.get("blocker_count") or summary.get("warning_count") else COLORS["success"],
+        fields,
+    )
+    return send_discord_message(embeds=[embed], channels=["scans_errors" if summary.get("blocker_count") else "scans_info"])
+
+
 def notify_override_created(sku, path=None, *, product=None, collection=None):
     fields = [{"name": "SKU", "value": sku, "inline": True}]
     if product:

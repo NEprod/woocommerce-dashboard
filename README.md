@@ -61,7 +61,7 @@ authoritative shared `product_info.json`. Metadata completion remains
 - A schema-backed product JSON editor, in-app metadata reference/templates, and Discord scan/ingest notifications.
 - Environment-only WooCommerce credentials with bounded, read-only REST discovery and capability health history.
 
-The catalogue projection retains every emitted scanner row, exact collection relationships, queryable taxonomy/publication metadata, and portable source provenance. Ordinary append/update ingestion commits each complete parent graph as one SQLite transaction, with atomic marker/index replacement and recoverable pending identities across filesystem/database failures. Emitted variation sets reconcile in place, and only explicitly exhaustive successful scopes can mark catalogue products missing. Shared metadata edits use an exhaustive collection-limited refresh. Setup distinguishes new catalogues from existing marker identities and offers identity-preserving reconstruction without turning an empty database into a full SKU reset. The complete `product_info.json` contract has runtime schemas, fictional examples, editor-safe validation, templates, and an in-app reference. Phase 3 connection discovery is read-only, and ordered cross-sell/upsell relationships are managed as a local source of truth; publishing and remote mutation remain unimplemented. See [Current State](docs/CURRENT_STATE.md).
+The catalogue projection retains every emitted scanner row, exact collection relationships, queryable taxonomy/publication metadata, and portable source provenance. Ordinary append/update ingestion commits each complete parent graph as one SQLite transaction, with atomic marker/index replacement and recoverable pending identities across filesystem/database failures. Emitted variation sets reconcile in place, and only explicitly exhaustive successful scopes can mark catalogue products missing. Shared metadata edits use an exhaustive collection-limited refresh. Setup distinguishes new catalogues from existing marker identities and offers identity-preserving reconstruction without turning an empty database into a full SKU reset. The complete `product_info.json` contract has runtime schemas, fictional examples, editor-safe validation, templates, and an in-app reference. Phase 3 connection discovery and payload planning are read-only, and ordered cross-sell/upsell relationships are managed as a local source of truth. The preview workspace builds a digest-bound two-pass Woo plan without persisting full payloads or mutating Woo; publishing remains unimplemented. See [Current State](docs/CURRENT_STATE.md).
 
 ## Local development
 
@@ -123,4 +123,5 @@ Suggested Docker Hub overview: “WooCommerce Dashboard is a self-hosted Flask a
 - [Docker](docs/DOCKER.md)
 - [Unraid](docs/UNRAID.md)
 - [WooCommerce Connection](docs/WOOCOMMERCE_CONNECTION.md)
+- [Woo Publish Preview](docs/WOO_PUBLISH_PREVIEW.md)
 - [Security](docs/SECURITY.md)

@@ -19,7 +19,7 @@ from flask import (
     abort,
 )
 from flask_login import login_user, logout_user, login_required, current_user
-from werkzeug.exceptions import BadRequest
+from werkzeug.exceptions import BadRequest, NotFound
 from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -126,8 +126,13 @@ from app.operations_workspace import (
     scanner_readiness,
 )
 from app.woocommerce_connection import (
+    WooConnectionError,
     build_woocommerce_workspace,
     execute_connection_test,
+)
+from app.woo_publish_preview import (
+    PreviewError, cached_plan, generate_publish_plan, operation_summary as woo_preview_operation_summary,
+    plan_is_stale, preview_landing, scope_estimate,
 )
 from app.image_preparation import (
     browse_intake,
@@ -2392,6 +2397,92 @@ def woocommerce_test():
         flash("Another operation is already active. Follow it before testing again.", "warning")
         return redirect(url_for("main.operation_detail", operation_id=error.active["id"]))
     return redirect(url_for("main.operation_detail", operation_id=operation_id))
+
+
+def _woo_preview_scope(payload):
+    kind = (payload.get("scope_kind") or payload.get("kind") or "").strip()
+    scope = {"kind": kind}
+    if kind == "product": scope["product_id"] = payload.get("product_id")
+    elif kind == "collection": scope["collection_id"] = payload.get("collection_id")
+    elif kind == "selected":
+        values = payload.getlist("product_ids") if hasattr(payload, "getlist") else payload.get("product_ids", [])
+        scope["product_ids"] = values
+    return scope
+
+
+@main.route("/woocommerce/preview")
+@login_required
+def woocommerce_preview():
+    return render_template("woocommerce_preview.html", workspace=preview_landing())
+
+
+@main.route("/woocommerce/preview/estimate", methods=["POST"])
+@login_required
+def woocommerce_preview_estimate():
+    try:
+        estimate = scope_estimate(_woo_preview_scope(request.form))
+    except (PreviewError, TypeError, ValueError) as error:
+        flash(str(error), "danger")
+        return redirect(url_for("main.woocommerce_preview"))
+    return render_template("woocommerce_preview_estimate.html", estimate=estimate, scope=_woo_preview_scope(request.form))
+
+
+@main.route("/woocommerce/preview/generate", methods=["POST"])
+@login_required
+def woocommerce_preview_generate():
+    try:
+        plan = generate_publish_plan(_woo_preview_scope(request.form), confirm_large=request.form.get("confirm_large") == "yes")
+    except CatalogueOperationActive as error:
+        flash("Another operation is active. Follow it before generating a preview.", "warning")
+        return redirect(url_for("main.operation_detail", operation_id=error.active["id"]))
+    except (PreviewError, WooConnectionError, TypeError, ValueError) as error:
+        flash(str(error), "danger")
+        return redirect(url_for("main.woocommerce_preview"))
+    return redirect(url_for("main.woocommerce_preview_operation", operation_id=plan["operation_id"]))
+
+
+@main.route("/woocommerce/preview/operations/<operation_id>")
+@login_required
+def woocommerce_preview_operation(operation_id):
+    operation = CatalogueOperation.query.filter_by(id=operation_id, operation_type="woo_publish_preview").first_or_404()
+    plan = cached_plan(operation_id)
+    action_filter = (request.args.get("action") or "").strip()
+    valid_actions = {"create", "link_candidate", "update", "no_change", "blocked", "recovery_required"}
+    if action_filter not in valid_actions:
+        action_filter = ""
+    displayed_products = [item for item in plan["products"] if not action_filter or item["action"] == action_filter] if plan else []
+    return render_template(
+        "woocommerce_preview_operation.html",
+        operation=operation,
+        summary=woo_preview_operation_summary(operation),
+        plan=plan,
+        displayed_products=displayed_products,
+        action_filter=action_filter,
+        stale=plan_is_stale(plan) if plan else None,
+    )
+
+
+@main.route("/woocommerce/preview/products/<int:product_id>")
+@login_required
+def woocommerce_preview_product(product_id):
+    operation_id = (request.args.get("operation_id") or "")[:32]
+    operation = CatalogueOperation.query.filter_by(id=operation_id, operation_type="woo_publish_preview").first_or_404()
+    plan = cached_plan(operation.id)
+    if not plan: raise NotFound("Detailed preview expired; generate a fresh preview.")
+    product_plan = next((item for item in plan["products"] if item["product_id"] == product_id), None)
+    if not product_plan: raise NotFound("Product is not part of this preview.")
+    return render_template("woocommerce_preview_product.html", operation=operation, plan=plan, product_plan=product_plan, stale=plan_is_stale(plan))
+
+
+@main.route("/api/woocommerce/preview/products/<int:product_id>")
+@login_required
+def api_woocommerce_preview_product(product_id):
+    operation_id = (request.args.get("operation_id") or "")[:32]
+    operation = CatalogueOperation.query.filter_by(id=operation_id, operation_type="woo_publish_preview").first_or_404()
+    plan = cached_plan(operation.id)
+    product_plan = next((item for item in (plan or {}).get("products", []) if item["product_id"] == product_id), None)
+    if not product_plan: return jsonify({"ok": False, "error": "Detailed preview is unavailable; generate a fresh preview."}), 404
+    return jsonify({"ok": True, "product": product_plan, "preview_digest": plan["digest"], "stale": plan_is_stale(plan)})
 
 
 # ---------- Auth ----------

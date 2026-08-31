@@ -36,7 +36,8 @@
   health history. Milestone 2 adds the entirely local Product Relationships
   source of truth for ordered cross-sells and directional upsells, plus a
   catalogue-wide health workspace and signed mutual-family builder. Milestone 3
-  will preview Woo payloads without mutation; later publishing uses two passes:
+  provides a read-only, digest-bound Woo payload preview with store-scoped
+  identity resolution and a two-pass publish plan. Later publishing uses two passes:
   persist Woo product IDs first, then translate these local relationship edges
   into `cross_sell_ids` and `upsell_ids`. Publishing and media synchronization
   remain later milestones.

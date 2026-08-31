@@ -15,6 +15,9 @@ For a missing or empty database, startup applies every revision from the beginni
   by durable authored target SKU with nullable local target resolution.
 - `0006_relationship_workspace`: reconstructable relationship source-kind and
   last-change metadata for bounded catalogue-wide browsing.
+- `0007_woo_sync_identity`: minimal store-scoped parent and variation Woo ID,
+  verification, and digest projection required for safe future create/update
+  resolution. It stores no credentials, payload snapshots, or raw responses.
 
 The baseline revision contains its own schema declarations. It does not import the current ORM model to create tables, so later model changes cannot rewrite the historical baseline.
 

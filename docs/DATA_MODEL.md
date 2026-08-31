@@ -34,7 +34,7 @@ they do not turn SQLite into the metadata source of truth.
 
 ## Schema versioning
 
-Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the Phase 0 tables and is also the adoption point for structurally matching unversioned Phase 0 databases. Revision `0002_operations` adds catalogue operation history. Revision `0003_projection` activates catalogue relationships, complete emitted-row storage, normalized metadata, and portable provenance. Revision `0004_lifecycle` adds soft missing/restored state, variation source identity, and lifecycle outcome counts. Revision `0005_relationships` adds ordered local product-relationship edges without reusing scanner-owned emitted-row fields. Revision `0006_relationship_workspace` adds reconstructable relationship source-kind and last-change projection metadata. Application models do not create or alter tables directly at startup. See [Database Migrations](MIGRATIONS.md).
+Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the Phase 0 tables and is also the adoption point for structurally matching unversioned Phase 0 databases. Revision `0002_operations` adds catalogue operation history. Revision `0003_projection` activates catalogue relationships, complete emitted-row storage, normalized metadata, and portable provenance. Revision `0004_lifecycle` adds soft missing/restored state, variation source identity, and lifecycle outcome counts. Revision `0005_relationships` adds ordered local product-relationship edges without reusing scanner-owned emitted-row fields. Revision `0006_relationship_workspace` adds reconstructable relationship source-kind and last-change projection metadata. Revision `0007_woo_sync_identity` adds store-scoped parent and variation Woo identity/sync projection rows without modifying scanner-owned product columns or authored JSON. Application models do not create or alter tables directly at startup. See [Database Migrations](MIGRATIONS.md).
 
 ## Models
 
@@ -49,6 +49,10 @@ Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the P
   Product identity for query acceleration. Only `cross_sell` and `upsell` are
   accepted. Missing targets retain their SKU for repair. Scanner-emitted `Product.cross_sell_ids` and
   `Product.upsell_ids` remain protected projection fields and are not edited.
+- `WooProductIdentity` / `WooVariationIdentity`: application-owned,
+  store-scoped Woo identity, verification, and last-successful-sync digest
+  state. These rows are not authored catalogue truth, contain no credentials or
+  payloads, and are never silently reused for another configured store.
 - `ProductAttribute`: emitted parent attribute definitions, values, visibility/global flags, and position.
 - `Variation`: child of Product with complete emitted row JSON, portable source provenance, canonical emitted-attribute identity, normalized SKU/price/dimension/image fields, lifecycle state, and future Woo fields.
 - `ProductImage` / `VariationImage`: ordered Woo-facing image URL galleries.

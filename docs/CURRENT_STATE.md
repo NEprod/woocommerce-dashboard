@@ -418,3 +418,15 @@ workspace and signed mutual cross-sell family builder. JSON remains the durable
 source and SQLite remains a reconstructable, searchable projection. Revision
 `0006_relationship_workspace` adds indexed source-kind and last-change metadata
 without changing authored relationship shape or scanner fields.
+
+Phase 3 Milestone 3 adds an authenticated `/woocommerce/preview` workspace.
+Opening it is offline; only explicit preview generation performs bounded,
+cached Woo GET requests. The in-memory plan maps resolved local metadata to the
+managed Woo v3 product and variation fields, classifies exact-ID/exact-SKU
+identity outcomes, compares only managed remote fields, and separates Pass 1
+identity-producing work from Pass 2 relationship IDs. Complete payloads and raw
+responses are not persisted. Operation history retains only bounded counts,
+store hostname/fingerprint, builder/mapping versions, and deterministic source
+and plan digests. Revision `0007_woo_sync_identity` provides the minimal
+store-scoped identity projection needed by a later controlled publisher. No Woo
+write, taxonomy creation, media upload, ID linking, or publication exists.

@@ -24,6 +24,7 @@ ALLOWED_OPERATION_TYPES = {
     "intake_catalogue_handoff",
     "woo_connection_test",
     "product_relationship_update",
+    "woo_publish_preview",
 }
 FINAL_STATUSES = {"succeeded", "partial", "failed", "interrupted"}
 

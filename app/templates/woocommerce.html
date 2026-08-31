@@ -2,6 +2,7 @@
 {% from 'includes/icons.html' import icon %}
 {% block title %}WooCommerce Connection{% endblock %}
 {% block content %}
+<div class="woo-preview-entry"><a class="btn btn-dark" href="{{ url_for('main.woocommerce_preview') }}">Build Publish Preview</a><small>Read-only planning. No WooCommerce writes.</small></div>
 <section class="page-heading page-heading-actions">
   <div><p class="eyebrow">Integrations</p><h1>WooCommerce Connection</h1><p>Verify secure read access and discover the store capabilities needed by later Phase 3 milestones.</p></div>
   <form method="post" action="{{ url_for('main.woocommerce_test') }}" data-woo-test-form>

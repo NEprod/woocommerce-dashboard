@@ -96,7 +96,7 @@ def test_migration_is_sku_projection_and_preserves_product(tmp_path):
     assert connection.execute("SELECT sku FROM product WHERE id=41").fetchone() == ("KEEP",)
     product_columns = {row[1] for row in connection.execute("PRAGMA table_info(product)")}
     assert {"relationship_source_kind", "relationships_updated_at"} <= product_columns
-    assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0006_relationship_workspace"
+    assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0007_woo_sync_identity"
     connection.close()
 
 

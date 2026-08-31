@@ -316,6 +316,61 @@ class ProductRelationship(db.Model):
     )
 
 
+class WooProductIdentity(db.Model):
+    """Store-scoped Woo identity and sync state; never authored catalogue data."""
+
+    __tablename__ = "woo_product_identity"
+    __table_args__ = (
+        db.UniqueConstraint("store_key", "product_id", name="uq_woo_product_identity_store_product"),
+        db.UniqueConstraint("store_key", "woo_product_id", name="uq_woo_product_identity_store_remote"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id", ondelete="CASCADE"), nullable=False, index=True)
+    stable_identity = db.Column(db.String(1024), nullable=False)
+    sku = db.Column(db.String(64), index=True)
+    store_key = db.Column(db.String(64), nullable=False, index=True)
+    store_host = db.Column(db.String(253), nullable=False)
+    woo_product_id = db.Column(db.Integer, nullable=True, index=True)
+    last_successful_sync_at = db.Column(db.DateTime)
+    last_published_digest = db.Column(db.String(64))
+    last_remote_modified_at = db.Column(db.DateTime)
+    last_remote_digest = db.Column(db.String(64))
+    sync_state = db.Column(db.String(32), nullable=False, default="unlinked")
+    verification_state = db.Column(db.String(32), nullable=False, default="unverified")
+    created_at = db.Column(db.DateTime, nullable=False, server_default=func.now())
+    updated_at = db.Column(db.DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    product = db.relationship("Product", backref=db.backref("woo_identities", cascade="all, delete-orphan"))
+
+
+class WooVariationIdentity(db.Model):
+    """Store-scoped Woo variation identity scoped to its local parent."""
+
+    __tablename__ = "woo_variation_identity"
+    __table_args__ = (
+        db.UniqueConstraint("store_key", "variation_id", name="uq_woo_variation_identity_store_variation"),
+        db.UniqueConstraint("store_key", "woo_parent_product_id", "woo_variation_id", name="uq_woo_variation_identity_store_remote"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    variation_id = db.Column(db.Integer, db.ForeignKey("variation.id", ondelete="CASCADE"), nullable=False, index=True)
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id", ondelete="CASCADE"), nullable=False, index=True)
+    stable_identity = db.Column(db.String(1024), nullable=False)
+    sku = db.Column(db.String(64), index=True)
+    store_key = db.Column(db.String(64), nullable=False, index=True)
+    store_host = db.Column(db.String(253), nullable=False)
+    woo_parent_product_id = db.Column(db.Integer, nullable=True, index=True)
+    woo_variation_id = db.Column(db.Integer, nullable=True, index=True)
+    last_successful_sync_at = db.Column(db.DateTime)
+    last_published_digest = db.Column(db.String(64))
+    last_remote_modified_at = db.Column(db.DateTime)
+    last_remote_digest = db.Column(db.String(64))
+    verification_state = db.Column(db.String(32), nullable=False, default="unverified")
+    created_at = db.Column(db.DateTime, nullable=False, server_default=func.now())
+    updated_at = db.Column(db.DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    variation = db.relationship("Variation", backref=db.backref("woo_identities", cascade="all, delete-orphan"))
+
+
 class ProductAttribute(db.Model):
     __tablename__ = "product_attribute"
 
