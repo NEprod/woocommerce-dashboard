@@ -139,6 +139,78 @@ def _presentation_paths():
     )
 
 
+def _woo_publish_presentation(summary, row):
+    """Return a complete, bounded view model for every publish lifecycle state."""
+
+    source = summary if isinstance(summary, dict) else {}
+    counts = source.get("counts") if isinstance(source.get("counts"), dict) else {}
+    taxonomy = source.get("taxonomy") if isinstance(source.get("taxonomy"), dict) else {}
+    status = row.status or "pending"
+    if status == "pending":
+        heading = "Controlled publishing queued"
+        message = "Controlled publishing is queued. Counts will appear when processing begins."
+    elif status == "running":
+        heading = "Controlled publishing in progress"
+        message = "Controlled publishing is in progress. Verified counts will appear as each stage completes."
+    elif row.recovery_state not in (None, "none") or source.get("recovery_required"):
+        heading = "Recovery review required"
+        message = "Remote state requires reconciliation before a safe resume can be reviewed."
+    elif status == "succeeded":
+        heading = "Verified publication summary"
+        message = "Controlled two-pass publishing completed and the displayed remote state was verified."
+    elif status == "interrupted":
+        heading = "Controlled publishing interrupted"
+        message = "Publishing was interrupted. Review verified remote state and recovery guidance before continuing."
+    elif status == "failed" and not int(source.get("write_request_count", 0) or 0):
+        heading = "Publishing stopped before any Woo write"
+        message = "Publishing failed before a Woo write was sent. Review the diagnostic before retrying."
+    elif status == "partial":
+        heading = "Publishing completed with attention"
+        message = "Verified remote writes were retained. Review failed or pending items before a safe resume."
+    else:
+        heading = "Controlled publishing failed"
+        message = "Publishing failed safely. Review the remote diagnostic and verified state before retrying."
+    defaults = {
+        "store_host": "Configured store", "selected_products": 0, "created": 0,
+        "updated": 0, "no_change": 0, "verified_products": 0,
+        "failed_products": 0, "pending_relationship_count": 0, "request_count": 0,
+        "write_request_count": 0, "duration_ms": 0, "recovery_required": False,
+        "failure": None, "product_results": [], "pending_relationships": [],
+        "woo_errors": [], "diagnostics_truncated": 0,
+    }
+    view = {**defaults, **source}
+    view["counts"] = {
+        "variations_verified": 0, "images_verified": 0,
+        "relationships_applied": 0, "failures": 0, **counts,
+    }
+    view["taxonomy"] = {"created": 0, "reused": 0, "failed": 0, "failures": [], **taxonomy}
+    view["product_results"] = [
+        {
+            "product_id": None, "sku": "", "title": "Product", "action": "unknown",
+            "status": "unknown", "woo_id": None, "variations": [], "relationships": {},
+            "error": None, **item,
+        }
+        for item in view["product_results"][:10] if isinstance(item, dict)
+    ]
+    view["pending_relationships"] = [item for item in view["pending_relationships"][:100] if isinstance(item, dict)]
+    view["woo_errors"] = [
+        {
+            "method": "Unknown", "stage": "controlled_publish", "sku": None,
+            "title": None, "object_type": "remote_object", "object_label": "Remote object",
+            "http_status": None, "category": "remote_error", "remote_code": None,
+            "message": "A bounded WooCommerce error was recorded.", "fields": {},
+            "retry_state": "review_required", "remote_verified": False,
+            "uncertain": False, "recovery_required": False,
+            "guidance": "Review this operation before retrying.", "timestamp": None,
+            **item,
+            "fields": item.get("fields") if isinstance(item.get("fields"), dict) else {},
+        }
+        for item in view["woo_errors"][:10] if isinstance(item, dict)
+    ]
+    view.update({"heading": heading, "state_message": message, "is_terminal": status in TERMINAL_STATUSES})
+    return view
+
+
 def operation_view(row, *, redaction_paths=None):
     scope = _safe_scope(row)
     persisted_summary = scope.get("operation_summary") if isinstance(scope.get("operation_summary"), dict) else {}
@@ -278,6 +350,17 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             "id": item.id, "sku": item.sku, "status": item.status,
             "database_state": item.database_state, "marker_state": item.marker_state,
             "source": safe_source, "error": redact_diagnostic(item.error, paths=redaction_paths, limit=1000) if item.error else None,
+            "state_label": (
+                {
+                    "pending": "Awaiting remote publication",
+                    "parent_verified": "Parent remotely verified",
+                    "verified": "Remote state verified",
+                    "identity_not_persisted": "No verified remote identity persisted",
+                    "remote_publish_failed": "WooCommerce request failed",
+                    "remote_reconciliation_required": "Remote reconciliation required",
+                }.get(item.database_state, str(item.database_state or "unknown").replace("_", " ").title())
+                if row.operation_type == "woo_controlled_publish" else None
+            ),
             "started_at": item.started_at, "finished_at": item.finished_at,
             "product": {"id": product.id, "title": product.title, "url": url_for("main.product_detail", product_id=product.id)} if product else None,
             "collection": {"id": collection.id, "name": collection_display_name(collection), "url": url_for("main.collection_detail", collection_id=collection.id)} if collection else None,
@@ -440,6 +523,10 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
             "import_mode": summary.get("import_mode") or view["scope"].get("import_mode"),
             "source_preserved": bool(summary.get("source_preserved") or view["scope"].get("source_preserved")),
         }
+    woo_publish = (
+        _woo_publish_presentation({**view["scope"], **view["summary"]}, row)
+        if row.operation_type == "woo_controlled_publish" else None
+    )
     return {
         "operation": view, "items": item_views,
         "item_pagination": {"page": item_pagination.page, "pages": item_pagination.pages or 1, "total": item_pagination.total},
@@ -449,5 +536,5 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
         "woo_connection": view["summary"] if row.operation_type == "woo_connection_test" else None,
         "product_relationships": view["summary"] if row.operation_type == "product_relationship_update" else None,
         "woo_publish_preview": view["summary"] if row.operation_type == "woo_publish_preview" else None,
-        "woo_controlled_publish": view["summary"] if row.operation_type == "woo_controlled_publish" else None,
+        "woo_controlled_publish": woo_publish,
     }

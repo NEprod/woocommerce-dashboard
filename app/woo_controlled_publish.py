@@ -32,6 +32,7 @@ from app.utils.operation_control import (
     sanitize_operation_error,
 )
 from app.utils.operation_live import persist_live_state
+from app.utils.redaction import redact_diagnostic
 from app.woo_publish_preview import (
     _digest,
     _normalise_remote,
@@ -51,6 +52,7 @@ OPERATION_TYPE = "woo_controlled_publish"
 MAX_PUBLISH_PRODUCTS = 10
 MAX_RESULT_ITEMS = 10
 MAX_PENDING_RELATIONSHIPS = 100
+MAX_WOO_DIAGNOSTICS = 10
 ALLOWED_ACTIONS = {"create", "update", "no_change"}
 UNCERTAIN_CATEGORIES = {
     "connect_timeout",
@@ -62,6 +64,7 @@ UNCERTAIN_CATEGORIES = {
     "json_too_deep",
     "response_too_large",
     "write_redirect_refused",
+    "server_error",
 }
 STAGES = (
     "revalidating_preview",
@@ -310,30 +313,141 @@ class PublishGateway:
         self.client = client
         self.namespace = namespace or "wc/v3"
         self.write_count = 0
+        self.stage = "rechecking_woo_connection"
+
+    def set_stage(self, stage):
+        self.stage = str(stage or "controlled_publish")[:64]
 
     def url(self, route, params=None):
         base = f"{self.client.base_url}/wp-json/{self.namespace}/{route.lstrip('/')}"
         return f"{base}?{urlencode(params, doseq=True)}" if params else base
 
     def get(self, route, params=None):
-        payload, _ = self.client.request_json(
-            "GET", self.url(route, params), authenticated=True, endpoint_category="controlled_publish"
-        )
-        return payload
+        try:
+            payload, _ = self.client.request_json(
+                "GET", self.url(route, params), authenticated=True, endpoint_category="controlled_publish"
+            )
+            return payload
+        except WooConnectionError as error:
+            _attach_publish_diagnostic(error, method="GET", stage=self.stage, route=route)
+            raise
 
     def write(self, method, route, payload):
         method = str(method).upper()
         if method not in {"POST", "PUT", "PATCH"}:
             raise ControlledPublishError("DELETE and unreviewed Woo methods are forbidden.", category="unsafe_method")
-        result, _ = self.client.request_json(
-            method,
-            self.url(route),
-            authenticated=True,
-            endpoint_category="controlled_publish",
-            json_body=payload,
-        )
         self.write_count += 1
-        return result
+        try:
+            result, _ = self.client.request_json(
+                method,
+                self.url(route),
+                authenticated=True,
+                endpoint_category="controlled_publish",
+                json_body=payload,
+            )
+            return result
+        except WooConnectionError as error:
+            _attach_publish_diagnostic(
+                error, method=method, stage=self.stage, route=route,
+                sku=payload.get("sku") if isinstance(payload, dict) else None,
+                title=payload.get("name") if isinstance(payload, dict) else None,
+            )
+            raise
+
+
+def _route_object(route):
+    value = str(route or "").strip("/")
+    if "/variations" in value:
+        return "variation", "Variation"
+    if "/terms" in value:
+        return "attribute_term", "Attribute term"
+    if value.startswith("products/attributes"):
+        return "attribute", "Product attribute"
+    if value.startswith("products/categories"):
+        return "category", "Product category"
+    if value.startswith("products/tags"):
+        return "tag", "Product tag"
+    return "product", "Parent product"
+
+
+def _attach_publish_diagnostic(error, *, method, stage, route, sku=None, title=None):
+    remote = error.remote_error if isinstance(getattr(error, "remote_error", None), dict) else {}
+    status = error.status_code
+    method = str(method).upper()[:8]
+    uncertain = method in {"POST", "PUT", "PATCH"} and error.category in UNCERTAIN_CATEGORIES
+    if status == 400:
+        retry_state, guidance = "payload_correction_required", "Correct the reviewed payload or authored metadata, generate a fresh preview, then retry."
+    elif status in {401, 403}:
+        retry_state, guidance = "configuration_review_required", "Review WooCommerce credentials and permissions before retrying."
+    elif status == 429:
+        retry_state, guidance = "retry_later", "Wait for the store rate limit to clear, then review a safe resume."
+    elif isinstance(status, int) and status >= 500:
+        retry_state = "reconciliation_required" if uncertain else "transient_remote_failure"
+        guidance = "Remote write state may be uncertain. Reconcile it after store health recovers before a safe resume." if uncertain else "Review store health before attempting a safe resume."
+    elif uncertain:
+        retry_state, guidance = "reconciliation_required", "Remote state is uncertain and must be reconciled before a safe resume."
+    else:
+        retry_state, guidance = "review_required", "Review this bounded WooCommerce diagnostic before retrying."
+    object_type, object_label = _route_object(route)
+    fields = {}
+    for source in (remote.get("params"), remote.get("details")):
+        if isinstance(source, dict):
+            for key, value in source.items():
+                if len(fields) >= 12:
+                    break
+                fields[str(key)[:80]] = redact_diagnostic(value, limit=240)
+    error.publish_diagnostic = {
+        "method": method, "stage": str(stage or "controlled_publish")[:64],
+        "sku": redact_diagnostic(sku, limit=100) if sku else None,
+        "title": redact_diagnostic(title, limit=160) if title else None,
+        "object_type": object_type, "object_label": object_label,
+        "http_status": status, "category": error.category,
+        "remote_code": redact_diagnostic(remote.get("code"), limit=96) if remote.get("code") else None,
+        "message": redact_diagnostic(remote.get("message") or error.message, limit=400),
+        "fields": fields, "retry_state": retry_state,
+        "remote_verified": False, "uncertain": uncertain,
+        "recovery_required": uncertain,
+        "guidance": guidance,
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
+    error.recovery_required = uncertain
+
+
+def _error_diagnostic(error, *, sku=None, title=None):
+    candidate = error
+    while candidate is not None:
+        diagnostic = getattr(candidate, "publish_diagnostic", None)
+        if isinstance(diagnostic, dict):
+            result = dict(diagnostic)
+            result["sku"] = result.get("sku") or (redact_diagnostic(sku, limit=100) if sku else None)
+            result["title"] = result.get("title") or (redact_diagnostic(title, limit=160) if title else None)
+            return result
+        candidate = getattr(candidate, "__cause__", None)
+    return None
+
+
+def _record_publish_error(progress, error, *, result=None, item=None):
+    diagnostic = _error_diagnostic(
+        error,
+        sku=(result or {}).get("sku"),
+        title=(result or {}).get("title"),
+    )
+    if not diagnostic:
+        return
+    if len(progress.summary["woo_errors"]) < MAX_WOO_DIAGNOSTICS:
+        progress.summary["woo_errors"].append(diagnostic)
+    else:
+        progress.summary["diagnostics_truncated"] += 1
+    if result is not None:
+        result["diagnostic"] = diagnostic
+    if item is not None:
+        item.database_state = "remote_publish_failed" if not diagnostic["uncertain"] else "remote_reconciliation_required"
+    status = f"HTTP {diagnostic['http_status']}" if diagnostic.get("http_status") else diagnostic["category"].replace("_", " ")
+    progress.logs.append({
+        "sequence": progress.sequence, "severity": "error",
+        "line": f"WooCommerce {diagnostic['stage'].replace('_', ' ')} failed for {diagnostic.get('sku') or diagnostic['object_label']}: {status} — {diagnostic['message']}",
+    })
+    progress.sequence += 1
 
 
 def _exact(rows, *, key, value):
@@ -721,6 +835,8 @@ class _Progress:
             "taxonomy": {},
             "pending_relationships": [],
             "audit": [],
+            "woo_errors": [],
+            "diagnostics_truncated": 0,
         }
 
     def update(self, stage, message, *, current_item=""):
@@ -753,11 +869,14 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
     fatal_error = None
     try:
         progress.update("revalidating_preview", "The approved Publish Preview digest was regenerated and verified.")
+        gateway.set_stage("revalidating_preview")
         if store["key"] != confirmation["store_identity"]:
             raise ControlledPublishError("The configured WooCommerce store changed before publishing.", category="store_mismatch")
         progress.update("acquiring_publication_lock", "The dedicated controlled-publication lock is active.")
         progress.update("rechecking_woo_connection", "Required WooCommerce reads remain verified.")
+        gateway.set_stage("rechecking_woo_connection")
         progress.update("resolving_taxonomy", "Resolving exact taxonomy identities required by the selected products.")
+        gateway.set_stage("resolving_taxonomy")
         taxonomy, taxonomy_counts, taxonomy_errors = _resolve_taxonomy(gateway, confirmation)
         progress.summary["taxonomy"] = {
             **dict(taxonomy_counts),
@@ -768,6 +887,7 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
         }
         progress.counts.update({"taxonomy_created": taxonomy_counts["created"], "taxonomy_reused": taxonomy_counts["reused"]})
         progress.update("publishing_parent_products", "Creating or updating reviewed parent products.")
+        gateway.set_stage("publishing_parent_products")
         for plan in confirmation["products"]:
             item = CatalogueOperationItem(operation_id=operation_id, sku=plan["sku"], status="pending", database_state="pending", marker_state="not_applicable")
             db.session.add(item); db.session.commit()
@@ -779,7 +899,7 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
                         f"Required taxonomy could not be resolved: {sanitize_operation_error(taxonomy_error)}",
                         category=getattr(taxonomy_error, "category", "taxonomy_failed"),
                         recovery_required=getattr(taxonomy_error, "recovery_required", False),
-                    )
+                    ) from taxonomy_error
                 payload = _resolved_product_payload(plan, taxonomy)
                 identity, remote, action = _publish_parent(gateway, plan, payload, store, operation_id)
                 result.update({"woo_id": identity.woo_product_id, "status": "pass_1_verified", "action": action, "images": len(payload.get("images", []))})
@@ -791,14 +911,16 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
             except (ControlledPublishError, WooConnectionError) as error:
                 result.update({"status": "recovery_required" if getattr(error, "recovery_required", False) else "failed", "error": sanitize_operation_error(error)})
                 item.status = result["status"]
-                item.database_state = result["status"]
+                item.database_state = "identity_not_persisted"
                 item.error = result["error"]
+                _record_publish_error(progress, error, result=result, item=item)
                 db.session.commit()
                 progress.counts["failures"] += 1
                 recovery_required = recovery_required or getattr(error, "recovery_required", False)
             progress.summary["product_results"].append(result)
         progress.update("verifying_parent_products", "Verified parent identities were committed to store-scoped sync state.")
         progress.update("publishing_variations", "Publishing reviewed variations beneath verified parent products.")
+        gateway.set_stage("publishing_variations")
         for plan, result in zip(confirmation["products"], progress.summary["product_results"]):
             if result["status"] != "pass_1_verified" or not plan.get("variations"):
                 continue
@@ -808,6 +930,7 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
                 progress.counts["variations_verified"] += len(result["variations"])
             except (ControlledPublishError, WooConnectionError) as error:
                 result.update({"status": "recovery_required" if getattr(error, "recovery_required", False) else "failed", "error": sanitize_operation_error(error)})
+                _record_publish_error(progress, error, result=result)
                 progress.counts["failures"] += 1
                 recovery_required = recovery_required or getattr(error, "recovery_required", False)
         progress.update("verifying_variations", "Variation identities and managed fields were verified.")
@@ -820,6 +943,7 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
         progress.update("attaching_verifying_images", "Reviewed parent and variation image URLs were verified through their managed objects.")
         progress.update("resolving_pass_2_relationships", "Resolving ordered local relationship target SKUs to verified Woo product IDs.")
         progress.update("applying_relationships", "Applying relationships only to products with safe Pass 1 identities.")
+        gateway.set_stage("applying_relationships")
         for plan, result in zip(confirmation["products"], progress.summary["product_results"]):
             if result["status"] != "pass_1_verified":
                 continue
@@ -831,6 +955,7 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
                 result["status"] = "verified_with_warnings" if relationship["pending"] else "verified"
             except (ControlledPublishError, WooConnectionError) as error:
                 result.update({"status": "recovery_required" if getattr(error, "recovery_required", False) else "pass_2_failed", "error": sanitize_operation_error(error)})
+                _record_publish_error(progress, error, result=result)
                 progress.counts["failures"] += 1
                 recovery_required = recovery_required or getattr(error, "recovery_required", False)
         progress.update("final_remote_verification", "Completed final managed-state and relationship verification.")
@@ -839,12 +964,16 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
             item = CatalogueOperationItem.query.filter_by(operation_id=operation_id, sku=result["sku"]).one_or_none()
             if item:
                 item.status = "succeeded" if result["status"] in {"verified", "verified_with_warnings"} else "failed"
-                item.database_state = "verified" if item.status == "succeeded" else result["status"]
+                if item.status == "succeeded":
+                    item.database_state = "verified"
+                elif item.database_state not in {"remote_publish_failed", "remote_reconciliation_required", "identity_not_persisted"}:
+                    item.database_state = "remote_publish_failed"
                 item.error = result.get("error")
                 item.finished_at = datetime.now(UTC).replace(tzinfo=None)
         db.session.commit()
     except (ControlledPublishError, WooConnectionError) as error:
         fatal_error = error
+        _record_publish_error(progress, error)
         recovery_required = recovery_required or getattr(error, "recovery_required", False)
         progress.counts["failures"] += 1
     except Exception:

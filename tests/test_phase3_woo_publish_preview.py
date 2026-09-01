@@ -9,7 +9,7 @@ from sqlalchemy import event
 from app import create_app, db
 from app.database import _alembic_config
 from app.models import (
-    CatalogueOperation, Category, Collection, Product, ProductImage,
+    CatalogueOperation, CatalogueOperationItem, Category, Collection, Product, ProductImage,
     ProductRelationship, Settings, Tag, User, Variation, VariationAttribute,
     VariationImage, WooProductIdentity, WooVariationIdentity,
 )
@@ -691,3 +691,120 @@ def test_ten_parent_publish_has_bounded_requests_queries_and_operation_state(pre
         assert summary["verified_products"] == 10
         assert publisher.request_count <= 100 and len(queries) <= 300
         assert len(operation.scope.encode()) < 64 * 1024
+
+
+@pytest.mark.parametrize("status,expected", [
+    ("pending", "Controlled publishing is queued"),
+    ("running", "Controlled publishing is in progress"),
+    ("failed", "Publishing stopped before any Woo write"),
+    ("partial", "Publishing completed with attention"),
+    ("interrupted", "Controlled publishing interrupted"),
+])
+def test_publish_operation_detail_has_safe_defaults_before_terminal_summary(preview_app, status, expected):
+    with preview_app.app_context():
+        operation = CatalogueOperation(
+            id=f"publish-{status}", operation_type="woo_controlled_publish", status=status,
+            scope=json.dumps({"store_host": "shop.example.test"}), marker_state="not_applicable",
+            recovery_state="none",
+        )
+        db.session.add(operation); db.session.commit()
+    response = _client(preview_app).get(f"/operations/publish-{status}")
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200 and expected in html
+    assert "Verified variations</dt><dd>0" in html
+    assert "Taxonomy created / reused</dt><dd>0 / 0" in html
+
+
+def test_publish_result_fragment_is_authenticated_and_running_safe(preview_app):
+    with preview_app.app_context():
+        db.session.add(CatalogueOperation(
+            id="publish-fragment", operation_type="woo_controlled_publish", status="running",
+            scope="{}", marker_state="not_applicable", recovery_state="none",
+        )); db.session.commit()
+    assert preview_app.test_client().get("/operations/publish-fragment/woo-publish-result").status_code == 401
+    response = _client(preview_app).get("/operations/publish-fragment/woo-publish-result")
+    assert response.status_code == 200 and response.headers["Cache-Control"].startswith("no-store")
+    assert "Controlled publishing in progress" in response.get_data(as_text=True)
+
+
+def test_publish_http_400_persists_structured_non_uncertain_diagnostic(preview_app, monkeypatch):
+    class RejectingPublisher(FakePublisherClient):
+        def request_json(self, method, url, **kwargs):
+            if method.upper() == "POST" and urlsplit(url).path.endswith("/products"):
+                self.request_count += 1
+                raise WooConnectionError(
+                    "bad_request", "Invalid parameter(s): regular_price", status_code=400,
+                    remote_error={
+                        "code": "woocommerce_rest_invalid_product",
+                        "message": "Invalid parameter(s): regular_price",
+                        "data": {"status": 400, "params": {"regular_price": "Must be numeric"}},
+                    },
+                )
+            return super().request_json(method, url, **kwargs)
+
+    publisher, _preview, confirmation = _eligible_create_confirmation(
+        preview_app, monkeypatch, publisher=RejectingPublisher()
+    )
+    with preview_app.app_context():
+        operation_id = start_publish_operation(confirmation, client=publisher, run_async=False)
+        operation = db.session.get(CatalogueOperation, operation_id)
+        summary = json.loads(operation.scope)["operation_summary"]
+        diagnostic = summary["woo_errors"][0]
+        item = CatalogueOperationItem.query.filter_by(operation_id=operation_id).one()
+        assert operation.status == "failed" and not summary["recovery_required"]
+        assert diagnostic["http_status"] == 400
+        assert diagnostic["remote_code"] == "woocommerce_rest_invalid_product"
+        assert diagnostic["fields"] == {"regular_price": "Must be numeric"}
+        assert diagnostic["retry_state"] == "payload_correction_required"
+        assert diagnostic["remote_verified"] is False and diagnostic["uncertain"] is False
+        assert item.database_state == "remote_publish_failed"
+        assert summary["write_request_count"] == 1
+        assert "raw_response" not in operation.scope and "consumer_secret" not in operation.scope
+    html = _client(preview_app).get(f"/operations/{operation_id}").get_data(as_text=True)
+    assert "woocommerce_rest_invalid_product" in html
+    assert "regular_price" in html and "Payload Correction Required" in html
+    assert "Database failed" not in html
+
+
+def test_publish_discord_includes_one_bounded_safe_diagnostic(monkeypatch):
+    from app.utils import discord
+    sent = []
+    monkeypatch.setattr(discord, "send_discord_message", lambda **payload: sent.append(payload) or (True, "sent"))
+    summary = {
+        "selected_products": 1, "created": 0, "updated": 0, "verified_products": 0,
+        "failed_products": 1, "duration_ms": 12, "counts": {}, "taxonomy": {},
+        "woo_errors": [{
+            "object_label": "Parent product", "sku": "SAFE-1", "http_status": 400,
+            "category": "bad_request", "message": "Invalid parameter(s): regular_price",
+        }],
+    }
+    assert discord.notify_woo_publish_completed(summary, operation_id="fictional-operation") == (True, "sent")
+    rendered = json.dumps(sent)
+    assert len(sent) == 1 and "Parent product" in rendered and "HTTP 400" in rendered
+    assert "regular_price" in rendered and "consumer_secret" not in rendered
+
+
+@pytest.mark.parametrize("status,category,retry_state,uncertain", [
+    (400, "bad_request", "payload_correction_required", False),
+    (401, "authentication_rejected", "configuration_review_required", False),
+    (403, "forbidden", "configuration_review_required", False),
+    (429, "rate_limited", "retry_later", False),
+    (503, "server_error", "reconciliation_required", True),
+])
+def test_publish_write_failures_have_stage_aware_retry_classification(status, category, retry_state, uncertain):
+    class RejectingClient:
+        publisher_policy = True
+        base_url = "https://shop.example.test"
+        request_count = 0
+        def request_json(self, *args, **kwargs):
+            raise WooConnectionError(category, "Controlled remote error", status_code=status)
+
+    gateway = PublishGateway(RejectingClient(), "wc/v3")
+    gateway.set_stage("publishing_variations")
+    with pytest.raises(WooConnectionError) as caught:
+        gateway.write("POST", "products/12/variations", {"sku": "SAFE-VAR-1"})
+    diagnostic = caught.value.publish_diagnostic
+    assert diagnostic["stage"] == "publishing_variations"
+    assert diagnostic["object_type"] == "variation" and diagnostic["sku"] == "SAFE-VAR-1"
+    assert diagnostic["retry_state"] == retry_state and diagnostic["uncertain"] is uncertain
+    assert gateway.write_count == 1

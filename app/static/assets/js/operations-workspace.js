@@ -17,6 +17,10 @@
     return !wasTerminal && isTerminal && hasPanel;
   }
 
+  function shouldRefreshTerminalResult(wasTerminal, isTerminal, hasPanel) {
+    return !wasTerminal && isTerminal && hasPanel;
+  }
+
   const resultRefreshFallback = "Operation completed. Refresh this page to load the next action.";
 
   async function requestResultFragment(fetchImpl, url) {
@@ -36,6 +40,7 @@
     nextCursor,
     shouldPause,
     shouldRefreshIntakeResult,
+    shouldRefreshTerminalResult,
     resultRefreshFallback,
     requestResultFragment,
   };
@@ -52,9 +57,11 @@
   const retry = documentRef.querySelector("[data-live-retry]");
   const connectivity = documentRef.querySelector("[data-live-connectivity]");
   const intakeResultPanel = documentRef.querySelector("[data-intake-result-panel]");
+  const wooPublishResultPanel = documentRef.querySelector("[data-woo-publish-result]");
   let cursor = 0;
   let terminal = hero.dataset.terminal === "true";
   let intakeResultReady = terminal || !intakeResultPanel;
+  let wooPublishResultReady = terminal || !wooPublishResultPanel;
   let paused = false;
   let failures = 0;
   let statusBusy = false;
@@ -208,18 +215,21 @@
       const wasTerminal = terminal;
       renderStatus(payload);
       if (shouldRefreshIntakeResult(wasTerminal, terminal, Boolean(intakeResultPanel))) {
-        intakeResultReady = await refreshIntakeResult();
+        intakeResultReady = await refreshResultPanel(intakeResultPanel);
+      }
+      if (shouldRefreshTerminalResult(wasTerminal, terminal, Boolean(wooPublishResultPanel))) {
+        wooPublishResultReady = await refreshResultPanel(wooPublishResultPanel);
       }
       if (terminal) await pollLogs();
     } catch (_error) { markFailure(); }
     finally { statusBusy = false; }
   }
 
-  async function refreshIntakeResult() {
-    intakeResultPanel.setAttribute("aria-busy", "true");
+  async function refreshResultPanel(panel) {
+    panel.setAttribute("aria-busy", "true");
     try {
-      const html = await requestResultFragment(root.fetch, intakeResultPanel.dataset.resultUrl);
-      intakeResultPanel.innerHTML = html;
+      const html = await requestResultFragment(root.fetch, panel.dataset.resultUrl);
+      panel.innerHTML = html;
       return true;
     } catch (_error) {
       const section = documentRef.createElement("section");
@@ -234,15 +244,15 @@
       refresh.href = root.location && root.location.href ? root.location.href : "";
       refresh.textContent = "Refresh page";
       section.append(heading, message, refresh);
-      intakeResultPanel.replaceChildren(section);
+      panel.replaceChildren(section);
       return true;
     } finally {
-      intakeResultPanel.removeAttribute("aria-busy");
+      panel.removeAttribute("aria-busy");
     }
   }
 
   function schedule() {
-    if (pollTimer !== null || paused || (terminal && intakeResultReady) || documentRef.hidden) return;
+    if (pollTimer !== null || paused || (terminal && intakeResultReady && wooPublishResultReady) || documentRef.hidden) return;
     pollTimer = root.setTimeout(async function () {
       pollTimer = null;
       await pollStatus();
@@ -254,7 +264,7 @@
   logForm.addEventListener("submit", function (event) { event.preventDefault(); loadFilteredLogs(); });
   if (retry) retry.addEventListener("click", async function () { paused = false; failures = 0; await pollStatus(); await pollLogs(); schedule(); });
   documentRef.addEventListener("visibilitychange", function () {
-    if (!documentRef.hidden && (!terminal || !intakeResultReady)) { paused = false; failures = 0; pollStatus().then(pollLogs).then(schedule); }
+    if (!documentRef.hidden && (!terminal || !intakeResultReady || !wooPublishResultReady)) { paused = false; failures = 0; pollStatus().then(pollLogs).then(schedule); }
   });
   logs.replaceChildren();
   pollLogs();

@@ -445,3 +445,11 @@ unresolved targets remain visible and are never guessed. Operations retain
 bounded progress, per-product outcomes, and recovery state rather than full
 payloads or responses. No DELETE, media upload, scanner, Catalogue Intake, or
 catalogue JSON mutation is part of this workflow.
+
+The controlled-publish Operation Detail now has a complete server-normalized
+view model throughout queued, running and terminal states and refreshes its
+result panel on the terminal live-state transition. New Woo REST failures retain
+only bounded structured code/message/status and field diagnostics with stage,
+local object context and retry/reconciliation guidance. HTTP 400 remains a
+confirmed non-uncertain rejection. Older generic failures remain readable; raw
+response bodies, payloads, credentials, headers and full URLs are never stored.

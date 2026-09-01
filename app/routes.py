@@ -2245,6 +2245,24 @@ def operation_intake_result(operation_id):
     return response
 
 
+@main.route("/operations/<operation_id>/woo-publish-result")
+@login_required
+def operation_woo_publish_result(operation_id):
+    operation = db.session.get(CatalogueOperation, operation_id)
+    if operation is None:
+        abort(404)
+    workspace = operation_detail_workspace(operation)
+    if workspace["woo_controlled_publish"] is None:
+        abort(404)
+    response = Response(
+        render_template("operations/_woo_publish_result.html", workspace=workspace),
+        mimetype="text/html",
+    )
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
 @main.route("/api/operations/<operation_id>/status")
 @login_required
 def operation_status(operation_id):

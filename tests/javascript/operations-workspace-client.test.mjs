@@ -33,6 +33,12 @@ test("Intake result refresh is requested exactly on the first terminal transitio
   assert.equal(client.shouldRefreshIntakeResult(false, true, false), false);
 });
 
+test("publish result refresh is requested exactly once on terminal transition", () => {
+  assert.equal(client.shouldRefreshTerminalResult(false, true, true), true);
+  assert.equal(client.shouldRefreshTerminalResult(true, true, true), false);
+  assert.equal(client.shouldRefreshTerminalResult(false, false, true), false);
+});
+
 test("result refresh failure has a controlled manual-refresh message", () => {
   assert.match(client.resultRefreshFallback, /Operation completed/);
   assert.match(client.resultRefreshFallback, /Refresh this page/);

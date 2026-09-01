@@ -229,6 +229,62 @@ def test_response_size_and_malformed_json_are_controlled():
     assert malformed.value.category == "malformed_json"
 
 
+def test_publisher_retains_only_bounded_structured_woo_error_fields():
+    class ResponseSession:
+        def __init__(self, response): self.response = response
+        def request(self, *args, **kwargs): return self.response
+
+    payload = {
+        "code": "woocommerce_rest_invalid_product",
+        "message": "Invalid parameter(s): regular_price",
+        "data": {
+            "status": 400,
+            "params": {"regular_price": "regular_price must be numeric"},
+            "details": {"regular_price": {"code": "rest_invalid_param", "message": "Expected a decimal string"}},
+            "raw": {"secret": SECRET},
+        },
+        "consumer_secret": SECRET,
+        "response": {"unbounded": "must not persist"},
+    }
+    client = PublisherWooClient(
+        WooConfiguration("https://shop.example.test", KEY, SECRET),
+        session=ResponseSession(FakeResponse(status=400, payload=payload)),
+    )
+    with pytest.raises(WooConnectionError) as caught:
+        client.request_json(
+            "POST", "https://shop.example.test/wp-json/wc/v3/products",
+            authenticated=True, json_body={"sku": "SAFE-1"},
+        )
+    error = caught.value
+    assert error.category == "bad_request" and error.status_code == 400
+    assert error.remote_error == {
+        "code": "woocommerce_rest_invalid_product",
+        "message": "Invalid parameter(s): regular_price",
+        "status": 400,
+        "params": {"regular_price": "regular_price must be numeric"},
+        "details": {"regular_price": "Expected a decimal string"},
+    }
+    encoded = json.dumps(error.remote_error)
+    assert SECRET not in encoded and "consumer_secret" not in encoded and "response" not in encoded
+
+
+@pytest.mark.parametrize("raw", [b"not-json", b"x" * (MAX_RESPONSE_BYTES + 1)])
+def test_http_400_without_usable_bounded_json_remains_confirmed_not_uncertain(raw):
+    class ResponseSession:
+        def request(self, *args, **kwargs): return FakeResponse(status=400, raw=raw)
+    client = PublisherWooClient(
+        WooConfiguration("https://shop.example.test", KEY, SECRET), session=ResponseSession()
+    )
+    with pytest.raises(WooConnectionError) as caught:
+        client.request_json(
+            "POST", "https://shop.example.test/wp-json/wc/v3/products",
+            authenticated=True, json_body={"sku": "SAFE-1"},
+        )
+    assert caught.value.category == "bad_request"
+    assert caught.value.status_code == 400
+    assert caught.value.remote_error == {}
+
+
 def test_plugin_heavy_index_uses_larger_endpoint_specific_limit():
     raw = _large_index_bytes(MAX_RESPONSE_BYTES + 512 * 1024)
     response = FakeResponse(raw=raw, headers={"Content-Encoding": "gzip", "X-Compressed-Bytes": "145000"})

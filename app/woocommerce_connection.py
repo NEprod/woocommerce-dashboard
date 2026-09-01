@@ -38,7 +38,7 @@ MAX_WRITE_BODY_BYTES = 256 * 1024
 class WooConnectionError(RuntimeError):
     """A controlled, safe connection-test failure."""
 
-    def __init__(self, category, message, *, status_code=None, diagnostics=None):
+    def __init__(self, category, message, *, status_code=None, diagnostics=None, remote_error=None):
         super().__init__(message)
         self.category = str(category)[:64]
         self.message = redact_diagnostic(message, limit=300)
@@ -52,6 +52,42 @@ class WooConnectionError(RuntimeError):
             }
             and (value is None or isinstance(value, (str, int, float, bool)))
         }
+        self.remote_error = _safe_remote_error(remote_error, status_code=status_code)
+
+
+def _bounded_text(value, limit=300):
+    if value is None:
+        return ""
+    text = re.sub(r"https?://[^\s<>\"']+", "[URL omitted]", str(value), flags=re.IGNORECASE)
+    return redact_diagnostic(text, limit=limit)
+
+
+def _safe_remote_error(payload, *, status_code=None):
+    """Retain only bounded, documented Woo REST error fields."""
+
+    if not isinstance(payload, dict):
+        return {}
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    safe = {
+        "code": _bounded_text(payload.get("code"), 96),
+        "message": _bounded_text(payload.get("message"), 400),
+        "status": status_code if isinstance(status_code, int) else _safe_header_integer(data.get("status")),
+        "params": {},
+        "details": {},
+    }
+    params = data.get("params") if isinstance(data.get("params"), dict) else payload.get("params")
+    if isinstance(params, dict):
+        for key, value in list(params.items())[:12]:
+            safe["params"][_bounded_text(key, 80)] = _bounded_text(value, 240)
+    details = data.get("details") if isinstance(data.get("details"), dict) else payload.get("details")
+    if isinstance(details, dict):
+        for key, value in list(details.items())[:12]:
+            if isinstance(value, dict):
+                message = value.get("message") or value.get("code")
+            else:
+                message = value
+            safe["details"][_bounded_text(key, 80)] = _bounded_text(message, 240)
+    return {key: value for key, value in safe.items() if value not in (None, "", {})}
 
 
 @dataclass(frozen=True)
@@ -235,7 +271,8 @@ class ReadOnlyWooClient:
                 current = destination
                 continue
 
-            if response.status_code >= 400:
+            http_error = response.status_code >= 400
+            if http_error:
                 categories = {
                     400: "bad_request", 401: "authentication_rejected", 403: "forbidden",
                     404: "not_found", 429: "rate_limited",
@@ -247,8 +284,8 @@ class ReadOnlyWooClient:
                     404: "The requested REST resource is unavailable.",
                     429: "The store rate-limited the connection test.",
                 }
-                response.close()
-                raise WooConnectionError(category, messages.get(response.status_code, f"The store returned HTTP {response.status_code}."), status_code=response.status_code)
+                http_category = category
+                http_message = messages.get(response.status_code, f"The store returned HTTP {response.status_code}.")
 
             content_length = _safe_header_integer(response.headers.get("Content-Length"))
             content_encoding = _safe_content_encoding(response.headers.get("Content-Encoding"))
@@ -269,6 +306,11 @@ class ReadOnlyWooClient:
                                 "content_encoding": content_encoding,
                                 "failure_phase": "streaming",
                             }
+                            if http_error:
+                                raise WooConnectionError(
+                                    http_category, http_message, status_code=response.status_code,
+                                    diagnostics={**diagnostics, "failure_phase": "http_error_body_truncated"},
+                                )
                             if endpoint_category == "wordpress_rest_index":
                                 raise WooConnectionError(
                                     "discovery_index_too_large",
@@ -302,14 +344,33 @@ class ReadOnlyWooClient:
                 try:
                     payload = json.loads(b"".join(chunks).decode(response.encoding or "utf-8"))
                 except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, TypeError) as error:
+                    if http_error:
+                        raise WooConnectionError(
+                            http_category, http_message, status_code=response.status_code,
+                            diagnostics={**transfer, "failure_phase": "http_error"},
+                        ) from error
                     raise WooConnectionError(
                         "malformed_json", "The store returned malformed JSON.",
                         diagnostics={**transfer, "failure_phase": "json_parsing"},
                     ) from error
                 if not _json_nesting_is_bounded(payload):
+                    if http_error:
+                        raise WooConnectionError(
+                            http_category, http_message, status_code=response.status_code,
+                            diagnostics={**transfer, "failure_phase": "http_error"},
+                        )
                     raise WooConnectionError(
                         "json_too_deep", "The store response exceeded the safe JSON nesting limit.",
                         diagnostics={**transfer, "failure_phase": "json_validation"},
+                    )
+                if http_error:
+                    remote_error = _safe_remote_error(payload, status_code=response.status_code)
+                    raise WooConnectionError(
+                        http_category,
+                        remote_error.get("message") or http_message,
+                        status_code=response.status_code,
+                        diagnostics={**transfer, "failure_phase": "http_error"},
+                        remote_error=remote_error,
                     )
                 return payload, response
             finally:

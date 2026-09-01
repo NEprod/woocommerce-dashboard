@@ -48,6 +48,24 @@ labels, pending relationship summaries and sanitized failures. It never retains
 complete payloads, raw responses, credentials, headers, cookies or full route
 schemas. Discord receives one bounded terminal summary and is non-fatal.
 
+Operation Detail uses a server-normalized publish result for queued, running,
+terminal, recovery and older historical records. Empty in-progress summaries
+therefore render zero/unknown values safely, and the result panel refreshes once
+when live polling observes the terminal transition. A failed refresh leaves an
+explicit manual-refresh action; it never restarts the operation.
+
+For a Woo REST error, the publisher may retain only a bounded diagnostic made
+from the response's documented `code`, `message`, safe HTTP status, and bounded
+`data.params`/`data.details` field messages. The diagnostic also records the
+request method, publishing stage, local SKU/title when available, object class,
+retry classification, remote-verification state and timestamp. Raw bodies,
+payloads, response headers and URLs are excluded. HTTP 400 is a confirmed
+payload/metadata correction failure, not an uncertain write. Authentication,
+permission, rate-limit, transient and transport-uncertain failures retain
+different guidance; transport-uncertain writes still require reconciliation.
+Older operations without structured diagnostics retain a controlled generic
+fallback.
+
 ## Request boundary
 
 Discovery and preview clients remain GET-only. The publisher-only client allows

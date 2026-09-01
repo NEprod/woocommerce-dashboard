@@ -607,6 +607,19 @@ def notify_woo_publish_completed(summary, *, operation_id):
         {"name": "Failures / recovery", "value": f"{int(summary.get('failed_products', 0))} / {int(bool(summary.get('recovery_required')))}", "inline": True},
         {"name": "Duration", "value": f"{int(summary.get('duration_ms', 0))} ms", "inline": True},
     ]
+    diagnostics = summary.get("woo_errors") if isinstance(summary.get("woo_errors"), list) else []
+    if diagnostics:
+        diagnostic = diagnostics[0] if isinstance(diagnostics[0], dict) else {}
+        status = f"HTTP {diagnostic.get('http_status')}" if diagnostic.get("http_status") else _truncate(diagnostic.get("category"))
+        fields.append({
+            "name": "WooCommerce diagnostic",
+            "value": _truncate(
+                f"{diagnostic.get('object_label') or 'Remote object'}"
+                f"{f' — {diagnostic.get('sku')}' if diagnostic.get('sku') else ''}: "
+                f"{status} — {diagnostic.get('message') or 'Review required.'}"
+            ),
+            "inline": False,
+        })
     has_attention = bool(summary.get("failed_products") or summary.get("recovery_required") or summary.get("pending_relationship_count"))
     embed = build_embed(
         "WooCommerce Controlled Publish Completed with Attention" if has_attention else "WooCommerce Controlled Publish Completed",
