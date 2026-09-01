@@ -453,3 +453,11 @@ only bounded structured code/message/status and field diagnostics with stage,
 local object context and retry/reconciliation guidance. HTTP 400 remains a
 confirmed non-uncertain rejection. Older generic failures remain readable; raw
 response bodies, payloads, credentials, headers and full URLs are never stored.
+
+Woo parent and variation dimension payloads now use builder contract
+`phase3-m4-dimensions-v2`. Numeric catalogue projection values are serialized as
+canonical decimal strings in Publish Preview and the exact controlled write;
+remote dimensions use the same normalization for managed-field comparison. A
+pre-write guard refuses numeric or non-canonical dimension values locally, and
+the builder-version change invalidates earlier previews without changing the
+authored JSON schema, scanner projection, or catalogue data.

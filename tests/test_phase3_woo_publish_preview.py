@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -17,6 +18,12 @@ from app.woo_publish_preview import (
     BUILDER_VERSION, PreviewError, PreviewWooReader, _comparison,
     _product_payload, _variation_payload, cached_plan, generate_publish_plan,
     plan_is_stale, reset_preview_cache_for_tests, scope_estimate, store_identity,
+)
+from app.woo_payload_contract import (
+    WooDimensionContractError,
+    assert_woo_dimension_payload,
+    canonical_woo_dimension,
+    canonical_woo_dimensions,
 )
 from app.woo_controlled_publish import (
     ControlledPublishError,
@@ -145,15 +152,15 @@ def preview_app(tmp_path, monkeypatch):
         category = Category(name="Cards", slug="cards"); tag = Tag(name="Birthday", slug="birthday")
         db.session.add_all([category, tag]); db.session.flush()
         products = [
-            Product(id=1, collection_id=1, title="Create Card", sku="CREATE-1", product_type="simple", catalogue_status="active", published=False, regular_price=10, description="Create description", short_description="Create short", source_relpath="Preview Cards/Create"),
-            Product(id=2, collection_id=1, title="Existing Card", sku="EXIST-1", product_type="simple", catalogue_status="active", published=True, regular_price=12, description="Existing description", short_description="Existing short", source_relpath="Preview Cards/Existing"),
+            Product(id=1, collection_id=1, title="Create Card", sku="CREATE-1", product_type="simple", catalogue_status="active", published=False, regular_price=10, length=148, width=148, height=2, description="Create description", short_description="Create short", source_relpath="Preview Cards/Create"),
+            Product(id=2, collection_id=1, title="Existing Card", sku="EXIST-1", product_type="simple", catalogue_status="active", published=True, regular_price=12, length=148, width=148, height=2, description="Existing description", short_description="Existing short", source_relpath="Preview Cards/Existing"),
             Product(id=3, collection_id=1, title="Link Card", sku="LINK-1", product_type="simple", catalogue_status="active", published=True, regular_price=14, source_relpath="Preview Cards/Link"),
-            Product(id=4, collection_id=1, title="Variable Card", sku="VARIABLE-1", product_type="variable", catalogue_status="active", published=True, regular_price=20, source_relpath="Preview Cards/Variable"),
+            Product(id=4, collection_id=1, title="Variable Card", sku="VARIABLE-1", product_type="variable", catalogue_status="active", published=True, regular_price=20, length=210, width=148, height=3, source_relpath="Preview Cards/Variable"),
         ]
         for product in products: product.categories.append(category); product.tags.append(tag)
         db.session.add_all(products); db.session.flush()
         db.session.add(ProductImage(product_id=1, url="https://media.example.test/create.webp", position=0))
-        variation = Variation(id=41, product_id=4, sku="VARIABLE-1-A", source_identity="Preview Cards/Variable/A", catalogue_status="active", regular_price=21, menu_order=0)
+        variation = Variation(id=41, product_id=4, sku="VARIABLE-1-A", source_identity="Preview Cards/Variable/A", catalogue_status="active", regular_price=21, length=148, width=105, height=2, menu_order=0)
         db.session.add(variation); db.session.flush(); db.session.add_all([VariationAttribute(variation_id=41, name="Size", value="A5"), VariationImage(variation_id=41, url="https://media.example.test/a.webp", position=0)])
         db.session.add(ProductRelationship(source_product_id=1, target_sku="LINK-1", resolved_target_product_id=3, relationship_type="cross_sell", position=0))
         db.session.add(CatalogueOperation(id="connection-health", operation_type="woo_connection_test", status="succeeded", scope=json.dumps({"operation_summary": {"state": "connected", "health_state": "connected", "selected_namespace": "wc/v3"}})))
@@ -207,6 +214,74 @@ def test_variation_payload_preserves_attributes_price_and_owned_image(preview_ap
         assert payload["sku"] == "VARIABLE-1-A" and payload["regular_price"] == "21.00"
         assert payload["attributes"] == [{"name": "Size", "option": "A5"}]
         assert payload["image"]["src"].endswith("a.webp")
+
+
+@pytest.mark.parametrize(("source", "expected"), [
+    (148, "148"),
+    (148.0, "148"),
+    (148.5, "148.5"),
+    (Decimal("148.500"), "148.5"),
+    ("148", "148"),
+    ("148.50", "148.5"),
+    (0, "0"),
+    (-2, "-2"),
+])
+def test_woo_dimension_scalar_is_a_canonical_decimal_string(source, expected):
+    assert canonical_woo_dimension(source) == expected
+
+
+@pytest.mark.parametrize("source", [True, False, "148mm", "1,48", "1e2", float("inf")])
+def test_woo_dimension_scalar_rejects_non_contract_values(source):
+    with pytest.raises(WooDimensionContractError):
+        canonical_woo_dimension(source)
+
+
+def test_woo_dimensions_use_empty_strings_for_missing_or_null_values():
+    assert canonical_woo_dimensions({"length": None, "width": 148}) == {
+        "length": "", "width": "148", "height": "",
+    }
+    assert canonical_woo_dimensions(None) == {"length": "", "width": "", "height": ""}
+
+
+def test_parent_and_variation_payload_dimensions_are_canonical_strings(preview_app):
+    with preview_app.app_context():
+        product = db.session.get(Product, 4)
+        product.length, product.width, product.height = Decimal("148.000"), Decimal("148.500"), None
+        variation = db.session.get(Variation, 41)
+        variation.length, variation.width, variation.height = Decimal("210"), Decimal("297.00"), Decimal("2")
+        db.session.flush()
+        parent, _ = _product_payload(product, {"categories": [], "tags": [], "attributes": []})
+        child = _variation_payload(variation)
+        assert parent["dimensions"] == {"length": "148", "width": "148.5", "height": ""}
+        assert child["dimensions"] == {"length": "210", "width": "297", "height": "2"}
+        assert all(isinstance(value, str) for value in parent["dimensions"].values())
+        assert all(isinstance(value, str) for value in child["dimensions"].values())
+
+
+def test_remote_dimension_strings_and_local_numbers_compare_equal():
+    local = {"dimensions": canonical_woo_dimensions({"length": 148, "width": "148.00", "height": 2})}
+    remote, differences = _comparison(local, {"dimensions": {"length": "148", "width": "148", "height": "2.0"}})
+    assert remote["dimensions"] == {"length": "148", "width": "148", "height": "2"}
+    assert differences == []
+
+
+def test_prewrite_guard_rejects_numeric_or_noncanonical_dimensions():
+    for dimensions in (
+        {"length": 148, "width": "148", "height": "2"},
+        {"length": "148.0", "width": "148", "height": "2"},
+    ):
+        with pytest.raises(WooDimensionContractError):
+            assert_woo_dimension_payload({"dimensions": dimensions})
+    assert_woo_dimension_payload({"dimensions": {"length": "148", "width": "148", "height": "2"}})
+
+
+def test_publish_gateway_refuses_numeric_dimensions_before_http_request():
+    client = FakePublisherClient()
+    gateway = PublishGateway(client, "wc/v3")
+    with pytest.raises(ControlledPublishError, match="refused before any request") as caught:
+        gateway.write("POST", "products", {"sku": "DIMENSION-GUARD", "dimensions": {"length": 148}})
+    assert caught.value.category == "internal_contract"
+    assert gateway.write_count == 0 and client.request_count == 0 and client.writes == []
 
 
 def test_comparison_ignores_woo_generated_fields_and_detects_managed_change():
@@ -281,6 +356,21 @@ def test_digest_is_deterministic_timing_free_and_stale_after_local_change(previe
         assert plan_is_stale(first) is True
 
 
+def test_legacy_numeric_dimension_preview_is_stale(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    publisher = FakePublisherClient()
+    with preview_app.app_context():
+        preview = generate_publish_plan({"kind": "product", "product_id": 1}, client=publisher)
+        preview["summary"]["builder_version"] = "phase3-m3-v1"
+        preview["products"][0]["payload"]["dimensions"]["length"] = 148
+        preview["digest"] = "legacy-numeric-dimension-preview"
+        assert BUILDER_VERSION == "phase3-m4-dimensions-v2"
+        with pytest.raises(ControlledPublishError, match="stale"):
+            prepare_publish_confirmation(
+                preview["operation_id"], preview["digest"], [1], client=publisher
+            )
+
+
 def test_route_generation_and_detail_render_with_only_reviewed_publish_entry(preview_app, monkeypatch):
     monkeypatch.setattr("app.woo_publish_preview.ReadOnlyWooClient", lambda *a, **k: FakeWooClient(taxonomy=_taxonomy()))
     monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
@@ -297,6 +387,9 @@ def test_route_generation_and_detail_render_with_only_reviewed_publish_entry(pre
     assert detail.status_code == 200 and "Sanitised Pass 1 product payload" in detail.get_data(as_text=True)
     api = client.get(f"/api/woocommerce/preview/products/1?operation_id={operation_id}")
     assert api.status_code == 200 and api.get_json()["product"]["sku"] == "CREATE-1"
+    assert api.get_json()["product"]["payload"]["dimensions"] == {
+        "length": "148", "width": "148", "height": "2",
+    }
 
 
 def test_no_woo_ids_or_payloads_written_to_catalogue(preview_app, monkeypatch):
@@ -453,6 +546,8 @@ def test_simple_draft_two_pass_publish_verifies_identity_relationships_and_no_js
         assert identity.woo_product_id == 501 and identity.verification_state == "verified"
         assert publisher.products[501]["status"] == "draft"
         assert publisher.products[501]["cross_sell_ids"] == [303]
+        parent_write = next(body for method, path, body in publisher.writes if method == "POST" and path.endswith("/products"))
+        assert parent_write["dimensions"] == {"length": "148", "width": "148", "height": "2"}
         assert all(method in {"GET", "POST", "PUT"} for method in publisher.methods)
         assert not any(method == "DELETE" for method in publisher.methods)
         assert list(catalogue.rglob("*")) == before
@@ -475,6 +570,10 @@ def test_variable_parent_precedes_variation_and_both_identities_are_verified(pre
         assert variation.woo_variation_id == 601 and variation.verification_state == "verified"
         write_paths = [path for method, path, _ in publisher.writes if method in {"POST", "PUT"}]
         assert write_paths.index("/wp-json/wc/v3/products") < write_paths.index("/wp-json/wc/v3/products/501/variations")
+        parent_write = next(body for method, path, body in publisher.writes if method == "POST" and path.endswith("/products"))
+        variation_write = next(body for method, path, body in publisher.writes if method == "POST" and path.endswith("/variations"))
+        assert parent_write["dimensions"] == {"length": "210", "width": "148", "height": "3"}
+        assert variation_write["dimensions"] == {"length": "148", "width": "105", "height": "2"}
         assert db.session.get(CatalogueOperation, operation_id).status == "succeeded"
 
 
@@ -543,6 +642,8 @@ def test_update_and_no_change_use_verified_id_and_skip_unchanged_write(preview_a
         confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], [2], client=publisher)
         start_publish_operation(confirmation, client=publisher, run_async=False)
         assert publisher.products[202]["name"] == "Existing Card"
+        update_body = next(body for method, path, body in publisher.writes if method == "PUT" and path.endswith("/products/202"))
+        assert update_body["dimensions"] == {"length": "148", "width": "148", "height": "2"}
         update_writes = len(publisher.writes)
 
         reset_operation_control_for_tests()

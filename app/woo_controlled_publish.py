@@ -40,6 +40,7 @@ from app.woo_publish_preview import (
     regenerate_publish_plan,
     store_identity,
 )
+from app.woo_payload_contract import WooDimensionContractError, assert_woo_dimension_payload
 from app.woocommerce_connection import (
     PublisherWooClient,
     WooConnectionError,
@@ -336,6 +337,13 @@ class PublishGateway:
         method = str(method).upper()
         if method not in {"POST", "PUT", "PATCH"}:
             raise ControlledPublishError("DELETE and unreviewed Woo methods are forbidden.", category="unsafe_method")
+        try:
+            assert_woo_dimension_payload(payload)
+        except WooDimensionContractError as error:
+            raise ControlledPublishError(
+                "The WooCommerce dimension payload contract is invalid; publishing was refused before any request.",
+                category="internal_contract",
+            ) from error
         self.write_count += 1
         try:
             result, _ = self.client.request_json(
@@ -578,13 +586,6 @@ def _verification_differences(payload, remote):
 
     observed = _normalise_remote(remote or {}, payload.keys())
     expected = deepcopy(payload)
-    for document in (expected, observed):
-        dimensions = document.get("dimensions")
-        if isinstance(dimensions, dict):
-            document["dimensions"] = {
-                key: "" if value is None else str(value)
-                for key, value in dimensions.items()
-            }
     if isinstance(expected.get("attributes"), list) and isinstance(observed.get("attributes"), list):
         normalised = []
         for local in expected["attributes"]:

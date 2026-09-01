@@ -32,6 +32,15 @@ Stored website image URLs are included in the reviewed managed payload. This
 milestone performs no binary upload, conversion, output-folder read, or media
 library deletion.
 
+Woo product and variation dimensions use one shared payload contract. Authored
+catalogue values remain unchanged, while preview generation canonicalizes
+`length`, `width`, and `height` as plain decimal JSON strings (using an empty
+string for an absent dimension). The same normalization is applied to managed
+remote comparison, preventing numeric/string representation alone from causing
+an update. Builder version `phase3-m4-dimensions-v2` makes earlier previews
+stale, and the publisher rejects numeric or non-canonical dimension fields
+before issuing a write request.
+
 ## Failures and recovery
 
 WooCommerce cannot provide one transaction across taxonomy, products,

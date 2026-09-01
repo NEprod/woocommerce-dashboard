@@ -21,11 +21,15 @@ from app.models import (
 from app.publishing import projected_publishing_intent
 from app.utils.discord import notify_woo_publish_preview_completed
 from app.utils.operation_control import acquire_catalogue_operation, finish_catalogue_operation
+from app.woo_payload_contract import (
+    WooDimensionContractError,
+    canonical_woo_dimensions,
+)
 from app.woocommerce_connection import ReadOnlyWooClient, WooConnectionError, build_woocommerce_workspace, effective_configuration, normalize_store_url
 
 
 OPERATION_TYPE = "woo_publish_preview"
-BUILDER_VERSION = "phase3-m3-v1"
+BUILDER_VERSION = "phase3-m4-dimensions-v2"
 MAPPING_VERSION = "woo-v3-managed-fields-v1"
 MAX_SCOPE_PRODUCTS = 1000
 LARGE_SCOPE_THRESHOLD = 100
@@ -298,7 +302,7 @@ def _product_payload(product, taxonomy):
         "status": status, "description": product.description or "", "short_description": product.short_description or "", "sku": product.sku,
         "regular_price": _number(product.regular_price), "sale_price": _number(product.sale_price),
         "date_on_sale_from": _date(product.sale_start), "date_on_sale_to": _date(product.sale_end), "weight": _number(product.weight),
-        "dimensions": {"length": _number(product.length), "width": _number(product.width), "height": _number(product.height)},
+        "dimensions": canonical_woo_dimensions({"length": product.length, "width": product.width, "height": product.height}),
         "manage_stock": bool(product.manage_stock), "stock_quantity": product.stock_quantity, "stock_status": "instock" if product.in_stock is not False else "outofstock", "backorders": product.backorders,
         "categories": categories, "tags": tags,
         "attributes": [{"name": item.name, "options": _attribute_values(item.values), "visible": item.visible is not False, "variation": product.product_type == "variable"} for item in sorted(product.attributes, key=lambda row: (row.position, row.id))],
@@ -312,7 +316,7 @@ def _variation_payload(variation):
     return {key: value for key, value in {
         "sku": variation.sku, "regular_price": _number(variation.regular_price), "sale_price": _number(variation.sale_price),
         "date_on_sale_from": _date(variation.sale_start), "date_on_sale_to": _date(variation.sale_end), "weight": _number(variation.weight),
-        "dimensions": {"length": _number(variation.length), "width": _number(variation.width), "height": _number(variation.height)},
+        "dimensions": canonical_woo_dimensions({"length": variation.length, "width": variation.width, "height": variation.height}),
         "manage_stock": bool(variation.manage_stock), "stock_quantity": variation.stock_quantity, "stock_status": "instock" if variation.catalogue_status == "active" else "outofstock", "backorders": variation.backorders,
         "attributes": [{"name": item.name, "option": item.value} for item in sorted(variation.attributes, key=lambda row: row.id)],
         "image": {"src": variation.images[0].url} if variation.images and variation.images[0].url else None,
@@ -329,6 +333,11 @@ def _normalise_remote(remote, managed_fields=None):
             value = [{"id": item.get("id")} for item in value if isinstance(item, dict) and item.get("id") is not None]
         elif key == "images" and isinstance(value, list):
             value = [{"src": item.get("src"), "position": item.get("position", index)} for index, item in enumerate(value) if isinstance(item, dict)]
+        elif key == "dimensions":
+            try:
+                value = canonical_woo_dimensions(value)
+            except WooDimensionContractError:
+                value = value if isinstance(value, dict) else {"invalid": str(value)[:100]}
         result[key] = value
     return result
 
