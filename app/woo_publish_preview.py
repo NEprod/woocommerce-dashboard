@@ -8,7 +8,7 @@ from decimal import Decimal
 import hashlib
 import json
 from time import monotonic
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, unquote, urlencode, urlsplit, urlunsplit
 
 from flask import current_app
 from sqlalchemy.orm import joinedload, selectinload
@@ -29,12 +29,13 @@ from app.woocommerce_connection import ReadOnlyWooClient, WooConnectionError, bu
 
 
 OPERATION_TYPE = "woo_publish_preview"
-BUILDER_VERSION = "phase3-m4-dimensions-v2"
+BUILDER_VERSION = "phase3-m4-media-reuse-v3"
 MAPPING_VERSION = "woo-v3-managed-fields-v1"
 MAX_SCOPE_PRODUCTS = 1000
 LARGE_SCOPE_THRESHOLD = 100
 MAX_CACHE_PLANS = 20
 MAX_REMOTE_TAXONOMY_PAGES = 5
+MAX_MEDIA_CANDIDATES = 20
 MANAGED_FIELDS = (
     "name", "type", "status", "description", "short_description", "sku",
     "regular_price", "sale_price", "date_on_sale_from", "date_on_sale_to",
@@ -135,6 +136,12 @@ def resolve_scope(scope):
 
 
 def _estimate_products(products):
+    media_urls = {
+        image.url
+        for product in products
+        for image in list(product.images) + [image for variation in product.variations for image in variation.images]
+        if image.url
+    }
     return {
         "parent_products": len(products),
         "variations": sum(len(row.variations) for row in products),
@@ -143,7 +150,10 @@ def _estimate_products(products):
         # An exact-SKU match can reveal an existing variable parent even when no
         # store-scoped identity exists yet, so reserve one bounded variation GET
         # for every variable parent in the estimate.
-        "estimated_woo_reads": len(products) + 3 + sum(
+        # Products, three taxonomy collections, one default-category settings
+        # read, bounded variation reads, and one deduplicated media lookup per
+        # distinct stored public URL.
+        "estimated_woo_reads": len(products) + 4 + len(media_urls) + sum(
             min(MAX_REMOTE_TAXONOMY_PAGES, max(1, (len(row.variations) + 99) // 100))
             for row in products if row.product_type == "variable"
         ),
@@ -213,6 +223,132 @@ class PreviewWooReader:
             if len(payload) < 100:
                 break
         return rows[: MAX_REMOTE_TAXONOMY_PAGES * 100]
+
+    def default_product_category_id(self):
+        """Return the configured Woo default product category when readable."""
+
+        try:
+            payload = self.get("settings/products", category="publish_preview_settings")
+        except WooConnectionError:
+            return None
+        if not isinstance(payload, list):
+            return None
+        for item in payload[:100]:
+            if not isinstance(item, dict) or item.get("id") not in {
+                "default_product_cat", "woocommerce_default_category",
+            }:
+                continue
+            try:
+                value = int(item.get("value"))
+            except (TypeError, ValueError):
+                return None
+            return value if value > 0 else None
+        return None
+
+
+def _normalised_public_media_url(value, store_origin):
+    """Canonicalise identity-preserving public URL equivalences only."""
+
+    try:
+        parsed = urlsplit(str(value or "").strip())
+        store = urlsplit(normalize_store_url(store_origin))
+        port = parsed.port
+    except (ValueError, WooConnectionError):
+        return None
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        return None
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        return None
+    parsed_port = port or 443
+    store_port = store.port or 443
+    if (parsed.hostname.casefold(), parsed_port) != ((store.hostname or "").casefold(), store_port):
+        return None
+    host = parsed.hostname.encode("idna").decode("ascii").lower()
+    netloc = f"[{host}]" if ":" in host else host
+    if parsed_port != 443:
+        netloc = f"{netloc}:{parsed_port}"
+    path = quote(unquote(parsed.path or "/"), safe="/:@-._~!$&'()*+,;=")
+    return urlunsplit(("https", netloc, path, "", ""))
+
+
+class WordPressMediaResolver:
+    """Bounded, GET-only exact WordPress attachment identity resolution."""
+
+    def __init__(self, client):
+        self.client = client
+        self.base_url = normalize_store_url(client.base_url)
+        self.cache = {}
+
+    def _url(self, params):
+        return f"{self.base_url}/wp-json/wp/v2/media?{urlencode(params, doseq=True)}"
+
+    def resolve(self, public_url):
+        normalised = _normalised_public_media_url(public_url, self.base_url)
+        if not normalised:
+            return {
+                "state": "invalid_url", "attachment_id": None,
+                "message": "Stored final image URL is not valid for the configured Woo store.",
+            }
+        if normalised in self.cache:
+            return dict(self.cache[normalised])
+        filename = unquote(urlsplit(normalised).path.rsplit("/", 1)[-1])
+        if not filename:
+            result = {"state": "invalid_url", "attachment_id": None, "message": "Stored final image URL has no filename."}
+            self.cache[normalised] = result
+            return dict(result)
+        search = filename.rsplit(".", 1)[0][:100]
+        try:
+            payload, response = self.client.request_json(
+                "GET", self._url({"search": search, "per_page": MAX_MEDIA_CANDIDATES, "page": 1, "_fields": "id,source_url"}),
+                authenticated=True, endpoint_category="wordpress_media_identity",
+            )
+        except WooConnectionError as error:
+            result = {
+                "state": "unreachable", "attachment_id": None,
+                "message": f"WordPress Media identity lookup is unavailable ({error.category.replace('_', ' ')}).",
+            }
+            self.cache[normalised] = result
+            return dict(result)
+        candidates = payload[:MAX_MEDIA_CANDIDATES] if isinstance(payload, list) else []
+        response_headers = getattr(response, "headers", {}) or {}
+        try:
+            total_candidates = int(response_headers.get("X-WP-Total", len(candidates)))
+        except (TypeError, ValueError):
+            total_candidates = len(candidates)
+        matches = []
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            candidate = _normalised_public_media_url(item.get("source_url"), self.base_url)
+            try:
+                attachment_id = int(item.get("id"))
+            except (TypeError, ValueError):
+                continue
+            if candidate == normalised and attachment_id > 0:
+                matches.append(attachment_id)
+        matches = list(dict.fromkeys(matches))
+        if total_candidates > MAX_MEDIA_CANDIDATES:
+            result = {
+                "state": "ambiguous", "attachment_id": None,
+                "message": "Media Library lookup exceeded the bounded candidate limit; no attachment was selected.",
+            }
+        elif len(matches) == 1:
+            result = {
+                "state": "existing_wordpress_media", "attachment_id": matches[0],
+                "message": "Existing WordPress Media Library attachment verified.",
+            }
+        elif len(matches) > 1:
+            result = {
+                "state": "ambiguous", "attachment_id": None,
+                "message": "More than one Media Library candidate matched the exact public URL.",
+            }
+        else:
+            result = {
+                "state": "not_found", "attachment_id": None,
+                "message": "Existing WordPress Media Library attachment not found.",
+            }
+        self.cache[normalised] = result
+        return dict(result)
 
 
 def _normalised_slug(value):
@@ -293,7 +429,7 @@ def _product_taxonomy_plan(product, taxonomy):
     return result
 
 
-def _product_payload(product, taxonomy):
+def _product_payload(product, taxonomy, media=None):
     categories, tags = _taxonomy_payload(product, taxonomy)
     intent = projected_publishing_intent(product.published)
     status = "publish" if product.published is True else "draft" if product.published is False else None
@@ -306,20 +442,28 @@ def _product_payload(product, taxonomy):
         "manage_stock": bool(product.manage_stock), "stock_quantity": product.stock_quantity, "stock_status": "instock" if product.in_stock is not False else "outofstock", "backorders": product.backorders,
         "categories": categories, "tags": tags,
         "attributes": [{"name": item.name, "options": _attribute_values(item.values), "visible": item.visible is not False, "variation": product.product_type == "variable"} for item in sorted(product.attributes, key=lambda row: (row.position, row.id))],
-        "images": [{"src": item.url, "position": item.position} for item in sorted(product.images, key=lambda row: (row.position, row.id)) if item.url],
+        "images": [
+            {"id": item["attachment_id"], "position": item["position"]}
+            for item in (media or {}).get("parent", [])
+            if item.get("state") == "existing_wordpress_media" and item.get("attachment_id")
+        ],
     }
     payload = {key: value for key, value in payload.items() if value is not None}
     return payload, {"catalogue_state": product.catalogue_status, "publishing_intent": intent["label"], "planned_status": status}
 
 
-def _variation_payload(variation):
+def _variation_payload(variation, media=None):
+    resolved_image = next((
+        item for item in (media or {}).get("images", [])
+        if item.get("state") == "existing_wordpress_media" and item.get("attachment_id")
+    ), None)
     return {key: value for key, value in {
         "sku": variation.sku, "regular_price": _number(variation.regular_price), "sale_price": _number(variation.sale_price),
         "date_on_sale_from": _date(variation.sale_start), "date_on_sale_to": _date(variation.sale_end), "weight": _number(variation.weight),
         "dimensions": canonical_woo_dimensions({"length": variation.length, "width": variation.width, "height": variation.height}),
         "manage_stock": bool(variation.manage_stock), "stock_quantity": variation.stock_quantity, "stock_status": "instock" if variation.catalogue_status == "active" else "outofstock", "backorders": variation.backorders,
         "attributes": [{"name": item.name, "option": item.value} for item in sorted(variation.attributes, key=lambda row: row.id)],
-        "image": {"src": variation.images[0].url} if variation.images and variation.images[0].url else None,
+        "image": {"id": resolved_image["attachment_id"]} if resolved_image else None,
     }.items() if value is not None}
 
 
@@ -332,7 +476,12 @@ def _normalise_remote(remote, managed_fields=None):
         if key in {"categories", "tags"} and isinstance(value, list):
             value = [{"id": item.get("id")} for item in value if isinstance(item, dict) and item.get("id") is not None]
         elif key == "images" and isinstance(value, list):
-            value = [{"src": item.get("src"), "position": item.get("position", index)} for index, item in enumerate(value) if isinstance(item, dict)]
+            value = [
+                ({"id": item.get("id"), "position": item.get("position", index)} if item.get("id") is not None else {"src": item.get("src"), "position": item.get("position", index)})
+                for index, item in enumerate(value) if isinstance(item, dict)
+            ]
+        elif key == "image" and isinstance(value, dict):
+            value = {"id": value.get("id")} if value.get("id") is not None else {"src": value.get("src")}
         elif key == "dimensions":
             try:
                 value = canonical_woo_dimensions(value)
@@ -342,10 +491,14 @@ def _normalise_remote(remote, managed_fields=None):
     return result
 
 
-def _comparison(payload, remote):
+def _comparison(payload, remote, *, default_category_id=None):
     remote_managed = _normalise_remote(remote or {}, payload.keys())
+    if payload.get("categories") == [] and default_category_id:
+        observed_categories = remote_managed.get("categories")
+        if observed_categories == [{"id": int(default_category_id)}]:
+            remote_managed["categories"] = []
     differences = []
-    for key in MANAGED_FIELDS:
+    for key in payload:
         local = payload.get(key)
         observed = remote_managed.get(key)
         if _stable_json(local) != _stable_json(observed):
@@ -416,14 +569,32 @@ def _relationship_plan(product, selected_ids, identities, targets):
     return {"groups": groups, "payload": payload, "pending_count": pending, "blockers": blockers}
 
 
-def _media_plan(product, remote=None):
-    remote_urls = {
-        image.get("src") for image in (remote or {}).get("images", [])
-        if isinstance(image, dict) and image.get("src")
+def _media_plan(product, resolver):
+    def planned(image, ownership):
+        identity = resolver.resolve(image.url) if image.url else {
+            "state": "missing_url", "attachment_id": None,
+            "message": "No stored final public image URL is available.",
+        }
+        return {
+            "url": image.url, "position": image.position, "ownership": ownership,
+            "state": identity["state"], "attachment_id": identity.get("attachment_id"),
+            "message": identity.get("message"),
+            "action": "Reuse existing attachment" if identity["state"] == "existing_wordpress_media" else "Review required",
+        }
+    parent = [planned(image, "parent") for image in sorted(product.images, key=lambda row: (row.position, row.id))]
+    variations = [
+        {
+            "variation_id": variation.id, "sku": variation.sku,
+            "images": [planned(image, "variation") for image in sorted(variation.images, key=lambda row: (row.position, row.id))],
+        }
+        for variation in sorted(product.variations, key=lambda row: (row.menu_order, row.id))
+    ]
+    all_images = parent + [image for row in variations for image in row["images"]]
+    return {
+        "parent": parent, "variations": variations,
+        "parent_count": len(parent), "variation_count": sum(len(row["images"]) for row in variations),
+        "missing_count": sum(item["state"] != "existing_wordpress_media" for item in all_images),
     }
-    parent = [{"url": image.url, "position": image.position, "ownership": "parent", "state": "existing_remote_reference" if image.url in remote_urls else "ready_by_url" if image.url else "missing_url"} for image in sorted(product.images, key=lambda row: (row.position, row.id))]
-    variations = [{"variation_id": variation.id, "sku": variation.sku, "images": [{"url": image.url, "position": image.position, "ownership": "variation", "state": "ready_by_url" if image.url else "missing_url"} for image in sorted(variation.images, key=lambda row: (row.position, row.id))]} for variation in product.variations]
-    return {"parent": parent, "variations": variations, "parent_count": len(parent), "variation_count": sum(len(row["images"]) for row in variations), "missing_count": sum(item["state"] == "missing_url" for item in parent) + sum(item["state"] == "missing_url" for row in variations for item in row["images"])}
 
 
 def _local_state(products, identities, variation_identities):
@@ -473,6 +644,7 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
     store = store_identity(configuration)
     woo_client = client or ReadOnlyWooClient(configuration)
     reader = PreviewWooReader(woo_client, (health.get("latest") or {}).get("selected_namespace") or "wc/v3")
+    media_resolver = WordPressMediaResolver(woo_client)
     started = monotonic()
     lease = (
         acquire_catalogue_operation(
@@ -494,6 +666,7 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
         # relationship queries while preserving the operation lock boundary.
         products = resolve_scope(scope)
         taxonomy = _taxonomy_plan(products, reader)
+        default_category_id = reader.default_product_category_id()
         product_ids = [row.id for row in products]
         identities = _product_identity_map(product_ids, store["key"])
         other_identities = {row.product_id: row for row in WooProductIdentity.query.filter(WooProductIdentity.product_id.in_(product_ids), WooProductIdentity.store_key != store["key"]).all()}
@@ -504,9 +677,10 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
         local_state_digest = _digest(_local_state(products, identities, variation_identities))
         plans, selected = [], set(product_ids)
         for product in products:
-            payload, trace = _product_payload(product, taxonomy)
             product_taxonomy = _product_taxonomy_plan(product, taxonomy)
             identity = _identity_resolution(product, store, reader, identity=identities.get(product.id), other=other_identities.get(product.id))
+            media = _media_plan(product, media_resolver)
+            payload, trace = _product_payload(product, taxonomy, media)
             blockers = [identity["blocker"]] if identity.get("blocker") else []
             warnings = []
             if payload.get("status") is None: blockers.append("Publishing intent is unresolved.")
@@ -515,7 +689,7 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
             if product.catalogue_status != "active": warnings.append(f"Catalogue state is {product.catalogue_status}; it is not a Woo publication state.")
             if payload.get("status") == "draft": warnings.append("Publishing intent is Draft; the future Woo product will remain draft.")
             remote = identity.get("remote")
-            remote_managed, differences = _comparison(payload, remote) if remote else ({}, [])
+            remote_managed, differences = _comparison(payload, remote, default_category_id=default_category_id) if remote else ({}, [])
             action = identity.get("action")
             if action is None: action = "update" if differences else "no_change"
             expected_type = payload.get("type")
@@ -530,7 +704,17 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
                 warnings.append("One or more taxonomy dependencies require creation during controlled publishing.")
             if relationships["pending_count"]:
                 warnings.append("Relationship targets included in this plan remain pending until Pass 1 produces Woo IDs.")
-            media = _media_plan(product, remote)
+            unresolved_media = [
+                image for image in media["parent"] + [image for row in media["variations"] for image in row["images"]]
+                if image["state"] != "existing_wordpress_media"
+            ]
+            if unresolved_media:
+                states = Counter(image["state"] for image in unresolved_media)
+                blockers.append(
+                    "Media identity required before publishing: "
+                    + ", ".join(f"{count} {state.replace('_', ' ')}" for state, count in sorted(states.items()))
+                    + "."
+                )
             if not media["parent_count"] and not media["variation_count"]: warnings.append("No owned image is currently available; media remains a future publishing dependency.")
             variations = []
             remote_variations = []
@@ -545,7 +729,8 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
                 variation_blockers = []
                 if not variation.sku or variation.sku in seen_skus: variation_blockers.append("Variation SKU is missing or duplicated.")
                 seen_skus.add(variation.sku)
-                vp = _variation_payload(variation)
+                variation_media = next((row for row in media["variations"] if row["variation_id"] == variation.id), {"images": []})
+                vp = _variation_payload(variation, variation_media)
                 vid = variation_identities.get(variation.id)
                 remote_variation = None
                 variation_remote_managed = {}
@@ -587,7 +772,8 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
                 "trace": trace, "payload": payload, "payload_digest": local_payload_digest, "remote_managed": remote_managed, "remote_digest": remote_digest,
                 "differences": differences, "drift": drift, "blockers": blockers, "warnings": warnings,
                 "taxonomy": product_taxonomy,
-                "media": media, "variations": variations, "relationships": relationships,
+                "media": media, "woo_default_category_id": default_category_id,
+                "variations": variations, "relationships": relationships,
                 "pass_1": ["Create parent product" if action == "create" else "Review and link exact-SKU candidate" if action == "link_candidate" else "Update managed product fields" if action == "update" else "No parent mutation required"],
                 "pass_2": ["Resolve ordered cross-sell and upsell Woo IDs"] if relationships["groups"]["cross_sell"] or relationships["groups"]["upsell"] else [],
                 "pending_dependency": bool(relationships["pending_count"] or any(item["state"] == "create_required" for values in taxonomy.values() for item in values) or variations),
@@ -606,13 +792,14 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
             "required_verified": int((health.get("latest") or {}).get("required_verified", 0) or 0),
             "required_total": int((health.get("latest") or {}).get("required_total", 0) or 0),
         }
-        digest_state = {"scope": _scope_summary(scope), "local_state_digest": local_state_digest, "store_key": store["key"], "capability": capability, "products": plans, "taxonomy": taxonomy, "builder_version": BUILDER_VERSION, "mapping_version": MAPPING_VERSION}
+        digest_state = {"scope": _scope_summary(scope), "local_state_digest": local_state_digest, "store_key": store["key"], "capability": capability, "products": plans, "taxonomy": taxonomy, "woo_default_category_id": default_category_id, "builder_version": BUILDER_VERSION, "mapping_version": MAPPING_VERSION}
         plan_digest = _digest(digest_state)
         summary = {
             "scope": _scope_summary(scope), "store_identity": store["key"], "store_host": store["host"], "generated_at": datetime.now(UTC).isoformat(),
             "product_counts": dict(counts), "taxonomy_counts": dict(taxonomy_counts), "media_counts": dict(media_counts), "variation_counts": dict(variation_counts), "relationship_counts": dict(relationship_counts),
             "warning_count": warning_count, "blocker_count": blocker_count, "readiness": readiness, "preview_digest": plan_digest,
             "local_state_digest": local_state_digest, "builder_version": BUILDER_VERSION, "mapping_version": MAPPING_VERSION,
+            "woo_default_category_id": default_category_id,
             "request_count": woo_client.request_count, "estimated_request_count": estimate["estimated_woo_reads"], "duration_ms": max(0, int((monotonic() - started) * 1000)), "woo_writes": 0,
         }
         checklist = {
@@ -621,7 +808,7 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
             "taxonomy_resolvable": not any(item["state"] == "ambiguous" for values in taxonomy.values() for item in values),
             "product_types_supported": all(item["woo_type"] in {"simple", "variable"} for item in plans),
             "variations_valid": not any(variation["blockers"] for item in plans for variation in item["variations"]),
-            "media_ready_or_planned": not media_counts["missing_url"],
+            "media_ready_or_planned": not sum(count for state, count in media_counts.items() if state != "existing_wordpress_media"),
             "relationships_resolvable": not relationship_counts["broken"] and not relationship_counts["blocked"],
             "identity_conflicts_absent": not counts["blocked"] and not counts["recovery_required"],
             "blockers_absent": blocker_count == 0,

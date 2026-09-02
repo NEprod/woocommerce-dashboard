@@ -34,7 +34,7 @@ from app.utils.operation_control import (
 from app.utils.operation_live import persist_live_state
 from app.utils.redaction import redact_diagnostic
 from app.woo_publish_preview import (
-    _digest,
+    WordPressMediaResolver, _digest,
     _normalise_remote,
     cached_plan,
     regenerate_publish_plan,
@@ -161,14 +161,14 @@ def _reviewed_contract(plan, product_ids):
     def media_contract(item):
         return {
             "parent": [
-                {key: image.get(key) for key in ("url", "position", "ownership")}
+                {key: image.get(key) for key in ("url", "attachment_id", "position", "ownership", "state")}
                 for image in item.get("media", {}).get("parent", [])
             ],
             "variations": [{
                 "variation_id": row.get("variation_id"),
                 "sku": row.get("sku"),
                 "images": [
-                    {key: image.get(key) for key in ("url", "position", "ownership")}
+                    {key: image.get(key) for key in ("url", "attachment_id", "position", "ownership", "state")}
                     for image in row.get("images", [])
                 ],
             } for row in item.get("media", {}).get("variations", [])],
@@ -344,6 +344,7 @@ class PublishGateway:
                 "The WooCommerce dimension payload contract is invalid; publishing was refused before any request.",
                 category="internal_contract",
             ) from error
+        _assert_no_image_import_payload(payload)
         self.write_count += 1
         try:
             result, _ = self.client.request_json(
@@ -581,11 +582,53 @@ def _resolved_product_payload(product_plan, taxonomy):
     return payload
 
 
-def _verification_differences(payload, remote):
+def _assert_no_image_import_payload(payload):
+    """Controlled publishing must never import Media Library URLs as new media."""
+
+    images = payload.get("images", []) if isinstance(payload, dict) else []
+    image = payload.get("image") if isinstance(payload, dict) else None
+    candidates = list(images) if isinstance(images, list) else []
+    if isinstance(image, dict):
+        candidates.append(image)
+    if any(isinstance(item, dict) and item.get("src") for item in candidates):
+        raise ControlledPublishError(
+            "Existing WordPress media must use a verified attachment ID; URL import was refused before any request.",
+            category="internal_contract",
+        )
+    if any(not isinstance(item, dict) or not isinstance(item.get("id"), int) or item["id"] <= 0 for item in candidates):
+        raise ControlledPublishError(
+            "A verified WordPress attachment ID is required for every planned image.",
+            category="media_identity_required",
+        )
+
+
+def _revalidate_media_identity(client, product_plan):
+    resolver = WordPressMediaResolver(client)
+    rows = product_plan.get("media", {}).get("parent", []) + [
+        image
+        for variation in product_plan.get("media", {}).get("variations", [])
+        for image in variation.get("images", [])
+    ]
+    for item in rows:
+        if item.get("state") != "existing_wordpress_media" or not item.get("attachment_id"):
+            raise ControlledPublishError(
+                "Media identity required before publishing.", category="media_identity_required"
+            )
+        current = resolver.resolve(item.get("url"))
+        if current.get("state") != "existing_wordpress_media" or current.get("attachment_id") != item.get("attachment_id"):
+            raise ControlledPublishError(
+                "Preview stale — a WordPress media attachment identity changed.", category="stale_preview"
+            )
+
+
+def _verification_differences(payload, remote, *, default_category_id=None):
     """Compare only reviewed fields while tolerating documented Woo decoration."""
 
     observed = _normalise_remote(remote or {}, payload.keys())
     expected = deepcopy(payload)
+    if expected.get("categories") == [] and default_category_id:
+        if observed.get("categories") == [{"id": int(default_category_id)}]:
+            observed["categories"] = []
     if isinstance(expected.get("attributes"), list) and isinstance(observed.get("attributes"), list):
         normalised = []
         for local in expected["attributes"]:
@@ -610,7 +653,9 @@ def _product_matches(remote, plan, payload):
         return False
     if remote.get("sku") != plan.get("sku") or remote.get("type") != plan.get("woo_type"):
         return False
-    return not _verification_differences(payload, remote)
+    return not _verification_differences(
+        payload, remote, default_category_id=plan.get("woo_default_category_id")
+    )
 
 
 def _upsert_product_identity(plan, store, remote, payload, operation_id):
@@ -901,6 +946,7 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
                         category=getattr(taxonomy_error, "category", "taxonomy_failed"),
                         recovery_required=getattr(taxonomy_error, "recovery_required", False),
                     ) from taxonomy_error
+                _revalidate_media_identity(gateway.client, plan)
                 payload = _resolved_product_payload(plan, taxonomy)
                 identity, remote, action = _publish_parent(gateway, plan, payload, store, operation_id)
                 result.update({"woo_id": identity.woo_product_id, "status": "pass_1_verified", "action": action, "images": len(payload.get("images", []))})
@@ -941,7 +987,7 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
             for result in progress.summary["product_results"]
             if result.get("status") == "pass_1_verified"
         )
-        progress.update("attaching_verifying_images", "Reviewed parent and variation image URLs were verified through their managed objects.")
+        progress.update("attaching_verifying_images", "Reviewed parent and variation WordPress attachment IDs were verified through their managed objects.")
         progress.update("resolving_pass_2_relationships", "Resolving ordered local relationship target SKUs to verified Woo product IDs.")
         progress.update("applying_relationships", "Applying relationships only to products with safe Pass 1 identities.")
         gateway.set_stage("applying_relationships")

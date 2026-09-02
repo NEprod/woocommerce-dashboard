@@ -15,7 +15,7 @@ from app.models import (
     VariationImage, WooProductIdentity, WooVariationIdentity,
 )
 from app.woo_publish_preview import (
-    BUILDER_VERSION, PreviewError, PreviewWooReader, _comparison,
+    BUILDER_VERSION, PreviewError, PreviewWooReader, WordPressMediaResolver, _comparison,
     _product_payload, _variation_payload, cached_plan, generate_publish_plan,
     plan_is_stale, reset_preview_cache_for_tests, scope_estimate, store_identity,
 )
@@ -26,7 +26,7 @@ from app.woo_payload_contract import (
     canonical_woo_dimensions,
 )
 from app.woo_controlled_publish import (
-    ControlledPublishError,
+    ControlledPublishError, _assert_no_image_import_payload, _verification_differences,
     MAX_PUBLISH_PRODUCTS,
     PublishGateway,
     execute_publish_operation,
@@ -40,11 +40,16 @@ from config import Config
 
 
 class FakeWooClient:
-    def __init__(self, *, by_id=None, by_sku=None, taxonomy=None):
+    def __init__(self, *, by_id=None, by_sku=None, taxonomy=None, media=None, default_category_id=None):
         self.base_url = "https://shop.example.test"
         self.by_id = by_id or {}
         self.by_sku = by_sku or {}
         self.taxonomy = taxonomy or {}
+        self.media = media if media is not None else {
+            "create": [{"id": 901, "source_url": "https://shop.example.test/wp-content/uploads/create.webp"}],
+            "a": [{"id": 902, "source_url": "https://shop.example.test/wp-content/uploads/a.webp"}],
+        }
+        self.default_category_id = default_category_id
         self.request_count = 0
         self.methods = []
 
@@ -52,6 +57,10 @@ class FakeWooClient:
         self.methods.append(method); self.request_count += 1
         if method != "GET": raise AssertionError("Woo write attempted")
         parsed = urlsplit(url); path = parsed.path; query = parse_qs(parsed.query)
+        if path.endswith("/wp/v2/media"):
+            return self.media.get(query.get("search", [""])[0], []), object()
+        if path.endswith("/settings/products"):
+            return ([{"id": "woocommerce_default_category", "value": str(self.default_category_id)}] if self.default_category_id else []), object()
         if path.endswith("/products/categories"): return self.taxonomy.get("categories", []), object()
         if path.endswith("/products/tags"): return self.taxonomy.get("tags", []), object()
         if path.endswith("/products/attributes"): return self.taxonomy.get("attributes", []), object()
@@ -68,7 +77,7 @@ class FakeWooClient:
 class FakePublisherClient:
     publisher_policy = True
 
-    def __init__(self, *, taxonomy=None, uncertain_product_create=False):
+    def __init__(self, *, taxonomy=None, uncertain_product_create=False, media=None, default_category_id=None):
         self.base_url = "https://shop.example.test"
         self.taxonomy = taxonomy or _taxonomy()
         self.request_count = 0
@@ -79,6 +88,11 @@ class FakePublisherClient:
         self.next_product_id = 501
         self.next_variation_id = 601
         self.uncertain_product_create = uncertain_product_create
+        self.media = media if media is not None else {
+            "create": [{"id": 901, "source_url": "https://shop.example.test/wp-content/uploads/create.webp"}],
+            "a": [{"id": 902, "source_url": "https://shop.example.test/wp-content/uploads/a.webp"}],
+        }
+        self.default_category_id = default_category_id
 
     def _taxonomy_kind(self, path):
         if path.endswith("/products/categories") or "/products/categories/" in path: return "categories"
@@ -91,6 +105,12 @@ class FakePublisherClient:
         if method == "DELETE": raise AssertionError("DELETE attempted")
         parsed = urlsplit(url); path = parsed.path; query = parse_qs(parsed.query)
         body = kwargs.get("json_body") or {}
+        if path.endswith("/wp/v2/media"):
+            if method != "GET": raise AssertionError("Media write attempted")
+            return self.media.get(query.get("search", [""])[0], []), object()
+        if path.endswith("/settings/products"):
+            if method != "GET": raise AssertionError("Settings write attempted")
+            return ([{"id": "woocommerce_default_category", "value": str(self.default_category_id)}] if self.default_category_id else []), object()
         taxonomy_kind = self._taxonomy_kind(path)
         if taxonomy_kind:
             rows = self.taxonomy.setdefault(taxonomy_kind, [])
@@ -159,9 +179,9 @@ def preview_app(tmp_path, monkeypatch):
         ]
         for product in products: product.categories.append(category); product.tags.append(tag)
         db.session.add_all(products); db.session.flush()
-        db.session.add(ProductImage(product_id=1, url="https://media.example.test/create.webp", position=0))
+        db.session.add(ProductImage(product_id=1, url="https://shop.example.test/wp-content/uploads/create.webp", position=0))
         variation = Variation(id=41, product_id=4, sku="VARIABLE-1-A", source_identity="Preview Cards/Variable/A", catalogue_status="active", regular_price=21, length=148, width=105, height=2, menu_order=0)
-        db.session.add(variation); db.session.flush(); db.session.add_all([VariationAttribute(variation_id=41, name="Size", value="A5"), VariationImage(variation_id=41, url="https://media.example.test/a.webp", position=0)])
+        db.session.add(variation); db.session.flush(); db.session.add_all([VariationAttribute(variation_id=41, name="Size", value="A5"), VariationImage(variation_id=41, url="https://shop.example.test/wp-content/uploads/a.webp", position=0)])
         db.session.add(ProductRelationship(source_product_id=1, target_sku="LINK-1", resolved_target_product_id=3, relationship_type="cross_sell", position=0))
         db.session.add(CatalogueOperation(id="connection-health", operation_type="woo_connection_test", status="succeeded", scope=json.dumps({"operation_summary": {"state": "connected", "health_state": "connected", "selected_namespace": "wc/v3"}})))
         db.session.commit()
@@ -193,27 +213,27 @@ def test_access_page_is_authenticated_offline_and_has_no_publish_control(preview
 def test_scope_estimate_is_local_and_large_scope_requires_confirmation(preview_app):
     with preview_app.app_context():
         estimate = scope_estimate({"kind": "collection", "collection_id": 1})
-        assert estimate == {"parent_products": 4, "variations": 1, "images": 2, "relationships": 1, "estimated_woo_reads": 8, "large_scope": False}
+        assert estimate == {"parent_products": 4, "variations": 1, "images": 2, "relationships": 1, "estimated_woo_reads": 11, "large_scope": False}
 
 
 def test_payload_builder_maps_intent_prices_taxonomy_images_and_excludes_unsupported(preview_app):
     with preview_app.test_request_context():
         product = db.session.get(Product, 1)
-        payload, trace = _product_payload(product, {"categories": [{"slug": "cards", "woo_id": 11}], "tags": [{"slug": "birthday", "woo_id": 12}], "attributes": []})
+        payload, trace = _product_payload(product, {"categories": [{"slug": "cards", "woo_id": 11}], "tags": [{"slug": "birthday", "woo_id": 12}], "attributes": []}, {"parent": [{"attachment_id": 901, "position": 0, "state": "existing_wordpress_media"}]})
         assert payload["type"] == "simple" and payload["status"] == "draft"
         assert payload["regular_price"] == "10.00"
         assert payload["categories"] == [{"id": 11}] and payload["tags"] == [{"id": 12}]
-        assert payload["images"][0]["src"].endswith("create.webp")
+        assert payload["images"] == [{"id": 901, "position": 0}]
         assert "woo_id" not in payload and "grouped_products" not in payload
         assert trace["publishing_intent"] == "Draft"
 
 
 def test_variation_payload_preserves_attributes_price_and_owned_image(preview_app):
     with preview_app.app_context():
-        payload = _variation_payload(db.session.get(Variation, 41))
+        payload = _variation_payload(db.session.get(Variation, 41), {"images": [{"attachment_id": 902, "state": "existing_wordpress_media"}]})
         assert payload["sku"] == "VARIABLE-1-A" and payload["regular_price"] == "21.00"
         assert payload["attributes"] == [{"name": "Size", "option": "A5"}]
-        assert payload["image"]["src"].endswith("a.webp")
+        assert payload["image"] == {"id": 902}
 
 
 @pytest.mark.parametrize(("source", "expected"), [
@@ -364,7 +384,7 @@ def test_legacy_numeric_dimension_preview_is_stale(preview_app, monkeypatch):
         preview["summary"]["builder_version"] = "phase3-m3-v1"
         preview["products"][0]["payload"]["dimensions"]["length"] = 148
         preview["digest"] = "legacy-numeric-dimension-preview"
-        assert BUILDER_VERSION == "phase3-m4-dimensions-v2"
+        assert BUILDER_VERSION == "phase3-m4-media-reuse-v3"
         with pytest.raises(ControlledPublishError, match="stale"):
             prepare_publish_confirmation(
                 preview["operation_id"], preview["digest"], [1], client=publisher
@@ -409,6 +429,119 @@ def test_readonly_client_rejects_all_write_methods(preview_app):
         with pytest.raises(AssertionError): reader.client.request_json(method, "https://shop.example.test/wp-json/wc/v3/products")
 
 
+def test_media_resolver_accepts_one_exact_source_url_and_deduplicates_lookup():
+    client = FakeWooClient(media={
+        "card image": [
+            {"id": 700, "source_url": "https://shop.example.test/wp-content/uploads/card%20image.webp"},
+            {"id": 701, "source_url": "https://shop.example.test/wp-content/uploads/card-image.webp"},
+        ]
+    })
+    resolver = WordPressMediaResolver(client)
+    first = resolver.resolve("https://SHOP.example.test/wp-content/uploads/card%20image.webp")
+    second = resolver.resolve("https://shop.example.test/wp-content/uploads/card image.webp")
+    assert first == second
+    assert first["state"] == "existing_wordpress_media" and first["attachment_id"] == 700
+    assert client.request_count == 1 and set(client.methods) == {"GET"}
+
+
+def test_media_resolver_never_fuzzy_matches_wordpress_duplicate_suffix():
+    client = FakeWooClient(media={
+        "image": [{"id": 701, "source_url": "https://shop.example.test/wp-content/uploads/image-1.webp"}]
+    })
+    result = WordPressMediaResolver(client).resolve(
+        "https://shop.example.test/wp-content/uploads/image.webp"
+    )
+    assert result["state"] == "not_found" and result["attachment_id"] is None
+
+
+def test_media_resolver_blocks_ambiguous_exact_matches_and_cross_store_urls():
+    client = FakeWooClient(media={
+        "image": [
+            {"id": 701, "source_url": "https://shop.example.test/wp-content/uploads/image.webp"},
+            {"id": 702, "source_url": "https://shop.example.test/wp-content/uploads/image.webp"},
+        ]
+    })
+    resolver = WordPressMediaResolver(client)
+    assert resolver.resolve("https://shop.example.test/wp-content/uploads/image.webp")["state"] == "ambiguous"
+    assert resolver.resolve("https://other.example.test/wp-content/uploads/image.webp")["state"] == "invalid_url"
+
+
+def test_generated_plan_uses_existing_attachment_ids_for_parent_and_variation(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    fake = FakeWooClient(taxonomy=_taxonomy())
+    with preview_app.app_context():
+        plan = generate_publish_plan({"kind": "selected", "product_ids": [1, 4]}, client=fake)
+        parent = next(row for row in plan["products"] if row["product_id"] == 1)
+        variable = next(row for row in plan["products"] if row["product_id"] == 4)
+        assert parent["payload"]["images"] == [{"id": 901, "position": 0}]
+        assert parent["media"]["parent"][0]["action"] == "Reuse existing attachment"
+        assert variable["variations"][0]["payload"]["image"] == {"id": 902}
+        assert "src" not in json.dumps([parent["payload"]["images"], variable["variations"][0]["payload"]["image"]])
+
+
+def test_missing_or_ambiguous_media_blocks_preview_product(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    with preview_app.app_context():
+        missing = generate_publish_plan(
+            {"kind": "product", "product_id": 1},
+            client=FakeWooClient(taxonomy=_taxonomy(), media={}),
+        )["products"][0]
+        assert missing["action"] == "blocked"
+        assert "Media identity required" in " ".join(missing["blockers"])
+
+
+def test_prewrite_guard_refuses_src_and_accepts_attachment_ids():
+    with pytest.raises(ControlledPublishError, match="URL import was refused"):
+        _assert_no_image_import_payload({"images": [{"src": "https://shop.example.test/image.webp"}]})
+    with pytest.raises(ControlledPublishError, match="attachment ID"):
+        _assert_no_image_import_payload({"image": {}})
+    _assert_no_image_import_payload({"images": [{"id": 123, "position": 0}]})
+
+
+def test_media_verification_uses_id_not_source_url_and_detects_order():
+    payload = {"images": [{"id": 123, "position": 0}, {"id": 124, "position": 1}]}
+    rewritten = {"images": [
+        {"id": 123, "src": "https://shop.example.test/image-1.webp", "position": 0},
+        {"id": 124, "src": "https://shop.example.test/gallery-1.webp", "position": 1},
+    ]}
+    assert _verification_differences(payload, rewritten) == []
+    rewritten["images"].reverse()
+    assert _verification_differences(payload, rewritten) == ["images"]
+
+
+def test_verified_default_category_is_semantically_empty_only_for_empty_local_categories():
+    remote, differences = _comparison(
+        {"categories": []}, {"categories": [{"id": 15}]}, default_category_id=15
+    )
+    assert remote["categories"] == [] and differences == []
+    assert _comparison({"categories": []}, {"categories": [{"id": 15}, {"id": 16}]}, default_category_id=15)[1]
+    assert _comparison({"categories": [{"id": 106}]}, {"categories": [{"id": 15}]}, default_category_id=15)[1]
+
+
+def test_default_category_is_discovered_and_included_in_plan_digest(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    with preview_app.app_context():
+        product = db.session.get(Product, 2)
+        product.categories.clear()
+        db.session.commit()
+        remote = {
+            "id": 202, "sku": "EXIST-1", "type": "simple", "name": "Existing Card",
+            "categories": [{"id": 15}],
+        }
+        store = store_identity()
+        db.session.add(WooProductIdentity(
+            product_id=2, stable_identity="Existing", sku="EXIST-1", store_key=store["key"],
+            store_host=store["host"], woo_product_id=202,
+        ))
+        db.session.commit()
+        plan = generate_publish_plan(
+            {"kind": "product", "product_id": 2},
+            client=FakeWooClient(by_id={202: remote}, taxonomy=_taxonomy(), default_category_id=15),
+        )
+        assert plan["summary"]["woo_default_category_id"] == 15
+        assert not any(row["field"] == "categories" for row in plan["products"][0]["differences"])
+
+
 def test_identity_migration_is_minimal_store_scoped_and_reversible(tmp_path):
     database = tmp_path / "identity.db"; config = _alembic_config(f"sqlite:///{database}")
     command.upgrade(config, "0006_relationship_workspace")
@@ -447,7 +580,7 @@ def test_global_attribute_and_terms_are_deduplicated_and_planned(preview_app, mo
         terms = plan["taxonomy"]["terms"]
         assert [(row["name"], row["state"]) for row in terms] == [("A4", "create_required"), ("A5", "existing")]
         assert sum("/attributes/77/terms" in key[0] for key in []) == 0  # one reader request is asserted by total below
-        assert fake.request_count <= 7
+        assert fake.request_count <= 8  # includes one bounded default-category settings read
 
 
 def test_existing_parent_variations_are_compared_read_only(preview_app, monkeypatch):
@@ -493,7 +626,7 @@ def test_large_fixture_has_bounded_queries_requests_and_operation_state(preview_
         assert sum(len(values) for row in plan["products"] for values in row["relationships"]["groups"].values()) == 2000
         # SQLite's parameter limit causes a small fixed number of select-in
         # batches for this graph, but query growth is not per variation/edge.
-        assert len(queries) <= 120 and fake.request_count <= 503
+        assert len(queries) <= 120 and fake.request_count <= 504
         operation = db.session.get(CatalogueOperation, plan["operation_id"])
         assert len(operation.scope.encode()) <= 4000
         assert len(json.dumps(plan, default=str).encode()) < 12 * 1024 * 1024

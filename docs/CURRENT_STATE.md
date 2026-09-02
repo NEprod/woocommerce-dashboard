@@ -455,9 +455,21 @@ confirmed non-uncertain rejection. Older generic failures remain readable; raw
 response bodies, payloads, credentials, headers and full URLs are never stored.
 
 Woo parent and variation dimension payloads now use builder contract
-`phase3-m4-dimensions-v2`. Numeric catalogue projection values are serialized as
+`phase3-m4-media-reuse-v3`. Numeric catalogue projection values are serialized as
 canonical decimal strings in Publish Preview and the exact controlled write;
 remote dimensions use the same normalization for managed-field comparison. A
 pre-write guard refuses numeric or non-canonical dimension values locally, and
 the builder-version change invalidates earlier previews without changing the
 authored JSON schema, scanner projection, or catalogue data.
+
+Controlled publishing resolves stored final website image URLs to existing
+WordPress Media Library attachments through bounded GET-only `wp/v2/media`
+queries. Only one exact normalized `source_url` match is accepted; parent,
+gallery, and variation payloads use the verified attachment `id`, preserve
+ordering/ownership, and are revalidated before write. Missing or ambiguous
+identity blocks publishing instead of falling back to `src`, preventing normal
+controlled publishing from importing duplicate `-1.webp` attachments. No media
+upload, deletion, binary persistence, authored media ID, migration, or dependency
+was added. When readable through Woo settings, the store's configured default
+product category is used only to normalize intentionally empty local categories;
+explicit authored categories remain exact-ID managed state.

@@ -28,18 +28,31 @@ verified IDs for the same store. It applies and verifies those ID lists without
 changing relationship JSON. A target without a safe verified ID remains a
 visible pending relationship. Direction and authored order are preserved.
 
-Stored website image URLs are included in the reviewed managed payload. This
-milestone performs no binary upload, conversion, output-folder read, or media
-library deletion.
+Stored final website image URLs remain catalogue-authored references. Publish
+Preview performs a bounded authenticated GET against `/wp-json/wp/v2/media`,
+narrows candidates by final filename, and accepts only one exact normalized
+`source_url` match on the configured store. The reviewed payload uses the
+existing WordPress attachment `id`, never `src`. Parent/gallery order and
+variation ownership are preserved. Missing, ambiguous, cross-store, or
+unreachable media identity blocks that product; controlled publishing never
+falls back to importing the URL. Identity is revalidated before a write and
+post-write verification compares returned attachment IDs. No media binary is
+uploaded, converted, read from `/output`, deleted, or stored locally.
+
+When permitted, the configured Woo default product category is read from the
+bounded `wc/v3/settings/products` response. If local categories are intentionally
+empty and Woo returns only that verified default ID, comparison treats the two
+states as semantically equal without altering authored JSON. Explicit local
+categories continue to require exact resolved Woo category IDs.
 
 Woo product and variation dimensions use one shared payload contract. Authored
 catalogue values remain unchanged, while preview generation canonicalizes
 `length`, `width`, and `height` as plain decimal JSON strings (using an empty
 string for an absent dimension). The same normalization is applied to managed
 remote comparison, preventing numeric/string representation alone from causing
-an update. Builder version `phase3-m4-dimensions-v2` makes earlier previews
-stale, and the publisher rejects numeric or non-canonical dimension fields
-before issuing a write request.
+an update. Builder version `phase3-m4-media-reuse-v3` makes earlier URL-based
+previews stale. The publisher rejects numeric or non-canonical dimensions and
+any image `src` before issuing a write request.
 
 ## Failures and recovery
 
@@ -77,7 +90,7 @@ fallback.
 
 ## Request boundary
 
-Discovery and preview clients remain GET-only. The publisher-only client allows
+Discovery, media identity, settings, and preview requests remain GET-only. The publisher-only client allows
 authenticated same-origin POST, PUT and PATCH to the selected Woo namespace.
 DELETE is forbidden. Cross-origin redirects are blocked and mutating redirects
 are not replayed. TLS verification, response/body bounds and diagnostic
@@ -86,9 +99,11 @@ redaction remain mandatory.
 ## Manual acceptance
 
 Automated tests use fictional mocked Woo responses only. For a first real-store
-acceptance, select one safe Draft-intent Simple product in a staging Woo store,
-generate and review its Publish Preview, open Final Confirmation, verify the
-store host and digest, then publish. Confirm the operation records one verified
-Woo ID, the remote product is Draft, and a new preview becomes `no_change`.
+acceptance, select one fresh Draft-intent Simple product whose final WebP URL
+already exists in the configured store's Media Library. Generate a new preview,
+confirm it shows an existing attachment ID and an `id`-based payload, then open
+Final Confirmation and verify the store host and digest. Publish once and confirm
+no `-1.webp` duplicate appears, the operation records one verified Woo ID, the
+remote product is Draft, and a new preview becomes `no_change`.
 Repeat separately with one controlled variable product. Review recovery state
 before any retry and do not use production products for initial acceptance.
