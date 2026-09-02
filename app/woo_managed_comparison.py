@@ -21,6 +21,7 @@ _ACCORDION = re.compile(
 _SPACE = re.compile(r"\s+")
 _TRANSPARENT = {"html", "body", "p"}
 _MEANINGFUL = {"a", "br", "em", "li", "ol", "strong", "ul"}
+_ESCAPED_DELIMITERS = re.compile(r"\\([<>])")
 
 
 def _text(value):
@@ -28,6 +29,18 @@ def _text(value):
         "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u00a0": " ",
     }))
     return _SPACE.sub(" ", value).strip()
+
+
+def _comparison_source(value):
+    """Normalise representation-only source escaping for comparison.
+
+    Catalogue content remains exactly as authored.  Some historical authored
+    JSON escaped literal HTML delimiters, while WordPress stores the same
+    shortcode body with ordinary delimiters.  This is intentionally confined
+    to the comparison input; neither side is written back or rendered.
+    """
+
+    return _ESCAPED_DELIMITERS.sub(r"\1", str(value or "")).replace("\r\n", "\n").replace("\r", "\n")
 
 
 @dataclass
@@ -114,7 +127,7 @@ def _node_text(node):
 
 
 def _local_accordions(value):
-    source = str(value or "")
+    source = _comparison_source(value)
     matches = list(_ACCORDION.finditer(source))
     if not matches:
         return None
@@ -148,10 +161,73 @@ def _remote_accordions(value):
 def managed_rich_text_equal(authored, observed):
     """Compare authored text with raw or known shortcode-rendered Woo text."""
 
-    authored = str(authored or "")
-    observed = str(observed or "")
+    authored = _comparison_source(authored)
+    observed = _comparison_source(observed)
     if _text(authored) == _text(observed):
         return True
     local = _local_accordions(authored)
-    remote = _remote_accordions(observed)
-    return bool(local is not None and remote is not None and local == remote)
+    if local is None:
+        return False
+    # ``context=edit`` can return raw shortcode source.  Raw still needs the
+    # same structural comparison as rendered HTML, because WordPress may have
+    # normalised entities or delimiter escaping without changing meaning.
+    remote_raw = _local_accordions(observed)
+    if remote_raw is not None:
+        return local == remote_raw
+    remote_rendered = _remote_accordions(observed)
+    return bool(remote_rendered is not None and local == remote_rendered)
+
+
+def _attribute_slug(value):
+    slug = "-".join(str(value or "").strip().casefold().replace("_", "-").split())
+    return slug[3:] if slug.startswith("pa-") else slug
+
+
+def _attribute_options(value):
+    return frozenset(_text(item) for item in value or [] if _text(item))
+
+
+def managed_parent_attributes_equal(expected, observed, *, known_attribute_ids=None):
+    """Compare the authored Variable-parent attribute contract safely.
+
+    Woo decorates verified global attributes with IDs, ``pa_`` slugs and a
+    default position.  Those are transport representation, not authored
+    state.  A local attribute is accepted only when it has a verified Woo ID
+    (in the payload or supplied taxonomy map); unknown taxonomy identity stays
+    strict rather than being guessed from display text.
+    """
+
+    if not isinstance(expected, list) or not isinstance(observed, list):
+        return expected == observed
+    identifiers = {
+        _attribute_slug(name): value
+        for name, value in (known_attribute_ids or {}).items()
+        if isinstance(value, int) and value > 0
+    }
+    if len(expected) != len(observed):
+        return False
+    unmatched = [row for row in observed if isinstance(row, dict)]
+    if len(unmatched) != len(observed):
+        return False
+    for local in expected:
+        if not isinstance(local, dict):
+            return False
+        expected_id = local.get("id") or identifiers.get(_attribute_slug(local.get("name")))
+        if not isinstance(expected_id, int) or expected_id <= 0:
+            return False
+        candidates = [
+            remote for remote in unmatched
+            if remote.get("id") == expected_id
+            and _attribute_slug(remote.get("name") or remote.get("slug")) == _attribute_slug(local.get("name"))
+        ]
+        if len(candidates) != 1:
+            return False
+        remote = candidates[0]
+        if (
+            _attribute_options(local.get("options")) != _attribute_options(remote.get("options"))
+            or bool(local.get("variation")) != bool(remote.get("variation"))
+            or bool(local.get("visible")) != bool(remote.get("visible"))
+        ):
+            return False
+        unmatched.remove(remote)
+    return not unmatched

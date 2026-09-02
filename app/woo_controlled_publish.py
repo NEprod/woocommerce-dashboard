@@ -40,7 +40,10 @@ from app.woo_publish_preview import (
     regenerate_publish_plan,
     store_identity,
 )
-from app.woo_managed_comparison import managed_rich_text_equal
+from app.woo_managed_comparison import (
+    managed_parent_attributes_equal,
+    managed_rich_text_equal,
+)
 from app.woo_payload_contract import WooDimensionContractError, assert_woo_dimension_payload
 from app.woocommerce_connection import (
     PublisherWooClient,
@@ -726,27 +729,13 @@ def _verification_differences(payload, remote, *, default_category_id=None):
     if expected.get("categories") == [] and default_category_id:
         if observed.get("categories") == [{"id": int(default_category_id)}]:
             observed["categories"] = []
-    if isinstance(expected.get("attributes"), list) and isinstance(observed.get("attributes"), list):
-        normalised = []
-        for local in expected["attributes"]:
-            remote_candidates = [
-                row for row in observed["attributes"] if isinstance(row, dict)
-                and (
-                    local.get("id") and row.get("id") == local.get("id")
-                    or str(row.get("name") or "").casefold() == str(local.get("name") or "").casefold()
-                )
-            ]
-            if not remote_candidates:
-                normalised.append({})
-                continue
-            remote_attribute = remote_candidates[0]
-            normalised.append({key: remote_attribute.get(key) for key in local})
-        observed["attributes"] = normalised
     return [
         key for key in payload
         if not (
             managed_rich_text_equal(expected.get(key), observed.get(key))
             if key in {"description", "short_description"}
+            else managed_parent_attributes_equal(expected.get(key), observed.get(key))
+            if key == "attributes" and expected.get("type") == "variable"
             else json.dumps(expected.get(key), sort_keys=True, default=str) == json.dumps(observed.get(key), sort_keys=True, default=str)
         )
     ]

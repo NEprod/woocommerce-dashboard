@@ -10,7 +10,7 @@ from sqlalchemy import event
 from app import create_app, db
 from app.database import _alembic_config
 from app.models import (
-    CatalogueOperation, CatalogueOperationItem, Category, Collection, Product, ProductImage,
+    CatalogueOperation, CatalogueOperationItem, Category, Collection, Product, ProductAttribute, ProductImage,
     ProductRelationship, Settings, Tag, User, Variation, VariationAttribute,
     VariationImage, WooProductIdentity, WooVariationIdentity,
 )
@@ -28,6 +28,7 @@ from app.woo_payload_contract import (
 )
 from app.woo_controlled_publish import (
     ControlledPublishError, _assert_no_image_import_payload, _verification_differences,
+    _publish_parent,
     _resolve_one_taxonomy,
     MAX_PUBLISH_PRODUCTS,
     PublishGateway,
@@ -36,7 +37,10 @@ from app.woo_controlled_publish import (
     resume_confirmation,
     start_publish_operation,
 )
-from app.woo_managed_comparison import managed_rich_text_equal
+from app.woo_managed_comparison import (
+    managed_parent_attributes_equal,
+    managed_rich_text_equal,
+)
 from app.utils.operation_control import reset_operation_control_for_tests
 from app.woocommerce_connection import PublisherWooClient, WooConfiguration, WooConnectionError
 from config import Config
@@ -1265,7 +1269,40 @@ def test_default_category_semantics_apply_to_exact_sku_link_candidate(preview_ap
         row = plan["products"][0]
         assert row["action"] == "link_candidate"
         assert plan["summary"]["woo_default_category_id"] == 37
-        assert not any(difference["field"] == "categories" for difference in row["differences"])
+    assert not any(difference["field"] == "categories" for difference in row["differences"])
+
+
+def test_link_candidate_uses_authenticated_wc_admin_default_category_option(preview_app, monkeypatch):
+    class WooAdminOptionClient(FakeWooClient):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.paths = []
+
+        def request_json(self, method, url, **kwargs):
+            path = urlsplit(url).path
+            self.paths.append(path)
+            if path.endswith("/wc-admin/options"):
+                self.methods.append(method); self.request_count += 1
+                return {"default_product_cat": {"value": "41"}}, object()
+            return super().request_json(method, url, **kwargs)
+
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    with preview_app.app_context():
+        product = db.session.get(Product, 3)
+        product.categories.clear()
+        db.session.commit()
+        seed = generate_publish_plan(
+            {"kind": "product", "product_id": 3},
+            client=WooAdminOptionClient(taxonomy=_taxonomy()),
+        )["products"][0]
+        remote = {"id": 7650, **seed["payload"], "categories": [{"id": 41}]}
+        client = WooAdminOptionClient(by_sku={"LINK-1": [remote]}, taxonomy=_taxonomy())
+        plan = generate_publish_plan({"kind": "product", "product_id": 3}, client=client)
+    row = plan["products"][0]
+    assert row["action"] == "link_candidate"
+    assert plan["summary"]["woo_default_category_id"] == 41
+    assert not any(item["field"] == "categories" for item in row["differences"])
+    assert any(path.endswith("/wc-admin/options") for path in client.paths)
 
 
 def test_default_category_semantics_remain_strict_for_explicit_and_extra_categories():
@@ -1305,6 +1342,159 @@ def test_raw_remote_rich_text_is_preferred_to_rendered_value():
     local = "[cg_accordion title='Details']Exact authored source[/cg_accordion]"
     remote = {"short_description": {"raw": local, "rendered": "<details>changed</details>"}}
     assert _comparison({"short_description": local}, remote)[1] == []
+
+
+def test_raw_shortcode_comparison_normalises_escaped_markup_and_entities():
+    authored = """
+    [cg_accordion title='Core Features']\\<ul\\>\\<li\\>Made with care\\</li\\>\\</ul\\>[/cg_accordion]
+    [cg_accordion title='Delivery & Returns']\\<p\\>Safe & sound\\</p\\>[/cg_accordion]
+    """
+    observed = """
+    [cg_accordion title='Core Features']<ul><li>Made with care</li></ul>[/cg_accordion]
+    [cg_accordion title='Delivery &amp; Returns']<p>Safe &amp; sound</p>[/cg_accordion]
+    """
+    assert managed_rich_text_equal(authored, observed)
+    assert _comparison({"short_description": authored}, {"short_description": {"raw": observed}})[1] == []
+    assert not managed_rich_text_equal(authored, observed.replace("Made with care", "Made with something else"))
+    assert not managed_rich_text_equal(authored, observed.replace("Core Features", "Product Details"))
+
+
+def test_direct_default_category_tries_all_documented_setting_keys():
+    class AlternateDirectSettingClient(FakeWooClient):
+        def request_json(self, method, url, **kwargs):
+            if urlsplit(url).path.endswith("/settings/products/default_product_cat"):
+                self.methods.append(method); self.request_count += 1
+                return {"id": "default_product_cat", "value": "41"}, object()
+            return super().request_json(method, url, **kwargs)
+
+    reader = PreviewWooReader(AlternateDirectSettingClient(taxonomy=_taxonomy()), "wc/v3")
+    assert reader.default_product_category_id() is None
+    assert reader.infer_default_product_category_id({"id": 7650, "categories": [{"id": 41}]}) == 41
+
+
+def test_variable_parent_omits_variation_owned_price_and_stock_but_simple_and_variation_remain_managed(preview_app):
+    with preview_app.app_context():
+        taxonomy = {"categories": [{"slug": "cards", "woo_id": 11}], "tags": [{"slug": "birthday", "woo_id": 12}], "attributes": []}
+        simple, _ = _product_payload(db.session.get(Product, 1), taxonomy)
+        variable, _ = _product_payload(db.session.get(Product, 4), taxonomy)
+        variation = _variation_payload(db.session.get(Variation, 41))
+    for key in ("regular_price", "manage_stock", "stock_status"):
+        assert key in simple and key in variation
+        assert key not in variable
+    assert "dimensions" in variable
+
+
+def test_variable_parent_attribute_semantics_ignore_woo_decoration_only():
+    expected = [
+        {"name": "Angel Wings", "options": ["Without", "With"], "visible": True, "variation": True},
+        {"name": "Outer Detail", "options": ["Plain", "Icon Ring"], "visible": True, "variation": True},
+    ]
+    observed = [
+        {"id": 6, "name": "Angel Wings", "slug": "pa_angel-wings", "position": 0, "options": ["With", "Without"], "visible": True, "variation": True},
+        {"id": 7, "name": "Outer Detail", "slug": "pa_outer-detail", "position": 0, "options": ["Icon Ring", "Plain"], "visible": True, "variation": True},
+    ]
+    known = {"Angel Wings": 6, "Outer Detail": 7}
+    assert managed_parent_attributes_equal(expected, observed, known_attribute_ids=known)
+    assert _comparison({"type": "variable", "attributes": expected}, {"type": "variable", "attributes": observed}, known_attribute_ids=known)[1] == []
+    assert not managed_parent_attributes_equal(expected, observed[:-1], known_attribute_ids=known)
+    changed = [dict(row) for row in observed]
+    changed[0]["options"] = ["Without", "Other"]
+    assert not managed_parent_attributes_equal(expected, changed, known_attribute_ids=known)
+    changed = [dict(row) for row in observed]
+    changed[0]["visible"] = False
+    assert not managed_parent_attributes_equal(expected, changed, known_attribute_ids=known)
+    changed = [dict(row) for row in observed]
+    changed[0]["variation"] = False
+    assert not managed_parent_attributes_equal(expected, changed, known_attribute_ids=known)
+    changed = [dict(row) for row in observed]
+    changed[0]["name"] = "Different Attribute"
+    assert not managed_parent_attributes_equal(expected, changed, known_attribute_ids=known)
+
+
+def test_simple_and_variation_price_and_stock_drift_remain_managed():
+    simple = {"type": "simple", "regular_price": "10.00", "stock_status": "instock"}
+    variation = {"regular_price": "11.00", "stock_status": "instock"}
+    simple_differences = _comparison(simple, {"type": "simple", "regular_price": "12.00", "stock_status": "outofstock"})[1]
+    variation_differences = _verification_differences(
+        variation, {"regular_price": "12.00", "stock_status": "outofstock"}
+    )
+    assert {item["field"] for item in simple_differences} == {"regular_price", "stock_status"}
+    assert set(variation_differences) == {"regular_price", "stock_status"}
+
+
+def test_link_candidate_uses_dynamic_default_and_verified_variable_attribute_contract(preview_app, monkeypatch):
+    class AlternateDirectSettingClient(FakeWooClient):
+        def request_json(self, method, url, **kwargs):
+            if urlsplit(url).path.endswith("/settings/products/default_product_cat"):
+                self.methods.append(method); self.request_count += 1
+                return {"id": "default_product_cat", "value": "41"}, object()
+            return super().request_json(method, url, **kwargs)
+
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    taxonomy = {
+        "categories": [{"id": 11, "name": "Cards", "slug": "cards"}],
+        "tags": [{"id": 12, "name": "Birthday", "slug": "birthday"}],
+        "attributes": [
+            {"id": 6, "name": "Angel Wings", "slug": "pa_angel-wings", "type": "select", "order_by": "menu_order", "has_archives": False},
+            {"id": 7, "name": "Outer Detail", "slug": "pa_outer-detail", "type": "select", "order_by": "menu_order", "has_archives": False},
+        ],
+    }
+    with preview_app.app_context():
+        product = db.session.get(Product, 4)
+        product.categories.clear()
+        db.session.add_all([
+            ProductAttribute(product_id=4, name="Angel Wings", values=json.dumps(["Without", "With"]), is_global=True, visible=True),
+            ProductAttribute(product_id=4, name="Outer Detail", values=json.dumps(["Plain", "Icon Ring"]), is_global=True, visible=True),
+        ])
+        db.session.commit()
+        seed = generate_publish_plan({"kind": "product", "product_id": 4}, client=AlternateDirectSettingClient(taxonomy=taxonomy))
+        payload = seed["products"][0]["payload"]
+        remote = {
+            "id": 7651, **payload,
+            "regular_price": "", "stock_status": "outofstock", "categories": [{"id": 41}],
+            "attributes": [
+                {"id": 6, "name": "Angel Wings", "slug": "pa_angel-wings", "position": 0, "options": ["With", "Without"], "visible": True, "variation": True},
+                {"id": 7, "name": "Outer Detail", "slug": "pa_outer-detail", "position": 0, "options": ["Icon Ring", "Plain"], "visible": True, "variation": True},
+            ],
+        }
+        plan = generate_publish_plan(
+            {"kind": "product", "product_id": 4},
+            client=AlternateDirectSettingClient(by_sku={"VARIABLE-1": [remote]}, taxonomy=taxonomy),
+        )
+    row = plan["products"][0]
+    assert row["action"] == "link_candidate"
+    assert plan["summary"]["woo_default_category_id"] == 41
+    assert not {item["field"] for item in row["differences"]} & {"regular_price", "stock_status", "attributes"}
+    assert not any(item["field"] == "categories" for item in row["differences"])
+
+
+def test_post_create_variable_parent_verification_accepts_woo_parent_representation(preview_app):
+    class DecoratedVariablePublisher(FakePublisherClient):
+        def request_json(self, method, url, **kwargs):
+            payload, response = super().request_json(method, url, **kwargs)
+            if method.upper() == "POST" and urlsplit(url).path.endswith("/products"):
+                payload = {
+                    **payload, "regular_price": "", "stock_status": "outofstock",
+                    "attributes": [{
+                        "id": 6, "name": "Angel Wings", "slug": "pa_angel-wings", "position": 0,
+                        "options": ["With", "Without"], "visible": True, "variation": True,
+                    }],
+                }
+                self.products[payload["id"]] = payload
+            return payload, response
+
+    with preview_app.app_context():
+        payload = {
+            "name": "Variable Card", "type": "variable", "status": "draft", "sku": "VARIABLE-1",
+            "attributes": [{"id": 6, "name": "Angel Wings", "options": ["Without", "With"], "visible": True, "variation": True}],
+        }
+        plan = {
+            "action": "create", "product_id": 4, "stable_identity": "Preview Cards/Variable",
+            "sku": "VARIABLE-1", "woo_type": "variable", "woo_default_category_id": None,
+        }
+        gateway = PublishGateway(DecoratedVariablePublisher(), "wc/v3")
+        identity, remote, action = _publish_parent(gateway, plan, payload, store_identity(), None)
+        assert action == "create" and identity.woo_product_id == remote["id"]
 
 
 def test_taxonomy_failure_records_item_and_truthful_skipped_stage_logs(preview_app, monkeypatch):

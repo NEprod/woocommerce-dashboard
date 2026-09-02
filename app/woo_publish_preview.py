@@ -25,7 +25,10 @@ from app.woo_payload_contract import (
     WooDimensionContractError,
     canonical_woo_dimensions,
 )
-from app.woo_managed_comparison import managed_rich_text_equal
+from app.woo_managed_comparison import (
+    managed_parent_attributes_equal,
+    managed_rich_text_equal,
+)
 from app.woocommerce_connection import ReadOnlyWooClient, WooConnectionError, build_woocommerce_workspace, effective_configuration, normalize_store_url
 
 
@@ -37,6 +40,7 @@ LARGE_SCOPE_THRESHOLD = 100
 MAX_CACHE_PLANS = 20
 MAX_REMOTE_TAXONOMY_PAGES = 5
 MAX_MEDIA_CANDIDATES = 20
+DEFAULT_PRODUCT_CATEGORY_OPTION = "default_product_cat"
 MANAGED_FIELDS = (
     "name", "type", "status", "description", "short_description", "sku",
     "regular_price", "sale_price", "date_on_sale_from", "date_on_sale_to",
@@ -234,7 +238,7 @@ class PreviewWooReader:
             payload = []
         for item in payload[:100] if isinstance(payload, list) else []:
             if not isinstance(item, dict) or item.get("id") not in {
-                "default_product_cat", "woocommerce_default_category",
+                DEFAULT_PRODUCT_CATEGORY_OPTION, "woocommerce_default_category",
                 "woocommerce_default_product_category",
             }:
                 continue
@@ -243,6 +247,47 @@ class PreviewWooReader:
             except (TypeError, ValueError):
                 return None
             return value if value > 0 else None
+        return self.admin_default_product_category_id()
+
+    @staticmethod
+    def _positive_category_id(value):
+        if isinstance(value, dict):
+            value = value.get("value", value.get("id"))
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
+
+    def admin_default_product_category_id(self):
+        """Read Woo's canonical product-category option through wc-admin.
+
+        The current Products settings group does not necessarily register this
+        legacy Woo option, even though Woo itself uses it when assigning a
+        category to otherwise uncategorised products.  This is a bounded,
+        authenticated, GET-only option read; it does not infer a category from
+        a public product response.
+        """
+
+        url = f"{self.client.base_url}/wp-json/wc-admin/options?{urlencode({'options': DEFAULT_PRODUCT_CATEGORY_OPTION})}"
+        key = ("wc_admin_option", DEFAULT_PRODUCT_CATEGORY_OPTION)
+        try:
+            if key not in self.cache:
+                payload, _ = self.client.request_json(
+                    "GET", url, authenticated=True,
+                    endpoint_category="publish_preview_settings",
+                )
+                self.cache[key] = payload
+            payload = self.cache[key]
+        except WooConnectionError:
+            return None
+        if isinstance(payload, dict):
+            direct = self._positive_category_id(payload.get(DEFAULT_PRODUCT_CATEGORY_OPTION))
+            if direct:
+                return direct
+            data = payload.get("data")
+            if isinstance(data, dict):
+                return self._positive_category_id(data.get(DEFAULT_PRODUCT_CATEGORY_OPTION))
         return None
 
     def direct_default_product_category_id(self):
@@ -250,20 +295,26 @@ class PreviewWooReader:
 
         # Some stores omit the value from the collection response while still
         # exposing the documented individual setting resource.
-        try:
-            item = self.get(
-                "settings/products/woocommerce_default_category",
-                category="publish_preview_settings",
-            )
-        except WooConnectionError:
-            return None
-        if not isinstance(item, dict):
-            return None
-        try:
-            value = int(item.get("value"))
-        except (TypeError, ValueError):
-            return None
-        return value if value > 0 else None
+        for setting_id in (
+            DEFAULT_PRODUCT_CATEGORY_OPTION, "woocommerce_default_category",
+            "woocommerce_default_product_category",
+        ):
+            try:
+                item = self.get(
+                    f"settings/products/{setting_id}",
+                    category="publish_preview_settings",
+                )
+            except WooConnectionError:
+                continue
+            if not isinstance(item, dict):
+                continue
+            try:
+                value = int(item.get("value"))
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                return value
+        return None
 
     def infer_default_product_category_id(self, remote):
         """Safely identify the default omitted by Woo's public Store API.
@@ -539,6 +590,16 @@ def _product_payload(product, taxonomy, media=None):
         ],
     }
     payload = {key: value for key, value in payload.items() if value is not None}
+    if product.product_type == "variable":
+        # Scanner-resolved parent values remain useful defaults for constructing
+        # variations, but Woo manages sellable prices and stock on variation
+        # resources.  Do not claim those derived parent representations are
+        # direct Variable-parent managed state.
+        for key in (
+            "regular_price", "sale_price", "date_on_sale_from", "date_on_sale_to",
+            "manage_stock", "stock_quantity", "stock_status", "backorders",
+        ):
+            payload.pop(key, None)
     return payload, {"catalogue_state": product.catalogue_status, "publishing_intent": intent["label"], "planned_status": status}
 
 
@@ -583,7 +644,7 @@ def _normalise_remote(remote, managed_fields=None):
     return result
 
 
-def _comparison(payload, remote, *, default_category_id=None):
+def _comparison(payload, remote, *, default_category_id=None, known_attribute_ids=None):
     remote_managed = _normalise_remote(remote or {}, payload.keys())
     if payload.get("categories") == [] and default_category_id:
         observed_categories = remote_managed.get("categories")
@@ -596,6 +657,8 @@ def _comparison(payload, remote, *, default_category_id=None):
         equal = (
             managed_rich_text_equal(local, observed)
             if key in {"description", "short_description"}
+            else managed_parent_attributes_equal(local, observed, known_attribute_ids=known_attribute_ids)
+            if key == "attributes" and payload.get("type") == "variable"
             else _stable_json(local) == _stable_json(observed)
         )
         if not equal:
@@ -763,7 +826,11 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
         # relationship queries while preserving the operation lock boundary.
         products = resolve_scope(scope)
         taxonomy = _taxonomy_plan(products, reader)
-        default_category_id = reader.default_product_category_id()
+        # The current-store default is relevant only to a remote product whose
+        # authored category set is intentionally empty.  Defer the bounded
+        # setting read until that exact comparison is needed so ordinary and
+        # large unlinked previews retain their established request budget.
+        default_category_id = None
         product_ids = [row.id for row in products]
         identities = _product_identity_map(product_ids, store["key"])
         other_identities = {row.product_id: row for row in WooProductIdentity.query.filter(WooProductIdentity.product_id.in_(product_ids), WooProductIdentity.store_key != store["key"]).all()}
@@ -787,8 +854,18 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
             if payload.get("status") == "draft": warnings.append("Publishing intent is Draft; the future Woo product will remain draft.")
             remote = identity.get("remote")
             if default_category_id is None and payload.get("categories") == [] and remote:
-                default_category_id = reader.infer_default_product_category_id(remote)
-            remote_managed, differences = _comparison(payload, remote, default_category_id=default_category_id) if remote else ({}, [])
+                default_category_id = reader.default_product_category_id()
+                if default_category_id is None:
+                    default_category_id = reader.infer_default_product_category_id(remote)
+            known_attribute_ids = {
+                item["name"]: int(item["woo_id"])
+                for item in product_taxonomy["attributes"]
+                if item.get("state") == "existing" and isinstance(item.get("woo_id"), int)
+            }
+            remote_managed, differences = _comparison(
+                payload, remote, default_category_id=default_category_id,
+                known_attribute_ids=known_attribute_ids,
+            ) if remote else ({}, [])
             action = identity.get("action")
             if action is None: action = "update" if differences else "no_change"
             expected_type = payload.get("type")
