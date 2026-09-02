@@ -15,9 +15,9 @@ from app.models import (
     VariationImage, WooProductIdentity, WooVariationIdentity,
 )
 from app.woo_publish_preview import (
-    BUILDER_VERSION, PreviewError, PreviewWooReader, WordPressMediaResolver, _comparison,
+    BUILDER_VERSION, LinkCandidateError, PreviewError, PreviewWooReader, WordPressMediaResolver, _comparison,
     _product_payload, _variation_payload, cached_plan, canonical_taxonomy_slug,
-    generate_publish_plan,
+    generate_publish_plan, link_candidate_identity, prepare_link_candidate_review,
     plan_is_stale, reset_preview_cache_for_tests, scope_estimate, store_identity,
 )
 from app.woo_payload_contract import (
@@ -354,6 +354,211 @@ def test_duplicate_remote_sku_and_type_conflict_block(preview_app, monkeypatch, 
     with preview_app.app_context():
         plan = generate_publish_plan({"kind": "product", "product_id": 3}, client=FakeWooClient(by_sku={"LINK-1": matches}, taxonomy=_taxonomy()))
         assert plan["products"][0]["action"] == state
+
+
+def _link_candidate_plan(app, monkeypatch, *, product_id=3, remote_id=303, remote_type="simple"):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    product = db.session.get(Product, product_id)
+    remote = {"id": remote_id, "sku": product.sku, "type": remote_type, "name": f"Remote {product.title}", "status": "draft"}
+    client = FakeWooClient(by_id={remote_id: remote}, by_sku={product.sku: [remote]}, taxonomy=_taxonomy())
+    plan = generate_publish_plan({"kind": "product", "product_id": product_id}, client=client)
+    assert plan["products"][0]["action"] == "link_candidate"
+    return plan, client, remote
+
+
+def test_link_candidate_review_and_link_persist_local_identity_without_woo_write(preview_app, monkeypatch):
+    with preview_app.app_context():
+        plan, client, _remote = _link_candidate_plan(preview_app, monkeypatch)
+        review = prepare_link_candidate_review(plan["operation_id"], plan["digest"], 3)
+        assert review["candidate"]["woo_id"] == 303 and review["product"]["sku"] == "LINK-1"
+        linked = link_candidate_identity(plan["operation_id"], plan["digest"], 3, 303, client=client)
+        assert linked.woo_product_id == 303 and linked.sync_state == "linked" and linked.verification_state == "verified"
+        assert linked.last_published_digest is None
+        assert set(client.methods) == {"GET"}
+        assert plan_is_stale(plan) is True
+
+
+def test_linked_equivalent_simple_transitions_from_link_candidate_to_no_change(preview_app, monkeypatch):
+    with preview_app.app_context():
+        plan, client, remote = _link_candidate_plan(preview_app, monkeypatch)
+        link_candidate_identity(plan["operation_id"], plan["digest"], 3, 303, client=client)
+        payload = plan["products"][0]["payload"]
+        equivalent = {"id": 303, **payload}
+        refreshed = generate_publish_plan(
+            {"kind": "product", "product_id": 3},
+            client=FakeWooClient(by_id={303: equivalent}, by_sku={"LINK-1": [equivalent]}, taxonomy=_taxonomy()),
+        )
+        assert refreshed["products"][0]["action"] == "no_change"
+        assert refreshed["products"][0]["identity_state"] == "verified"
+
+
+def test_variable_link_candidate_adopts_parent_only_without_variation_identity(preview_app, monkeypatch):
+    with preview_app.app_context():
+        plan, client, _remote = _link_candidate_plan(preview_app, monkeypatch, product_id=4, remote_id=404, remote_type="variable")
+        linked = link_candidate_identity(plan["operation_id"], plan["digest"], 4, 404, client=client)
+        assert linked.woo_product_id == 404
+        assert WooVariationIdentity.query.filter_by(product_id=4).count() == 0
+        assert set(client.methods) == {"GET"}
+
+
+@pytest.mark.parametrize(("remote", "message"), [
+    ({"id": 303, "sku": "CHANGED", "type": "simple"}, "SKU changed"),
+    ({"id": 303, "sku": "LINK-1", "type": "variable"}, "type changed"),
+])
+def test_link_candidate_revalidates_remote_sku_and_type(preview_app, monkeypatch, remote, message):
+    with preview_app.app_context():
+        plan, _client, _remote = _link_candidate_plan(preview_app, monkeypatch)
+        changed = FakeWooClient(by_id={303: remote}, by_sku={"LINK-1": [remote]}, taxonomy=_taxonomy())
+        with pytest.raises(LinkCandidateError, match=message):
+            link_candidate_identity(plan["operation_id"], plan["digest"], 3, 303, client=changed)
+        assert WooProductIdentity.query.filter_by(product_id=3).count() == 0
+
+
+def test_link_candidate_rejects_deleted_or_ambiguous_remote_identity(preview_app, monkeypatch):
+    with preview_app.app_context():
+        plan, _client, _remote = _link_candidate_plan(preview_app, monkeypatch)
+        with pytest.raises(LinkCandidateError, match="no longer exists"):
+            link_candidate_identity(plan["operation_id"], plan["digest"], 3, 303, client=FakeWooClient(by_sku={"LINK-1": []}, taxonomy=_taxonomy()))
+        first = {"id": 303, "sku": "LINK-1", "type": "simple"}
+        second = {"id": 304, "sku": "LINK-1", "type": "simple"}
+        with pytest.raises(LinkCandidateError, match="ambiguous"):
+            link_candidate_identity(plan["operation_id"], plan["digest"], 3, 303, client=FakeWooClient(by_id={303: first}, by_sku={"LINK-1": [first, second]}, taxonomy=_taxonomy()))
+
+
+def test_link_candidate_rejects_conflicting_trusted_identity_and_stale_review(preview_app, monkeypatch):
+    with preview_app.app_context():
+        plan, client, _remote = _link_candidate_plan(preview_app, monkeypatch)
+        store = store_identity()
+        db.session.add(WooProductIdentity(product_id=1, stable_identity="Preview Cards/Create", sku="CREATE-1", store_key=store["key"], store_host=store["host"], woo_product_id=303, sync_state="linked", verification_state="verified")); db.session.commit()
+        with pytest.raises(LinkCandidateError, match="another local product"):
+            link_candidate_identity(plan["operation_id"], plan["digest"], 3, 303, client=client)
+        db.session.delete(db.session.get(WooProductIdentity, 1)); db.session.commit()
+        db.session.get(Product, 3).sku = "LINK-CHANGED"; db.session.commit()
+        with pytest.raises(LinkCandidateError, match="stale"):
+            link_candidate_identity(plan["operation_id"], plan["digest"], 3, 303, client=client)
+
+
+def test_link_candidate_rejects_store_change_without_catalogue_write(preview_app, monkeypatch):
+    with preview_app.app_context():
+        plan, client, _remote = _link_candidate_plan(preview_app, monkeypatch)
+        monkeypatch.setattr(
+            "app.woo_publish_preview.store_identity",
+            lambda _configuration=None: {"key": "different-store", "host": "other.example.test", "origin": "https://other.example.test"},
+        )
+        with pytest.raises(LinkCandidateError, match="store changed"):
+            link_candidate_identity(plan["operation_id"], plan["digest"], 3, 303, client=client)
+        assert WooProductIdentity.query.filter_by(product_id=3).count() == 0
+        assert not list(Path(db.session.query(Settings).first().product_folder).rglob("*"))
+
+
+def test_link_candidate_routes_require_acknowledgement_csrf_and_render_review(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.ReadOnlyWooClient", lambda *a, **k: FakeWooClient(
+        by_id={303: {"id": 303, "sku": "LINK-1", "type": "simple", "name": "Remote Link"}},
+        by_sku={"LINK-1": [{"id": 303, "sku": "LINK-1", "type": "simple", "name": "Remote Link"}]}, taxonomy=_taxonomy(),
+    ))
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    client = _client(preview_app)
+    generated = client.post("/woocommerce/preview/generate", data={"scope_kind": "product", "product_id": "3"})
+    operation_id = generated.location.rsplit("/", 1)[-1]
+    with preview_app.app_context(): plan = cached_plan(operation_id)
+    review_url = f"/woocommerce/preview/link/3?operation_id={operation_id}&preview_digest={plan['digest']}"
+    page = client.get(review_url)
+    assert page.status_code == 200 and "Confirm &amp; Link Woo Identity" in page.get_data(as_text=True)
+    refused = client.post("/woocommerce/preview/link/3", data={"preview_operation_id": operation_id, "preview_digest": plan["digest"], "candidate_woo_id": "303"})
+    assert refused.status_code == 302
+    with preview_app.app_context(): assert WooProductIdentity.query.filter_by(product_id=3).count() == 0
+    preview_app.config["WTF_CSRF_ENABLED"] = True
+    blocked = client.post("/woocommerce/preview/link/3", data={"preview_operation_id": operation_id, "preview_digest": plan["digest"], "candidate_woo_id": "303", "acknowledge_identity": "yes"})
+    preview_app.config["WTF_CSRF_ENABLED"] = False
+    assert blocked.status_code == 400
+
+
+def test_successful_link_route_explains_preview_invalidation_without_woo_write(preview_app, monkeypatch):
+    remote = {"id": 303, "sku": "LINK-1", "type": "simple", "name": "Remote Link", "status": "draft"}
+    fake = FakeWooClient(by_id={303: remote}, by_sku={"LINK-1": [remote]}, taxonomy=_taxonomy())
+    monkeypatch.setattr("app.woo_publish_preview.ReadOnlyWooClient", lambda *a, **k: fake)
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    client = _client(preview_app)
+    generated = client.post("/woocommerce/preview/generate", data={"scope_kind": "product", "product_id": "3"})
+    operation_id = generated.location.rsplit("/", 1)[-1]
+    with preview_app.app_context(): plan = cached_plan(operation_id)
+    linked = client.post("/woocommerce/preview/link/3", data={
+        "preview_operation_id": operation_id, "preview_digest": plan["digest"],
+        "candidate_woo_id": "303", "acknowledge_identity": "yes",
+    })
+    assert linked.status_code == 302 and linked.location.endswith(f"/woocommerce/preview/operations/{operation_id}")
+    result = client.get(linked.location)
+    html = result.get_data(as_text=True)
+    assert result.status_code == 200
+    assert "Woo identity linked successfully." in html
+    assert "No changes were written to WooCommerce." in html
+    assert "Regenerate Preview" in html
+    assert "Preview stale — regenerate before publishing." not in html
+    with preview_app.app_context():
+        assert WooProductIdentity.query.filter_by(product_id=3, woo_product_id=303).one().verification_state == "verified"
+        assert plan_is_stale(plan) is True
+    assert set(fake.methods) == {"GET"}
+
+
+def test_title_entity_encoding_is_representation_only_but_meaningful_words_remain_drift():
+    assert _comparison(
+        {"name": "Personalised Hero Print - Face & Message"},
+        {"name": "Personalised Hero Print - Face &amp; Message"},
+    )[1] == []
+    assert _comparison(
+        {"name": "Personalised Hero Print - Face & Message"},
+        {"name": "Personalised Hero Print - Face and Message"},
+    )[1]
+    assert _comparison({"name": "Plain title"}, {"name": "Plain title"})[1] == []
+
+
+def test_category_and_tag_membership_are_order_independent_but_strict():
+    payload = {
+        "categories": [{"id": 115}, {"id": 114}],
+        "tags": [{"id": 121}, {"id": 119}, {"id": 122}, {"id": 116}, {"id": 117}, {"id": 118}, {"id": 120}],
+    }
+    remote = {
+        "categories": [{"id": 114}, {"id": 115}],
+        "tags": [{"id": 116}, {"id": 117}, {"id": 118}, {"id": 119}, {"id": 120}, {"id": 121}, {"id": 122}],
+    }
+    assert _comparison(payload, remote)[1] == []
+    assert [row["field"] for row in _comparison(payload, {**remote, "categories": [{"id": 114}]})[1]] == ["categories"]
+    assert [row["field"] for row in _comparison(payload, {**remote, "tags": remote["tags"][:-1]})[1]] == ["tags"]
+    assert _comparison(payload, {**remote, "categories": remote["categories"] + [{"id": 999}]})[1]
+    assert _comparison(payload, {**remote, "tags": remote["tags"] + [{"id": 999}]})[1]
+    verification_payload = {"name": "Face & Message", **payload}
+    verification_remote = {"name": "Face &amp; Message", **remote}
+    assert _verification_differences(verification_payload, verification_remote) == []
+
+
+def test_known_identity_preview_ignores_title_entities_and_taxonomy_order(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    with preview_app.app_context():
+        product = db.session.get(Product, 2)
+        extra_category = Category(name="Posters", slug="posters")
+        extra_tag = Tag(name="Personalised", slug="personalised")
+        db.session.add_all([extra_category, extra_tag]); db.session.flush()
+        product.categories.append(extra_category); product.tags.append(extra_tag)
+        product.title = "Personalised Hero Print - Face & Message"
+        db.session.flush()
+        taxonomy = {
+            "categories": [{"slug": "cards", "woo_id": 11}, {"slug": "posters", "woo_id": 115}],
+            "tags": [{"slug": "birthday", "woo_id": 12}, {"slug": "personalised", "woo_id": 121}],
+            "attributes": [], "terms": [],
+        }
+        payload, _trace = _product_payload(product, taxonomy, {"parent": []})
+        remote = {
+            "id": 202, **payload,
+            "name": "Personalised Hero Print - Face &amp; Message",
+            "categories": list(reversed(payload["categories"])),
+            "tags": list(reversed(payload["tags"])),
+        }
+        store = store_identity()
+        db.session.add(WooProductIdentity(product_id=2, stable_identity=product.source_relpath, sku=product.sku, store_key=store["key"], store_host=store["host"], woo_product_id=202, sync_state="linked", verification_state="verified")); db.session.commit()
+        plan = generate_publish_plan({"kind": "product", "product_id": 2}, client=FakeWooClient(by_id={202: remote}, taxonomy={**taxonomy, "categories": [{"id": 11, "name": "Cards", "slug": "cards"}, {"id": 115, "name": "Posters", "slug": "posters"}], "tags": [{"id": 12, "name": "Birthday", "slug": "birthday"}, {"id": 121, "name": "Personalised", "slug": "personalised"}]}))
+        row = plan["products"][0]
+        assert row["action"] == "no_change"
+        assert not any(item["field"] in {"name", "categories", "tags"} for item in row["differences"])
 
 
 def test_store_scoping_prevents_identity_reuse(preview_app, monkeypatch):

@@ -26,7 +26,8 @@ from app.woo_payload_contract import (
     canonical_woo_dimensions,
 )
 from app.woo_managed_comparison import (
-    managed_parent_attributes_equal,
+    managed_parent_attributes_equal, managed_taxonomy_membership_equal,
+    managed_title_equal,
     managed_rich_text_equal,
 )
 from app.woocommerce_connection import ReadOnlyWooClient, WooConnectionError, build_woocommerce_workspace, effective_configuration, normalize_store_url
@@ -54,6 +55,10 @@ class PreviewError(ValueError):
         super().__init__(message)
         self.category = category
         self.details = details or {}
+
+
+class LinkCandidateError(PreviewError):
+    """A reviewed exact-SKU identity can no longer be adopted safely."""
 
 
 _PLAN_CACHE: OrderedDict[str, dict] = OrderedDict()
@@ -657,6 +662,10 @@ def _comparison(payload, remote, *, default_category_id=None, known_attribute_id
         equal = (
             managed_rich_text_equal(local, observed)
             if key in {"description", "short_description"}
+            else managed_title_equal(local, observed)
+            if key == "name"
+            else managed_taxonomy_membership_equal(local, observed)
+            if key in {"categories", "tags"}
             else managed_parent_attributes_equal(local, observed, known_attribute_ids=known_attribute_ids)
             if key == "attributes" and payload.get("type") == "variable"
             else _stable_json(local) == _stable_json(observed)
@@ -1027,6 +1036,147 @@ def cache_plan(plan):
 
 def cached_plan(operation_id):
     return _PLAN_CACHE.get(operation_id)
+
+
+def _link_candidate_context(operation_id, preview_digest, product_id):
+    operation = CatalogueOperation.query.filter_by(
+        id=str(operation_id or "")[:32], operation_type=OPERATION_TYPE,
+    ).first()
+    if operation is None:
+        raise LinkCandidateError("A valid Publish Preview is required before reviewing a Woo identity.", category="missing_preview")
+    plan = cached_plan(operation.id)
+    if plan is None:
+        raise LinkCandidateError("Detailed Publish Preview is unavailable. Generate a fresh preview.", category="missing_preview")
+    if str(preview_digest or "") != str(plan.get("digest") or ""):
+        raise LinkCandidateError("Preview review data is stale. Generate a fresh preview.", category="stale_preview")
+    if plan_is_stale(plan):
+        raise LinkCandidateError("Preview review data is stale. Generate a fresh preview.", category="stale_preview")
+    try:
+        product_id = int(product_id)
+    except (TypeError, ValueError) as error:
+        raise LinkCandidateError("The local product identity is invalid.") from error
+    item = next((row for row in plan.get("products", []) if row.get("product_id") == product_id), None)
+    if not item or item.get("action") != "link_candidate":
+        raise LinkCandidateError("This product is not an eligible Link Candidate in the current Preview.", category="not_link_candidate")
+    candidate_id = item.get("woo_id")
+    if not isinstance(candidate_id, int) or candidate_id <= 0:
+        raise LinkCandidateError("The reviewed Woo product identity is invalid.", category="invalid_candidate")
+    product = db.session.get(Product, product_id)
+    if product is None or (product.source_relpath or f"product:{product.id}") != item.get("stable_identity"):
+        raise LinkCandidateError("The local product identity changed. Generate a fresh preview.", category="stale_preview")
+    if product.sku != item.get("sku"):
+        raise LinkCandidateError("The local SKU changed. Generate a fresh preview.", category="stale_preview")
+    return operation, plan, item, product, candidate_id
+
+
+def prepare_link_candidate_review(operation_id, preview_digest, product_id):
+    """Return a current, read-only candidate review contract for the UI."""
+
+    _operation, plan, item, product, candidate_id = _link_candidate_context(
+        operation_id, preview_digest, product_id,
+    )
+    return {
+        "operation_id": plan["operation_id"],
+        "preview_digest": plan["digest"],
+        "store_identity": plan["summary"]["store_identity"],
+        "store_host": plan["summary"]["store_host"],
+        "product": {
+            "id": product.id, "title": product.title, "sku": product.sku,
+            "local_type": item.get("local_type"), "stable_identity": item.get("stable_identity"),
+        },
+        "candidate": {
+            "woo_id": candidate_id, "title": (item.get("remote_summary") or {}).get("name"),
+            "sku": (item.get("remote_summary") or {}).get("sku"),
+            "woo_type": (item.get("remote_summary") or {}).get("type"),
+            "status": (item.get("remote_summary") or {}).get("status"),
+        },
+        "differences": item.get("differences") or [],
+        "blockers": item.get("blockers") or [],
+    }
+
+
+def link_candidate_identity(operation_id, preview_digest, product_id, candidate_id, *, client=None):
+    """Explicitly adopt one revalidated, exact-SKU Woo parent identity.
+
+    This is deliberately read-only against WooCommerce.  It verifies the
+    reviewed candidate again before persisting the existing local, store-scoped
+    identity record; it never creates or links variation identities.
+    """
+
+    _operation, plan, item, product, planned_candidate_id = _link_candidate_context(
+        operation_id, preview_digest, product_id,
+    )
+    try:
+        candidate_id = int(candidate_id)
+    except (TypeError, ValueError) as error:
+        raise LinkCandidateError("The reviewed Woo product identity is invalid.", category="invalid_candidate") from error
+    if candidate_id != planned_candidate_id:
+        raise LinkCandidateError("The reviewed Woo product changed. Generate a fresh preview.", category="stale_preview")
+
+    configuration = effective_configuration()
+    if not configuration.complete:
+        raise LinkCandidateError("WooCommerce runtime credentials are not configured.", category="connection_required")
+    health = build_woocommerce_workspace()["health"]
+    if health.get("state") not in {"connected", "connected_with_limitations"}:
+        raise LinkCandidateError("A healthy WooCommerce connection test is required.", category="connection_required")
+    store = store_identity(configuration)
+    if store["key"] != plan["summary"].get("store_identity"):
+        raise LinkCandidateError("The configured Woo store changed. Generate a fresh preview.", category="store_changed")
+
+    reader = PreviewWooReader(
+        client or ReadOnlyWooClient(configuration),
+        (plan.get("capability") or {}).get("selected_namespace") or "wc/v3",
+    )
+    try:
+        remote = reader.product_by_id(candidate_id)
+    except WooConnectionError as error:
+        if error.category == "not_found":
+            raise LinkCandidateError("The reviewed Woo product no longer exists. Generate a fresh preview.", category="remote_missing") from error
+        raise LinkCandidateError("The reviewed Woo product could not be revalidated. Generate a fresh preview.", category="revalidation_failed") from error
+    if not isinstance(remote, dict) or int(remote.get("id") or 0) != candidate_id:
+        raise LinkCandidateError("The reviewed Woo product no longer exists. Generate a fresh preview.", category="remote_missing")
+    if remote.get("sku") != product.sku:
+        raise LinkCandidateError("The reviewed Woo product SKU changed. Generate a fresh preview.", category="sku_changed")
+    expected_type = "variable" if product.product_type == "variable" else "simple"
+    if remote.get("type") != expected_type:
+        raise LinkCandidateError("The reviewed Woo product type changed. Generate a fresh preview.", category="type_changed")
+    try:
+        matches = [
+            row for row in reader.products_by_sku(product.sku)
+            if isinstance(row, dict) and row.get("sku") == product.sku
+        ]
+    except WooConnectionError as error:
+        raise LinkCandidateError("The exact Woo SKU could not be revalidated. Generate a fresh preview.", category="revalidation_failed") from error
+    if len(matches) != 1 or int(matches[0].get("id") or 0) != candidate_id:
+        raise LinkCandidateError("The exact Woo SKU is ambiguous or changed. Generate a fresh preview.", category="ambiguous_sku")
+
+    existing = WooProductIdentity.query.filter_by(store_key=store["key"], product_id=product.id).one_or_none()
+    if existing and existing.woo_product_id and existing.woo_product_id != candidate_id:
+        raise LinkCandidateError("A conflicting trusted Woo identity already exists for this local product.", category="identity_conflict")
+    remote_owner = WooProductIdentity.query.filter_by(store_key=store["key"], woo_product_id=candidate_id).one_or_none()
+    if remote_owner and remote_owner.product_id != product.id:
+        raise LinkCandidateError("The reviewed Woo product is already linked to another local product.", category="identity_conflict")
+    if existing and existing.verification_state == "verified" and existing.woo_product_id == candidate_id:
+        raise LinkCandidateError("This Woo identity is already linked. Generate a fresh preview.", category="already_linked")
+
+    row = existing or WooProductIdentity(
+        product_id=product.id, stable_identity=item["stable_identity"], sku=product.sku,
+        store_key=store["key"], store_host=store["host"],
+    )
+    if existing is None:
+        db.session.add(row)
+    row.woo_product_id = candidate_id
+    row.stable_identity = item["stable_identity"]
+    row.sku = product.sku
+    row.store_host = store["host"]
+    row.sync_state = "linked"
+    row.verification_state = "verified"
+    row.last_successful_sync_at = datetime.now(UTC).replace(tzinfo=None)
+    row.last_remote_digest = _digest(_normalise_remote(remote, item["payload"].keys()))
+    # Linking proves identity; it must not claim this operation published data.
+    row.last_published_digest = None
+    db.session.commit()
+    return row
 
 
 def operation_summary(operation):

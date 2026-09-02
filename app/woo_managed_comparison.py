@@ -43,6 +43,38 @@ def _comparison_source(value):
     return _ESCAPED_DELIMITERS.sub(r"\1", str(value or "")).replace("\r\n", "\n").replace("\r", "\n")
 
 
+def managed_title_equal(authored, observed):
+    """Compare plain product titles without treating HTML entity encoding as drift.
+
+    This deliberately does not remove markup, punctuation, or words.  It only
+    decodes the representation Woo may use for the same title text.
+    """
+
+    return unescape(str(authored or "")) == unescape(str(observed or ""))
+
+
+def managed_taxonomy_membership_equal(expected, observed):
+    """Compare category/tag membership by unique verified numeric IDs.
+
+    Woo does not guarantee category or tag response ordering.  Duplicates or
+    malformed identity rows remain unequal rather than being silently hidden.
+    """
+
+    if not isinstance(expected, list) or not isinstance(observed, list):
+        return expected == observed
+
+    def identities(rows):
+        values = []
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("id"), int) or row["id"] <= 0:
+                return None
+            values.append(row["id"])
+        return values if len(values) == len(set(values)) else None
+
+    left, right = identities(expected), identities(observed)
+    return left is not None and right is not None and set(left) == set(right)
+
+
 @dataclass
 class _Node:
     tag: str

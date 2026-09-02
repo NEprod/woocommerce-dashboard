@@ -41,7 +41,8 @@ from app.woo_publish_preview import (
     store_identity,
 )
 from app.woo_managed_comparison import (
-    managed_parent_attributes_equal,
+    managed_parent_attributes_equal, managed_taxonomy_membership_equal,
+    managed_title_equal,
     managed_rich_text_equal,
 )
 from app.woo_payload_contract import WooDimensionContractError, assert_woo_dimension_payload
@@ -734,6 +735,10 @@ def _verification_differences(payload, remote, *, default_category_id=None):
         if not (
             managed_rich_text_equal(expected.get(key), observed.get(key))
             if key in {"description", "short_description"}
+            else managed_title_equal(expected.get(key), observed.get(key))
+            if key == "name"
+            else managed_taxonomy_membership_equal(expected.get(key), observed.get(key))
+            if key in {"categories", "tags"}
             else managed_parent_attributes_equal(expected.get(key), observed.get(key))
             if key == "attributes" and expected.get("type") == "variable"
             else json.dumps(expected.get(key), sort_keys=True, default=str) == json.dumps(observed.get(key), sort_keys=True, default=str)

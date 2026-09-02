@@ -15,6 +15,7 @@ from flask import (
     jsonify,
     Response,
     current_app,
+    session,
     send_file,
     abort,
 )
@@ -131,8 +132,9 @@ from app.woocommerce_connection import (
     execute_connection_test,
 )
 from app.woo_publish_preview import (
-    PreviewError, cached_plan, generate_publish_plan, operation_summary as woo_preview_operation_summary,
-    plan_is_stale, preview_landing, scope_estimate,
+    LinkCandidateError, PreviewError, cached_plan, generate_publish_plan,
+    link_candidate_identity, operation_summary as woo_preview_operation_summary,
+    plan_is_stale, prepare_link_candidate_review, preview_landing, scope_estimate,
 )
 from app.woo_controlled_publish import (
     ControlledPublishError,
@@ -2475,6 +2477,7 @@ def woocommerce_preview_operation(operation_id):
     if action_filter not in valid_actions:
         action_filter = ""
     displayed_products = [item for item in plan["products"] if not action_filter or item["action"] == action_filter] if plan else []
+    linked_success = session.pop("woo_link_success_operation", None) == operation.id
     return render_template(
         "woocommerce_preview_operation.html",
         operation=operation,
@@ -2483,6 +2486,7 @@ def woocommerce_preview_operation(operation_id):
         displayed_products=displayed_products,
         action_filter=action_filter,
         stale=plan_is_stale(plan) if plan else None,
+        linked_success=linked_success,
     )
 
 
@@ -2496,6 +2500,43 @@ def woocommerce_preview_product(product_id):
     product_plan = next((item for item in plan["products"] if item["product_id"] == product_id), None)
     if not product_plan: raise NotFound("Product is not part of this preview.")
     return render_template("woocommerce_preview_product.html", operation=operation, plan=plan, product_plan=product_plan, stale=plan_is_stale(plan))
+
+
+@main.route("/woocommerce/preview/link/<int:product_id>")
+@login_required
+def woocommerce_link_candidate_review(product_id):
+    operation_id = (request.args.get("operation_id") or "")[:32]
+    preview_digest = (request.args.get("preview_digest") or "")[:128]
+    try:
+        review = prepare_link_candidate_review(operation_id, preview_digest, product_id)
+    except LinkCandidateError as error:
+        flash(str(error), "danger")
+        return redirect(url_for("main.woocommerce_preview_operation", operation_id=operation_id))
+    return render_template("woocommerce_link_candidate_review.html", review=review)
+
+
+@main.route("/woocommerce/preview/link/<int:product_id>", methods=["POST"])
+@login_required
+def woocommerce_link_candidate_confirm(product_id):
+    operation_id = (request.form.get("preview_operation_id") or "")[:32]
+    try:
+        if request.form.get("acknowledge_identity") != "yes":
+            raise LinkCandidateError("Explicit identity acknowledgement is required before linking.", category="acknowledgement_required")
+        link_candidate_identity(
+            operation_id,
+            request.form.get("preview_digest"),
+            product_id,
+            request.form.get("candidate_woo_id"),
+        )
+    except (LinkCandidateError, WooConnectionError, TypeError, ValueError) as error:
+        flash(str(error), "danger")
+        return redirect(url_for(
+            "main.woocommerce_link_candidate_review", product_id=product_id,
+            operation_id=operation_id,
+            preview_digest=(request.form.get("preview_digest") or "")[:128],
+        ))
+    session["woo_link_success_operation"] = operation_id
+    return redirect(url_for("main.woocommerce_preview_operation", operation_id=operation_id))
 
 
 @main.route("/api/woocommerce/preview/products/<int:product_id>")
