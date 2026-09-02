@@ -23,6 +23,15 @@ and variations in dependency order. Each write is followed by a GET that checks
 the reviewed managed fields. Store-scoped Woo IDs and digests are persisted only
 after verification; an exact-SKU conflict is never silently linked.
 
+Taxonomy resolution is resolve-before-create and resume-safe. Categories, tags,
+global attributes, and attribute-scoped terms reuse one exact compatible remote
+identity; a conflicting or ambiguous authored slug blocks publication. Woo's
+`pa_` prefix on global attribute slugs is treated as a representation detail,
+not a different authored identity. A successful create response supplies the
+first candidate ID, followed by bounded direct verification and collection
+reconciliation. If existence remains uncertain, the retained remote object is
+reported as recovery-required and is never blindly recreated on Safe Resume.
+
 Pass 2 resolves the ordered authored cross-sell and upsell target SKUs to
 verified IDs for the same store. It applies and verifies those ID lists without
 changing relationship JSON. A target without a safe verified ID remains a
@@ -43,15 +52,25 @@ When permitted, the configured Woo default product category is read from the
 bounded `wc/v3/settings/products` response. If local categories are intentionally
 empty and Woo returns only that verified default ID, comparison treats the two
 states as semantically equal without altering authored JSON. Explicit local
-categories continue to require exact resolved Woo category IDs.
+categories continue to require exact resolved Woo category IDs. Where that
+setting is not exposed, one authenticated, bounded Store API product read may
+identify the single default category Woo deliberately omits from the public
+category list. Any ambiguity remains a visible managed difference.
+
+Product reads use edit context where Woo supplies raw managed rich text. The
+authored shortcode source remains the write payload and catalogue truth. If a
+store returns rendered content only, comparison recognizes only the supported
+`cg_accordion` wrapper and compares ordered titles and structured inner content;
+changed words, order, links, or list content remain real differences. No
+shortcode is executed and rendered HTML is never written back locally.
 
 Woo product and variation dimensions use one shared payload contract. Authored
 catalogue values remain unchanged, while preview generation canonicalizes
 `length`, `width`, and `height` as plain decimal JSON strings (using an empty
 string for an absent dimension). The same normalization is applied to managed
 remote comparison, preventing numeric/string representation alone from causing
-an update. Builder version `phase3-m4-media-reuse-v3` makes earlier URL-based
-previews stale. The publisher rejects numeric or non-canonical dimensions and
+an update. Builder version `phase3-m4-taxonomy-reconcile-v1` makes earlier
+comparison plans stale. The publisher rejects numeric or non-canonical dimensions and
 any image `src` before issuing a write request.
 
 ## Failures and recovery
@@ -69,6 +88,11 @@ Operation history retains digests, counts, stages, verified IDs, safe action
 labels, pending relationship summaries and sanitized failures. It never retains
 complete payloads, raw responses, credentials, headers, cookies or full route
 schemas. Discord receives one bounded terminal summary and is non-fatal.
+
+Stage messages are driven by actual verified/skipped counters. Every selected
+parent receives a bounded operation item before taxonomy work, so a dependency
+failure remains visible without claiming that parents, variations, media, or
+relationships were verified.
 
 Operation Detail uses a server-normalized publish result for queued, running,
 terminal, recovery and older historical records. Empty in-progress summaries

@@ -16,7 +16,8 @@ from app.models import (
 )
 from app.woo_publish_preview import (
     BUILDER_VERSION, PreviewError, PreviewWooReader, WordPressMediaResolver, _comparison,
-    _product_payload, _variation_payload, cached_plan, generate_publish_plan,
+    _product_payload, _variation_payload, cached_plan, canonical_taxonomy_slug,
+    generate_publish_plan,
     plan_is_stale, reset_preview_cache_for_tests, scope_estimate, store_identity,
 )
 from app.woo_payload_contract import (
@@ -27,6 +28,7 @@ from app.woo_payload_contract import (
 )
 from app.woo_controlled_publish import (
     ControlledPublishError, _assert_no_image_import_payload, _verification_differences,
+    _resolve_one_taxonomy,
     MAX_PUBLISH_PRODUCTS,
     PublishGateway,
     execute_publish_operation,
@@ -34,6 +36,7 @@ from app.woo_controlled_publish import (
     resume_confirmation,
     start_publish_operation,
 )
+from app.woo_managed_comparison import managed_rich_text_equal
 from app.utils.operation_control import reset_operation_control_for_tests
 from app.woocommerce_connection import PublisherWooClient, WooConfiguration, WooConnectionError
 from config import Config
@@ -384,7 +387,7 @@ def test_legacy_numeric_dimension_preview_is_stale(preview_app, monkeypatch):
         preview["summary"]["builder_version"] = "phase3-m3-v1"
         preview["products"][0]["payload"]["dimensions"]["length"] = 148
         preview["digest"] = "legacy-numeric-dimension-preview"
-        assert BUILDER_VERSION == "phase3-m4-media-reuse-v3"
+        assert BUILDER_VERSION == "phase3-m4-taxonomy-reconcile-v1"
         with pytest.raises(ControlledPublishError, match="stale"):
             prepare_publish_confirmation(
                 preview["operation_id"], preview["digest"], [1], client=publisher
@@ -1042,3 +1045,295 @@ def test_publish_write_failures_have_stage_aware_retry_classification(status, ca
     assert diagnostic["object_type"] == "variation" and diagnostic["sku"] == "SAFE-VAR-1"
     assert diagnostic["retry_state"] == retry_state and diagnostic["uncertain"] is uncertain
     assert gateway.write_count == 1
+
+
+def test_global_attribute_pa_prefix_is_the_same_authored_identity(preview_app, monkeypatch):
+    from app.models import ProductAttribute
+
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    taxonomy = _taxonomy()
+    taxonomy["attributes"] = [{
+        "id": 77, "name": "Angel Wings", "slug": "pa_angel-wings",
+        "type": "select", "order_by": "menu_order", "has_archives": False,
+    }]
+    with preview_app.app_context():
+        db.session.add(ProductAttribute(
+            product_id=2, name="Angel Wings", values='["Gold"]',
+            visible=True, is_global=True, position=0,
+        ))
+        db.session.commit()
+        plan = generate_publish_plan(
+            {"kind": "product", "product_id": 2}, client=FakeWooClient(taxonomy=taxonomy)
+        )
+        attribute = plan["taxonomy"]["attributes"][0]
+        assert attribute["state"] == "existing" and attribute["woo_id"] == 77
+        assert canonical_taxonomy_slug("pa_angel-wings", "attributes") == "angel-wings"
+
+
+def test_attribute_create_read_uncertainty_reconciles_and_resume_never_posts_twice():
+    class DelayedAttributePublisher(FakePublisherClient):
+        def __init__(self):
+            super().__init__(taxonomy={"categories": [], "tags": [], "attributes": []})
+            self.delayed_reads = 2
+
+        def request_json(self, method, url, **kwargs):
+            path = urlsplit(url).path
+            if method.upper() == "POST" and path.endswith("/products/attributes"):
+                response, headers = super().request_json(method, url, **kwargs)
+                response["slug"] = f"pa_{response['slug']}"
+                return response, headers
+            if (
+                method.upper() == "GET" and "/products/attributes/" in path
+                and path.rsplit("/", 1)[-1].isdigit() and self.delayed_reads
+            ):
+                self.delayed_reads -= 1
+                self.request_count += 1
+                raise WooConnectionError("not_found", "Not visible yet", status_code=404)
+            return super().request_json(method, url, **kwargs)
+
+    publisher = DelayedAttributePublisher()
+    gateway = PublishGateway(publisher, "wc/v3")
+    item = {"name": "Angel Wings", "slug": "angel-wings", "state": "create_required", "woo_id": None}
+    remote_id, action = _resolve_one_taxonomy(
+        gateway, "products/attributes", item, label="attribute"
+    )
+    assert action == "created" and remote_id > 0
+    assert publisher.taxonomy["attributes"][0]["slug"] == "pa_angel-wings"
+
+    resumed_id, resumed_action = _resolve_one_taxonomy(
+        gateway, "products/attributes", item, label="attribute"
+    )
+    assert resumed_id == remote_id and resumed_action == "reused"
+    assert sum(method == "POST" and path.endswith("/products/attributes") for method, path, _ in publisher.writes) == 1
+
+
+@pytest.mark.parametrize(
+    "route,label,taxonomy_key,item",
+    [
+        ("products/categories", "category", "categories", {"name": "Cards", "slug": "cards"}),
+        ("products/tags", "tag", "tags", {"name": "Birthday", "slug": "birthday"}),
+        ("products/attributes/77/terms", "attribute term", "terms:77", {"name": "Afghan Hound", "slug": "afghan-hound"}),
+    ],
+)
+def test_exact_taxonomy_objects_are_resolved_before_create(route, label, taxonomy_key, item):
+    row = {"id": 91, **item}
+    publisher = FakePublisherClient(taxonomy={"categories": [], "tags": [], "attributes": [], taxonomy_key: [row]})
+    remote_id, action = _resolve_one_taxonomy(
+        PublishGateway(publisher, "wc/v3"), route,
+        {**item, "state": "existing", "woo_id": None}, label=label,
+    )
+    assert remote_id == 91 and action == "reused"
+    assert not publisher.writes
+
+
+@pytest.mark.parametrize(
+    "route,label,taxonomy_key,item",
+    [
+        ("products/categories", "category", "categories", {"name": "Cards", "slug": "cards"}),
+        ("products/tags", "tag", "tags", {"name": "Birthday", "slug": "birthday"}),
+        ("products/attributes/77/terms", "attribute term", "terms:77", {"name": "Gold", "slug": "gold"}),
+    ],
+)
+def test_retained_taxonomy_create_is_reconciled_without_second_post(
+    route, label, taxonomy_key, item
+):
+    class RetainedCreatePublisher(FakePublisherClient):
+        def __init__(self):
+            super().__init__(taxonomy={"categories": [], "tags": [], "attributes": [], taxonomy_key: []})
+            self.lose_response_once = True
+
+        def request_json(self, method, url, **kwargs):
+            response = super().request_json(method, url, **kwargs)
+            if method.upper() == "POST" and urlsplit(url).path.endswith(f"/{route}") and self.lose_response_once:
+                self.lose_response_once = False
+                raise WooConnectionError("read_timeout", "Create response was not observed")
+            return response
+
+    publisher = RetainedCreatePublisher()
+    remote_id, action = _resolve_one_taxonomy(
+        PublishGateway(publisher, "wc/v3"), route,
+        {**item, "state": "create_required", "woo_id": None}, label=label,
+    )
+    assert remote_id > 0 and action == "reused"
+    resumed_id, resumed_action = _resolve_one_taxonomy(
+        PublishGateway(publisher, "wc/v3"), route,
+        {**item, "state": "create_required", "woo_id": None}, label=label,
+    )
+    assert resumed_id == remote_id and resumed_action == "reused"
+    assert sum(method == "POST" for method, _path, _body in publisher.writes) == 1
+
+
+def test_attribute_term_identity_is_scoped_to_its_parent_attribute():
+    publisher = FakePublisherClient(taxonomy={
+        "categories": [], "tags": [], "attributes": [],
+        "terms:77": [{"id": 91, "name": "Gold", "slug": "gold"}],
+        "terms:78": [],
+    })
+    remote_id, action = _resolve_one_taxonomy(
+        PublishGateway(publisher, "wc/v3"), "products/attributes/78/terms",
+        {"name": "Gold", "slug": "gold", "state": "create_required", "woo_id": None},
+        label="attribute term",
+    )
+    assert remote_id != 91 and action == "created"
+    assert publisher.writes[0][1].endswith("/products/attributes/78/terms")
+
+
+def test_incompatible_attribute_slug_collision_blocks_without_create():
+    publisher = FakePublisherClient(taxonomy={
+        "categories": [], "tags": [],
+        "attributes": [{
+            "id": 77, "name": "Different Name", "slug": "pa_angel-wings",
+            "type": "select", "order_by": "menu_order", "has_archives": False,
+        }],
+    })
+    with pytest.raises(ControlledPublishError, match="conflicts") as caught:
+        _resolve_one_taxonomy(
+            PublishGateway(publisher, "wc/v3"), "products/attributes",
+            {"name": "Angel Wings", "slug": "angel-wings", "state": "create_required", "woo_id": None},
+            label="attribute",
+        )
+    assert caught.value.recovery_required and not publisher.writes
+
+
+def test_default_category_falls_back_to_store_api_semantics_and_known_identity(preview_app, monkeypatch):
+    class StoreCategoryClient(FakeWooClient):
+        def request_json(self, method, url, **kwargs):
+            if "/wc/store/v1/products/" in urlsplit(url).path:
+                self.methods.append(method); self.request_count += 1
+                return {"id": int(urlsplit(url).path.rsplit("/", 1)[-1]), "categories": []}, object()
+            return super().request_json(method, url, **kwargs)
+
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    with preview_app.app_context():
+        product = db.session.get(Product, 2)
+        product.categories.clear()
+        db.session.commit()
+        seed = generate_publish_plan(
+            {"kind": "product", "product_id": 2}, client=StoreCategoryClient(taxonomy=_taxonomy())
+        )["products"][0]
+        remote = {"id": 202, **seed["payload"], "categories": [{"id": 37}]}
+        store = store_identity()
+        db.session.add(WooProductIdentity(
+            product_id=2, stable_identity="Existing", sku="EXIST-1", store_key=store["key"],
+            store_host=store["host"], woo_product_id=202,
+        ))
+        db.session.commit()
+        plan = generate_publish_plan(
+            {"kind": "product", "product_id": 2},
+            client=StoreCategoryClient(by_id={202: remote}, taxonomy=_taxonomy()),
+        )
+        assert plan["summary"]["woo_default_category_id"] == 37
+        assert plan["products"][0]["action"] == "no_change"
+        assert not any(row["field"] == "categories" for row in plan["products"][0]["differences"])
+        assert _verification_differences(seed["payload"], remote, default_category_id=37) == []
+
+
+def test_default_category_uses_direct_setting_when_collection_omits_it():
+    class DirectSettingClient(FakeWooClient):
+        def request_json(self, method, url, **kwargs):
+            if urlsplit(url).path.endswith("/settings/products/woocommerce_default_category"):
+                self.methods.append(method); self.request_count += 1
+                return {"id": "woocommerce_default_category", "value": "37"}, object()
+            return super().request_json(method, url, **kwargs)
+
+    reader = PreviewWooReader(DirectSettingClient(taxonomy=_taxonomy()), "wc/v3")
+    assert reader.default_product_category_id() is None
+    assert reader.infer_default_product_category_id({"id": 303, "categories": [{"id": 37}]}) == 37
+
+
+def test_default_category_semantics_apply_to_exact_sku_link_candidate(preview_app, monkeypatch):
+    class StoreCategoryClient(FakeWooClient):
+        def request_json(self, method, url, **kwargs):
+            if "/wc/store/v1/products/" in urlsplit(url).path:
+                self.methods.append(method); self.request_count += 1
+                return {"id": 303, "categories": []}, object()
+            return super().request_json(method, url, **kwargs)
+
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    with preview_app.app_context():
+        product = db.session.get(Product, 3)
+        product.categories.clear()
+        db.session.commit()
+        seed = generate_publish_plan(
+            {"kind": "product", "product_id": 3}, client=StoreCategoryClient(taxonomy=_taxonomy())
+        )["products"][0]
+        remote = {"id": 303, **seed["payload"], "categories": [{"id": 37}]}
+        plan = generate_publish_plan(
+            {"kind": "product", "product_id": 3},
+            client=StoreCategoryClient(by_sku={"LINK-1": [remote]}, taxonomy=_taxonomy()),
+        )
+        row = plan["products"][0]
+        assert row["action"] == "link_candidate"
+        assert plan["summary"]["woo_default_category_id"] == 37
+        assert not any(difference["field"] == "categories" for difference in row["differences"])
+
+
+def test_default_category_semantics_remain_strict_for_explicit_and_extra_categories():
+    assert _comparison(
+        {"categories": []}, {"categories": [{"id": 37}, {"id": 38}]}, default_category_id=37
+    )[1]
+    assert _comparison(
+        {"categories": [{"id": 106}]}, {"categories": [{"id": 37}]}, default_category_id=37
+    )[1]
+    assert _verification_differences(
+        {"categories": []}, {"categories": [{"id": 37}]}, default_category_id=37
+    ) == []
+
+
+def test_shortcode_source_matches_known_rendered_accordion_but_not_changed_content():
+    local = """
+    [cg_accordion title='Core Features']
+    <ul><li><strong>Material:</strong> 260gsm card &amp; envelope</li></ul>
+    [/cg_accordion]
+    [cg_accordion title='Delivery & Returns']<p>It’s sent safely.</p>[/cg_accordion]
+    """
+    rendered = """
+    <details><summary>Core Features</summary><div class="cg-accordion-item">
+      <p><ul><li><strong>Material:</strong> 260gsm card &amp; envelope</li></ul></p>
+    </div></details>
+    <details><summary>Delivery &amp; Returns</summary><div class="cg-accordion-item">
+      <p>It&#8217;s sent safely.</p>
+    </div></details>
+    """
+    assert managed_rich_text_equal(local, rendered)
+    assert not managed_rich_text_equal(local, rendered.replace("260gsm", "300gsm"))
+    assert _comparison({"short_description": local}, {"short_description": rendered})[1] == []
+    assert _verification_differences({"short_description": local}, {"short_description": rendered}) == []
+
+
+def test_raw_remote_rich_text_is_preferred_to_rendered_value():
+    local = "[cg_accordion title='Details']Exact authored source[/cg_accordion]"
+    remote = {"short_description": {"raw": local, "rendered": "<details>changed</details>"}}
+    assert _comparison({"short_description": local}, remote)[1] == []
+
+
+def test_taxonomy_failure_records_item_and_truthful_skipped_stage_logs(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    monkeypatch.setattr("app.woo_controlled_publish.notify_woo_publish_completed", lambda *a, **k: (True, "sent"))
+    captured_logs = []
+    monkeypatch.setattr(
+        "app.woo_controlled_publish.persist_live_state",
+        lambda _operation_id, _state, logs: captured_logs.extend(logs[len(captured_logs):]),
+    )
+    publisher = FakePublisherClient()
+    with preview_app.app_context():
+        ProductRelationship.query.filter_by(source_product_id=1).delete()
+        db.session.commit()
+        preview = generate_publish_plan({"kind": "product", "product_id": 1}, client=publisher)
+        confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], [1], client=publisher)
+        publisher.taxonomy["categories"] = [
+            {"id": 71, "name": "Cards", "slug": "cards"},
+            {"id": 72, "name": "Cards duplicate", "slug": "cards"},
+        ]
+        operation_id = start_publish_operation(confirmation, client=publisher, run_async=False)
+        operation = db.session.get(CatalogueOperation, operation_id)
+        summary = json.loads(operation.scope)["operation_summary"]
+        item = CatalogueOperationItem.query.filter_by(operation_id=operation_id, sku="CREATE-1").one()
+        assert item.database_state == "taxonomy_failed" and item.status == "failed"
+        assert summary["verified_products"] == 0 and not publisher.products
+        assert summary["counts"]["parents_verified"] == 0
+        combined = "\n".join(row["line"] for row in captured_logs)
+        assert "0 verified, 1 skipped" in combined
+        assert "Variation publishing complete: 0 verified" in combined
+        assert "Pass 2 relationship writes skipped" in combined
+        assert "Verified parent identities were committed" not in combined

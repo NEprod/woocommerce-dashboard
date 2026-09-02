@@ -356,6 +356,7 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
                     "parent_verified": "Parent remotely verified",
                     "verified": "Remote state verified",
                     "identity_not_persisted": "No verified remote identity persisted",
+                    "taxonomy_failed": "Required taxonomy unresolved",
                     "remote_publish_failed": "WooCommerce request failed",
                     "remote_reconciliation_required": "Remote reconciliation required",
                 }.get(item.database_state, str(item.database_state or "unknown").replace("_", " ").title())

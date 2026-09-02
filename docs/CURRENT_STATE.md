@@ -455,7 +455,7 @@ confirmed non-uncertain rejection. Older generic failures remain readable; raw
 response bodies, payloads, credentials, headers and full URLs are never stored.
 
 Woo parent and variation dimension payloads now use builder contract
-`phase3-m4-media-reuse-v3`. Numeric catalogue projection values are serialized as
+`phase3-m4-taxonomy-reconcile-v1`. Numeric catalogue projection values are serialized as
 canonical decimal strings in Publish Preview and the exact controlled write;
 remote dimensions use the same normalization for managed-field comparison. A
 pre-write guard refuses numeric or non-canonical dimension values locally, and
@@ -473,3 +473,14 @@ upload, deletion, binary persistence, authored media ID, migration, or dependenc
 was added. When readable through Woo settings, the store's configured default
 product category is used only to normalize intentionally empty local categories;
 explicit authored categories remain exact-ID managed state.
+
+Taxonomy publishing now reconciles categories, tags, global attributes, and
+attribute-scoped terms before every create or resume. Global `pa_` attribute
+slugs normalize to the authored identity, successful create IDs are retained
+through bounded direct/read-list verification, and uncertain retained writes
+cannot trigger duplicate POSTs. Product reads prefer raw edit-context content;
+a narrow structural `cg_accordion` comparison avoids false drift when Woo only
+returns rendered HTML. Default-category equivalence is shared by known-ID,
+exact-SKU, post-write, and recovery paths, with a bounded Store API inference
+only when Woo settings omit the configured ID. Operation items and stage logs
+now report selected taxonomy failures and zero-work skips accurately.

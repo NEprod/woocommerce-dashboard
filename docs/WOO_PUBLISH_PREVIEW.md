@@ -60,8 +60,11 @@ include existing projected combinations, SKUs, attributes, commercial fields,
 and variation-owned images. Unsupported fields and Woo-generated timestamps,
 permalinks, and metadata are excluded from comparisons.
 
-Taxonomy uses exact normalized slugs and reports existing, create-required, or
-ambiguous dependencies. Images retain parent/variation ownership and order and
+Taxonomy uses exact normalized authored identities, including Woo's semantic
+`pa_` prefix for global attributes, and reports existing, create-required, or
+ambiguous dependencies. Rich-text reads prefer authenticated raw/edit values;
+the supported `cg_accordion` rendered form has a conservative structural
+fallback solely for managed-field comparison. Images retain parent/variation ownership and order and
 use stored final website URLs; no output path, binary, conversion, upload, or UI
 fallback becomes payload identity. Ordered local relationship target SKUs are
 translated only when a verified current-store Woo ID already exists. Targets

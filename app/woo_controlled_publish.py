@@ -35,11 +35,12 @@ from app.utils.operation_live import persist_live_state
 from app.utils.redaction import redact_diagnostic
 from app.woo_publish_preview import (
     WordPressMediaResolver, _digest,
-    _normalise_remote,
+    _normalise_remote, canonical_taxonomy_slug, taxonomy_row_compatible,
     cached_plan,
     regenerate_publish_plan,
     store_identity,
 )
+from app.woo_managed_comparison import managed_rich_text_equal
 from app.woo_payload_contract import WooDimensionContractError, assert_woo_dimension_payload
 from app.woocommerce_connection import (
     PublisherWooClient,
@@ -67,6 +68,8 @@ UNCERTAIN_CATEGORIES = {
     "write_redirect_refused",
     "server_error",
 }
+MAX_TAXONOMY_CANDIDATES = 500
+MAX_TAXONOMY_PAGES = 5
 STAGES = (
     "revalidating_preview",
     "acquiring_publication_lock",
@@ -86,10 +89,11 @@ STAGES = (
 
 
 class ControlledPublishError(ValueError):
-    def __init__(self, message, *, category="validation", recovery_required=False):
+    def __init__(self, message, *, category="validation", recovery_required=False, remote_candidate_id=None):
         super().__init__(message)
         self.category = str(category)[:64]
         self.recovery_required = bool(recovery_required)
+        self.remote_candidate_id = remote_candidate_id if isinstance(remote_candidate_id, int) else None
 
 
 def _safe_ids(values):
@@ -449,7 +453,7 @@ def _record_publish_error(progress, error, *, result=None, item=None):
         progress.summary["diagnostics_truncated"] += 1
     if result is not None:
         result["diagnostic"] = diagnostic
-    if item is not None:
+    if item is not None and item.database_state != "taxonomy_failed":
         item.database_state = "remote_publish_failed" if not diagnostic["uncertain"] else "remote_reconciliation_required"
     status = f"HTTP {diagnostic['http_status']}" if diagnostic.get("http_status") else diagnostic["category"].replace("_", " ")
     progress.logs.append({
@@ -470,40 +474,133 @@ def _verified_id(row, label):
     return remote_id
 
 
+def _taxonomy_kind(route):
+    if "/terms" in route:
+        return "terms"
+    return str(route).rstrip("/").rsplit("/", 1)[-1]
+
+
+def _taxonomy_rows(gateway, route, item, kind):
+    params = {"per_page": 100}
+    if kind != "attributes":
+        params["slug"] = item["slug"]
+        rows = gateway.get(route, params) or []
+        return rows if isinstance(rows, list) else []
+
+    rows, seen_pages = [], set()
+    for page in range(1, MAX_TAXONOMY_PAGES + 1):
+        batch = gateway.get(route, {**params, "page": page}) or []
+        if not isinstance(batch, list):
+            return []
+        signature = tuple(
+            (row.get("id"), row.get("slug"), row.get("name"))
+            for row in batch if isinstance(row, dict)
+        )
+        if signature in seen_pages:
+            break
+        seen_pages.add(signature)
+        rows.extend(batch)
+        if len(batch) < 100:
+            break
+    if len(rows) >= MAX_TAXONOMY_CANDIDATES:
+        raise ControlledPublishError(
+            "WooCommerce returned too many taxonomy candidates for bounded exact reconciliation.",
+            category="taxonomy_reconciliation_required",
+            recovery_required=True,
+        )
+    return rows
+
+
+def _taxonomy_candidates(gateway, route, item, kind):
+    authored = canonical_taxonomy_slug(item["slug"], kind)
+    return [
+        row for row in _taxonomy_rows(gateway, route, item, kind)
+        if isinstance(row, dict)
+        and canonical_taxonomy_slug(row.get("slug") or row.get("name"), kind) == authored
+    ]
+
+
+def _compatible_candidate(candidates, item, kind, label):
+    matches = [row for row in candidates if taxonomy_row_compatible(row, item, kind)]
+    if len(candidates) > 1 or len(matches) > 1:
+        raise ControlledPublishError(f"{label} {item['name']} has ambiguous exact Woo matches.")
+    if candidates and not matches:
+        raise ControlledPublishError(
+            f"{label} {item['name']} conflicts with an existing Woo object using the authored slug.",
+            category="taxonomy_conflict",
+            recovery_required=True,
+        )
+    return matches[0] if matches else None
+
+
+def _taxonomy_create_payload(item, kind):
+    if kind == "attributes":
+        return {
+            # Preserve the existing authored write contract. Woo adds the
+            # semantic ``pa_`` prefix to global attribute slugs on read.
+            "name": item["name"], "slug": item["slug"],
+            "type": "select", "order_by": "menu_order", "has_archives": False,
+        }
+    return {"name": item["name"], "slug": item["slug"]}
+
+
 def _resolve_one_taxonomy(gateway, route, item, *, label):
-    slug = item["slug"]
+    kind = _taxonomy_kind(route)
     if item.get("state") == "ambiguous":
         raise ControlledPublishError(f"{label} {item['name']} has ambiguous exact Woo matches.")
     remote_id = item.get("woo_id")
     if remote_id:
-        observed = gateway.get(f"{route}/{int(remote_id)}")
-        if not _exact([observed], key="slug", value=slug):
-            raise ControlledPublishError(f"Stored {label} identity no longer matches {item['name']}.", recovery_required=True)
-        return int(remote_id), "reused"
-    matches = _exact(gateway.get(route, {"slug": slug, "per_page": 10}) or [], key="slug", value=slug)
-    if len(matches) > 1:
-        raise ControlledPublishError(f"{label} {item['name']} has ambiguous exact Woo matches.")
-    if matches:
-        remote_id = _verified_id(matches[0], label)
-        return remote_id, "reused"
+        candidate = _compatible_candidate(_taxonomy_candidates(gateway, route, item, kind), item, kind, label)
+        if candidate and _verified_id(candidate, label) == int(remote_id):
+            try:
+                observed = gateway.get(f"{route}/{int(remote_id)}")
+            except WooConnectionError:
+                observed = candidate
+            if taxonomy_row_compatible(observed, item, kind):
+                return int(remote_id), "reused"
+        raise ControlledPublishError(
+            f"Stored {label} identity no longer matches {item['name']}.",
+            category="taxonomy_conflict", recovery_required=True,
+            remote_candidate_id=int(remote_id),
+        )
+    candidate = _compatible_candidate(_taxonomy_candidates(gateway, route, item, kind), item, kind, label)
+    if candidate:
+        return _verified_id(candidate, label), "reused"
     try:
-        created = gateway.write("POST", route, {"name": item["name"], "slug": slug})
+        created = gateway.write("POST", route, _taxonomy_create_payload(item, kind))
     except WooConnectionError as error:
-        if error.category not in UNCERTAIN_CATEGORIES:
-            raise
-        matches = _exact(gateway.get(route, {"slug": slug, "per_page": 10}) or [], key="slug", value=slug)
-        if len(matches) != 1:
+        candidate = _compatible_candidate(_taxonomy_candidates(gateway, route, item, kind), item, kind, label)
+        if candidate:
+            return _verified_id(candidate, label), "reused"
+        if error.category in UNCERTAIN_CATEGORIES:
             raise ControlledPublishError(
                 f"The {label} create response was uncertain and exact reconciliation was inconclusive.",
                 category="uncertain_response",
                 recovery_required=True,
             ) from error
-        created = matches[0]
+        raise
     remote_id = _verified_id(created, label)
-    observed = gateway.get(f"{route}/{remote_id}")
-    if not _exact([observed], key="slug", value=slug):
-        raise ControlledPublishError(f"Created {label} could not be verified.", recovery_required=True)
-    return remote_id, "created"
+    for _attempt in range(2):
+        try:
+            observed = gateway.get(f"{route}/{remote_id}")
+        except WooConnectionError:
+            observed = None
+        if observed is not None:
+            if taxonomy_row_compatible(observed, item, kind):
+                return remote_id, "created"
+            raise ControlledPublishError(
+                f"Created {label} conflicts with the reviewed managed identity.",
+                category="taxonomy_conflict", recovery_required=True,
+                remote_candidate_id=remote_id,
+            )
+    candidate = _compatible_candidate(_taxonomy_candidates(gateway, route, item, kind), item, kind, label)
+    if candidate and _verified_id(candidate, label) == remote_id:
+        return remote_id, "created"
+    raise ControlledPublishError(
+        f"Created {label} could not be verified; the retained remote identity requires reconciliation.",
+        category="taxonomy_reconciliation_required", recovery_required=True,
+        remote_candidate_id=remote_id,
+    )
 
 
 def _resolve_taxonomy(gateway, confirmation):
@@ -645,7 +742,14 @@ def _verification_differences(payload, remote, *, default_category_id=None):
             remote_attribute = remote_candidates[0]
             normalised.append({key: remote_attribute.get(key) for key in local})
         observed["attributes"] = normalised
-    return [key for key in payload if json.dumps(expected.get(key), sort_keys=True, default=str) != json.dumps(observed.get(key), sort_keys=True, default=str)]
+    return [
+        key for key in payload
+        if not (
+            managed_rich_text_equal(expected.get(key), observed.get(key))
+            if key in {"description", "short_description"}
+            else json.dumps(expected.get(key), sort_keys=True, default=str) == json.dumps(observed.get(key), sort_keys=True, default=str)
+        )
+    ]
 
 
 def _product_matches(remote, plan, payload):
@@ -692,12 +796,12 @@ def _publish_parent(gateway, plan, payload, store, operation_id):
         remote_id = plan.get("woo_id")
         if not remote_id:
             raise ControlledPublishError("No-change product has no verified Woo identity.", recovery_required=True)
-        remote = gateway.get(f"products/{int(remote_id)}")
+        remote = gateway.get(f"products/{int(remote_id)}", {"context": "edit"})
         if not _product_matches(remote, plan, payload):
             raise ControlledPublishError("The no-change product drifted after preview.", category="stale_preview")
         return _upsert_product_identity(plan, store, remote, payload, operation_id), remote, "no_change"
     if action == "create":
-        matches = _exact(gateway.get("products", {"sku": plan["sku"], "per_page": 10}) or [], key="sku", value=plan["sku"])
+        matches = _exact(gateway.get("products", {"sku": plan["sku"], "per_page": 10, "context": "edit"}) or [], key="sku", value=plan["sku"])
         if matches:
             raise ControlledPublishError("An exact remote SKU appeared after preview; create was refused.", category="identity_conflict", recovery_required=len(matches) != 1)
         try:
@@ -705,7 +809,7 @@ def _publish_parent(gateway, plan, payload, store, operation_id):
         except WooConnectionError as error:
             if error.category not in UNCERTAIN_CATEGORIES:
                 raise
-            matches = _exact(gateway.get("products", {"sku": plan["sku"], "per_page": 10}) or [], key="sku", value=plan["sku"])
+            matches = _exact(gateway.get("products", {"sku": plan["sku"], "per_page": 10, "context": "edit"}) or [], key="sku", value=plan["sku"])
             if len(matches) != 1:
                 raise ControlledPublishError("Product create response was uncertain and exact-SKU reconciliation was inconclusive.", category="uncertain_response", recovery_required=True) from error
             remote = matches[0]
@@ -713,7 +817,7 @@ def _publish_parent(gateway, plan, payload, store, operation_id):
         remote_id = plan.get("woo_id")
         if not remote_id:
             raise ControlledPublishError("A verified Woo identity is required for update.", recovery_required=True)
-        before = gateway.get(f"products/{int(remote_id)}")
+        before = gateway.get(f"products/{int(remote_id)}", {"context": "edit"})
         if before.get("sku") != plan["sku"] or before.get("type") != plan["woo_type"]:
             raise ControlledPublishError("The remote product identity conflicts with the reviewed plan.", recovery_required=True)
         try:
@@ -721,11 +825,11 @@ def _publish_parent(gateway, plan, payload, store, operation_id):
         except WooConnectionError as error:
             if error.category not in UNCERTAIN_CATEGORIES:
                 raise
-            remote = gateway.get(f"products/{int(remote_id)}")
+            remote = gateway.get(f"products/{int(remote_id)}", {"context": "edit"})
             if not _product_matches(remote, plan, payload):
                 raise ControlledPublishError("Product update response was uncertain and reconciliation did not verify the reviewed state.", category="uncertain_response", recovery_required=True) from error
     remote_id = _verified_id(remote, "product")
-    verified = gateway.get(f"products/{remote_id}")
+    verified = gateway.get(f"products/{remote_id}", {"context": "edit"})
     if not _product_matches(verified, plan, payload):
         raise ControlledPublishError("Woo product verification did not match the reviewed managed fields.", recovery_required=True)
     return _upsert_product_identity(plan, store, verified, payload, operation_id), verified, action
@@ -761,7 +865,7 @@ def _upsert_variation_identity(product_plan, variation_plan, store, parent_id, r
 def _remote_variations(gateway, parent_id):
     rows = []
     for page in range(1, 6):
-        batch = gateway.get(f"products/{parent_id}/variations", {"per_page": 100, "page": page}) or []
+        batch = gateway.get(f"products/{parent_id}/variations", {"per_page": 100, "page": page, "context": "edit"}) or []
         if not isinstance(batch, list):
             break
         rows.extend(batch[:100])
@@ -777,7 +881,7 @@ def _publish_variations(gateway, product_plan, parent_id, store):
         action = plan.get("action")
         remote = None
         if action == "no_change":
-            remote = gateway.get(f"products/{parent_id}/variations/{int(plan['woo_id'])}")
+            remote = gateway.get(f"products/{parent_id}/variations/{int(plan['woo_id'])}", {"context": "edit"})
         elif action in {"create", "pending_parent"}:
             matches = _exact(existing, key="sku", value=plan["sku"])
             if matches:
@@ -787,13 +891,13 @@ def _publish_variations(gateway, product_plan, parent_id, store):
             except WooConnectionError as error:
                 if error.category not in UNCERTAIN_CATEGORIES:
                     raise
-                matches = _exact(gateway.get(f"products/{parent_id}/variations", {"sku": plan["sku"], "per_page": 10}) or [], key="sku", value=plan["sku"])
+                matches = _exact(gateway.get(f"products/{parent_id}/variations", {"sku": plan["sku"], "per_page": 10, "context": "edit"}) or [], key="sku", value=plan["sku"])
                 if len(matches) != 1:
                     raise ControlledPublishError("Variation create response was uncertain and reconciliation was inconclusive.", recovery_required=True) from error
                 remote = matches[0]
         elif action == "update":
             remote_id = plan.get("woo_id")
-            before = gateway.get(f"products/{parent_id}/variations/{int(remote_id)}") if remote_id else None
+            before = gateway.get(f"products/{parent_id}/variations/{int(remote_id)}", {"context": "edit"}) if remote_id else None
             if not before or before.get("sku") != plan["sku"]:
                 raise ControlledPublishError("The remote variation identity conflicts with the reviewed plan.", recovery_required=True)
             try:
@@ -801,13 +905,13 @@ def _publish_variations(gateway, product_plan, parent_id, store):
             except WooConnectionError as error:
                 if error.category not in UNCERTAIN_CATEGORIES:
                     raise
-                remote = gateway.get(f"products/{parent_id}/variations/{int(remote_id)}")
+                remote = gateway.get(f"products/{parent_id}/variations/{int(remote_id)}", {"context": "edit"})
                 if not _variation_matches(remote, plan):
                     raise ControlledPublishError("Variation update response was uncertain and reconciliation failed.", recovery_required=True) from error
         else:
             raise ControlledPublishError(f"Variation {plan.get('sku')} is not eligible for controlled publishing.")
         remote_id = _verified_id(remote, "variation")
-        verified = gateway.get(f"products/{parent_id}/variations/{remote_id}")
+        verified = gateway.get(f"products/{parent_id}/variations/{remote_id}", {"context": "edit"})
         if not _variation_matches(verified, plan):
             raise ControlledPublishError(f"Variation {plan['sku']} did not match after verification.", recovery_required=True)
         _upsert_variation_identity(product_plan, plan, store, parent_id, verified)
@@ -871,7 +975,12 @@ class _Progress:
         self.confirmation = confirmation
         self.logs = []
         self.sequence = 1
-        self.counts = Counter()
+        self.counts = Counter({
+            "taxonomy_created": 0, "taxonomy_reused": 0,
+            "parents_verified": 0, "variations_verified": 0,
+            "images_verified": 0, "relationships_applied": 0,
+            "failures": 0,
+        })
         self.summary = {
             "preview_operation_id": confirmation["preview_operation_id"],
             "preview_digest": confirmation["preview_digest"],
@@ -921,13 +1030,23 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
         progress.update("acquiring_publication_lock", "The dedicated controlled-publication lock is active.")
         progress.update("rechecking_woo_connection", "Required WooCommerce reads remain verified.")
         gateway.set_stage("rechecking_woo_connection")
+        for plan in confirmation["products"]:
+            db.session.add(CatalogueOperationItem(
+                operation_id=operation_id, sku=plan["sku"], status="pending",
+                database_state="pending", marker_state="not_applicable",
+            ))
+        db.session.commit()
         progress.update("resolving_taxonomy", "Resolving exact taxonomy identities required by the selected products.")
         gateway.set_stage("resolving_taxonomy")
         taxonomy, taxonomy_counts, taxonomy_errors = _resolve_taxonomy(gateway, confirmation)
         progress.summary["taxonomy"] = {
             **dict(taxonomy_counts),
             "failures": [
-                {"resource": "/".join(key), "error": sanitize_operation_error(error)}
+                {
+                    "resource": "/".join(key),
+                    "error": sanitize_operation_error(error),
+                    "remote_candidate_id": getattr(error, "remote_candidate_id", None),
+                }
                 for key, error in list(taxonomy_errors.items())[:MAX_RESULT_ITEMS]
             ],
         }
@@ -935,9 +1054,9 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
         progress.update("publishing_parent_products", "Creating or updating reviewed parent products.")
         gateway.set_stage("publishing_parent_products")
         for plan in confirmation["products"]:
-            item = CatalogueOperationItem(operation_id=operation_id, sku=plan["sku"], status="pending", database_state="pending", marker_state="not_applicable")
-            db.session.add(item); db.session.commit()
+            item = CatalogueOperationItem.query.filter_by(operation_id=operation_id, sku=plan["sku"]).one()
             result = {"product_id": plan["product_id"], "sku": plan["sku"], "title": plan["title"], "action": plan["action"], "status": "pending", "variations": [], "relationships": {}}
+            taxonomy_error = None
             try:
                 taxonomy_error = _product_taxonomy_error(plan, taxonomy_errors)
                 if taxonomy_error:
@@ -958,14 +1077,21 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
             except (ControlledPublishError, WooConnectionError) as error:
                 result.update({"status": "recovery_required" if getattr(error, "recovery_required", False) else "failed", "error": sanitize_operation_error(error)})
                 item.status = result["status"]
-                item.database_state = "identity_not_persisted"
+                item.database_state = "taxonomy_failed" if taxonomy_error else "identity_not_persisted"
                 item.error = result["error"]
                 _record_publish_error(progress, error, result=result, item=item)
                 db.session.commit()
                 progress.counts["failures"] += 1
                 recovery_required = recovery_required or getattr(error, "recovery_required", False)
             progress.summary["product_results"].append(result)
-        progress.update("verifying_parent_products", "Verified parent identities were committed to store-scoped sync state.")
+        parent_verified = progress.counts["parents_verified"]
+        parent_skipped = len(confirmation["products"]) - parent_verified
+        progress.update(
+            "verifying_parent_products",
+            f"Parent publishing complete: {parent_verified} verified, {parent_skipped} skipped after a blocking dependency."
+            if parent_skipped else
+            f"Parent publishing complete: {parent_verified} verified and committed to store-scoped sync state.",
+        )
         progress.update("publishing_variations", "Publishing reviewed variations beneath verified parent products.")
         gateway.set_stage("publishing_variations")
         for plan, result in zip(confirmation["products"], progress.summary["product_results"]):
@@ -980,16 +1106,41 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
                 _record_publish_error(progress, error, result=result)
                 progress.counts["failures"] += 1
                 recovery_required = recovery_required or getattr(error, "recovery_required", False)
-        progress.update("verifying_variations", "Variation identities and managed fields were verified.")
+        planned_variations = sum(len(plan.get("variations", [])) for plan in confirmation["products"])
+        variation_verified = progress.counts["variations_verified"]
+        variation_skipped = max(0, planned_variations - variation_verified)
+        progress.update(
+            "verifying_variations",
+            f"Variation publishing complete: {variation_verified} verified, {variation_skipped} skipped because a parent identity was unavailable."
+            if variation_skipped else
+            f"Variation publishing complete: {variation_verified} verified.",
+        )
         progress.counts["images_verified"] = sum(
             int(result.get("images", 0))
             + sum(int(variation.get("images", 0)) for variation in result.get("variations", []))
             for result in progress.summary["product_results"]
             if result.get("status") == "pass_1_verified"
         )
-        progress.update("attaching_verifying_images", "Reviewed parent and variation WordPress attachment IDs were verified through their managed objects.")
-        progress.update("resolving_pass_2_relationships", "Resolving ordered local relationship target SKUs to verified Woo product IDs.")
-        progress.update("applying_relationships", "Applying relationships only to products with safe Pass 1 identities.")
+        images_verified = progress.counts["images_verified"]
+        safe_pass_1 = sum(result.get("status") == "pass_1_verified" for result in progress.summary["product_results"])
+        progress.update(
+            "attaching_verifying_images",
+            f"Managed-object image verification complete: {images_verified} attachment references verified."
+            if safe_pass_1 else
+            "Managed-object image verification skipped — no safely published parent was available.",
+        )
+        progress.update(
+            "resolving_pass_2_relationships",
+            "Resolving ordered local relationship target SKUs to verified Woo product IDs."
+            if safe_pass_1 else
+            "Pass 2 relationship resolution skipped — no safe Pass 1 parent identity was available.",
+        )
+        progress.update(
+            "applying_relationships",
+            "Applying relationships only to products with safe Pass 1 identities."
+            if safe_pass_1 else
+            "Pass 2 relationship writes skipped — no safe Pass 1 parent identity was available.",
+        )
         gateway.set_stage("applying_relationships")
         for plan, result in zip(confirmation["products"], progress.summary["product_results"]):
             if result["status"] != "pass_1_verified":
@@ -1005,7 +1156,12 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
                 _record_publish_error(progress, error, result=result)
                 progress.counts["failures"] += 1
                 recovery_required = recovery_required or getattr(error, "recovery_required", False)
-        progress.update("final_remote_verification", "Completed final managed-state and relationship verification.")
+        progress.update(
+            "final_remote_verification",
+            f"Final remote verification complete for {safe_pass_1} safe parent product(s)."
+            if safe_pass_1 else
+            "Final remote verification skipped — no safe parent identity was available.",
+        )
         progress.update("saving_sync_state", "Saving bounded verified sync and audit state.")
         for result in progress.summary["product_results"]:
             item = CatalogueOperationItem.query.filter_by(operation_id=operation_id, sku=result["sku"]).one_or_none()
@@ -1013,7 +1169,10 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
                 item.status = "succeeded" if result["status"] in {"verified", "verified_with_warnings"} else "failed"
                 if item.status == "succeeded":
                     item.database_state = "verified"
-                elif item.database_state not in {"remote_publish_failed", "remote_reconciliation_required", "identity_not_persisted"}:
+                elif item.database_state not in {
+                    "remote_publish_failed", "remote_reconciliation_required",
+                    "identity_not_persisted", "taxonomy_failed",
+                }:
                     item.database_state = "remote_publish_failed"
                 item.error = result.get("error")
                 item.finished_at = datetime.now(UTC).replace(tzinfo=None)
@@ -1028,6 +1187,18 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
         fatal_error = ControlledPublishError("Controlled publishing failed unexpectedly. Review the operation before retrying.", recovery_required=True)
         recovery_required = True
         progress.counts["failures"] += 1
+
+    if fatal_error:
+        for item in CatalogueOperationItem.query.filter_by(operation_id=operation_id, status="pending").all():
+            item.status = "recovery_required" if recovery_required else "failed"
+            item.database_state = (
+                "taxonomy_failed" if gateway.stage == "resolving_taxonomy"
+                else "remote_reconciliation_required" if recovery_required
+                else "remote_publish_failed"
+            )
+            item.error = sanitize_operation_error(fatal_error)
+            item.finished_at = datetime.now(UTC).replace(tzinfo=None)
+        db.session.commit()
 
     verified = sum(result.get("status") in {"verified", "verified_with_warnings"} for result in progress.summary["product_results"])
     failed = len(confirmation["products"]) - verified

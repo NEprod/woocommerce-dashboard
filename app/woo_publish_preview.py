@@ -25,12 +25,13 @@ from app.woo_payload_contract import (
     WooDimensionContractError,
     canonical_woo_dimensions,
 )
+from app.woo_managed_comparison import managed_rich_text_equal
 from app.woocommerce_connection import ReadOnlyWooClient, WooConnectionError, build_woocommerce_workspace, effective_configuration, normalize_store_url
 
 
 OPERATION_TYPE = "woo_publish_preview"
-BUILDER_VERSION = "phase3-m4-media-reuse-v3"
-MAPPING_VERSION = "woo-v3-managed-fields-v1"
+BUILDER_VERSION = "phase3-m4-taxonomy-reconcile-v1"
+MAPPING_VERSION = "woo-v3-managed-fields-v2"
 MAX_SCOPE_PRODUCTS = 1000
 LARGE_SCOPE_THRESHOLD = 100
 MAX_CACHE_PLANS = 20
@@ -196,10 +197,10 @@ class PreviewWooReader:
         return self.cache[key]
 
     def product_by_id(self, remote_id):
-        return self.get(f"products/{int(remote_id)}")
+        return self.get(f"products/{int(remote_id)}", {"context": "edit"})
 
     def products_by_sku(self, sku):
-        payload = self.get("products", {"sku": sku, "per_page": 10})
+        payload = self.get("products", {"sku": sku, "per_page": 10, "context": "edit"})
         return payload if isinstance(payload, list) else []
 
     def variations(self, parent_id):
@@ -230,12 +231,11 @@ class PreviewWooReader:
         try:
             payload = self.get("settings/products", category="publish_preview_settings")
         except WooConnectionError:
-            return None
-        if not isinstance(payload, list):
-            return None
-        for item in payload[:100]:
+            payload = []
+        for item in payload[:100] if isinstance(payload, list) else []:
             if not isinstance(item, dict) or item.get("id") not in {
                 "default_product_cat", "woocommerce_default_category",
+                "woocommerce_default_product_category",
             }:
                 continue
             try:
@@ -244,6 +244,69 @@ class PreviewWooReader:
                 return None
             return value if value > 0 else None
         return None
+
+    def direct_default_product_category_id(self):
+        """Read the individual setting only when a comparison requires it."""
+
+        # Some stores omit the value from the collection response while still
+        # exposing the documented individual setting resource.
+        try:
+            item = self.get(
+                "settings/products/woocommerce_default_category",
+                category="publish_preview_settings",
+            )
+        except WooConnectionError:
+            return None
+        if not isinstance(item, dict):
+            return None
+        try:
+            value = int(item.get("value"))
+        except (TypeError, ValueError):
+            return None
+        return value if value > 0 else None
+
+    def infer_default_product_category_id(self, remote):
+        """Safely identify the default omitted by Woo's public Store API.
+
+        The Store API deliberately excludes the configured default category
+        from a product's category list.  A single set difference against the
+        authenticated admin representation therefore identifies it without a
+        hard-coded ID or destructive probe.
+        """
+
+        direct = self.direct_default_product_category_id()
+        if direct:
+            return direct
+        if not isinstance(remote, dict) or not isinstance(remote.get("id"), int):
+            return None
+        admin_ids = {
+            int(item["id"])
+            for item in remote.get("categories", [])
+            if isinstance(item, dict) and isinstance(item.get("id"), int) and item["id"] > 0
+        }
+        if not admin_ids:
+            return None
+        url = f"{self.client.base_url}/wp-json/wc/store/v1/products/{remote['id']}"
+        key = ("store_api_product", int(remote["id"]))
+        try:
+            if key not in self.cache:
+                payload, _ = self.client.request_json(
+                    "GET", url, authenticated=True,
+                    endpoint_category="publish_preview_default_category",
+                )
+                self.cache[key] = payload
+            public = self.cache[key]
+        except WooConnectionError:
+            return None
+        if not isinstance(public, dict):
+            return None
+        public_ids = {
+            int(item["id"])
+            for item in public.get("categories", [])
+            if isinstance(item, dict) and isinstance(item.get("id"), int) and item["id"] > 0
+        }
+        missing = admin_ids - public_ids
+        return next(iter(missing)) if public_ids <= admin_ids and len(missing) == 1 else None
 
 
 def _normalised_public_media_url(value, store_origin):
@@ -355,6 +418,32 @@ def _normalised_slug(value):
     return "-".join(str(value or "").strip().casefold().replace("_", "-").split())
 
 
+def canonical_taxonomy_slug(value, kind):
+    """Return the authored identity used across Woo taxonomy representations."""
+
+    slug = _normalised_slug(value)
+    if kind == "attributes" and slug.startswith("pa-"):
+        slug = slug[3:]
+    return slug
+
+
+def taxonomy_row_compatible(row, item, kind):
+    if not isinstance(row, dict):
+        return False
+    if canonical_taxonomy_slug(row.get("slug") or row.get("name"), kind) != canonical_taxonomy_slug(item.get("slug"), kind):
+        return False
+    if _text_identity(row.get("name")) != _text_identity(item.get("name")):
+        return False
+    if kind == "attributes":
+        expected = {"type": "select", "order_by": "menu_order", "has_archives": False}
+        return all(row.get(key, value) == value for key, value in expected.items())
+    return True
+
+
+def _text_identity(value):
+    return " ".join(str(value or "").strip().casefold().split())
+
+
 def _taxonomy_plan(products, reader):
     categories = sorted({(row.slug or _normalised_slug(row.name), row.name) for product in products for row in product.categories})
     tags = sorted({(row.slug or _normalised_slug(row.name), row.name) for product in products for row in product.tags})
@@ -369,11 +458,12 @@ def _taxonomy_plan(products, reader):
         by_slug = {}
         for item in remote[kind]:
             if isinstance(item, dict):
-                by_slug.setdefault(_normalised_slug(item.get("slug") or item.get("name")), []).append(item)
+                by_slug.setdefault(canonical_taxonomy_slug(item.get("slug") or item.get("name"), kind), []).append(item)
         planned = []
         for slug, name in values:
-            matches = by_slug.get(_normalised_slug(slug), [])
-            state = "existing" if len(matches) == 1 else "ambiguous" if len(matches) > 1 else "create_required"
+            candidates = by_slug.get(canonical_taxonomy_slug(slug, kind), [])
+            matches = [row for row in candidates if taxonomy_row_compatible(row, {"slug": slug, "name": name}, kind)]
+            state = "existing" if len(candidates) == len(matches) == 1 else "ambiguous" if candidates else "create_required"
             affected = sum(
                 any((getattr(row, "slug", None) or _normalised_slug(row.name)) == slug for row in getattr(product, kind))
                 for product in products
@@ -473,6 +563,8 @@ def _normalise_remote(remote, managed_fields=None):
         if key not in remote:
             continue
         value = remote[key]
+        if key in {"description", "short_description"} and isinstance(value, dict):
+            value = value.get("raw") if value.get("raw") is not None else value.get("rendered")
         if key in {"categories", "tags"} and isinstance(value, list):
             value = [{"id": item.get("id")} for item in value if isinstance(item, dict) and item.get("id") is not None]
         elif key == "images" and isinstance(value, list):
@@ -501,7 +593,12 @@ def _comparison(payload, remote, *, default_category_id=None):
     for key in payload:
         local = payload.get(key)
         observed = remote_managed.get(key)
-        if _stable_json(local) != _stable_json(observed):
+        equal = (
+            managed_rich_text_equal(local, observed)
+            if key in {"description", "short_description"}
+            else _stable_json(local) == _stable_json(observed)
+        )
+        if not equal:
             differences.append({"field": key, "local": local, "remote": observed, "planned": "update"})
     return remote_managed, differences
 
@@ -689,6 +786,8 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
             if product.catalogue_status != "active": warnings.append(f"Catalogue state is {product.catalogue_status}; it is not a Woo publication state.")
             if payload.get("status") == "draft": warnings.append("Publishing intent is Draft; the future Woo product will remain draft.")
             remote = identity.get("remote")
+            if default_category_id is None and payload.get("categories") == [] and remote:
+                default_category_id = reader.infer_default_product_category_id(remote)
             remote_managed, differences = _comparison(payload, remote, default_category_id=default_category_id) if remote else ({}, [])
             action = identity.get("action")
             if action is None: action = "update" if differences else "no_change"
