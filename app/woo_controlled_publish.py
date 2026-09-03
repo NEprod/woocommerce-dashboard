@@ -44,6 +44,7 @@ from app.woo_managed_comparison import (
     managed_parent_attributes_equal, managed_taxonomy_membership_equal,
     managed_title_equal,
     managed_rich_text_equal,
+    managed_variation_attributes_equal,
 )
 from app.woo_payload_contract import WooDimensionContractError, assert_woo_dimension_payload
 from app.woocommerce_connection import (
@@ -225,7 +226,7 @@ def _confirmation(preview, approved_digest, plan, product_ids):
     health = build_woocommerce_workspace()["health"]
     if health.get("state") not in {"connected", "connected_with_limitations"}:
         raise ControlledPublishError("A healthy WooCommerce connection test is required.", category="connection_required")
-    actions = Counter(item["action"] for item in selected)
+    actions = Counter(item.get("parent_action", item["action"]) for item in selected)
     taxonomy_rows = {
         (kind, row["slug"])
         for item in selected
@@ -444,6 +445,9 @@ def _error_diagnostic(error, *, sku=None, title=None):
 
 
 def _record_publish_error(progress, error, *, result=None, item=None):
+    gallery_diagnostic = getattr(error, "gallery_diagnostic", None)
+    if result is not None and isinstance(gallery_diagnostic, dict):
+        result["gallery_diagnostic"] = gallery_diagnostic
     diagnostic = _error_diagnostic(
         error,
         sku=(result or {}).get("sku"),
@@ -683,6 +687,25 @@ def _resolved_product_payload(product_plan, taxonomy):
     return payload
 
 
+def _resolved_variation_payload(variation_plan, taxonomy):
+    """Bind a child selection to already verified global Woo taxonomies.
+
+    The preview deliberately keeps scanner-authored attribute names.  At the
+    write boundary, only verified global IDs are substituted; local/custom
+    attributes retain Woo's name-and-option representation.
+    """
+
+    payload = deepcopy(variation_plan["payload"])
+    global_ids = taxonomy.get("attributes", {})
+    for attribute in payload.get("attributes", []):
+        slug = canonical_taxonomy_slug(attribute.get("name"), "attributes")
+        attribute_id = global_ids.get(slug)
+        if isinstance(attribute_id, int) and attribute_id > 0:
+            attribute["id"] = attribute_id
+            attribute.pop("name", None)
+    return payload
+
+
 def _assert_no_image_import_payload(payload):
     """Controlled publishing must never import Media Library URLs as new media."""
 
@@ -741,6 +764,9 @@ def _verification_differences(payload, remote, *, default_category_id=None):
             if key in {"categories", "tags"}
             else managed_parent_attributes_equal(expected.get(key), observed.get(key))
             if key == "attributes" and expected.get("type") == "variable"
+            else managed_variation_attributes_equal(expected.get(key), observed.get(key))
+            if key == "attributes" and isinstance(expected.get(key), list)
+            and any(isinstance(row, dict) and "option" in row for row in expected["attributes"])
             else json.dumps(expected.get(key), sort_keys=True, default=str) == json.dumps(observed.get(key), sort_keys=True, default=str)
         )
     ]
@@ -785,7 +811,9 @@ def _upsert_product_identity(plan, store, remote, payload, operation_id):
 
 
 def _publish_parent(gateway, plan, payload, store, operation_id):
-    action = plan["action"]
+    # A Variable plan can be visibly actionable solely because expected child
+    # work remains.  Its verified parent still uses the no-change path.
+    action = plan.get("parent_action", plan["action"])
     if action == "no_change":
         remote_id = plan.get("woo_id")
         if not remote_id:
@@ -833,6 +861,68 @@ def _variation_matches(remote, plan):
     return isinstance(remote, dict) and remote.get("sku") == plan.get("sku") and not _verification_differences(plan["payload"], remote)
 
 
+def _gallery_ids(value):
+    if not isinstance(value, list):
+        return None
+    ids = []
+    for item in value:
+        try:
+            item = int(item)
+        except (TypeError, ValueError):
+            return None
+        if item <= 0 or item in ids:
+            return None
+        ids.append(item)
+    return ids
+
+
+def _variation_gallery_diagnostic(plan, remote, *, capability):
+    """Return bounded IDs which make a gallery result auditable without URLs."""
+
+    image = (plan.get("payload") or {}).get("image") or {}
+    observed_image = (remote or {}).get("image") or {}
+    return {
+        "capability": capability,
+        "expected_primary_id": image.get("id"),
+        "expected_gallery_ids": _gallery_ids(plan.get("gallery_image_ids", [])),
+        "observed_primary_id": observed_image.get("id"),
+        "observed_gallery_ids": _gallery_ids((remote or {}).get("gallery_image_ids")),
+        "variation_sku": str(plan.get("sku") or "")[:100],
+    }
+
+
+def _sync_variation_gallery(gateway, parent_id, variation_id, plan, remote):
+    """Verify the core wc/v3 secondary-variation gallery after its child write.
+
+    The documented REST field is supplied in the create/update payload.  A
+    read response which omits an *empty* gallery is accepted as indeterminate:
+    there is no gallery state to prove.  A requested non-empty gallery must be
+    returned in the authoritative read-back in the reviewed order.
+    """
+
+    expected = _gallery_ids(plan.get("gallery_image_ids", []))
+    if expected is None:
+        raise ControlledPublishError("The reviewed variation gallery identity is invalid.", category="internal_contract")
+    if "gallery_image_ids" not in (remote or {}):
+        if expected:
+            error = ControlledPublishError(
+                "WooCommerce did not return the requested variation secondary gallery after the child write.",
+                category="variation_gallery_unsupported", recovery_required=True,
+            )
+            error.gallery_diagnostic = _variation_gallery_diagnostic(plan, remote, capability="unadvertised")
+            raise error
+        return remote, _variation_gallery_diagnostic(plan, remote, capability="unadvertised_empty")
+    observed = _gallery_ids(remote.get("gallery_image_ids"))
+    if observed == expected:
+        return remote, _variation_gallery_diagnostic(plan, remote, capability="advertised")
+    error = ControlledPublishError(
+        "Variation secondary gallery verification did not match the reviewed attachment IDs.",
+        recovery_required=True,
+    )
+    error.gallery_diagnostic = _variation_gallery_diagnostic(plan, remote, capability="advertised_mismatch")
+    raise error
+
+
 def _upsert_variation_identity(product_plan, variation_plan, store, parent_id, remote):
     row = WooVariationIdentity.query.filter_by(store_key=store["key"], variation_id=variation_plan["id"]).one_or_none()
     remote_id = _verified_id(remote, "variation")
@@ -868,10 +958,21 @@ def _remote_variations(gateway, parent_id):
     return rows[:500]
 
 
-def _publish_variations(gateway, product_plan, parent_id, store):
+def _publish_variations(gateway, product_plan, parent_id, store, taxonomy):
     results = []
     existing = _remote_variations(gateway, parent_id)
     for plan in product_plan.get("variations", []):
+        plan = {**plan, "payload": _resolved_variation_payload(plan, taxonomy)}
+        gallery_ids = _gallery_ids(plan.get("gallery_image_ids", []))
+        if gallery_ids is None:
+            raise ControlledPublishError("The reviewed variation gallery identity is invalid.", category="internal_contract")
+        # wc/v3 defines this separately from the featured ``image``.  Include
+        # actual secondary galleries with the first child write; do not infer
+        # support from whether a different empty response serialised the key.
+        write_payload = {
+            **plan["payload"],
+            **({"gallery_image_ids": gallery_ids} if gallery_ids else {}),
+        }
         action = plan.get("action")
         remote = None
         if action == "no_change":
@@ -881,7 +982,7 @@ def _publish_variations(gateway, product_plan, parent_id, store):
             if matches:
                 raise ControlledPublishError(f"Variation SKU {plan['sku']} appeared after preview; create was refused.", recovery_required=len(matches) != 1)
             try:
-                remote = gateway.write("POST", f"products/{parent_id}/variations", plan["payload"])
+                remote = gateway.write("POST", f"products/{parent_id}/variations", write_payload)
             except WooConnectionError as error:
                 if error.category not in UNCERTAIN_CATEGORIES:
                     raise
@@ -895,7 +996,7 @@ def _publish_variations(gateway, product_plan, parent_id, store):
             if not before or before.get("sku") != plan["sku"]:
                 raise ControlledPublishError("The remote variation identity conflicts with the reviewed plan.", recovery_required=True)
             try:
-                remote = gateway.write("PUT", f"products/{parent_id}/variations/{int(remote_id)}", plan["payload"])
+                remote = gateway.write("PUT", f"products/{parent_id}/variations/{int(remote_id)}", write_payload)
             except WooConnectionError as error:
                 if error.category not in UNCERTAIN_CATEGORIES:
                     raise
@@ -908,13 +1009,15 @@ def _publish_variations(gateway, product_plan, parent_id, store):
         verified = gateway.get(f"products/{parent_id}/variations/{remote_id}", {"context": "edit"})
         if not _variation_matches(verified, plan):
             raise ControlledPublishError(f"Variation {plan['sku']} did not match after verification.", recovery_required=True)
+        verified, gallery_diagnostic = _sync_variation_gallery(gateway, parent_id, remote_id, plan, verified)
         _upsert_variation_identity(product_plan, plan, store, parent_id, verified)
         results.append({
             "sku": plan["sku"],
             "woo_id": remote_id,
             "action": action,
             "verified": True,
-            "images": 1 if plan.get("payload", {}).get("image") else 0,
+            "images": (1 if plan.get("payload", {}).get("image") else 0) + len(plan.get("gallery_image_ids", [])),
+            "gallery": gallery_diagnostic,
         })
     return results
 
@@ -1092,7 +1195,7 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
             if result["status"] != "pass_1_verified" or not plan.get("variations"):
                 continue
             try:
-                result["variations"] = _publish_variations(gateway, plan, result["woo_id"], store)
+                result["variations"] = _publish_variations(gateway, plan, result["woo_id"], store, taxonomy)
                 result["status"] = "pass_1_verified"
                 progress.counts["variations_verified"] += len(result["variations"])
             except (ControlledPublishError, WooConnectionError) as error:

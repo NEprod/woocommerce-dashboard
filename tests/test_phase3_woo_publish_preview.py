@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from alembic import command
+from flask import render_template
 from sqlalchemy import event
 
 from app import create_app, db
@@ -19,6 +20,7 @@ from app.woo_publish_preview import (
     _product_payload, _variation_payload, cached_plan, canonical_taxonomy_slug,
     generate_publish_plan, link_candidate_identity, prepare_link_candidate_review,
     plan_is_stale, reset_preview_cache_for_tests, scope_estimate, store_identity,
+    WooUnlinkError, prepare_woo_unlink_review, unlink_woo_identity,
 )
 from app.woo_payload_contract import (
     WooDimensionContractError,
@@ -29,7 +31,10 @@ from app.woo_payload_contract import (
 from app.woo_controlled_publish import (
     ControlledPublishError, _assert_no_image_import_payload, _verification_differences,
     _publish_parent,
+    _publish_variations,
+    _resolved_variation_payload,
     _resolve_one_taxonomy,
+    _sync_variation_gallery,
     MAX_PUBLISH_PRODUCTS,
     PublishGateway,
     execute_publish_operation,
@@ -40,6 +45,7 @@ from app.woo_controlled_publish import (
 from app.woo_managed_comparison import (
     managed_parent_attributes_equal,
     managed_rich_text_equal,
+    managed_variation_attributes_equal,
 )
 from app.utils.operation_control import reset_operation_control_for_tests
 from app.woocommerce_connection import PublisherWooClient, WooConfiguration, WooConnectionError
@@ -920,6 +926,387 @@ def test_variable_parent_precedes_variation_and_both_identities_are_verified(pre
         assert parent_write["dimensions"] == {"length": "210", "width": "148", "height": "3"}
         assert variation_write["dimensions"] == {"length": "148", "width": "105", "height": "2"}
         assert db.session.get(CatalogueOperation, operation_id).status == "succeeded"
+
+
+@pytest.mark.parametrize("existing", [True, False], ids=["existing-global-taxonomy", "new-global-taxonomy"])
+def test_variable_child_uses_verified_global_taxonomy_id_and_is_verified(preview_app, monkeypatch, existing):
+    """A real Woo variation selection is ID-bound, unlike the old fake-only path."""
+
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    monkeypatch.setattr("app.woo_controlled_publish.notify_woo_publish_completed", lambda *a, **k: (True, "sent"))
+
+    class DecoratedVariationPublisher(FakePublisherClient):
+        def request_json(self, method, url, **kwargs):
+            payload, response = super().request_json(method, url, **kwargs)
+            if method.upper() == "POST" and urlsplit(url).path.endswith("/variations"):
+                assert payload["attributes"] == [{"id": 77 if existing else 11, "option": "A5"}]
+                payload = {
+                    **payload,
+                    "attributes": [{"id": payload["attributes"][0]["id"], "name": "pa_size", "option": "A5"}],
+                }
+                parent_id = int(urlsplit(url).path.split("/products/", 1)[1].split("/", 1)[0])
+                self.variations[parent_id][payload["id"]] = payload
+            return payload, response
+
+    taxonomy = {
+        "categories": [{"id": 11, "name": "Cards", "slug": "cards"}],
+        "tags": [{"id": 12, "name": "Birthday", "slug": "birthday"}],
+        "attributes": ([{"id": 77, "name": "Size", "slug": "size"}] if existing else []),
+        "terms:77": ([{"id": 88, "name": "A5", "slug": "a5"}] if existing else []),
+        "terms:11": [],
+    }
+    publisher = DecoratedVariationPublisher(taxonomy=taxonomy)
+    with preview_app.app_context():
+        db.session.add(ProductAttribute(
+            product_id=4, name="Size", values='["A5"]', visible=True,
+            is_global=True, position=0,
+        ))
+        db.session.get(VariationAttribute, 1).is_global = True
+        db.session.commit()
+        preview = generate_publish_plan({"kind": "product", "product_id": 4}, client=publisher)
+        confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], [4], client=publisher)
+        operation_id = start_publish_operation(confirmation, client=publisher, run_async=False)
+        variation = WooVariationIdentity.query.filter_by(variation_id=41).one()
+        variation_write = next(body for method, path, body in publisher.writes if method == "POST" and path.endswith("/variations"))
+        assert variation_write["attributes"] == [{"id": 77 if existing else 11, "option": "A5"}]
+        assert variation.verification_state == "verified"
+        assert db.session.get(CatalogueOperation, operation_id).status == "succeeded"
+        if not existing:
+            assert any(path.endswith("/products/attributes/11/terms") for _method, path, _body in publisher.writes)
+        assert not any(method == "DELETE" for method in publisher.methods)
+
+
+def test_variation_attribute_verification_is_semantic_but_stays_strict():
+    expected = [{"id": 77, "option": "A5"}]
+    decorated = [{"id": 77, "name": "pa_size", "option": "A5"}]
+    assert managed_variation_attributes_equal(expected, decorated)
+    assert _verification_differences({"attributes": expected}, {"attributes": decorated}) == []
+    assert not managed_variation_attributes_equal(expected, [{"id": 77, "name": "pa_size", "option": "A4"}])
+    assert not managed_variation_attributes_equal(expected, [{"id": 78, "name": "pa_size", "option": "A5"}])
+
+
+def test_variation_payload_resolution_keeps_custom_attribute_name():
+    resolved = _resolved_variation_payload(
+        {"payload": {"attributes": [{"name": "Engraving", "option": "Hello"}]}},
+        {"attributes": {"size": 77}},
+    )
+    assert resolved["attributes"] == [{"name": "Engraving", "option": "Hello"}]
+
+
+def test_safe_resume_reuses_verified_variable_parent_and_creates_missing_child(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    monkeypatch.setattr("app.woo_controlled_publish.notify_woo_publish_completed", lambda *a, **k: (True, "sent"))
+
+    class VariationFailsOnce(FakePublisherClient):
+        def __init__(self):
+            super().__init__()
+            self.fail_child_once = True
+
+        def request_json(self, method, url, **kwargs):
+            if method.upper() == "POST" and urlsplit(url).path.endswith("/variations") and self.fail_child_once:
+                self.fail_child_once = False
+                raise WooConnectionError("invalid_request", "Fictional child validation failure", status_code=400)
+            return super().request_json(method, url, **kwargs)
+
+    publisher = VariationFailsOnce()
+    with preview_app.app_context():
+        preview = generate_publish_plan({"kind": "product", "product_id": 4}, client=publisher)
+        confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], [4], client=publisher)
+        first = start_publish_operation(confirmation, client=publisher, run_async=False)
+        assert WooProductIdentity.query.filter_by(product_id=4).one().woo_product_id == 501
+        assert not WooVariationIdentity.query.filter_by(variation_id=41).count()
+        assert sum(method == "POST" and path.endswith("/products") for method, path, _ in publisher.writes) == 1
+
+        retry = resume_confirmation(first, client=publisher)
+        assert retry["products"][0]["action"] == "update"
+        assert retry["products"][0]["parent_action"] == "no_change"
+        assert retry["products"][0]["variations"][0]["action"] == "create"
+        second = start_publish_operation(retry, client=publisher, run_async=False)
+        assert db.session.get(CatalogueOperation, second).status == "succeeded"
+        assert WooVariationIdentity.query.filter_by(variation_id=41).one().woo_variation_id == 601
+        assert sum(method == "POST" and path.endswith("/products") for method, path, _ in publisher.writes) == 1
+        assert sum(method == "POST" and path.endswith("/variations") for method, path, _ in publisher.writes) == 1
+
+
+def _trusted_variable_preview(preview_app, monkeypatch, *, remote_variations=None, trusted_variation_id=None):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    with preview_app.app_context():
+        product = db.session.get(Product, 4)
+        payload, _trace = _product_payload(product, {"categories": [{"slug": "cards", "woo_id": 11}], "tags": [{"slug": "birthday", "woo_id": 12}], "attributes": []})
+        remote = {"id": 404, **payload}
+        fake = FakeWooClient(by_id={404: remote}, taxonomy=_taxonomy())
+        original = fake.request_json
+        def request(method, url, **kwargs):
+            if "/products/404/variations" in urlsplit(url).path:
+                fake.methods.append(method); fake.request_count += 1
+                return list(remote_variations or []), object()
+            return original(method, url, **kwargs)
+        fake.request_json = request
+        store = store_identity()
+        db.session.add(WooProductIdentity(
+            product_id=4, stable_identity=product.source_relpath, sku=product.sku,
+            store_key=store["key"], store_host=store["host"], woo_product_id=404,
+            sync_state="linked", verification_state="verified",
+        ))
+        if trusted_variation_id:
+            db.session.add(WooVariationIdentity(
+                variation_id=41, product_id=4, stable_identity="Preview Cards/Variable/A",
+                sku="VARIABLE-1-A", store_key=store["key"], store_host=store["host"],
+                woo_parent_product_id=404, woo_variation_id=trusted_variation_id,
+                verification_state="verified",
+            ))
+        db.session.commit()
+        return generate_publish_plan({"kind": "product", "product_id": 4}, client=fake)
+
+
+def test_variable_parent_with_missing_expected_children_is_actionable_not_no_change(preview_app, monkeypatch):
+    with preview_app.app_context():
+        plan = _trusted_variable_preview(preview_app, monkeypatch)
+    row = plan["products"][0]
+    assert row["action"] == "update"
+    assert row["variations"][0]["action"] == "create"
+    assert "expected Woo child variations require" in row["warnings"][-1]
+
+
+def test_variable_parent_with_matching_trusted_child_is_no_change(preview_app, monkeypatch):
+    with preview_app.app_context():
+        variation = db.session.get(Variation, 41)
+        child = {"id": 405, **_variation_payload(variation, {"images": [{"attachment_id": 902, "state": "existing_wordpress_media"}]})}
+        plan = _trusted_variable_preview(preview_app, monkeypatch, remote_variations=[child], trusted_variation_id=405)
+    row = plan["products"][0]
+    assert row["action"] == "no_change"
+    assert row["variations"][0]["action"] == "no_change"
+
+
+def test_missing_trusted_child_identity_requires_recovery_not_parent_no_change(preview_app, monkeypatch):
+    with preview_app.app_context():
+        plan = _trusted_variable_preview(preview_app, monkeypatch, trusted_variation_id=405)
+    row = plan["products"][0]
+    assert row["action"] == "recovery_required"
+    assert row["variations"][0]["action"] == "blocked"
+
+
+def test_variation_secondary_gallery_is_included_in_child_create_and_verified(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    monkeypatch.setattr("app.woo_controlled_publish.notify_woo_publish_completed", lambda *a, **k: (True, "sent"))
+
+    class GalleryPublisher(FakePublisherClient):
+        def request_json(self, method, url, **kwargs):
+            payload, response = super().request_json(method, url, **kwargs)
+            path = urlsplit(url).path
+            if "/variations" in path and isinstance(payload, dict) and payload.get("id"):
+                parent_id = int(path.split("/products/", 1)[1].split("/", 1)[0])
+                payload = {**payload, "gallery_image_ids": payload.get("gallery_image_ids", [])}
+                self.variations[parent_id][payload["id"]] = payload
+            return payload, response
+
+    publisher = GalleryPublisher(media={
+        "a": [{"id": 902, "source_url": "https://shop.example.test/wp-content/uploads/a.webp"}],
+        "second": [{"id": 903, "source_url": "https://shop.example.test/wp-content/uploads/second.webp"}],
+        "third": [{"id": 904, "source_url": "https://shop.example.test/wp-content/uploads/third.webp"}],
+        "b": [{"id": 905, "source_url": "https://shop.example.test/wp-content/uploads/b.webp"}],
+        "b-second": [{"id": 906, "source_url": "https://shop.example.test/wp-content/uploads/b-second.webp"}],
+        "parent": [{"id": 901, "source_url": "https://shop.example.test/wp-content/uploads/parent.webp"}],
+    })
+    with preview_app.app_context():
+        db.session.add(ProductImage(product_id=4, url="https://shop.example.test/wp-content/uploads/parent.webp", position=0))
+        db.session.add_all([
+            VariationImage(variation_id=41, url="https://shop.example.test/wp-content/uploads/second.webp", position=1),
+            VariationImage(variation_id=41, url="https://shop.example.test/wp-content/uploads/third.webp", position=2),
+        ])
+        second_variation = Variation(
+            id=42, product_id=4, sku="VARIABLE-1-B", source_identity="Preview Cards/Variable/B",
+            catalogue_status="active", regular_price=22, length=148, width=105, height=2, menu_order=1,
+        )
+        db.session.add(second_variation); db.session.flush()
+        db.session.add_all([
+            VariationAttribute(variation_id=42, name="Size", value="A4"),
+            VariationImage(variation_id=42, url="https://shop.example.test/wp-content/uploads/b.webp", position=0),
+            VariationImage(variation_id=42, url="https://shop.example.test/wp-content/uploads/b-second.webp", position=1),
+        ])
+        db.session.commit()
+        preview = generate_publish_plan({"kind": "product", "product_id": 4}, client=publisher)
+        confirmation = prepare_publish_confirmation(preview["operation_id"], preview["digest"], [4], client=publisher)
+        start_publish_operation(confirmation, client=publisher, run_async=False)
+        variation_posts = {
+            body["sku"]: body for method, path, body in publisher.writes
+            if method == "POST" and path.endswith("/variations")
+        }
+        assert variation_posts["VARIABLE-1-A"]["image"] == {"id": 902}
+        assert variation_posts["VARIABLE-1-A"]["gallery_image_ids"] == [903, 904]
+        assert variation_posts["VARIABLE-1-B"]["image"] == {"id": 905}
+        assert variation_posts["VARIABLE-1-B"]["gallery_image_ids"] == [906]
+        assert 901 not in variation_posts["VARIABLE-1-A"]["gallery_image_ids"]
+        assert 902 not in variation_posts["VARIABLE-1-B"]["gallery_image_ids"]
+        assert publisher.variations[501][601]["gallery_image_ids"] == [903, 904]
+        assert publisher.products[501]["images"] == [{"id": 901, "position": 0}]
+
+
+def test_variation_secondary_gallery_is_included_in_child_update_and_diagnosed(preview_app, monkeypatch):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    publisher = FakePublisherClient(media={
+        "a": [{"id": 902, "source_url": "https://shop.example.test/wp-content/uploads/a.webp"}],
+        "second": [{"id": 903, "source_url": "https://shop.example.test/wp-content/uploads/second.webp"}],
+    })
+    with preview_app.app_context():
+        db.session.add(VariationImage(variation_id=41, url="https://shop.example.test/wp-content/uploads/second.webp", position=1))
+        db.session.commit()
+        product_plan = generate_publish_plan({"kind": "product", "product_id": 4}, client=publisher)["products"][0]
+        variation_plan = product_plan["variations"][0]
+        variation_plan.update({"action": "update", "woo_id": 601})
+        publisher.variations[501] = {601: {"id": 601, **variation_plan["payload"], "gallery_image_ids": []}}
+        result = _publish_variations(
+            PublishGateway(publisher, "wc/v3"), product_plan, 501, store_identity(), {"attributes": {"size": 77}},
+        )
+        update = next(body for method, path, body in publisher.writes if method == "PUT" and path.endswith("/variations/601"))
+        assert update["image"] == {"id": 902}
+        assert update["gallery_image_ids"] == [903]
+        assert result[0]["gallery"] == {
+            "capability": "advertised", "expected_primary_id": 902,
+            "expected_gallery_ids": [903], "observed_primary_id": 902,
+            "observed_gallery_ids": [903], "variation_sku": "VARIABLE-1-A",
+        }
+
+
+def test_empty_omitted_variation_gallery_is_not_a_false_capability_failure():
+    remote, diagnostic = _sync_variation_gallery(
+        object(), 501, 601,
+        {"payload": {"image": {"id": 902}}, "gallery_image_ids": []},
+        {"id": 601, "image": {"id": 902}},
+    )
+    assert remote["id"] == 601
+    assert diagnostic["capability"] == "unadvertised_empty"
+    assert diagnostic["expected_gallery_ids"] == []
+
+
+def test_nonempty_variation_gallery_requires_ordered_readback_and_isolated_ownership():
+    plan = {"payload": {"image": {"id": 902}}, "gallery_image_ids": [903, 904]}
+    with pytest.raises(ControlledPublishError, match="secondary gallery") as unsupported:
+        _sync_variation_gallery(object(), 501, 601, plan, {"id": 601, "image": {"id": 902}})
+    assert unsupported.value.gallery_diagnostic == {
+        "capability": "unadvertised", "expected_primary_id": 902,
+        "expected_gallery_ids": [903, 904], "observed_primary_id": 902,
+        "observed_gallery_ids": None, "variation_sku": "",
+    }
+    with pytest.raises(ControlledPublishError, match="secondary gallery verification") as mismatch:
+        _sync_variation_gallery(
+            object(), 501, 601, plan,
+            {"id": 601, "image": {"id": 902}, "gallery_image_ids": [903, 901]},
+        )
+    assert mismatch.value.gallery_diagnostic["observed_gallery_ids"] == [903, 901]
+
+
+def test_operation_result_renders_bounded_variation_gallery_diagnostics(preview_app):
+    publish = {
+        "heading": "Completed", "state_message": "Verified", "store_host": "shop.example.test",
+        "selected_products": 1, "created": 0, "updated": 1, "no_change": 0,
+        "verified_products": 1, "failed_products": 0, "pending_relationship_count": 0,
+        "request_count": 4, "write_request_count": 1, "duration_ms": 20,
+        "counts": {"variations_verified": 1, "images_verified": 3, "relationships_applied": 0},
+        "taxonomy": {"created": 0, "reused": 0}, "woo_errors": [], "product_results": [{
+            "status": "verified", "title": "Variable Card", "sku": "VARIABLE-1",
+            "woo_id": 501, "product_id": 4, "variations": [{
+                "sku": "VARIABLE-1-A", "gallery": {
+                    "capability": "advertised", "expected_primary_id": 902,
+                    "observed_primary_id": 902, "expected_gallery_ids": [903, 904],
+                    "observed_gallery_ids": [903, 904], "variation_sku": "VARIABLE-1-A",
+                },
+            }],
+        }], "pending_relationships": [],
+    }
+    with preview_app.test_request_context():
+        html = render_template(
+            "operations/_woo_publish_result.html",
+            workspace={"operation": {"status": "succeeded", "id": "test"}, "woo_controlled_publish": publish},
+        )
+    assert "Variation image verification" in html
+    assert "[903, 904] / [903, 904]" in html
+
+
+def _trusted_simple_preview(preview_app, monkeypatch, *, remote=True):
+    monkeypatch.setattr("app.woo_publish_preview.notify_woo_publish_preview_completed", lambda *a, **k: None)
+    with preview_app.app_context():
+        product = db.session.get(Product, 2)
+        payload, _trace = _product_payload(product, {"categories": [{"slug": "cards", "woo_id": 11}], "tags": [{"slug": "birthday", "woo_id": 12}], "attributes": []})
+        remote_row = {"id": 202, **payload}
+        fake = FakeWooClient(by_id=({202: remote_row} if remote else {}), taxonomy=_taxonomy())
+        store = store_identity()
+        db.session.add(WooProductIdentity(
+            product_id=2, stable_identity=product.source_relpath, sku=product.sku,
+            store_key=store["key"], store_host=store["host"], woo_product_id=202,
+            sync_state="linked", verification_state="verified",
+        ))
+        db.session.commit()
+        return generate_publish_plan({"kind": "product", "product_id": 2}, client=fake), fake
+
+
+def test_local_only_unlink_removes_simple_identity_and_invalidates_preview(preview_app, monkeypatch):
+    with preview_app.app_context():
+        plan, fake = _trusted_simple_preview(preview_app, monkeypatch)
+        review = prepare_woo_unlink_review(plan["operation_id"], plan["digest"], 2)
+        request_count = len(fake.methods)
+        unlink_woo_identity(plan["operation_id"], plan["digest"], 2, review["woo_id"])
+        assert WooProductIdentity.query.filter_by(product_id=2).count() == 0
+        assert len(fake.methods) == request_count and plan_is_stale(plan)
+
+
+def test_variable_unlink_removes_only_current_store_parent_and_child_identities(preview_app, monkeypatch):
+    with preview_app.app_context():
+        plan = _trusted_variable_preview(preview_app, monkeypatch, trusted_variation_id=405)
+        store = store_identity()
+        db.session.add(WooVariationIdentity(
+            variation_id=41, product_id=4, stable_identity="Other store", sku="VARIABLE-1-A",
+            store_key="other-store", store_host="other.invalid", woo_parent_product_id=44,
+            woo_variation_id=45, verification_state="verified",
+        ))
+        db.session.commit()
+        unlink_woo_identity(plan["operation_id"], plan["digest"], 4, 404)
+        assert not WooProductIdentity.query.filter_by(product_id=4, store_key=store["key"]).count()
+        assert not WooVariationIdentity.query.filter_by(product_id=4, store_key=store["key"]).count()
+        assert WooVariationIdentity.query.filter_by(product_id=4, store_key="other-store").count() == 1
+
+
+def test_unlink_allows_missing_remote_but_rejects_stale_review_and_requires_acknowledgement(preview_app, monkeypatch):
+    with preview_app.app_context():
+        plan, _fake = _trusted_simple_preview(preview_app, monkeypatch, remote=False)
+        assert plan["products"][0]["identity_state"] == "remote_missing"
+        with pytest.raises(WooUnlinkError, match="changed"):
+            unlink_woo_identity(plan["operation_id"], plan["digest"], 2, 999)
+        client = _client(preview_app)
+        response = client.post(f"/woocommerce/preview/unlink/2", data={
+            "preview_operation_id": plan["operation_id"], "preview_digest": plan["digest"], "woo_id": 202,
+        })
+        assert response.status_code == 302
+        assert WooProductIdentity.query.filter_by(product_id=2).count() == 1
+        response = client.post(f"/woocommerce/preview/unlink/2", data={
+            "preview_operation_id": plan["operation_id"], "preview_digest": plan["digest"], "woo_id": 202,
+            "acknowledge_unlink": "yes",
+        }, follow_redirects=True)
+        html = response.get_data(as_text=True)
+        assert "WooCommerce identity unlinked successfully" in html
+        assert "No product was deleted or changed in WooCommerce" in html
+        assert WooProductIdentity.query.filter_by(product_id=2).count() == 0
+
+
+def test_unlink_regeneration_uses_existing_exact_sku_safety(preview_app, monkeypatch):
+    with preview_app.app_context():
+        plan, _fake = _trusted_simple_preview(preview_app, monkeypatch)
+        unlink_woo_identity(plan["operation_id"], plan["digest"], 2, 202)
+        none = generate_publish_plan(
+            {"kind": "product", "product_id": 2}, client=FakeWooClient(by_sku={"EXIST-1": []}, taxonomy=_taxonomy())
+        )
+        assert none["products"][0]["action"] == "create"
+        product = db.session.get(Product, 2)
+        payload, _trace = _product_payload(product, {"categories": [{"slug": "cards", "woo_id": 11}], "tags": [{"slug": "birthday", "woo_id": 12}], "attributes": []})
+        exact = {"id": 202, **payload}
+        candidate = generate_publish_plan(
+            {"kind": "product", "product_id": 2}, client=FakeWooClient(by_sku={"EXIST-1": [exact]}, taxonomy=_taxonomy())
+        )
+        assert candidate["products"][0]["action"] == "link_candidate"
+        ambiguous = generate_publish_plan(
+            {"kind": "product", "product_id": 2}, client=FakeWooClient(by_sku={"EXIST-1": [exact, {**exact, "id": 203}]}, taxonomy=_taxonomy())
+        )
+        assert ambiguous["products"][0]["action"] == "blocked"
 
 
 def test_uncertain_create_reconciles_exact_sku_without_duplicate(preview_app, monkeypatch):

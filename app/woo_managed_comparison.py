@@ -263,3 +263,50 @@ def managed_parent_attributes_equal(expected, observed, *, known_attribute_ids=N
             return False
         unmatched.remove(remote)
     return not unmatched
+
+
+def managed_variation_attributes_equal(expected, observed, *, known_attribute_ids=None):
+    """Compare selected Woo variation attributes by verified identity.
+
+    Woo returns global selections decorated with a taxonomy ID and often a
+    ``pa_`` name.  A variation request must use that verified ID, but the
+    scanner's resolved variation row intentionally retains the authored name
+    and option.  The two representations are equivalent only when the known
+    global identity and its selected option both agree.  Custom attributes
+    remain name-based because they have no global taxonomy identity.
+    """
+
+    if not isinstance(expected, list) or not isinstance(observed, list):
+        return expected == observed
+    if len(expected) != len(observed):
+        return False
+    identifiers = {
+        _attribute_slug(name): value
+        for name, value in (known_attribute_ids or {}).items()
+        if isinstance(value, int) and value > 0
+    }
+    unmatched = [row for row in observed if isinstance(row, dict)]
+    if len(unmatched) != len(observed):
+        return False
+    for local in expected:
+        if not isinstance(local, dict) or not _text(local.get("option")):
+            return False
+        local_name = _attribute_slug(local.get("name"))
+        expected_id = local.get("id") or identifiers.get(local_name)
+        candidates = []
+        for remote in unmatched:
+            remote_id = remote.get("id")
+            remote_name = _attribute_slug(remote.get("name") or remote.get("slug"))
+            same_identity = (
+                isinstance(expected_id, int) and expected_id > 0
+                and remote_id == expected_id
+                and (not local_name or not remote_name or remote_name == local_name)
+            ) or (
+                not expected_id and local_name and remote_name == local_name
+            )
+            if same_identity and _text(remote.get("option")) == _text(local.get("option")):
+                candidates.append(remote)
+        if len(candidates) != 1:
+            return False
+        unmatched.remove(candidates[0])
+    return not unmatched

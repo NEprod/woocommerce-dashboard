@@ -29,6 +29,7 @@ from app.woo_managed_comparison import (
     managed_parent_attributes_equal, managed_taxonomy_membership_equal,
     managed_title_equal,
     managed_rich_text_equal,
+    managed_variation_attributes_equal,
 )
 from app.woocommerce_connection import ReadOnlyWooClient, WooConnectionError, build_woocommerce_workspace, effective_configuration, normalize_store_url
 
@@ -59,6 +60,10 @@ class PreviewError(ValueError):
 
 class LinkCandidateError(PreviewError):
     """A reviewed exact-SKU identity can no longer be adopted safely."""
+
+
+class WooUnlinkError(PreviewError):
+    """A reviewed local Woo identity can no longer be removed safely."""
 
 
 _PLAN_CACHE: OrderedDict[str, dict] = OrderedDict()
@@ -623,6 +628,18 @@ def _variation_payload(variation, media=None):
     }.items() if value is not None}
 
 
+def _variation_gallery_attachment_ids(media):
+    """Return only the ordered secondary, already verified variation media."""
+
+    return [
+        item["attachment_id"]
+        for item in (media or {}).get("images", [])[1:]
+        if item.get("state") == "existing_wordpress_media"
+        and isinstance(item.get("attachment_id"), int)
+        and item["attachment_id"] > 0
+    ]
+
+
 def _normalise_remote(remote, managed_fields=None):
     result = {}
     for key in (managed_fields or MANAGED_FIELDS):
@@ -649,7 +666,7 @@ def _normalise_remote(remote, managed_fields=None):
     return result
 
 
-def _comparison(payload, remote, *, default_category_id=None, known_attribute_ids=None):
+def _comparison(payload, remote, *, default_category_id=None, known_attribute_ids=None, variation_attributes=False):
     remote_managed = _normalise_remote(remote or {}, payload.keys())
     if payload.get("categories") == [] and default_category_id:
         observed_categories = remote_managed.get("categories")
@@ -668,6 +685,8 @@ def _comparison(payload, remote, *, default_category_id=None, known_attribute_id
             if key in {"categories", "tags"}
             else managed_parent_attributes_equal(local, observed, known_attribute_ids=known_attribute_ids)
             if key == "attributes" and payload.get("type") == "variable"
+            else managed_variation_attributes_equal(local, observed, known_attribute_ids=known_attribute_ids)
+            if key == "attributes" and variation_attributes
             else _stable_json(local) == _stable_json(observed)
         )
         if not equal:
@@ -877,6 +896,7 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
             ) if remote else ({}, [])
             action = identity.get("action")
             if action is None: action = "update" if differences else "no_change"
+            parent_action = action
             expected_type = payload.get("type")
             if remote and remote.get("type") and remote.get("type") != expected_type:
                 blockers.append("Remote Woo product type conflicts with the planned local type.")
@@ -916,6 +936,7 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
                 seen_skus.add(variation.sku)
                 variation_media = next((row for row in media["variations"] if row["variation_id"] == variation.id), {"images": []})
                 vp = _variation_payload(variation, variation_media)
+                variation_gallery_ids = _variation_gallery_attachment_ids(variation_media)
                 vid = variation_identities.get(variation.id)
                 remote_variation = None
                 variation_remote_managed = {}
@@ -933,12 +954,39 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
                         elif len(candidates) == 1: remote_variation = candidates[0]; variation_action = "link_candidate"
                         else: variation_action = "create"
                     if remote_variation and variation_action != "link_candidate":
-                        variation_remote_managed, variation_differences = _comparison(vp, remote_variation)
+                        variation_remote_managed, variation_differences = _comparison(
+                            vp, remote_variation, known_attribute_ids=known_attribute_ids,
+                            variation_attributes=True,
+                        )
                         variation_action = "update" if variation_differences else "no_change"
                     elif remote_variation:
-                        variation_remote_managed, variation_differences = _comparison(vp, remote_variation)
+                        variation_remote_managed, variation_differences = _comparison(
+                            vp, remote_variation, known_attribute_ids=known_attribute_ids,
+                            variation_attributes=True,
+                        )
                 if variation_blockers: variation_action = "blocked"
-                variations.append({"id": variation.id, "stable_identity": variation.source_identity or f"variation:{variation.id}", "sku": variation.sku, "woo_id": remote_variation.get("id") if remote_variation else (vid.woo_variation_id if vid else None), "payload": vp, "remote_managed": variation_remote_managed, "differences": variation_differences, "action": variation_action, "blockers": variation_blockers})
+                if remote_variation:
+                    if variation_gallery_ids and "gallery_image_ids" not in remote_variation:
+                        variation_blockers.append(
+                            "This WooCommerce variation endpoint does not expose the supported secondary gallery field."
+                        )
+                    elif "gallery_image_ids" in remote_variation:
+                        remote_gallery = remote_variation.get("gallery_image_ids")
+                        if remote_gallery != variation_gallery_ids:
+                            variation_differences.append({
+                                "field": "gallery_image_ids", "local": variation_gallery_ids,
+                                "remote": remote_gallery, "planned": "update",
+                            })
+                            if variation_action == "no_change": variation_action = "update"
+                if variation_blockers: variation_action = "blocked"
+                variations.append({"id": variation.id, "stable_identity": variation.source_identity or f"variation:{variation.id}", "sku": variation.sku, "woo_id": remote_variation.get("id") if remote_variation else (vid.woo_variation_id if vid else None), "payload": vp, "gallery_image_ids": variation_gallery_ids, "remote_managed": variation_remote_managed, "differences": variation_differences, "action": variation_action, "blockers": variation_blockers})
+            child_actions = {row["action"] for row in variations}
+            if action == "no_change" and child_actions & {"create", "update"}:
+                action = "update"
+                warnings.append("One or more expected Woo child variations require publication or update.")
+            elif action == "no_change" and child_actions & {"blocked", "link_candidate", "recovery_required"}:
+                action = "recovery_required"
+                warnings.append("One or more expected Woo child variations require identity recovery or review.")
             last = identity.get("identity")
             local_payload_digest = _digest(payload)
             remote_digest = _digest(remote_managed) if remote else None
@@ -953,13 +1001,14 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
                 "product_id": product.id, "stable_identity": product.source_relpath or f"product:{product.id}", "title": product.title, "sku": product.sku,
                 "collection": product.collection.name if product.collection else "Unassigned", "local_type": product.product_type, "woo_type": payload.get("type"),
                 "identity_state": identity["state"], "woo_id": remote.get("id") if remote else (last.woo_product_id if last else None), "action": action,
+                "parent_action": parent_action,
                 "remote_summary": {key: remote.get(key) for key in ("id", "name", "sku", "type", "status") if remote and remote.get(key) is not None},
                 "trace": trace, "payload": payload, "payload_digest": local_payload_digest, "remote_managed": remote_managed, "remote_digest": remote_digest,
                 "differences": differences, "drift": drift, "blockers": blockers, "warnings": warnings,
                 "taxonomy": product_taxonomy,
                 "media": media, "woo_default_category_id": default_category_id,
                 "variations": variations, "relationships": relationships,
-                "pass_1": ["Create parent product" if action == "create" else "Review and link exact-SKU candidate" if action == "link_candidate" else "Update managed product fields" if action == "update" else "No parent mutation required"],
+                "pass_1": ["Create parent product" if parent_action == "create" else "Review and link exact-SKU candidate" if parent_action == "link_candidate" else "Update managed product fields" if parent_action == "update" else "No parent mutation required"],
                 "pass_2": ["Resolve ordered cross-sell and upsell Woo IDs"] if relationships["groups"]["cross_sell"] or relationships["groups"]["upsell"] else [],
                 "pending_dependency": bool(relationships["pending_count"] or any(item["state"] == "create_required" for values in taxonomy.values() for item in values) or variations),
             })
@@ -1067,6 +1116,84 @@ def _link_candidate_context(operation_id, preview_digest, product_id):
     if product.sku != item.get("sku"):
         raise LinkCandidateError("The local SKU changed. Generate a fresh preview.", category="stale_preview")
     return operation, plan, item, product, candidate_id
+
+
+def _unlink_context(operation_id, preview_digest, product_id):
+    operation = CatalogueOperation.query.filter_by(
+        id=str(operation_id or "")[:32], operation_type=OPERATION_TYPE,
+    ).first()
+    if operation is None:
+        raise WooUnlinkError("A valid Publish Preview is required before unlinking a Woo identity.", category="missing_preview")
+    plan = cached_plan(operation.id)
+    if plan is None:
+        raise WooUnlinkError("Detailed Publish Preview is unavailable. Generate a fresh preview.", category="missing_preview")
+    if str(preview_digest or "") != str(plan.get("digest") or "") or plan_is_stale(plan):
+        raise WooUnlinkError("Preview review data is stale. Generate a fresh preview.", category="stale_preview")
+    try:
+        product_id = int(product_id)
+    except (TypeError, ValueError) as error:
+        raise WooUnlinkError("The local product identity is invalid.") from error
+    item = next((row for row in plan.get("products", []) if row.get("product_id") == product_id), None)
+    product = db.session.get(Product, product_id)
+    if not item or product is None:
+        raise WooUnlinkError("The local product is no longer part of this Preview.", category="stale_preview")
+    stable_identity = product.source_relpath or f"product:{product.id}"
+    if stable_identity != item.get("stable_identity") or product.sku != item.get("sku"):
+        raise WooUnlinkError("The local product identity changed. Generate a fresh preview.", category="stale_preview")
+    configuration = effective_configuration()
+    if not configuration.complete:
+        raise WooUnlinkError("WooCommerce runtime credentials are not configured.", category="connection_required")
+    store = store_identity(configuration)
+    if store["key"] != plan.get("summary", {}).get("store_identity"):
+        raise WooUnlinkError("The configured Woo store changed. Generate a fresh preview.", category="store_changed")
+    identity = WooProductIdentity.query.filter_by(store_key=store["key"], product_id=product.id).one_or_none()
+    if (
+        identity is None or not identity.woo_product_id
+        or identity.stable_identity != stable_identity or identity.sku != product.sku
+        or identity.store_host != store["host"]
+    ):
+        raise WooUnlinkError("The reviewed trusted Woo identity changed. Generate a fresh preview.", category="stale_preview")
+    if item.get("woo_id") != identity.woo_product_id:
+        raise WooUnlinkError("The reviewed Woo identity changed. Generate a fresh preview.", category="stale_preview")
+    return operation, plan, item, product, store, identity
+
+
+def prepare_woo_unlink_review(operation_id, preview_digest, product_id):
+    """Return a local-only identity removal review; it never reads Woo."""
+
+    _operation, plan, item, product, store, identity = _unlink_context(
+        operation_id, preview_digest, product_id,
+    )
+    variation_count = WooVariationIdentity.query.filter_by(
+        store_key=store["key"], product_id=product.id,
+    ).count()
+    return {
+        "operation_id": plan["operation_id"], "preview_digest": plan["digest"],
+        "store_host": store["host"], "store_identity": store["key"],
+        "product": {"id": product.id, "title": product.title, "sku": product.sku, "local_type": item.get("local_type")},
+        "woo_id": identity.woo_product_id,
+        "variation_identity_count": variation_count,
+    }
+
+
+def unlink_woo_identity(operation_id, preview_digest, product_id, reviewed_woo_id):
+    """Forget one current-store trusted identity without contacting Woo."""
+
+    _operation, _plan, _item, product, store, identity = _unlink_context(
+        operation_id, preview_digest, product_id,
+    )
+    try:
+        reviewed_woo_id = int(reviewed_woo_id)
+    except (TypeError, ValueError) as error:
+        raise WooUnlinkError("The reviewed Woo identity is invalid.", category="invalid_identity") from error
+    if reviewed_woo_id != identity.woo_product_id:
+        raise WooUnlinkError("The reviewed Woo identity changed. Generate a fresh preview.", category="stale_preview")
+    WooVariationIdentity.query.filter_by(store_key=store["key"], product_id=product.id).delete(
+        synchronize_session=False,
+    )
+    db.session.delete(identity)
+    db.session.commit()
+    return {"product_id": product.id, "woo_id": reviewed_woo_id, "variation_identities_removed": product.product_type == "variable"}
 
 
 def prepare_link_candidate_review(operation_id, preview_digest, product_id):
