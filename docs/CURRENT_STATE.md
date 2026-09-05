@@ -2,6 +2,83 @@
 
 This document records the completed Phase 1 (`0.2.3`) catalogue-integrity release, the completed Phase 2/2.5 (`0.3.1`) catalogue-management release, and current Phase 3 development. Phase 1 builds on the Phase 0 baseline without changing protected scanner row semantics.
 
+## Released M4 checkpoint and planned M5 — 2026-09-05
+
+Phase 3 M1–M4 is implemented through commit
+`76635107047f095f011f93e2a88440a0ed4c5bf2`, tag
+`phase-3-m4-variable-publishing`. The released M4 follow-ups add reviewed
+local-only product Link/Unlink, explicit post-link/unlink Preview regeneration,
+semantic title/category/tag/rich-text reconciliation, verified global child
+attribute bindings, actual child variation publishing, missing-child Preview
+work detection, verified-parent resume, and ordered variation galleries using
+`image.id` plus `gallery_image_ids`. Parent commercial-field ownership and
+parent/child image separation are preserved. Unlink removes only current-store
+local trust and dependent child identities; no Woo deletion is performed.
+
+Core Variable child publishing, recovery, primary variation images, and secondary
+variation galleries are live accepted on WooCommerce 11.0.1 with the native
+Variation gallery feature enabled. Release verification recorded 832 Python
+tests and 28 JavaScript tests passed. The preceding relationship-test failure
+was isolated to a stale test-instance recovery manifest; no Product Relationships
+fix was included. Schema head remains `0007_woo_sync_identity`; the M4 follow-ups
+added no dependency or migration. These are checkpoint facts, not fresh tests
+or live requests performed during this documentation audit.
+
+This dated checkpoint supersedes older implementation-status wording below.
+In particular, current default-category resolution includes the authenticated
+Woo Admin `default_product_cat` option lookup; settings-only/Store API-only
+descriptions are not the complete current contract. Raw shortcode comparison
+also handles supported structural equivalence when raw content is available.
+
+**M5.1 is implemented:** the read-only Taxonomy Registry/configuration foundation.
+Storefront Collection mapping and per-product variation designation remain
+unimplemented. The architecture
+audit proposes local filesystem definitions plus controlled product assignments,
+offline validation, a versioned compatibility path and later reviewed Woo sync.
+See [the audit](PHASE_3_M5_TAXONOMY_AUDIT.md) and [Roadmap](ROADMAP.md). File/schema,
+destination and migration recommendations still require the indicated approvals.
+The audit changed documentation only and did not change setup, scanner, editors,
+Woo behavior or existing catalogue files. Pass 2 live acceptance, representative
+catalogue/Discord regression and the final Phase 3 stable checkpoint remain
+separate closure gates.
+
+### M5.1 delivered foundation — 2026-09-05
+
+`config.py` now exposes environment-configured `TAXONOMY_ROOT`, default
+`/taxonomy`; explicit empty means unconfigured. The application does not invoke
+the loader at startup and never creates a fallback directory/registry. The new
+`app/taxonomy_registry.py` explicitly reads only `registry.json`, applies the
+version-1 schema in `app/resources/taxonomy/registry.schema.json`, validates
+stable keys/scoped identities/category references/cycles/normalization collisions,
+and returns deeply immutable snapshots with deterministic SHA-256 content digests.
+Directory-handle reads reject traversal, symlinks, non-regular files and root
+overlap; limits bound bytes, nesting, nodes, definitions and category depth.
+
+Statuses are `not_configured`, `root_missing`, `registry_missing`, `invalid_root`,
+`invalid`, `inaccessible`, `read_only` and `ready`. Valid read-only snapshots are
+available offline; readiness does not mean production population or Woo readiness.
+No raw exception, host path or authored value appears in validation diagnostics.
+See [Taxonomy Registry contract](TAXONOMY_REGISTRY.md) for the exact shape, limits,
+namespace/alias rules and access APIs.
+
+Focused verification command:
+`PYTHONPATH=. /tmp/woocommerce-m4-variation-venv/bin/pytest -q tests/test_taxonomy_registry.py tests/test_setup_flow.py`
+passed **42 tests**, including existing setup and an isolated Flask instance
+startup test that proves the registry is never loaded during startup. After
+tightening final-line control-character rejection in the schema,
+`PYTHONPATH=. /tmp/woocommerce-m4-variation-venv/bin/pytest -q tests/test_taxonomy_registry.py::test_invalid_definitions`
+passed **16 tests** (the affected group, including two added boundary cases).
+Together the runs cover **44 distinct cases**: 41 registry/config cases and
+3 existing setup cases. Python compilation passed for `config.py`, the loader
+and the new test module. Existing setup emitted one SQLAlchemy legacy-API warning; no unrelated
+fix was made. No full suite was run.
+
+No scanner/catalogue/product assignment/editor/M4 Woo/Relationships behavior,
+database migration, dependency or deployment mount changed. No production seed
+was shipped or imported. Real TLC bootstrap, registry workspace/writes, deployment
+mount declarations and all versioned product-resolution/projection/Woo integration
+remain later gates. Nothing was committed, tagged, pushed or built for this slice.
+
 ## Startup and setup
 
 `run.py` creates the Flask application. The application factory configures Flask-SQLAlchemy, Flask-Login, CSRF protection, the main blueprint, and upgrades SQLite to the current Alembic migration head. `db.create_all()` is no longer used. Missing databases are initialized from migrations; a matching unversioned Phase 0 database is backed up and adopted at the frozen baseline.

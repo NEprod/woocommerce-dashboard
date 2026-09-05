@@ -1,5 +1,76 @@
 # Roadmap
 
+## Current checkpoint and next scope — 2026-09-05
+
+This dated section supersedes older status shorthand below without renumbering
+or rewriting completed milestone history. Phase 2/2.5 is released as `v0.3.1`;
+Phase 3 Milestones 1–4 are implemented. The current released development
+checkpoint is `76635107047f095f011f93e2a88440a0ed4c5bf2`, tagged
+`phase-3-m4-variable-publishing`. M4 Variable child creation, resume/recovery,
+reviewed Link/Unlink and primary/secondary variation images are complete. Core
+Variable publishing and galleries are live accepted on WooCommerce 11.0.1 with
+the native Variation gallery feature enabled. Checkpoint verification: 832
+Python tests and 28 JavaScript tests passed. This is not a Phase 3 stable release.
+
+**Phase 3 M5 — Taxonomy Registry & Controlled Catalogue Metadata: M5.1 read-only
+foundation implemented; M5.2+ deferred.** The previously recorded roadmap
+did not assign a numbered M5. This scope adds authored local taxonomy definitions
+for categories, Storefront Collections/named ranges, navigation attributes,
+attribute terms and tags; controlled product JSON assignments; informational
+attributes and explicit per-product variation designation; offline scanner
+validation/resolution and projection; controlled metadata editors; reviewed Woo
+taxonomy synchronization; and Preview/publisher/reconciliation integration.
+Storefront Collections remain distinct from filesystem/dashboard Collections.
+Incremental synchronization, media upload and broad remote management are not
+silently included in this milestone.
+
+See [M5 architecture audit and proposal](PHASE_3_M5_TAXONOMY_AUDIT.md) for observed
+contracts, decisions requiring approval, evidence, file impact and focused tests.
+Proposed implementation slices (future work, not historical milestones):
+
+1. **M5.1 — implemented:** optional `TAXONOMY_ROOT` (default `/taxonomy`),
+   schema-v1 `registry.json`, bounded read-only loading, immutable snapshots,
+   content digests and safe readiness/validation diagnostics. See the
+   [implemented registry contract](TAXONOMY_REGISTRY.md). No startup load/gate,
+   scanner, product JSON or Woo integration; no migration or dependency.
+2. **M5.2:** local registry workspace, reviewed import/save and mount readiness.
+3. **M5.3:** approved versioned resolution/projection and necessary reviewed schema
+   extension, protecting legacy rows, variations and source identity.
+4. **M5.4:** controlled shared/override editors and explicit adoption review.
+5. **M5.5:** reviewed Woo taxonomy sync after resolving range destination.
+6. **M5.6:** Preview/publisher/reconciliation integration and M4 regressions.
+7. **M5.7:** representative adoption, live acceptance and approved checkpoint.
+
+The resolver/projection slice precedes writable new product-editor semantics;
+registry definition editing alone may precede it. Every slice must update this
+roadmap, CURRENT_STATE and its affected contract docs with delivered scope,
+verification, decisions and the next gate. Detailed proposal choices are not
+approved merely by appearing here. The audit itself was documentation-only;
+M5.1 implements only its separately approved foundation.
+
+M5.1 focused verification: registry/config plus existing setup tests passed
+(42 tests); after the final schema correction the affected definition group
+passed 16 tests, including two new boundary cases (44 distinct cases overall).
+Python compilation and documentation/schema checks accompany
+the slice. No full regression, Docker build or publication is part of M5.1.
+Real TLC seed import remains a later reviewed step, not an empty production
+taxonomy endpoint. The next gate is the M5.2 local registry workspace and
+reviewed import/save design; product editors must still wait for M5.3 resolution.
+
+### Outstanding Phase 3 closure gates
+
+- Product Relationships Pass 2 live acceptance; do not infer this from parent
+  or child publishing acceptance.
+- Representative real-catalogue regression, including accepted recovery/Unlink,
+  taxonomy, variable combinations, prices and ordered media.
+- Final Discord webhook/notification regression.
+- Final Phase 3 stable checkpoint, separately approved verification/promotion.
+
+M4 recovery/Unlink remains recorded as completed; it needs regression coverage,
+not reimplementation. Historical stable and immutable tags remain protected.
+
+## Previously recorded phase and milestone history
+
 - **Phase 0 — Secure baseline, documentation, tests and containerisation:** complete baseline scope for version `0.1.0`.
 - **Phase 1 — Database ingestion parity and catalogue integrity:** complete in `0.2.0`. Scanner characterization, migration/recovery foundations, operation control/history, catalogue projection/provenance, complete-parent transactions, recoverable marker coordination, lifecycle reconciliation, identity-preserving reconstruction, the metadata contract, and final release verification are complete.
 - **Phase 2 — Catalogue management UI:** complete as a release candidate on `develop`. Milestone 1

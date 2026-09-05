@@ -1,5 +1,25 @@
 # Existing Architecture
 
+For the dated released Phase 3 M4 checkpoint, see [Current State](CURRENT_STATE.md).
+The [M5 Taxonomy Registry architecture audit](PHASE_3_M5_TAXONOMY_AUDIT.md) records
+the proposed next extension, its observed compatibility constraints and approval
+gates. It does not replace the implemented source/scanner contracts below.
+M5.1 now provides the explicitly invoked, read-only
+[local taxonomy registry loader](TAXONOMY_REGISTRY.md); no scanner or Woo path
+consumes it. Future changes must
+keep authored definitions and product assignments in filesystem JSON, distinguish
+Storefront Collections from the existing Collection model, and document each
+approved contract change alongside its implementation.
+
+The M5.1 loader reads a bounded schema-v1 `registry.json` under configured
+`TAXONOMY_ROOT` (default `/taxonomy`) and returns immutable snapshots plus content
+digests. Readiness is observational: startup never loads/requires taxonomy, and
+the loader never creates/repairs files or writes database state. Stable local
+definition keys and category/term scopes are validated independently of Woo.
+Directory-descriptor confinement rejects symlinks/overlapping roots. Registry
+UI/import/save, product assignment semantics, projection and remote sync remain
+unimplemented. No new migration or dependency is required for this boundary.
+
 ```text
 Filesystem and product_info.json
         ↓

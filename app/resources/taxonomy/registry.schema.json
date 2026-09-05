@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Local authored taxonomy registry version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "categories", "storefront_collections", "attributes", "tags"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "categories": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/category"}},
+    "storefront_collections": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/entry"}},
+    "attributes": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/attribute"}},
+    "tags": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/entry"}}
+  },
+  "$defs": {
+    "key": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,95}(?![\\s\\S])"},
+    "label": {"type": "string", "minLength": 1, "maxLength": 191, "pattern": "^[^\\u0000-\\u001f\\u007f]+(?![\\s\\S])"},
+    "entry": {
+      "type": "object",
+      "required": ["key", "name", "slug", "state"],
+      "properties": {
+        "key": {"$ref": "#/$defs/key"},
+        "name": {"$ref": "#/$defs/label"},
+        "slug": {"type": "string", "maxLength": 96, "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*(?![\\s\\S])"},
+        "state": {"enum": ["draft", "active", "deprecated"]},
+        "order": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "aliases": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/label"}}
+      },
+      "unevaluatedProperties": false
+    },
+    "category": {
+      "type": "object",
+      "required": ["key", "name", "slug", "state", "parent"],
+      "properties": {
+        "key": {"$ref": "#/$defs/key"}, "name": {"$ref": "#/$defs/label"},
+        "slug": {"$ref": "#/$defs/entry/properties/slug"},
+        "state": {"$ref": "#/$defs/entry/properties/state"},
+        "order": {"$ref": "#/$defs/entry/properties/order"},
+        "aliases": {"$ref": "#/$defs/entry/properties/aliases"},
+        "parent": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/key"}]}
+      },
+      "additionalProperties": false
+    },
+    "attribute": {
+      "type": "object",
+      "required": ["key", "name", "slug", "state", "navigation", "visible_default", "terms"],
+      "properties": {
+        "key": {"$ref": "#/$defs/key"}, "name": {"$ref": "#/$defs/label"},
+        "slug": {"$ref": "#/$defs/entry/properties/slug"},
+        "state": {"$ref": "#/$defs/entry/properties/state"},
+        "order": {"$ref": "#/$defs/entry/properties/order"},
+        "aliases": {"$ref": "#/$defs/entry/properties/aliases"},
+        "navigation": {"type": "boolean"}, "visible_default": {"type": "boolean"},
+        "terms": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/entry"}}
+      },
+      "additionalProperties": false
+    }
+  }
+}
