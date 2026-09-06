@@ -1,0 +1,32 @@
+{
+    "sku_prefix": "ADOC-",
+    "collection_type": "Variable Collection",
+    "title": "Adorable Dog Ornaments | Christmas Tree",
+    "short_description": "[cg_accordion title='Core Features']<ul><li><strong>Material:</strong> Crafted from two layers of poplar plywood, ensuring durability and a natural aesthetic.</li><li><strong>Customization Options:</strong> Personalize the top layer with your dog's breed, name, and choose from various icon options or a larger dog image.</li><li><strong>Dimensions:</strong> Each ornament measures 100mm x 100mm with an added 10mm ring for hanging. The layers are 2 layers of 3mm poplar plywood.</li><li><strong>Angel Wings Option:</strong> For a heavenly touch, add angel wings to your dog's ornament.</li><li><strong>Breed Variety:</strong> Choose from over 150 dog breeds and variations.</li></ul>[/cg_accordion][cg_accordion title='Details']Our handcrafted dog Christmas tree ornaments are a unique and personalized way to celebrate your furry friend during the holiday season. The double-layered poplar wood base can be stained in various colors, while the top layer offers a range of customization options, including icon rings with dog-related images or a larger dog image. Each ornament is meticulously crafted with precision and attention to detail, ensuring a high-quality and durable product.[/cg_accordion][cg_accordion title='Delivery & Returns']<ul><li><strong>Production Time:</strong> Please allow 5-10 days for production, as each ornament is custom-made.</li><li><strong>Shipping:</strong> Once completed, your ornament will be shipped via Royal Mail 48h tracked service.</li><li><strong>Returns:</strong> Due to the custom nature of these products, we unfortunately cannot accept returns unless the ornament is damaged upon delivery.</li></ul>[/cg_accordion]",
+    "live": false,
+    "meta_title": "Personalised Dog Ornament",
+    "meta_description": "Celebrate your dog with a handcrafted layered wooden ornament. Customize with breed, name, angel wings, and more.",
+    "price": "6.50",
+    "weight": "50",
+    "categories": [
+        "Ornaments"
+    ],
+    "tags": [
+        "Adorable Dog"
+    ],
+    "attributes": {
+        "Angel Wings": [
+            "Without",
+            "With"
+        ],
+        "Outer Detail": [
+            "Plain",
+            "Icon Ring"
+        ]
+    },
+    "dimensions": {
+        "length": "110",
+        "width": "100",
+        "height": "6"
+    }
+}

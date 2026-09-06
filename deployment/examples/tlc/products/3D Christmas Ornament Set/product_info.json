@@ -1,0 +1,57 @@
+{
+    "sku_prefix": "3DCO-",
+    "collection_type": "Single Variable",
+    "title": "Timeless Holiday Phrases (Flat or 3D Options)",
+    "short_description": "Choose between 3d or Flat layer design with 7 unique designs",
+    "live": false,
+    "meta_title": "Test",
+    "meta_description": "Test",
+    "categories": [
+        "ornaments"
+    ],
+    "tags": [
+        "christmas",
+        "3d",
+        "flat",
+        "3 Layer"
+    ],
+    "image_attributes": [
+        "Style",
+        "Build Type"
+    ],
+    "attributes": {
+        "Build Type": [
+            "Flat 3 Layer",
+            "3d 3 Layer"
+        ],
+        "Style": [
+            "Farm",
+            "Fireplace",
+            "Horse",
+            "Street",
+            "Town",
+            "Train",
+            "Trees"
+        ]
+    },
+    "variation_modifiers": {
+        "Build Type=3d 3 Layer": {
+            "price": "9",
+            "weight": "65",
+            "dimensions": {
+                "length": "100",
+                "width": "100",
+                "height": "20"
+            }
+        },
+        "Build Type=Flat 3 Layer": {
+            "price": "8.00",
+            "weight": "50",
+            "dimensions": {
+                "length": "100",
+                "width": "100",
+                "height": "12"
+            }
+        }
+    }
+}

@@ -1,0 +1,8 @@
+{% extends "taxonomy/base.html" %}
+{% block registry_content %}
+<form class="workspace-panel taxonomy-form" method="post" enctype="multipart/form-data"><h2>Review TLC bootstrap</h2><p>Upload the TLC combined taxonomy seed and matching category CSV. Files are read as conversion inputs, never installed unchanged or retained as uploads. This action previews only.</p>
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="base" value="{{ base }}">
+<label for="seed-file">TLC combined taxonomy JSON (maximum 1 MiB)</label><input class="form-control" id="seed-file" type="file" name="seed" accept=".json" required>
+<label for="csv-file">Matching category CSV (maximum 1 MiB)</label><input class="form-control" id="csv-file" type="file" name="categories_csv" accept=".csv" required>
+<p>Names, category slugs, hierarchy and source order are preserved. Keys and attribute/term slugs are deterministic proposals. All definitions start Draft, with attribute visibility off. No ranges/tags are inferred from guide examples. No product assignment rules are imported.</p><button class="btn btn-primary">Preview bootstrap</button></form>
+{% endblock %}

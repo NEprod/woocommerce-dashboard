@@ -1,0 +1,11 @@
+{% extends "taxonomy/base.html" %}
+{% block registry_content %}
+<form class="workspace-panel taxonomy-form" method="post" data-taxonomy-draft>
+<h2>Advanced registry JSON</h2><p>This is the complete authored registry.json document, not a database copy. Saving replaces it only after explicit review. Product metadata is not edited.</p>
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="base" value="{{ base }}">
+{% if error %}<p class="alert alert-danger" role="alert">{{ error }} Your draft is preserved.</p>{% endif %}
+<label for="registry-json">Registry v1 source</label><div class="taxonomy-code-editor"><pre id="registry-lines" aria-hidden="true"></pre><textarea class="form-control taxonomy-json" id="registry-json" name="document" rows="24" spellcheck="false" required>{{ document }}</textarea></div>
+<details class="json-highlight-preview"><summary>Syntax preview (first 40,000 characters)</summary><pre class="taxonomy-json" id="registry-highlight"></pre></details>
+<label for="registry-find">Find in source</label><input class="form-control" id="registry-find" type="search"><button type="button" class="btn btn-ghost" data-find-json>Find next</button>
+<p id="json-status" role="status"></p><div class="panel-actions"><button class="btn btn-ghost" type="button" data-format-json>Format JSON</button><button class="btn btn-primary">Validate and review replacement</button><a class="btn btn-ghost" href="{{ url_for('taxonomy.index') }}">Return to structured editing</a></div></form>
+{% endblock %}

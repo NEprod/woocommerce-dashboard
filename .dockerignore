@@ -41,6 +41,9 @@ compose.override.yml
 docker-compose.override.yaml
 docker-compose.override.yml
 tests
+dev-fixtures
+/taxonomy/**
+/deployment/examples/**
 docs
 app/static/assets/scss
 app/static/assets/package.json

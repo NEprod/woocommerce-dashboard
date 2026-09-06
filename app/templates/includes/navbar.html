@@ -8,6 +8,8 @@
 {% set intake_endpoints = ['main.image_preparation', 'main.image_preparation_group', 'main.image_preparation_rename', 'main.image_preparation_rename_preview', 'main.image_preparation_rename_confirm', 'main.image_preparation_folders', 'main.image_preparation_folders_edit', 'main.image_preparation_folders_preview', 'main.image_preparation_folders_confirm', 'main.image_preparation_metadata', 'main.image_preparation_metadata_edit', 'main.image_preparation_metadata_preview', 'main.image_preparation_metadata_confirm'] %}
 {% set woo_endpoints = ['main.woocommerce', 'main.woocommerce_test', 'main.woocommerce_preview', 'main.woocommerce_preview_estimate', 'main.woocommerce_preview_generate', 'main.woocommerce_preview_operation', 'main.woocommerce_preview_product', 'main.api_woocommerce_preview_product'] %}
 {% set more_endpoints = collection_endpoints + relationship_endpoints + intake_endpoints + woo_endpoints + ['main.metadata_reference', 'main.settings', 'main.woo_sync', 'main.orders', 'main.website_automation', 'main.analytics'] %}
+{% set taxonomy_endpoints = ['taxonomy.index', 'taxonomy.edit', 'taxonomy.advanced', 'taxonomy.import_seed', 'taxonomy.confirm'] %}
+{% set more_endpoints = more_endpoints + taxonomy_endpoints %}
 
 <aside class="app-sidebar" aria-label="Primary navigation">
   <div class="sidebar-brand">
@@ -30,6 +32,7 @@
     </div>
     <div class="sidebar-group">
       <p class="sidebar-group-label sidebar-label">Metadata</p>
+      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in taxonomy_endpoints }}" href="{{ url_for('taxonomy.index') }}"{% if request.endpoint in taxonomy_endpoints %} aria-current="page"{% endif %} title="Taxonomy">{{ icon('book') }} <span class="sidebar-label">Taxonomy</span></a>
       <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint == 'main.metadata_reference' }}" href="{{ url_for('main.metadata_reference') }}"{% if request.endpoint == 'main.metadata_reference' %} aria-current="page"{% endif %} title="Reference">{{ icon('book') }} <span class="sidebar-label">Reference</span></a>
     </div>
     <div class="sidebar-group">
@@ -63,6 +66,7 @@
   </div>
   <div class="offcanvas-body">
     <nav aria-label="Secondary navigation">
+      <a class="mobile-nav-link {{ 'is-active' if request.endpoint in taxonomy_endpoints }}" href="{{ url_for('taxonomy.index') }}"{% if request.endpoint in taxonomy_endpoints %} aria-current="page"{% endif %}>{{ icon('book') }} Taxonomy</a>
       <div class="mobile-nav-section"><p class="mobile-nav-label">Catalogue</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint in collection_endpoints }}" href="{{ url_for('main.collections') }}"{% if request.endpoint in collection_endpoints %} aria-current="page"{% endif %}>{{ icon('collection') }} Collections</a><a class="mobile-nav-link {{ 'is-active' if request.endpoint in relationship_endpoints }}" href="{{ url_for('main.relationships') }}"{% if request.endpoint in relationship_endpoints %} aria-current="page"{% endif %}>{{ icon('link') }} Relationships</a><a class="mobile-nav-link {{ 'is-active' if request.endpoint in intake_endpoints }}" href="{{ url_for('main.image_preparation') }}"{% if request.endpoint in intake_endpoints %} aria-current="page"{% endif %}>{{ icon('folder') }} Catalogue Intake</a></div>
       <div class="mobile-nav-section"><p class="mobile-nav-label">Metadata</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.metadata_reference' }}" href="{{ url_for('main.metadata_reference') }}"{% if request.endpoint == 'main.metadata_reference' %} aria-current="page"{% endif %}>{{ icon('book') }} Metadata Reference</a></div>
       <div class="mobile-nav-section"><p class="mobile-nav-label">Integrations</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint in woo_endpoints }}" href="{{ url_for('main.woocommerce') }}"{% if request.endpoint in woo_endpoints %} aria-current="page"{% endif %}>{{ icon('plug') }} WooCommerce</a></div>

@@ -1,0 +1,18 @@
+{% extends "taxonomy/base.html" %}
+{% block registry_content %}
+<form method="post" class="workspace-panel taxonomy-form" data-taxonomy-draft>
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="base" value="{{ base }}">
+<h2>{{ 'Edit' if key else 'Add' }} · {{ labels[kind] }}</h2>
+{% if error %}<p class="alert alert-danger" role="alert">{{ error }} Your draft is preserved.</p>{% endif %}
+<div class="taxonomy-fields">
+{% for field, label in [('key','Stable local key'),('name','Name'),('slug','Slug')] %}<div><label for="definition-{{ field }}">{{ label }}</label><input class="form-control" id="definition-{{ field }}" name="{{ field }}" value="{{ key if field == 'key' and key else values.get(field, '') }}" required maxlength="{{ 191 if field == 'name' else 96 }}"{% if field == 'key' and key %} readonly{% endif %}></div>{% endfor %}
+<div><label for="definition-state">Lifecycle</label><select class="form-select" id="definition-state" name="state">{% for state in ['draft','active','deprecated'] %}<option{% if values.get('state','draft') == state %} selected{% endif %}>{{ state }}</option>{% endfor %}</select></div>
+<div><label for="definition-order">Order (optional)</label><input class="form-control" id="definition-order" name="order" type="number" min="0" max="1000000" value="{{ values.get('order','') }}"></div>
+{% if kind == 'categories' %}<div><label for="definition-parent">Parent category</label><select class="form-select" id="definition-parent" name="parent"><option value="">Top level</option>{% for category in categories %}{% if category['key'] != key %}<option value="{{ category['key'] }}"{% if values.get('parent') == category['key'] %} selected{% endif %}>{{ paths[category['key']] }}</option>{% endif %}{% endfor %}</select></div>{% endif %}
+</div>
+<label for="definition-aliases">Aliases (one per line; full historical paths for categories)</label><textarea class="form-control" id="definition-aliases" name="aliases" rows="3">{{ values.get('aliases','') }}</textarea>
+{% if kind == 'attributes' %}{% for field,label in [('navigation','Navigation attribute'),('visible_default','Visible by default')] %}<label class="check-row"><input type="checkbox" name="{{ field }}" value="yes"{% if values.get(field) == 'yes' %} checked{% endif %}><span>{{ label }}</span></label>{% endfor %}<p>Terms remain intact when this attribute is edited. Variation usage is not configured here.</p>{% endif %}
+<p>Removal validates registry dependencies only. Product usage is not indexed in this slice; prefer deprecation for previously used vocabulary. Stable keys are not renamed.</p>
+<div class="panel-actions"><button class="btn btn-primary" name="action" value="save">Review changes</button>{% if key %}<button class="btn btn-outline-danger" name="action" value="remove" formnovalidate>Review removal</button>{% endif %}<a class="btn btn-ghost" href="{{ url_for('taxonomy.index', kind='attributes' if kind == 'terms' else kind) }}">Cancel</a></div>
+</form>
+{% endblock %}

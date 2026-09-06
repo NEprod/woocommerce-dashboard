@@ -2,6 +2,8 @@ from app import db
 from flask_login import UserMixin
 from datetime import datetime, date
 from sqlalchemy.sql import func
+from sqlalchemy.orm import synonym
+from flask import current_app, has_app_context
 
 # -------------------- Auth / Settings --------------------
 
@@ -16,9 +18,28 @@ class User(db.Model, UserMixin):
 
 class Settings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    product_folder = db.Column(db.String(512))
-    output_folder = db.Column(db.String(512))
-    url_prefix = db.Column(db.String(512))
+    _product_folder = db.Column("product_folder", db.String(512))
+    _output_folder = db.Column("output_folder", db.String(512))
+    _url_prefix = db.Column("url_prefix", db.String(512))
+
+    def _effective(self, name):
+        configured = current_app.config.get(name.upper()) if has_app_context() else None
+        return configured if configured is not None else getattr(self, "_" + name)
+
+    def _local(self, name, value):
+        if has_app_context() and current_app.config.get(name.upper()) is not None:
+            raise ValueError("This setting is owned by deployment configuration.")
+        setattr(self, "_" + name, value)
+
+    product_folder = synonym("_product_folder", descriptor=property(
+        lambda self: self._effective("product_folder"),
+        lambda self, value: self._local("product_folder", value)))
+    output_folder = synonym("_output_folder", descriptor=property(
+        lambda self: self._effective("output_folder"),
+        lambda self, value: self._local("output_folder", value)))
+    url_prefix = synonym("_url_prefix", descriptor=property(
+        lambda self: self._effective("url_prefix"),
+        lambda self, value: self._local("url_prefix", value)))
 
 
 # -------------------- Catalogue operations --------------------

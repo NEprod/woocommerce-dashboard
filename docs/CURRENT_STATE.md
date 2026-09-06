@@ -1,5 +1,85 @@
 # Current State
 
+## M5.2 deployment/onboarding follow-up — 2026-09-06 (uncommitted)
+
+Deployment now supplies `PRODUCT_FOLDER=/catalogue`, `OUTPUT_FOLDER=/output`
+and `URL_PREFIX`; `INTAKE_ROOT=/intake` and `TAXONOMY_ROOT=/taxonomy` retain their
+independent roots. Existing Unraid Intake mapping is unchanged. Docker image and
+Compose declarations consume container paths; optional Intake/Taxonomy overlays
+require explicit existing host directories. No build/publication occurred.
+
+Settings resolves explicit application configuration before the original SQLite
+fallback columns. Explicit blank values are not fallback requests. Deployment
+values are never copied into SQLite or overridden by the setup form. No migration
+or dependency was added. URL construction remains literal prefix + generated
+filename; deployment must supply any intended trailing slash.
+
+Login is unchanged. Authenticated setup uses a wide responsive readiness shell,
+existing registry validation and the normal Scanner/Operation Detail workflow.
+Initial scans remain explicitly confirmed Append; existing identities retain
+reconstruction and intentional Full regeneration with identity warning. No new
+scanner mode or taxonomy interpretation exists. Valid read-only registries permit
+onboarding; missing/invalid registries block this first-run UI, not scanner logic.
+Intake and Woo readiness are informative, not initial-scan prerequisites.
+
+Audit correction: the old completion panel did not persist or enforce successful
+initial scanning. New admin setup now creates instance-owned `onboarding.json`;
+pending setup cannot open Dashboard until a successful, matching scoped operation
+is server-revalidated by explicit Continue. Failures/recovery stay pending. An
+absent record preserves legacy-installation compatibility; corrupt records fail
+closed. Retain this file with instance backups. See ARCHITECTURE for details.
+
+The user removed the old loose fixture directory and replaced the initially
+incompatible legacy examples with six current-format collections under
+`deployment/examples/tlc/products/`. Temporary-copy scanning passes: 9 Simple
+parents, 6 Variable parents and 39 variations (54 rows), including a regular
+Variable Collection and a sparse override. Seven JSON files and 97 images are
+represented. Source hashes remain unchanged by tests. Categories are intentionally
+not reconciled to the registry in this slice. No scanner workaround or automatic
+conversion was included. The registry remains Ready at the digest below.
+
+Focused verification: the related registry/workspace/scanner/reconstruction run
+had 120 passes and 11 failures caused by one new readiness variable-name collision.
+That collision was fixed; the affected onboarding/setup group then passed **18/18**.
+The real initial runner completion test passed; existing-identity onboarding
+reconstruction and the corrected six-collection regression additionally passed
+**2/2**. Intake deployment/readiness/no-side-effect checks passed **3/3**. The first
+replacement-data run exposed only the obsolete five-folder assertion; it now
+asserts the exact six approved collection row counts. All affected failures were
+resolved and rerun narrowly. Scanner JavaScript: **3 passed**. Python compilation,
+four changed template compilations, XML parsing and combined Compose configuration
+validation passed. The final local-fallback validation/redaction check passed
+**1/1** after control-character path rejection was tightened; changed Python
+modules compiled successfully. Final `git diff --check` passed. Branch remains
+`develop`; the M5.2 implementation and curated references remain unstaged and
+uncommitted. Repository status/diff inspection completed after a cloud-file
+availability delay. No full project suite, commit, tag, push or Docker build was
+run. M5.3 remains deferred.
+
+## M5.2 ownership acceptance — 2026-09-06
+
+M5.2 remains uncommitted. Generic bring-your-own-registry loading/startup is
+confirmed: no automatic registry creation, TLC installation or fallback. The
+missing-registry workspace now makes generic file provision primary and TLC
+conversion optional. TLC's deployment-owned artifact is
+[`deployment/examples/tlc/registry.json`](../deployment/examples/tlc/registry.json),
+excluded from Docker context, with manual installation instructions in its
+[README](../deployment/examples/tlc/README.md).
+
+Production loader: Ready, schema 1, 56 categories, 7 attributes, 110 terms,
+0 Storefront Collections, 0 tags. Canonical digest:
+`01d7415e5c55ff233e342480c3b6c5577e0a56248e2198e289ef6f06a29bef61`.
+Reviewed artifact definitions are Active; optional interactive imports still
+initialize Draft. Original references and dev-fixtures remain untouched.
+
+Focused verification: **77 passed** (M5.1 registry, M5.2 workspace and Unraid
+contract), including production artifact validation/source equivalence, fictional
+non-TLC startup/workspace, temporary TLC search/hierarchy/terms/editor roundtrip,
+stale rejection and unrelated-definition preservation. Existing SQLAlchemy
+Query.get deprecation warnings only. No full suite or Docker build was run.
+Scanner/product JSON/M4/Woo/Relationships remain unchanged; no migration or
+dependency. M5.3 product assignment/resolution and later Woo sync remain deferred.
+
 This document records the completed Phase 1 (`0.2.3`) catalogue-integrity release, the completed Phase 2/2.5 (`0.3.1`) catalogue-management release, and current Phase 3 development. Phase 1 builds on the Phase 0 baseline without changing protected scanner row semantics.
 
 ## Released M4 checkpoint and planned M5 — 2026-09-05
@@ -30,7 +110,8 @@ Woo Admin `default_product_cat` option lookup; settings-only/Store API-only
 descriptions are not the complete current contract. Raw shortcode comparison
 also handles supported structural equivalence when raw content is available.
 
-**M5.1 is implemented:** the read-only Taxonomy Registry/configuration foundation.
+**M5.1 and M5.2 are implemented:** read-only Taxonomy Registry foundation plus
+authenticated registry workspace and reviewed bootstrap/editing.
 Storefront Collection mapping and per-product variation designation remain
 unimplemented. The architecture
 audit proposes local filesystem definitions plus controlled product assignments,
@@ -77,7 +158,62 @@ No scanner/catalogue/product assignment/editor/M4 Woo/Relationships behavior,
 database migration, dependency or deployment mount changed. No production seed
 was shipped or imported. Real TLC bootstrap, registry workspace/writes, deployment
 mount declarations and all versioned product-resolution/projection/Woo integration
-remain later gates. Nothing was committed, tagged, pushed or built for this slice.
+remain later gates at that implementation checkpoint. M5.1 was subsequently
+committed as `28ac4b676bcd5a35d0ba7587abd90d093a9d59ba` without tag/push/build.
+
+### M5.2 delivered local registry workspace — 2026-09-06
+
+`app/taxonomy_routes.py` adds a dedicated authenticated blueprint, linked from
+desktop Metadata navigation and mobile More. Overview shows readiness/schema/
+digest/counts, search/pagination and last bounded local registry operation.
+Guided category/range/attribute/term/tag editing and Advanced JSON share a
+schema-validated signed review/confirm path. JSON drafts survive validation
+failure; Advanced includes format, search, line numbers and escaped syntax preview.
+Category cycles/dependencies and scoped vocabulary collisions remain blocked.
+
+`app/taxonomy_workspace.py` converts uploaded TLC seed+matching CSV without
+retaining uploads, inventing ranges/tags, or applying product assignment rules.
+Reference conversion verified **56 categories / 7 attributes / 110 terms**.
+Generated stable keys/slugs and conservative Draft/default-visibility-off values
+are explicitly reviewed. Existing registry bootstrap is refused; intentional
+replacement uses Advanced JSON review and backup instead. No production registry
+was written during implementation and no private seed data is packaged.
+
+Writes require CSRF, acknowledgement, user-bound 30-minute review, unchanged
+source/directory revision, existing operation lease and directory flock. Verified
+backup precedes atomic source replacement and strict readback. Rollback never
+overwrites an externally changed version. Known-valid backup retention keeps 10;
+failure evidence is retained. External editors must coordinate rather than race
+app saves. Invalid existing source/missing mount requires administrator repair,
+not silent fallback. See [exact contract and recovery limits](TAXONOMY_REGISTRY.md).
+
+Deployment: new optional `compose.taxonomy.yaml` requires an explicitly selected
+existing host directory (`create_host_path: false`); source-controlled Unraid XML
+adds optional independent `/taxonomy` and `TAXONOMY_ROOT`. `.env.example` documents
+the settings. Startup/Dockerfile/entrypoint do not create or require the root.
+Runtime taxonomy and dev-fixtures are excluded from image context. No build ran.
+
+Focused test evidence (existing pinned temporary Python environment):
+
+- `pytest -q tests/test_taxonomy_registry.py tests/test_taxonomy_workspace.py tests/test_unraid_deployment.py::test_unraid_template_has_safe_supported_contract`:
+  first run **66 passed, 1 failed**; the new HTML assertion incorrectly expected
+  literal `>` rather than Jinja's safe `&gt;`. Test assertion corrected, no rendering
+  safety weakened. M5.1's 41 cases and existing Unraid contract passed.
+- `pytest -q tests/test_taxonomy_workspace.py`: **29 passed** after correction
+  and additional lock/retention/rollback coverage; external TLC reference check
+  enabled via `TLC_REFERENCE_ROOT` pointing at the supplied read-only directory.
+- `pytest -q tests/test_taxonomy_workspace.py::test_request_bounds_precede_csrf_parsing tests/test_taxonomy_workspace.py::test_authentication_csrf_overview_and_templates tests/test_taxonomy_registry.py::test_application_startup_does_not_require_or_load_registry`:
+  **3 passed** after the final taxonomy-only request-bound addition, including
+  one new case. Aggregate covered: 41 M5.1 + 30 M5.2 + 1 existing deployment cases.
+- `node --test tests/js/taxonomy.test.js`: **4 passed** (format/duplicate-key
+  preservation, invalid input, safe bounded syntax highlighting).
+
+All Python commands use `PYTHONPATH=.`. Existing SQLAlchemy Query.get warnings
+were not changed. Python/JS syntax, template compilation/rendering, responsive/
+semantic structure, XML and diff checks are part of this focused checkpoint.
+No full test suite, migrations, dependencies, scanner/product assignment changes,
+M4 publishing/recovery/gallery changes, Relationships changes, Woo calls, commits,
+tags, pushes or Docker builds occurred. M5.3 remains unimplemented.
 
 ## Startup and setup
 

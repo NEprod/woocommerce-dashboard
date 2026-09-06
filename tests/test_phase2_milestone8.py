@@ -212,10 +212,12 @@ def test_authentication_and_setup_templates_have_one_semantic_h1():
         "app/templates/auth/forgot_password.html",
         "app/templates/auth/reset_password.html",
         "app/templates/setup/setup.html",
-        "app/templates/setup/initial_settings.html",
-        "app/templates/setup/initial_scan.html",
     )
     for relative in templates:
         source = (ROOT / relative).read_text(encoding="utf-8")
         assert source.count("<h1") == 1, relative
         assert "auth-brand-title" in source, relative
+    source = (ROOT / "app/templates/setup/initial_settings.html").read_text()
+    assert source.count("<h1") == 1
+    assert "layouts/onboarding.html" in source
+    assert "auth-shell" not in source

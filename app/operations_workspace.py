@@ -34,6 +34,7 @@ TYPE_LABELS = {
     "intake_structured_import": "Catalogue Intake — Import Structured Folder",
     "woo_connection_test": "WooCommerce Connection Test",
     "product_relationship_update": "Product Relationships Update",
+    "taxonomy_registry_update": "Local Taxonomy Registry Update",
     "woo_publish_preview": "WooCommerce Publish Preview",
     "woo_controlled_publish": "WooCommerce Controlled Publish",
 }

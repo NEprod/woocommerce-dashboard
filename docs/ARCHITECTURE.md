@@ -1,5 +1,58 @@
 # Existing Architecture
 
+## M5.2 configuration and onboarding boundary — 2026-09-06
+
+`Settings.product_folder`, `output_folder` and `url_prefix` retain their existing
+SQL column names but resolve `PRODUCT_FOLDER`, `OUTPUT_FOLDER`, `URL_PREFIX`
+application configuration first. Config reads environment at process startup;
+restart after deployment changes. None means local SQLite fallback; explicit
+blank means deployment-owned/not ready. ORM writes to configured properties are
+rejected. Startup may create an empty Settings row for existing consumers, never
+copying deployment values into fallback columns. No schema change exists.
+
+Intake keeps its established independent `/intake` contract. Catalogue/output
+mounts and public prefix are declared in Docker/Compose/Unraid, not chosen again
+in Docker first-run forms. Local installs may edit only unowned fallback fields.
+Readiness never echoes nonstandard directory paths, credentials or URL queries.
+The image URL concatenation implementation remains untouched.
+
+The old initial scan was explicit Append (or identity-preserving reconstruction,
+or explicitly confirmed Full regeneration). Its success panel was client-side;
+no durable success gate existed. New first-run admin creation writes bounded
+version-1 `/app/instance/onboarding.json` via the existing atomic-file helper.
+It stores a pending token, then successful operation ID and completion status,
+not product data or secrets. Reads reject symlinks/corruption. The existing
+operation scope carries that token and a configuration digest; Continue checks
+both, terminal success/no failures/no recovery, and current readiness. Partial
+warning-only results with no error/failure/recovery can complete. No duplicate
+scan is required. Scope/history expiry before confirmation requires safe retry;
+completed state remains durable independently of routine operation retention.
+
+Legacy installs without this file are not retroactively gated. Missing/corrupt
+pending state must not be manually deleted to bypass setup: restore instance
+backup when damaged. All new setup state must remain with the database on the
+persistent instance mount. The supported single-worker deployment is unchanged.
+
+`/initial-scan` redirects to `/scanner?initial=1`; its obsolete dedicated template
+is removed. The existing runner/services, confirmations, scope/recovery rules,
+progress and results remain authoritative. Taxonomy availability is a first-run
+route check only. Scanner business logic does not consume the registry. No Woo
+request is needed for readiness. M5.3 must still separately version informational
+attributes versus product-level variation designation without duplicate globals.
+
+## Registry ownership clarification — 2026-09-06
+
+The taxonomy workspace operates on whichever valid authored registry is mounted.
+Startup and missing-registry states never install defaults. `/taxonomy` is
+independent persistent authored storage, not catalogue/output/instance state.
+TLC conversion is an optional explicit adapter. Its generated
+[deployment artifact](../deployment/examples/tlc/registry.json) is excluded from
+Docker, manually installed only for TLC, and is never a runtime fallback.
+See [provenance/install contract](../deployment/examples/tlc/README.md).
+M5.3+ must separate product-level variation designation from all assigned global
+attributes without duplicating global definitions; current scanner/product/M4
+contracts are unchanged.
+
 For the dated released Phase 3 M4 checkpoint, see [Current State](CURRENT_STATE.md).
 The [M5 Taxonomy Registry architecture audit](PHASE_3_M5_TAXONOMY_AUDIT.md) records
 the proposed next extension, its observed compatibility constraints and approval
@@ -17,8 +70,19 @@ digests. Readiness is observational: startup never loads/requires taxonomy, and
 the loader never creates/repairs files or writes database state. Stable local
 definition keys and category/term scopes are validated independently of Woo.
 Directory-descriptor confinement rejects symlinks/overlapping roots. Registry
-UI/import/save, product assignment semantics, projection and remote sync remain
-unimplemented. No new migration or dependency is required for this boundary.
+UI/import/save were added separately in M5.2; product assignment semantics,
+projection and remote sync remain unimplemented. No migration or dependency
+was needed for this boundary.
+
+M5.2 registers a dedicated `taxonomy` blueprint with authenticated local CRUD,
+Advanced source editing and TLC seed/CSV conversion proposals. Signed reviews
+bind user, proposal and original source/directory revision. The registry writer
+uses the existing bounded operation history/lease plus directory locking,
+descriptor-confined verified backups/staging and atomic replacement/readback.
+Filesystem registry remains authoritative; the audit record is not a replacement
+or projection of it. See [registry contract](TAXONOMY_REGISTRY.md) for concurrency,
+retention and failure/recovery limits. No product/scanner or Woo code consumes
+the registry. Separate optional Compose/Unraid mounts never become startup gates.
 
 ```text
 Filesystem and product_info.json
@@ -36,7 +100,8 @@ Flask web UI
 
 `app.create_app()` is the application factory. It initializes SQLAlchemy, login management, CSRF protection, routes, and the database tables. `run.py` is both the development entry point and Gunicorn import target.
 
-All HTTP routes currently live in a single blueprint in `app/routes.py`. Jinja
+Existing HTTP routes live in `main` in `app/routes.py`; M5.2 registry-only routes
+live in `taxonomy` in `app/taxonomy_routes.py`. Jinja
 templates provide the UI over bundled Bootstrap assets. The Phase 2 shell uses
 one semantic-token stylesheet, project-owned SVG symbols, and a small local
 JavaScript controller; it does not require Bootstrap, jQuery, fonts, or icons

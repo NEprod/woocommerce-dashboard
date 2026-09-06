@@ -1,5 +1,35 @@
 # Roadmap
 
+## M5.2 configuration/onboarding checkpoint — 2026-09-06
+
+Implemented but uncommitted: deployment-owned catalogue/output/image prefix,
+preserved Intake mount, local Taxonomy readiness before explicit initial scanning,
+wide authenticated setup shell, normal Scanner/Operation Detail reuse, and
+success-only first-run completion bookkeeping. No scanner/product/Woo semantics
+changed. Legacy installations without onboarding state remain supported.
+
+Curated TLC references replace loose development fixtures. The user supplied
+current-format replacements for the initial legacy files; all six collections
+now pass temporary-copy scanning (15 parents, 39 variations), with original source
+hashes preserved. See the [inventory](../deployment/examples/tlc/products/README.md)
+and [Current State](CURRENT_STATE.md) for exact focused tests/results. Configuration
+and onboarding are ready for final checkpoint review and deployment acceptance;
+no commit/image publication has occurred. M5.3 has not started; historical M1–M4
+records and outstanding Phase 3 closure gates below remain unchanged.
+
+## M5.2 bring-your-own-registry clarification — 2026-09-06
+
+Local workspace/readiness/editing is generic; no automatic registry creation or
+TLC installation. TLC deployment data is separately provided at
+[`deployment/examples/tlc/registry.json`](../deployment/examples/tlc/registry.json),
+outside the image. Ready validation confirms 56 categories, 7 attributes and
+110 terms, no ranges/tags. See [Current State](CURRENT_STATE.md) for focused
+verification and [artifact instructions](../deployment/examples/tlc/README.md)
+for digest/manual persistent-mount installation. M5.2 awaits commit/deployment
+acceptance; M5.3 remains versioned product assignment/resolution semantics, with
+Woo taxonomy sync later. Existing Phase 3 closure gates and M1–M4 history below
+remain unchanged.
+
 ## Current checkpoint and next scope — 2026-09-05
 
 This dated section supersedes older status shorthand below without renumbering
@@ -13,7 +43,7 @@ the native Variation gallery feature enabled. Checkpoint verification: 832
 Python tests and 28 JavaScript tests passed. This is not a Phase 3 stable release.
 
 **Phase 3 M5 — Taxonomy Registry & Controlled Catalogue Metadata: M5.1 read-only
-foundation implemented; M5.2+ deferred.** The previously recorded roadmap
+foundation and M5.2 registry workspace implemented; M5.3+ deferred.** The previously recorded roadmap
 did not assign a numbered M5. This scope adds authored local taxonomy definitions
 for categories, Storefront Collections/named ranges, navigation attributes,
 attribute terms and tags; controlled product JSON assignments; informational
@@ -33,7 +63,9 @@ Proposed implementation slices (future work, not historical milestones):
    content digests and safe readiness/validation diagnostics. See the
    [implemented registry contract](TAXONOMY_REGISTRY.md). No startup load/gate,
    scanner, product JSON or Woo integration; no migration or dependency.
-2. **M5.2:** local registry workspace, reviewed import/save and mount readiness.
+2. **M5.2 — implemented:** authenticated guided/Advanced registry editing,
+   signed review/confirm, stale-source guards, verified backups/atomic save,
+   reviewed TLC JSON+CSV bootstrap and optional persistent mount declarations.
 3. **M5.3:** approved versioned resolution/projection and necessary reviewed schema
    extension, protecting legacy rows, variations and source identity.
 4. **M5.4:** controlled shared/override editors and explicit adoption review.
@@ -54,8 +86,19 @@ passed 16 tests, including two new boundary cases (44 distinct cases overall).
 Python compilation and documentation/schema checks accompany
 the slice. No full regression, Docker build or publication is part of M5.1.
 Real TLC seed import remains a later reviewed step, not an empty production
-taxonomy endpoint. The next gate is the M5.2 local registry workspace and
-reviewed import/save design; product editors must still wait for M5.3 resolution.
+taxonomy endpoint. M5.2's explicit importer now converts the supplied references;
+production import still requires review/confirmation. The next gate is M5.3
+versioned local resolution/projection; product editors must wait for that contract.
+
+### M5.2 local registry checkpoint — 2026-09-06
+
+Implemented [registry workspace/write contract](TAXONOMY_REGISTRY.md), no product
+or Woo integration. Supplied TLC read-only conversion verified 56 categories,
+7 navigation attributes and 110 terms; no ranges/tags invented. Optional Compose
+overlay and Unraid `/taxonomy` mapping leave existing startup/deployment optional.
+Focused verification covered M5.1, workspace auth/CSRF/CRUD/review/backup/failures,
+seed conversion, templates, responsive structure and deployment XML; see exact
+run results in CURRENT_STATE. No full suite, Docker build or publication.
 
 ### Outstanding Phase 3 closure gates
 

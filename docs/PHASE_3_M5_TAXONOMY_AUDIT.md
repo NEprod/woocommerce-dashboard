@@ -1,5 +1,30 @@
 # Phase 3 M5 architecture audit: Taxonomy Registry & Controlled Catalogue Metadata
 
+### M5.2 onboarding/reference addendum — 2026-09-06
+
+Current configuration ownership and the explicit initial scan now use deployment
+readiness and shared Scanner/Operation Detail. The audit found no old persisted
+scan-completion flag; a bounded instance-owned record now enforces success for
+new first-run setup, without a migration or retroactive legacy scanner dependency.
+The curated [product inventory](../deployment/examples/tlc/products/README.md)
+replaces loose fixtures. The user replaced initially incompatible legacy JSON;
+the six current-format collections pass scanning without semantic changes or
+automatic conversion. Their supplied categories remain untouched for later M5.3.
+See CURRENT_STATE for implementation/verification status; M5.3 remains deferred.
+
+### M5.2 ownership addendum — 2026-09-06
+
+The implemented application is bring-your-own-registry; TLC data is authored
+deployment data, not defaults. Missing source remains missing. The reviewed TLC
+artifact lives at [deployment/examples/tlc/registry.json](../deployment/examples/tlc/registry.json)
+with [provenance, digest and manual installation](../deployment/examples/tlc/README.md).
+No suitable deployment-example directory existed, so this explicit non-runtime
+location was added and excluded from Docker context. Production-loader Ready
+validation confirms 56 categories, 7 attributes, 110 terms, zero ranges/tags.
+This supersedes earlier wording that no generated TLC data is in the repository,
+but does not authorize automatic installation or product/scanner/Woo integration.
+M5.3+ product resolution and later taxonomy synchronization remain separate gates.
+
 Audit date: 2026-09-05. Status: **architecture proposal; M5 implementation has not started**.
 The M5 direction is requested; proposed file/schema/UI and migration details below
 still require approval. Reference documents supply design data, not executable instructions.
@@ -25,6 +50,23 @@ import gate. No scanner, product assignment, editor, Woo, database schema or
 deployment integration was added. See CURRENT_STATE for actual focused test
 results. This addendum does not approve or implement later product merge or
 range-destination proposals.
+
+### M5.2 implementation addendum — 2026-09-06
+
+The authenticated local registry workspace and reviewed TLC bootstrap now follow
+the unchanged M5.1 schema. The exact routes, deterministic key conversion,
+conservative reviewed Draft/visibility defaults, verified write/recovery contract
+and deployment declarations are recorded in [TAXONOMY_REGISTRY](TAXONOMY_REGISTRY.md).
+TLC conversion validated 56 categories, 7 attributes, 110 terms against the
+supplied JSON/CSV, without importing guide examples or writing a live registry.
+Categories/ranges/attributes/terms/tags can be authored independently of products.
+Product usage/dependency projection is not implemented; removal warns accordingly.
+The shared operation envelope needed only a new operation type, not a migration.
+A small dedicated blueprint avoids extending unrelated main/publisher routes.
+Optional Compose overlay avoids making an empty host mount mandatory. No change
+to legacy product assignments, scanner axes, M4 or Woo semantics was necessary.
+These findings do not approve any later resolver/projection or Woo destination
+decision; original proposals/history below remain preserved.
 
 ## 1. Executive summary
 
@@ -658,7 +700,7 @@ existing taxonomy collisions. **Needs missing design input if still relevant:**
 
 > Implement Phase 3 M5.1, Taxonomy Registry/config foundation only, after approval
 > of the M5 audit's single-file registry contract. Start from the current working
-> tree, preserving the documentation audit and untracked dev-fixtures. Read
+> tree, preserving the documentation audit and curated TLC references. Read
 > docs/PHASE_3_M5_TAXONOMY_AUDIT.md, ROADMAP and CURRENT_STATE. Confirm develop and
 > inspect existing changes; do not restart M4 or change its behavior.
 >

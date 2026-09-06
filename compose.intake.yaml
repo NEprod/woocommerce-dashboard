@@ -1,0 +1,11 @@
+# Optional existing Catalogue Intake mount; never populated by startup.
+services:
+  app:
+    environment:
+      INTAKE_ROOT: /intake
+    volumes:
+      - type: bind
+        source: ${INTAKE_FOLDER_HOST:?Set INTAKE_FOLDER_HOST to an existing Intake directory}
+        target: /intake
+        bind:
+          create_host_path: false

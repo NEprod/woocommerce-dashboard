@@ -129,7 +129,7 @@ def test_progress_logger_observes_warning_and_error_counts_without_changing_line
         _runs.pop(run_id, None)
 
 
-def test_initial_scan_renders_accessible_shared_progress_and_completion_actions(
+def test_initial_scan_redirects_to_shared_scanner_workspace(
     milestone2_client, monkeypatch
 ):
     from app import routes
@@ -153,22 +153,16 @@ def test_initial_scan_renders_accessible_shared_progress_and_completion_actions(
     )
 
     response = milestone2_client.get("/initial-scan")
-    assert response.status_code == 200
-    html = response.get_data(as_text=True)
-
-    assert 'data-operation-progress' in html
-    assert 'role="status"' in html
-    assert 'aria-live="polite"' in html
-    assert 'id="setupCompletion"' in html
-    assert "Open Dashboard" in html
-    assert "View Products" in html
-    assert "View Operation Details" in html
-    assert "Collections processed" in html
-    assert "Parent products" in html
-    assert "Variations" in html
-    assert "Warnings" in html
-    assert "Failures" in html
-    assert "window.location" not in html
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/scanner?initial=1")
+    page = milestone2_client.get(response.headers["Location"])
+    assert page.status_code == 200
+    html = page.get_data(as_text=True)
+    assert "Scanner workspace" in html
+    assert "Required initial catalogue scan" in html
+    assert "data-scan-dialog" in html
+    assert "scanner-workspace.js" in html
+    assert "auth-shell" not in html
 
 
 def test_shared_progress_component_is_used_by_update_modal():
@@ -198,4 +192,3 @@ def test_operation_progress_script_uses_real_payload_and_accessible_states():
     assert "aria-busy" in script
     assert "OperationProgress" in script
     assert "setInterval" not in script
-

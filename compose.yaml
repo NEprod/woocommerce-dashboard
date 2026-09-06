@@ -11,6 +11,10 @@ services:
       - .env
     environment:
       FLASK_ENV: production
+      PRODUCT_FOLDER: /catalogue
+      OUTPUT_FOLDER: /output
+      URL_PREFIX: "${URL_PREFIX:-}"
+      INTAKE_ROOT: /intake
       PUID: "${PUID:-100}"
       PGID: "${PGID:-100}"
       UMASK: "${UMASK:-002}"

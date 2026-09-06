@@ -1,0 +1,1297 @@
+{
+  "schema_version": 1,
+  "categories": [
+    {
+      "key": "cat-cards",
+      "name": "Cards",
+      "slug": "cards",
+      "parent": null,
+      "order": 1,
+      "state": "active"
+    },
+    {
+      "key": "cat-birthday-cards",
+      "name": "Birthday Cards",
+      "slug": "birthday-cards",
+      "parent": "cat-cards",
+      "order": 2,
+      "state": "active"
+    },
+    {
+      "key": "cat-anniversary-cards",
+      "name": "Anniversary Cards",
+      "slug": "anniversary-cards",
+      "parent": "cat-cards",
+      "order": 3,
+      "state": "active"
+    },
+    {
+      "key": "cat-wedding-cards",
+      "name": "Wedding Cards",
+      "slug": "wedding-cards",
+      "parent": "cat-cards",
+      "order": 4,
+      "state": "active"
+    },
+    {
+      "key": "cat-new-baby-cards",
+      "name": "New Baby Cards",
+      "slug": "new-baby-cards",
+      "parent": "cat-cards",
+      "order": 5,
+      "state": "active"
+    },
+    {
+      "key": "cat-congratulations-cards",
+      "name": "Congratulations Cards",
+      "slug": "congratulations-cards",
+      "parent": "cat-cards",
+      "order": 6,
+      "state": "active"
+    },
+    {
+      "key": "cat-thank-you-cards",
+      "name": "Thank You Cards",
+      "slug": "thank-you-cards",
+      "parent": "cat-cards",
+      "order": 7,
+      "state": "active"
+    },
+    {
+      "key": "cat-christmas-cards",
+      "name": "Christmas Cards",
+      "slug": "christmas-cards",
+      "parent": "cat-cards",
+      "order": 8,
+      "state": "active"
+    },
+    {
+      "key": "cat-mother-s-day-cards",
+      "name": "Mother's Day Cards",
+      "slug": "mother-s-day-cards",
+      "parent": "cat-cards",
+      "order": 9,
+      "state": "active"
+    },
+    {
+      "key": "cat-father-s-day-cards",
+      "name": "Father's Day Cards",
+      "slug": "father-s-day-cards",
+      "parent": "cat-cards",
+      "order": 10,
+      "state": "active"
+    },
+    {
+      "key": "cat-valentine-s-cards",
+      "name": "Valentine's Cards",
+      "slug": "valentine-s-cards",
+      "parent": "cat-cards",
+      "order": 11,
+      "state": "active"
+    },
+    {
+      "key": "cat-other-occasion-cards",
+      "name": "Other Occasion Cards",
+      "slug": "other-occasion-cards",
+      "parent": "cat-cards",
+      "order": 12,
+      "state": "active"
+    },
+    {
+      "key": "cat-prints-and-wall-art",
+      "name": "Prints & Wall Art",
+      "slug": "prints-and-wall-art",
+      "parent": null,
+      "order": 13,
+      "state": "active"
+    },
+    {
+      "key": "cat-personalised-prints",
+      "name": "Personalised Prints",
+      "slug": "personalised-prints",
+      "parent": "cat-prints-and-wall-art",
+      "order": 14,
+      "state": "active"
+    },
+    {
+      "key": "cat-family-prints",
+      "name": "Family Prints",
+      "slug": "family-prints",
+      "parent": "cat-prints-and-wall-art",
+      "order": 15,
+      "state": "active"
+    },
+    {
+      "key": "cat-children-s-prints",
+      "name": "Children's Prints",
+      "slug": "children-s-prints",
+      "parent": "cat-prints-and-wall-art",
+      "order": 16,
+      "state": "active"
+    },
+    {
+      "key": "cat-memorial-prints",
+      "name": "Memorial Prints",
+      "slug": "memorial-prints",
+      "parent": "cat-prints-and-wall-art",
+      "order": 17,
+      "state": "active"
+    },
+    {
+      "key": "cat-wall-art",
+      "name": "Wall Art",
+      "slug": "wall-art",
+      "parent": "cat-prints-and-wall-art",
+      "order": 18,
+      "state": "active"
+    },
+    {
+      "key": "cat-seasonal-prints",
+      "name": "Seasonal Prints",
+      "slug": "seasonal-prints",
+      "parent": "cat-prints-and-wall-art",
+      "order": 19,
+      "state": "active"
+    },
+    {
+      "key": "cat-gifts",
+      "name": "Gifts",
+      "slug": "gifts",
+      "parent": null,
+      "order": 20,
+      "state": "active"
+    },
+    {
+      "key": "cat-keepsakes",
+      "name": "Keepsakes",
+      "slug": "keepsakes",
+      "parent": "cat-gifts",
+      "order": 21,
+      "state": "active"
+    },
+    {
+      "key": "cat-keyrings",
+      "name": "Keyrings",
+      "slug": "keyrings",
+      "parent": "cat-gifts",
+      "order": 22,
+      "state": "active"
+    },
+    {
+      "key": "cat-magnets",
+      "name": "Magnets",
+      "slug": "magnets",
+      "parent": "cat-gifts",
+      "order": 23,
+      "state": "active"
+    },
+    {
+      "key": "cat-tokens",
+      "name": "Tokens",
+      "slug": "tokens",
+      "parent": "cat-gifts",
+      "order": 24,
+      "state": "active"
+    },
+    {
+      "key": "cat-novelty-gifts",
+      "name": "Novelty Gifts",
+      "slug": "novelty-gifts",
+      "parent": "cat-gifts",
+      "order": 25,
+      "state": "active"
+    },
+    {
+      "key": "cat-small-gifts",
+      "name": "Small Gifts",
+      "slug": "small-gifts",
+      "parent": "cat-gifts",
+      "order": 26,
+      "state": "active"
+    },
+    {
+      "key": "cat-home-and-decor",
+      "name": "Home & Décor",
+      "slug": "home-and-decor",
+      "parent": null,
+      "order": 27,
+      "state": "active"
+    },
+    {
+      "key": "cat-signs-and-plaques",
+      "name": "Signs & Plaques",
+      "slug": "signs-and-plaques",
+      "parent": "cat-home-and-decor",
+      "order": 28,
+      "state": "active"
+    },
+    {
+      "key": "cat-door-signs",
+      "name": "Door Signs",
+      "slug": "door-signs",
+      "parent": "cat-home-and-decor",
+      "order": 29,
+      "state": "active"
+    },
+    {
+      "key": "cat-wall-plaques",
+      "name": "Wall Plaques",
+      "slug": "wall-plaques",
+      "parent": "cat-home-and-decor",
+      "order": 30,
+      "state": "active"
+    },
+    {
+      "key": "cat-picture-frames",
+      "name": "Picture Frames",
+      "slug": "picture-frames",
+      "parent": "cat-home-and-decor",
+      "order": 31,
+      "state": "active"
+    },
+    {
+      "key": "cat-freestanding-decor",
+      "name": "Freestanding Décor",
+      "slug": "freestanding-decor",
+      "parent": "cat-home-and-decor",
+      "order": 32,
+      "state": "active"
+    },
+    {
+      "key": "cat-light-up-decor",
+      "name": "Light-Up Décor",
+      "slug": "light-up-decor",
+      "parent": "cat-home-and-decor",
+      "order": 33,
+      "state": "active"
+    },
+    {
+      "key": "cat-home-accessories",
+      "name": "Home Accessories",
+      "slug": "home-accessories",
+      "parent": "cat-home-and-decor",
+      "order": 34,
+      "state": "active"
+    },
+    {
+      "key": "cat-decorations",
+      "name": "Decorations",
+      "slug": "decorations",
+      "parent": null,
+      "order": 35,
+      "state": "active"
+    },
+    {
+      "key": "cat-christmas-decorations",
+      "name": "Christmas Decorations",
+      "slug": "christmas-decorations",
+      "parent": "cat-decorations",
+      "order": 36,
+      "state": "active"
+    },
+    {
+      "key": "cat-easter-decorations",
+      "name": "Easter Decorations",
+      "slug": "easter-decorations",
+      "parent": "cat-decorations",
+      "order": 37,
+      "state": "active"
+    },
+    {
+      "key": "cat-halloween-decorations",
+      "name": "Halloween Decorations",
+      "slug": "halloween-decorations",
+      "parent": "cat-decorations",
+      "order": 38,
+      "state": "active"
+    },
+    {
+      "key": "cat-wedding-decorations",
+      "name": "Wedding Decorations",
+      "slug": "wedding-decorations",
+      "parent": "cat-decorations",
+      "order": 39,
+      "state": "active"
+    },
+    {
+      "key": "cat-party-decorations",
+      "name": "Party Decorations",
+      "slug": "party-decorations",
+      "parent": "cat-decorations",
+      "order": 40,
+      "state": "active"
+    },
+    {
+      "key": "cat-hanging-decorations",
+      "name": "Hanging Decorations",
+      "slug": "hanging-decorations",
+      "parent": "cat-decorations",
+      "order": 41,
+      "state": "active"
+    },
+    {
+      "key": "cat-freestanding-decorations",
+      "name": "Freestanding Decorations",
+      "slug": "freestanding-decorations",
+      "parent": "cat-decorations",
+      "order": 42,
+      "state": "active"
+    },
+    {
+      "key": "cat-cake-and-party",
+      "name": "Cake & Party",
+      "slug": "cake-and-party",
+      "parent": null,
+      "order": 43,
+      "state": "active"
+    },
+    {
+      "key": "cat-cake-toppers",
+      "name": "Cake Toppers",
+      "slug": "cake-toppers",
+      "parent": "cat-cake-and-party",
+      "order": 44,
+      "state": "active"
+    },
+    {
+      "key": "cat-cupcake-toppers",
+      "name": "Cupcake Toppers",
+      "slug": "cupcake-toppers",
+      "parent": "cat-cake-and-party",
+      "order": 45,
+      "state": "active"
+    },
+    {
+      "key": "cat-table-decorations",
+      "name": "Table Decorations",
+      "slug": "table-decorations",
+      "parent": "cat-cake-and-party",
+      "order": 46,
+      "state": "active"
+    },
+    {
+      "key": "cat-party-signs",
+      "name": "Party Signs",
+      "slug": "party-signs",
+      "parent": "cat-cake-and-party",
+      "order": 47,
+      "state": "active"
+    },
+    {
+      "key": "cat-party-accessories",
+      "name": "Party Accessories",
+      "slug": "party-accessories",
+      "parent": "cat-cake-and-party",
+      "order": 48,
+      "state": "active"
+    },
+    {
+      "key": "cat-celebration-accessories",
+      "name": "Celebration Accessories",
+      "slug": "celebration-accessories",
+      "parent": "cat-cake-and-party",
+      "order": 49,
+      "state": "active"
+    },
+    {
+      "key": "cat-craft-supplies",
+      "name": "Craft Supplies",
+      "slug": "craft-supplies",
+      "parent": null,
+      "order": 50,
+      "state": "active"
+    },
+    {
+      "key": "cat-blanks",
+      "name": "Blanks",
+      "slug": "blanks",
+      "parent": "cat-craft-supplies",
+      "order": 51,
+      "state": "active"
+    },
+    {
+      "key": "cat-vinyl-decals",
+      "name": "Vinyl Decals",
+      "slug": "vinyl-decals",
+      "parent": "cat-craft-supplies",
+      "order": 52,
+      "state": "active"
+    },
+    {
+      "key": "cat-embellishments",
+      "name": "Embellishments",
+      "slug": "embellishments",
+      "parent": "cat-craft-supplies",
+      "order": 53,
+      "state": "active"
+    },
+    {
+      "key": "cat-shapes-and-cutouts",
+      "name": "Shapes & Cutouts",
+      "slug": "shapes-and-cutouts",
+      "parent": "cat-craft-supplies",
+      "order": 54,
+      "state": "active"
+    },
+    {
+      "key": "cat-tokens-and-pieces",
+      "name": "Tokens & Pieces",
+      "slug": "tokens-and-pieces",
+      "parent": "cat-craft-supplies",
+      "order": 55,
+      "state": "active"
+    },
+    {
+      "key": "cat-craft-kits",
+      "name": "Craft Kits",
+      "slug": "craft-kits",
+      "parent": "cat-craft-supplies",
+      "order": 56,
+      "state": "active"
+    }
+  ],
+  "storefront_collections": [],
+  "attributes": [
+    {
+      "key": "attr-occasion",
+      "name": "Occasion",
+      "slug": "occasion",
+      "navigation": true,
+      "visible_default": false,
+      "state": "active",
+      "terms": [
+        {
+          "key": "term-birthday",
+          "name": "Birthday",
+          "slug": "birthday",
+          "state": "active",
+          "order": 0
+        },
+        {
+          "key": "term-christmas",
+          "name": "Christmas",
+          "slug": "christmas",
+          "state": "active",
+          "order": 1
+        },
+        {
+          "key": "term-wedding",
+          "name": "Wedding",
+          "slug": "wedding",
+          "state": "active",
+          "order": 2
+        },
+        {
+          "key": "term-anniversary",
+          "name": "Anniversary",
+          "slug": "anniversary",
+          "state": "active",
+          "order": 3
+        },
+        {
+          "key": "term-engagement",
+          "name": "Engagement",
+          "slug": "engagement",
+          "state": "active",
+          "order": 4
+        },
+        {
+          "key": "term-new-baby",
+          "name": "New Baby",
+          "slug": "new-baby",
+          "state": "active",
+          "order": 5
+        },
+        {
+          "key": "term-baby-shower",
+          "name": "Baby Shower",
+          "slug": "baby-shower",
+          "state": "active",
+          "order": 6
+        },
+        {
+          "key": "term-christening",
+          "name": "Christening",
+          "slug": "christening",
+          "state": "active",
+          "order": 7
+        },
+        {
+          "key": "term-mother-s-day",
+          "name": "Mother's Day",
+          "slug": "mother-s-day",
+          "state": "active",
+          "order": 8
+        },
+        {
+          "key": "term-father-s-day",
+          "name": "Father's Day",
+          "slug": "father-s-day",
+          "state": "active",
+          "order": 9
+        },
+        {
+          "key": "term-valentine-s-day",
+          "name": "Valentine's Day",
+          "slug": "valentine-s-day",
+          "state": "active",
+          "order": 10
+        },
+        {
+          "key": "term-easter",
+          "name": "Easter",
+          "slug": "easter",
+          "state": "active",
+          "order": 11
+        },
+        {
+          "key": "term-halloween",
+          "name": "Halloween",
+          "slug": "halloween",
+          "state": "active",
+          "order": 12
+        },
+        {
+          "key": "term-thank-you",
+          "name": "Thank You",
+          "slug": "thank-you",
+          "state": "active",
+          "order": 13
+        },
+        {
+          "key": "term-congratulations",
+          "name": "Congratulations",
+          "slug": "congratulations",
+          "state": "active",
+          "order": 14
+        },
+        {
+          "key": "term-new-home",
+          "name": "New Home",
+          "slug": "new-home",
+          "state": "active",
+          "order": 15
+        },
+        {
+          "key": "term-graduation",
+          "name": "Graduation",
+          "slug": "graduation",
+          "state": "active",
+          "order": 16
+        },
+        {
+          "key": "term-retirement",
+          "name": "Retirement",
+          "slug": "retirement",
+          "state": "active",
+          "order": 17
+        },
+        {
+          "key": "term-teacher-gift",
+          "name": "Teacher Gift",
+          "slug": "teacher-gift",
+          "state": "active",
+          "order": 18
+        },
+        {
+          "key": "term-memorial",
+          "name": "Memorial",
+          "slug": "memorial",
+          "state": "active",
+          "order": 19
+        },
+        {
+          "key": "term-bereavement",
+          "name": "Bereavement",
+          "slug": "bereavement",
+          "state": "active",
+          "order": 20
+        },
+        {
+          "key": "term-get-well-soon",
+          "name": "Get Well Soon",
+          "slug": "get-well-soon",
+          "state": "active",
+          "order": 21
+        },
+        {
+          "key": "term-good-luck",
+          "name": "Good Luck",
+          "slug": "good-luck",
+          "state": "active",
+          "order": 22
+        },
+        {
+          "key": "term-leaving",
+          "name": "Leaving",
+          "slug": "leaving",
+          "state": "active",
+          "order": 23
+        },
+        {
+          "key": "term-thinking-of-you",
+          "name": "Thinking of You",
+          "slug": "thinking-of-you",
+          "state": "active",
+          "order": 24
+        },
+        {
+          "key": "term-just-because",
+          "name": "Just Because",
+          "slug": "just-because",
+          "state": "active",
+          "order": 25
+        }
+      ]
+    },
+    {
+      "key": "attr-recipient",
+      "name": "Recipient",
+      "slug": "recipient",
+      "navigation": true,
+      "visible_default": false,
+      "state": "active",
+      "terms": [
+        {
+          "key": "term-for-her",
+          "name": "For Her",
+          "slug": "for-her",
+          "state": "active",
+          "order": 0
+        },
+        {
+          "key": "term-for-him",
+          "name": "For Him",
+          "slug": "for-him",
+          "state": "active",
+          "order": 1
+        },
+        {
+          "key": "term-for-kids",
+          "name": "For Kids",
+          "slug": "for-kids",
+          "state": "active",
+          "order": 2
+        },
+        {
+          "key": "term-for-baby",
+          "name": "For Baby",
+          "slug": "for-baby",
+          "state": "active",
+          "order": 3
+        },
+        {
+          "key": "term-for-mum",
+          "name": "For Mum",
+          "slug": "for-mum",
+          "state": "active",
+          "order": 4
+        },
+        {
+          "key": "term-for-mam",
+          "name": "For Mam",
+          "slug": "for-mam",
+          "state": "active",
+          "order": 5
+        },
+        {
+          "key": "term-for-dad",
+          "name": "For Dad",
+          "slug": "for-dad",
+          "state": "active",
+          "order": 6
+        },
+        {
+          "key": "term-for-grandmother",
+          "name": "For Grandmother",
+          "slug": "for-grandmother",
+          "state": "active",
+          "order": 7
+        },
+        {
+          "key": "term-for-grandfather",
+          "name": "For Grandfather",
+          "slug": "for-grandfather",
+          "state": "active",
+          "order": 8
+        },
+        {
+          "key": "term-for-grandparents",
+          "name": "For Grandparents",
+          "slug": "for-grandparents",
+          "state": "active",
+          "order": 9
+        },
+        {
+          "key": "term-for-wife",
+          "name": "For Wife",
+          "slug": "for-wife",
+          "state": "active",
+          "order": 10
+        },
+        {
+          "key": "term-for-husband",
+          "name": "For Husband",
+          "slug": "for-husband",
+          "state": "active",
+          "order": 11
+        },
+        {
+          "key": "term-for-girlfriend",
+          "name": "For Girlfriend",
+          "slug": "for-girlfriend",
+          "state": "active",
+          "order": 12
+        },
+        {
+          "key": "term-for-boyfriend",
+          "name": "For Boyfriend",
+          "slug": "for-boyfriend",
+          "state": "active",
+          "order": 13
+        },
+        {
+          "key": "term-for-partner",
+          "name": "For Partner",
+          "slug": "for-partner",
+          "state": "active",
+          "order": 14
+        },
+        {
+          "key": "term-for-couple",
+          "name": "For Couple",
+          "slug": "for-couple",
+          "state": "active",
+          "order": 15
+        },
+        {
+          "key": "term-for-sister",
+          "name": "For Sister",
+          "slug": "for-sister",
+          "state": "active",
+          "order": 16
+        },
+        {
+          "key": "term-for-brother",
+          "name": "For Brother",
+          "slug": "for-brother",
+          "state": "active",
+          "order": 17
+        },
+        {
+          "key": "term-for-daughter",
+          "name": "For Daughter",
+          "slug": "for-daughter",
+          "state": "active",
+          "order": 18
+        },
+        {
+          "key": "term-for-son",
+          "name": "For Son",
+          "slug": "for-son",
+          "state": "active",
+          "order": 19
+        },
+        {
+          "key": "term-for-auntie",
+          "name": "For Auntie",
+          "slug": "for-auntie",
+          "state": "active",
+          "order": 20
+        },
+        {
+          "key": "term-for-uncle",
+          "name": "For Uncle",
+          "slug": "for-uncle",
+          "state": "active",
+          "order": 21
+        },
+        {
+          "key": "term-for-niece",
+          "name": "For Niece",
+          "slug": "for-niece",
+          "state": "active",
+          "order": 22
+        },
+        {
+          "key": "term-for-nephew",
+          "name": "For Nephew",
+          "slug": "for-nephew",
+          "state": "active",
+          "order": 23
+        },
+        {
+          "key": "term-for-cousin",
+          "name": "For Cousin",
+          "slug": "for-cousin",
+          "state": "active",
+          "order": 24
+        },
+        {
+          "key": "term-for-friend",
+          "name": "For Friend",
+          "slug": "for-friend",
+          "state": "active",
+          "order": 25
+        },
+        {
+          "key": "term-for-best-friend",
+          "name": "For Best Friend",
+          "slug": "for-best-friend",
+          "state": "active",
+          "order": 26
+        },
+        {
+          "key": "term-for-teacher",
+          "name": "For Teacher",
+          "slug": "for-teacher",
+          "state": "active",
+          "order": 27
+        },
+        {
+          "key": "term-for-colleague",
+          "name": "For Colleague",
+          "slug": "for-colleague",
+          "state": "active",
+          "order": 28
+        },
+        {
+          "key": "term-for-boss",
+          "name": "For Boss",
+          "slug": "for-boss",
+          "state": "active",
+          "order": 29
+        },
+        {
+          "key": "term-for-pet-owner",
+          "name": "For Pet Owner",
+          "slug": "for-pet-owner",
+          "state": "active",
+          "order": 30
+        },
+        {
+          "key": "term-for-family",
+          "name": "For Family",
+          "slug": "for-family",
+          "state": "active",
+          "order": 31
+        }
+      ]
+    },
+    {
+      "key": "attr-age-milestone",
+      "name": "Age / Milestone",
+      "slug": "age-milestone",
+      "navigation": true,
+      "visible_default": false,
+      "state": "active",
+      "terms": [
+        {
+          "key": "term-1st-birthday",
+          "name": "1st Birthday",
+          "slug": "1st-birthday",
+          "state": "active",
+          "order": 0
+        },
+        {
+          "key": "term-5th-birthday",
+          "name": "5th Birthday",
+          "slug": "5th-birthday",
+          "state": "active",
+          "order": 1
+        },
+        {
+          "key": "term-10th-birthday",
+          "name": "10th Birthday",
+          "slug": "10th-birthday",
+          "state": "active",
+          "order": 2
+        },
+        {
+          "key": "term-13th-birthday",
+          "name": "13th Birthday",
+          "slug": "13th-birthday",
+          "state": "active",
+          "order": 3
+        },
+        {
+          "key": "term-16th-birthday",
+          "name": "16th Birthday",
+          "slug": "16th-birthday",
+          "state": "active",
+          "order": 4
+        },
+        {
+          "key": "term-18th-birthday",
+          "name": "18th Birthday",
+          "slug": "18th-birthday",
+          "state": "active",
+          "order": 5
+        },
+        {
+          "key": "term-21st-birthday",
+          "name": "21st Birthday",
+          "slug": "21st-birthday",
+          "state": "active",
+          "order": 6
+        },
+        {
+          "key": "term-30th-birthday",
+          "name": "30th Birthday",
+          "slug": "30th-birthday",
+          "state": "active",
+          "order": 7
+        },
+        {
+          "key": "term-40th-birthday",
+          "name": "40th Birthday",
+          "slug": "40th-birthday",
+          "state": "active",
+          "order": 8
+        },
+        {
+          "key": "term-50th-birthday",
+          "name": "50th Birthday",
+          "slug": "50th-birthday",
+          "state": "active",
+          "order": 9
+        },
+        {
+          "key": "term-60th-birthday",
+          "name": "60th Birthday",
+          "slug": "60th-birthday",
+          "state": "active",
+          "order": 10
+        },
+        {
+          "key": "term-70th-birthday",
+          "name": "70th Birthday",
+          "slug": "70th-birthday",
+          "state": "active",
+          "order": 11
+        },
+        {
+          "key": "term-80th-birthday",
+          "name": "80th Birthday",
+          "slug": "80th-birthday",
+          "state": "active",
+          "order": 12
+        },
+        {
+          "key": "term-90th-birthday",
+          "name": "90th Birthday",
+          "slug": "90th-birthday",
+          "state": "active",
+          "order": 13
+        },
+        {
+          "key": "term-100th-birthday",
+          "name": "100th Birthday",
+          "slug": "100th-birthday",
+          "state": "active",
+          "order": 14
+        },
+        {
+          "key": "term-newborn",
+          "name": "Newborn",
+          "slug": "newborn",
+          "state": "active",
+          "order": 15
+        },
+        {
+          "key": "term-baby",
+          "name": "Baby",
+          "slug": "baby",
+          "state": "active",
+          "order": 16
+        },
+        {
+          "key": "term-child",
+          "name": "Child",
+          "slug": "child",
+          "state": "active",
+          "order": 17
+        },
+        {
+          "key": "term-teen",
+          "name": "Teen",
+          "slug": "teen",
+          "state": "active",
+          "order": 18
+        },
+        {
+          "key": "term-adult",
+          "name": "Adult",
+          "slug": "adult",
+          "state": "active",
+          "order": 19
+        }
+      ]
+    },
+    {
+      "key": "attr-personalisation",
+      "name": "Personalisation",
+      "slug": "personalisation",
+      "navigation": true,
+      "visible_default": false,
+      "state": "active",
+      "terms": [
+        {
+          "key": "term-personalised",
+          "name": "Personalised",
+          "slug": "personalised",
+          "state": "active",
+          "order": 0
+        },
+        {
+          "key": "term-optional-personalisation",
+          "name": "Optional Personalisation",
+          "slug": "optional-personalisation",
+          "state": "active",
+          "order": 1
+        },
+        {
+          "key": "term-not-personalised",
+          "name": "Not Personalised",
+          "slug": "not-personalised",
+          "state": "active",
+          "order": 2
+        }
+      ]
+    },
+    {
+      "key": "attr-material",
+      "name": "Material",
+      "slug": "material",
+      "navigation": true,
+      "visible_default": false,
+      "state": "active",
+      "terms": [
+        {
+          "key": "term-card",
+          "name": "Card",
+          "slug": "card",
+          "state": "active",
+          "order": 0
+        },
+        {
+          "key": "term-paper",
+          "name": "Paper",
+          "slug": "paper",
+          "state": "active",
+          "order": 1
+        },
+        {
+          "key": "term-wood",
+          "name": "Wood",
+          "slug": "wood",
+          "state": "active",
+          "order": 2
+        },
+        {
+          "key": "term-mdf",
+          "name": "MDF",
+          "slug": "mdf",
+          "state": "active",
+          "order": 3
+        },
+        {
+          "key": "term-plywood",
+          "name": "Plywood",
+          "slug": "plywood",
+          "state": "active",
+          "order": 4
+        },
+        {
+          "key": "term-acrylic",
+          "name": "Acrylic",
+          "slug": "acrylic",
+          "state": "active",
+          "order": 5
+        },
+        {
+          "key": "term-slate",
+          "name": "Slate",
+          "slug": "slate",
+          "state": "active",
+          "order": 6
+        },
+        {
+          "key": "term-pla",
+          "name": "PLA",
+          "slug": "pla",
+          "state": "active",
+          "order": 7
+        },
+        {
+          "key": "term-petg",
+          "name": "PETG",
+          "slug": "petg",
+          "state": "active",
+          "order": 8
+        },
+        {
+          "key": "term-vinyl",
+          "name": "Vinyl",
+          "slug": "vinyl",
+          "state": "active",
+          "order": 9
+        }
+      ]
+    },
+    {
+      "key": "attr-production-method",
+      "name": "Production Method",
+      "slug": "production-method",
+      "navigation": true,
+      "visible_default": false,
+      "state": "active",
+      "terms": [
+        {
+          "key": "term-printed",
+          "name": "Printed",
+          "slug": "printed",
+          "state": "active",
+          "order": 0
+        },
+        {
+          "key": "term-laser-cut",
+          "name": "Laser Cut",
+          "slug": "laser-cut",
+          "state": "active",
+          "order": 1
+        },
+        {
+          "key": "term-laser-engraved",
+          "name": "Laser Engraved",
+          "slug": "laser-engraved",
+          "state": "active",
+          "order": 2
+        },
+        {
+          "key": "term-3d-printed",
+          "name": "3D Printed",
+          "slug": "3d-printed",
+          "state": "active",
+          "order": 3
+        },
+        {
+          "key": "term-sublimated",
+          "name": "Sublimated",
+          "slug": "sublimated",
+          "state": "active",
+          "order": 4
+        },
+        {
+          "key": "term-vinyl-cut",
+          "name": "Vinyl Cut",
+          "slug": "vinyl-cut",
+          "state": "active",
+          "order": 5
+        },
+        {
+          "key": "term-hand-finished",
+          "name": "Hand Finished",
+          "slug": "hand-finished",
+          "state": "active",
+          "order": 6
+        }
+      ]
+    },
+    {
+      "key": "attr-style-theme",
+      "name": "Style / Theme",
+      "slug": "style-theme",
+      "navigation": true,
+      "visible_default": false,
+      "state": "active",
+      "terms": [
+        {
+          "key": "term-funny",
+          "name": "Funny",
+          "slug": "funny",
+          "state": "active",
+          "order": 0
+        },
+        {
+          "key": "term-sentimental",
+          "name": "Sentimental",
+          "slug": "sentimental",
+          "state": "active",
+          "order": 1
+        },
+        {
+          "key": "term-floral",
+          "name": "Floral",
+          "slug": "floral",
+          "state": "active",
+          "order": 2
+        },
+        {
+          "key": "term-rustic",
+          "name": "Rustic",
+          "slug": "rustic",
+          "state": "active",
+          "order": 3
+        },
+        {
+          "key": "term-minimal",
+          "name": "Minimal",
+          "slug": "minimal",
+          "state": "active",
+          "order": 4
+        },
+        {
+          "key": "term-children-s",
+          "name": "Children's",
+          "slug": "children-s",
+          "state": "active",
+          "order": 5
+        },
+        {
+          "key": "term-character-inspired",
+          "name": "Character Inspired",
+          "slug": "character-inspired",
+          "state": "active",
+          "order": 6
+        },
+        {
+          "key": "term-traditional",
+          "name": "Traditional",
+          "slug": "traditional",
+          "state": "active",
+          "order": 7
+        },
+        {
+          "key": "term-modern",
+          "name": "Modern",
+          "slug": "modern",
+          "state": "active",
+          "order": 8
+        },
+        {
+          "key": "term-retro",
+          "name": "Retro",
+          "slug": "retro",
+          "state": "active",
+          "order": 9
+        },
+        {
+          "key": "term-pixel-art",
+          "name": "Pixel Art",
+          "slug": "pixel-art",
+          "state": "active",
+          "order": 10
+        },
+        {
+          "key": "term-gaming",
+          "name": "Gaming",
+          "slug": "gaming",
+          "state": "active",
+          "order": 11
+        }
+      ]
+    }
+  ],
+  "tags": []
+}

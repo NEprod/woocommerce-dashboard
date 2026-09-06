@@ -1,6 +1,11 @@
-{% extends 'layouts/base.html' %}
+{% extends 'layouts/onboarding.html' if initial_setup else 'layouts/base.html' %}
 {% block title %}Scanner{% endblock %}
 {% block content %}
+{% if initial_setup %}
+<section class="workspace-panel"><p class="eyebrow">Required initial catalogue scan</p><h2>Build your catalogue workspace</h2><p>{{ setup_state.message }}</p><p>No scan starts automatically. A successful operation is required before completing setup; failed or interrupted work remains retryable here.</p>
+{% if not setup_state.safe_to_run %}<p role="alert">Catalogue identity state needs review before scanning.</p>{% endif %}
+{% if setup_state.recommended_action == 'reconstruction' or setup_state.identities_preserved %}<form method="post" action="{{ url_for('main.catalogue_reconstruct') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label><input type="checkbox" name="confirm_reconstruction" value="yes" required> Rebuild the catalogue index using existing identities.</label><button class="btn btn-primary" type="submit" {% if not setup_state.safe_to_run or readiness.active %}disabled{% endif %}>Run identity-preserving reconstruction</button></form>{% endif %}<a href="{{ url_for('main.initial_settings') }}">Back to readiness</a></section>
+{% endif %}
 <section class="page-heading page-heading-actions">
   <div><p class="eyebrow">Scanner</p><h1>Scanner workspace</h1><p>Run supported catalogue workflows with explicit scope, readiness, and operation history.</p></div>
   <a class="btn btn-outline-primary" href="{{ url_for('main.operations') }}">View operation history</a>
@@ -27,11 +32,14 @@
 <section aria-labelledby="modes-heading"><div class="page-heading compact"><p class="eyebrow">Choose deliberately</p><h2 id="modes-heading">Supported scan modes</h2><p>Only established append, marker-selected update, and intentional full-scan workflows are available here.</p></div>
   <div class="scan-mode-grid">
   {% for mode in modes %}
+    {% if not initial_setup or mode.key != 'update' %}
     <article class="scan-mode-card {{ 'is-selected' if selected_mode == mode.key }}" data-scan-mode="{{ mode.key }}">
       <div class="scan-mode-title"><span class="operation-mode-icon" aria-hidden="true">{{ loop.index }}</span><div><p class="eyebrow">{{ mode.impact }} impact</p><h3>{{ mode.label }}</h3></div></div>
       <p>{{ mode.description }}</p><p class="mode-detail">{{ mode.details }}</p>
-      <button class="btn {{ 'btn-accent' if mode.key == 'append' else 'btn-primary' }}" type="button" data-open-scan-confirm="{{ mode.key }}" {% if not readiness.mounts_ready or readiness.active %}disabled{% endif %}>Review {{ mode.label }} scan</button>
+      {% if initial_setup and mode.key == 'full' %}<p class="alert alert-warning">Intentional full regeneration is not reconstruction. It may regenerate parent and variation SKU identities. Confirm only if you intend that existing reset behaviour.</p>{% endif %}
+      <button class="btn {{ 'btn-accent' if mode.key == 'append' else 'btn-primary' }}" type="button" data-open-scan-confirm="{{ mode.key }}" {% if not readiness.mounts_ready or readiness.active or (initial_setup and (not setup_state.safe_to_run or (setup_state.recommended_action == 'reconstruction' and mode.key != 'full'))) %}disabled{% endif %}>Review {{ mode.label }} scan</button>
     </article>
+    {% endif %}
   {% endfor %}
   </div>
 </section>
@@ -41,6 +49,7 @@
 </section>
 
 <dialog class="scan-confirm-dialog" data-scan-dialog aria-labelledby="scan-confirm-title">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <form method="dialog"><button class="icon-button dialog-close" value="cancel" aria-label="Close confirmation">×</button></form>
   <div><p class="eyebrow">Confirmation required</p><h2 id="scan-confirm-title">Confirm <span data-confirm-mode-label></span> scan</h2><p data-confirm-impact></p>
     <ul><li>Catalogue, output, and app data readiness will be checked again on the server.</li><li>Required images may be copied to the output mount.</li><li>Discord may send one start and one terminal event when configured.</li><li>No second operation can start while the lock is active.</li></ul>

@@ -25,6 +25,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy.orm import joinedload, selectinload
 
 from app import db, csrf
+from app import onboarding
 from app.forms import (
     LoginForm,
     SetupAdminForm,
@@ -896,6 +897,8 @@ def dashboard():
         return redirect(url_for("main.setup"))
     if not current_user.is_authenticated:
         return redirect(url_for("main.login"))
+    if onboarding.pending():
+        return redirect(url_for("main.initial_settings"))
     return render_template("dashboard.html", dashboard=build_dashboard_data())
 
 
@@ -1933,11 +1936,7 @@ def open_info_asset(product_id, label):
 @main.route("/initial-scan", methods=["GET"])
 @login_required
 def initial_scan_page():
-    s = Settings.query.first()
-    setup_state = detect_setup_state()
-    return render_template(
-        "setup/initial_scan.html", settings=s, setup_state=setup_state
-    )
+    return redirect(url_for("main.scanner", initial="1"))
 
 
 @main.route("/initial-scan/start", methods=["POST"])
@@ -1948,6 +1947,8 @@ def initial_scan_start():
     Start a scan. We do NOT ping Discord from here to avoid double 'start' notifications,
     because scan_runner already sends the start + completion notifications.
     """
+    if onboarding.pending():
+        return scanner_start()
     payload = request.get_json(silent=True) or {}
     run_id = uuid.uuid4().hex
     scan_mode = payload.get("mode", "append")
@@ -1992,6 +1993,15 @@ def initial_scan_start():
 @login_required
 @csrf.exempt
 def catalogue_reconstruct():
+    setup_scope = None
+    if onboarding.pending():
+        csrf.protect()
+        if not onboarding.readiness()["ready"] or request.form.get("confirm_reconstruction") != "yes":
+            abort(409, "Recheck setup readiness and explicitly confirm reconstruction.")
+        setup_state = detect_setup_state()
+        if not setup_state.safe_to_run or setup_state.code == "new_catalogue":
+            abort(409, "A new catalogue requires its initial scan; reconstruction is for existing identities.")
+        setup_scope = onboarding.scan_scope()
     try:
         result = run_reconstruction()
     except CatalogueOperationActive as error:
@@ -2014,6 +2024,12 @@ def catalogue_reconstruct():
     }
     catalogue = _catalogue_summary_counts()
     operation_row = db.session.get(CatalogueOperation, result.operation_id)
+    if setup_scope:
+        scope = json.loads(operation_row.scope or "{}")
+        scope.update(setup_scope)
+        operation_row.scope = json.dumps(scope)
+        db.session.commit()
+        return redirect(url_for("main.operation_detail", operation_id=result.operation_id))
     elapsed_seconds = 0
     if operation_row and operation_row.started_at:
         operation_finished = operation_row.finished_at or datetime.now()
@@ -2082,8 +2098,8 @@ def initial_scan_progress(run_id):
 @main.route("/initial-scan/done/<run_id>")
 @login_required
 def initial_scan_done(run_id):
-    # placeholder, take user to next step if you like
-    return redirect(url_for("main.web_sync_page"))
+    # Compatibility navigation never marks first-run setup complete.
+    return redirect(url_for("main.scanner"))
 
 
 @main.route("/web-sync", methods=["GET"])
@@ -2134,6 +2150,11 @@ def collection_detail(collection_id):
 @main.route("/scanner")
 @login_required
 def scanner():
+    initial_setup = onboarding.pending()
+    if initial_setup and not onboarding.readiness()["ready"]:
+        return redirect(url_for("main.initial_settings"))
+    initial_review = initial_setup or request.args.get("initial") == "1"
+    setup_state = detect_setup_state() if initial_review else None
     recent = (
         CatalogueOperation.query.filter(
             CatalogueOperation.operation_type.in_({"append", "product_update", "full"})
@@ -2149,6 +2170,8 @@ def scanner():
         recent_operations=[operation_view(row) for row in recent],
         selected_mode=request.args.get("mode", "append"),
         retry_of=request.args.get("retry_of", "")[:32],
+        initial_setup=initial_review,
+        setup_state=setup_state,
     )
 
 
@@ -2157,6 +2180,11 @@ def scanner():
 @csrf.exempt
 def scanner_start():
     payload = request.get_json(silent=True) or request.form.to_dict()
+    initial_setup = onboarding.pending()
+    if initial_setup:
+        csrf.protect()
+        if not onboarding.readiness()["ready"]:
+            return jsonify({"message": "Complete configuration and local Taxonomy readiness before the initial scan."}), 409
     mode = payload.get("mode")
     if mode not in {item["key"] for item in SCAN_MODES}:
         return jsonify({"error": "unsupported_scan_mode", "message": "That scan mode is not supported."}), 400
@@ -2165,6 +2193,10 @@ def scanner_start():
         return jsonify({"error": "confirmation_required", "message": "Confirm the selected scan before it starts."}), 400
     if mode == "full" and not (payload.get("confirm_full_regeneration") is True or payload.get("confirm_full_regeneration") == "true"):
         return jsonify({"error": "full_confirmation_required", "message": "Full scan requires the additional catalogue-wide confirmation."}), 400
+    if initial_setup or payload.get("initial_review") is True:
+        setup_state = detect_setup_state()
+        if not setup_state.safe_to_run or mode == "update" or (setup_state.recommended_action == "reconstruction" and mode != "full"):
+            return jsonify({"message": "The initial scan requires the detected identity-safe action. Review reconstruction or explicitly confirm full regeneration."}), 409
     readiness = scanner_readiness()
     if readiness["active"]:
         return _operation_conflict(CatalogueOperationActive(readiness["active"]))
@@ -2173,6 +2205,8 @@ def scanner_start():
         return jsonify({"error": "scanner_not_ready", "message": "Required scanner storage or database checks did not pass.", "failures": failures}), 409
     run_id = uuid.uuid4().hex
     scope = {"scan_mode": mode, "initiating_source": "scanner_workspace"}
+    if initial_setup:
+        scope.update(onboarding.scan_scope())
     retry_of = (payload.get("retry_of") or "")[:32]
     if retry_of:
         original = db.session.get(CatalogueOperation, retry_of)
@@ -2227,6 +2261,8 @@ def operation_detail(operation_id):
             item_page=item_page,
             item_status=request.args.get("item_status", "")[:32],
         ),
+        initial_setup=onboarding.belongs(operation),
+        setup_can_complete=onboarding.can_complete(operation),
     )
 
 
@@ -2695,6 +2731,7 @@ def setup():
             is_admin=True,
         )
         db.session.add(new_admin)
+        onboarding.begin()
         db.session.commit()
         login_user(new_admin)
         flash("Admin user created and logged in.", "success")
@@ -2740,18 +2777,43 @@ def reset_password(token):
 @login_required
 def initial_settings():
     form = InitialSettingsForm()
+    settings = Settings.query.first()
+    for key in onboarding.FIELDS:
+        if onboarding.owned(key):
+            form._fields.pop(key, None)
+            if request.method == "POST" and key in request.form:
+                abort(409, "Deployment-owned values cannot be changed here.")
+        elif request.method == "GET" and settings:
+            value = getattr(settings, key)
+            form[key].data = "" if key == "url_prefix" and not onboarding.valid_url(value) else value
     if form.validate_on_submit():
-        settings = Settings.query.first()
         if not settings:
             settings = Settings()
             db.session.add(settings)
-        settings.product_folder = form.product_folder.data.strip()
-        settings.output_folder = form.output_folder.data.strip()
-        settings.url_prefix = form.url_prefix.data.strip()
+        for key in onboarding.FIELDS:
+            if not onboarding.owned(key):
+                value = form[key].data.strip()
+                if key == "url_prefix" and not onboarding.valid_url(value):
+                    form[key].errors.append("Use an HTTP(S) image base without credentials, query or fragment.")
+                    form[key].data = ""
+                    return render_template("setup/initial_settings.html", form=form, readiness=onboarding.readiness()), 400
+                setattr(settings, key, value)
         db.session.commit()
-        flash("Initial settings saved.", "success")
-        return redirect(url_for("main.initial_scan_page"))
-    return render_template("setup/initial_settings.html", form=form)
+        if onboarding.readiness()["ready"]:
+            return redirect(url_for("main.scanner"))
+        flash("Configuration saved. Resolve the readiness checks before continuing.", "warning")
+    return render_template("setup/initial_settings.html", form=form, readiness=onboarding.readiness())
+
+
+@main.route("/setup/complete", methods=["POST"])
+@login_required
+def complete_setup():
+    try:
+        onboarding.complete(request.form.get("operation_id", ""))
+    except ValueError as error:
+        abort(409, str(error))
+    flash("Initial catalogue scan completed. Your dashboard is ready.", "success")
+    return redirect(url_for("main.dashboard"))
 
 
 @main.route("/signup", methods=["GET", "POST"])

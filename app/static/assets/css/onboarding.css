@@ -1,0 +1,10 @@
+.onboarding-workspace { width: min(100%, 1440px); margin: 0 auto; }
+.onboarding-content { padding: 32px; }
+.onboarding-steps { display: flex; gap: 24px; flex-wrap: wrap; padding: 16px 32px; }
+.onboarding-steps a { min-height: 44px; display: inline-flex; align-items: center; }
+.onboarding-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.onboarding-content .workspace-panel { margin-bottom: 24px; min-width: 0; }
+.onboarding-content dd, .onboarding-content p { overflow-wrap: anywhere; }
+.onboarding-content .form-group { margin-bottom: 16px; }
+@media (max-width: 1023px) { .onboarding-grid { grid-template-columns: 1fr; } .onboarding-content { padding: 24px; } }
+@media (max-width: 767px) { .onboarding-content { padding: 16px; } .onboarding-steps { padding: 16px; gap: 12px; } .onboarding-workspace .app-utility-header { flex-wrap: wrap; } }

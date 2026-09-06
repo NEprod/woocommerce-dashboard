@@ -1,0 +1,2 @@
+# Preserve the supplied reference bytes and recognize its CRLF line endings.
+"deployment/examples/tlc/products/Personalised Hero Print/product_info.json" -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

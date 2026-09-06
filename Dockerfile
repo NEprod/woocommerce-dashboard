@@ -2,7 +2,11 @@ FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    FLASK_ENV=production
+    FLASK_ENV=production \
+    PRODUCT_FOLDER=/catalogue \
+    OUTPUT_FOLDER=/output \
+    INTAKE_ROOT=/intake \
+    URL_PREFIX=""
 
 WORKDIR /app
 

@@ -1,8 +1,9 @@
 # Local taxonomy registry contract — version 1
 
-M5.1 implements read-only loading and validation only. This document describes
-the implemented file contract; ROADMAP and CURRENT_STATE track slice status.
-It does not change product_info.json or authorize registry editing/import/sync.
+M5.1 implements read-only loading and validation. M5.2 adds authenticated local
+registry editing and reviewed bootstrap; the version-1 file contract is unchanged.
+ROADMAP and CURRENT_STATE track slice status. Product metadata and Woo sync
+remain outside this registry-only implementation.
 
 ## Configuration and invocation
 
@@ -28,9 +29,10 @@ pin the file read to the inspected path. Non-regular files, including FIFOs,
 are rejected without waiting for a writer. Default runtime roots and explicitly
 supplied/current app roots cannot contain, equal, or be inside the taxonomy root.
 
-M5.1 does not modify Docker, Compose, Unraid mounts or `.env.example`. Mount
-declarations, permission presentation and installation instructions are an M5.2
-deployment gate. A read-only mount is sufficient for this loader.
+M5.1 did not modify deployment. M5.2 adds an optional Compose overlay and Unraid
+path/config declarations; see [Docker](DOCKER.md) and [Unraid](UNRAID.md).
+A read-only mount is sufficient for the loader; confirmed edits require write
+permissions. Neither the image nor startup creates `/taxonomy` or a fallback.
 
 ## Document shape
 
@@ -126,10 +128,153 @@ array order and authored content do. The loader does not normalize away content
 changes or insert missing optional defaults. Each explicit call reloads; a prior
 snapshot remains immutable even when the authored file changes.
 
+## M5.2 workspace and review contract
+
+Authenticated routes (all POSTs use existing global CSRF protection):
+
+| Route | Behavior |
+| --- | --- |
+| `GET /taxonomy` | Readiness, schema/digest, counts, latest local operation; kind/search/page filters, 25 definitions per page. |
+| `GET/POST /taxonomy/edit/<kind>` | Guided add/edit/remove proposal for categories, storefront_collections, attributes, terms or tags. `key` selects a definition; terms require `attribute` scope. POST validates and reviews, never saves. |
+| `GET/POST /taxonomy/advanced` | Full source editing, preserved invalid drafts, format/search/line numbers/safe syntax preview; explicit replacement review. |
+| `GET/POST /taxonomy/import` | Missing-registry-only upload of combined TLC seed JSON plus matching category CSV; conversion preview, not installation. |
+| `POST /taxonomy/confirm` | Explicit acknowledgement, revalidation and registry-only save under the shared local operation lease. |
+
+The new `taxonomy` blueprint is separate from `main`; navigation uses the same
+desktop/sidebar and mobile More shell. Its request limits are applied before
+CSRF body parsing: 4 MiB request, 2 MiB form-memory limit, 50 form parts; individual
+documents/uploads still have the M5.1 1 MiB bound. No paths are accepted from the
+browser or shown as host paths. Configured source is labelled
+`TAXONOMY_ROOT / registry.json`. Valid read-only state allows browsing, not saving.
+Missing root, invalid existing registry or unsafe storage requires administrator
+repair/configuration outside this workspace; the UI never creates directories or
+silently repairs invalid source. A valid existing registry may be intentionally
+replaced via Advanced JSON, but never through the bootstrap button.
+
+Guided editing retains stable keys, exposes name/slug/state/order/aliases,
+category parents and attribute navigation/default-visibility flags. Terms are
+edited within their existing attribute. Category dependencies/cycles are rejected
+before review. Removing an attribute explicitly removes its contained terms in
+the reviewed document. Product usage is not indexed: the UI warns that removal
+does not repair external assignments and recommends deprecation. Advanced full
+replacement shows the complete old/new documents and added/changed/removed
+definition counts; it cannot infer a rename from removal plus a new key, so keys
+must be deliberately preserved by the author. No purported product impact count
+or propagation is implemented.
+
+### Reviewed TLC bootstrap
+
+Inputs are uploaded/read as bounded bytes and not retained as files. Combined
+seed requires `registry_type: tlc_taxonomy_seed`, integer schema version 1,
+categories and navigation_attributes. CSV columns must be exactly name, parent,
+slug, category_path, level, sort_order. Every category record must agree with the
+CSV (including hierarchy/order), with no duplicates or ambiguous parent names.
+Derived hierarchy/path/depth is checked after conversion. Names, existing category
+slugs, input arrays and numeric order are preserved. Attribute/term names are
+not rewritten; navigation flags come from the source.
+
+Deterministic proposed keys: `cat-<source-slug>`, `attr-<generated-slug>` and
+attribute-scoped `term-<generated-slug>`. Generated slugs use NFKD ASCII folding,
+lowercase and hyphen-separated alphanumerics; unsupported/overlong or colliding
+identities block conversion rather than gaining arbitrary suffixes. Review shows
+all generated identities. All imported definitions start **Draft**; attribute
+default visibility is **off**, explicitly explained before confirmation. These
+are conservative reviewed initialization choices, not inferred product semantics.
+Aliases are not invented. The guide's examples/conflicting spelling do not add
+new vocabulary. Storefront Collections and tags are empty because the supplied
+seed does not provide definition lists; they can be authored in the workspace.
+
+The supplied read-only references were converted and validated in a focused test:
+**56 categories, 7 attributes, 110 terms**, 0 ranges, 0 tags. Attribute term counts:
+Occasion 26, Recipient 32, Age / Milestone 20, Personalisation 3, Material 10,
+Production Method 7, Style / Theme 12. This is verification of the importer, not
+a claim that a deployed registry was populated. Original TLC references are not
+application resources. The separately generated deployment artifact described
+below is excluded from the image; there is no demo/fallback registry.
+
+### Concurrency, backups and recovery
+
+Review tokens expire after 30 minutes and bind the authenticated user, exact
+proposed bytes/digest, review mode and original source revision. Revision binds
+the configured root plus directory device/inode and original bytes (stronger than
+semantic digest alone: even externally reformatted JSON invalidates review).
+The immutable M5.1 loader/schema remains the readiness authority. Confirmation
+validates again; altered payload, root change, stale revision, missing acknowledgement
+and no-op identical-byte saves fail safely. Replaying a successful changed-source
+review cannot overwrite newer content. Preview/import POSTs make no authored write.
+
+`taxonomy_registry_update` reuses the existing operation lease/history and retention;
+scope holds action and counts only, not documents or host paths. A directory
+`flock` additionally serializes registry writers across processes. The supported
+application deployment remains single-worker/single-replica as before. External
+editors must not write concurrently: POSIX atomic replace is not an OS-wide
+compare-and-swap against uncooperative external writers. The service checks source
+bytes and configured directory identity again immediately before replacement.
+
+All file operations use pinned directory descriptors with no-follow traversal,
+fixed/generated basenames and bounded regular-file reads. Existing source gets a
+unique `.registry-backup-<uuid>.json` backup, byte-verified and schema-validated
+before replacement. Private `.registry-stage-<uuid>` data is fsynced and verified.
+Replacement is same-directory atomic; first installation uses a no-clobber hard
+link so it never overwrites a file that appeared after review. Filesystems must
+support these operations and directory locking; unsupported mounts fail closed,
+without a fallback that weakens safety. New source/backup files use mode 0600.
+The mount must permit the configured runtime UID; no recursive chmod/chown occurs.
+
+Readback validates exact bytes and schema before success. On verification failure,
+rollback restores the verified backup only when the visible source is still this
+operation's written version; an externally changed/corrupt version is not blindly
+overwritten. Backup evidence is retained for administrator review and the operation
+fails. There is no automatic crash replay: startup's existing operation recovery
+marks interrupted history; inspect source/backup and start a fresh review.
+Successful saves retain the newest 10 valid, exact-pattern application backups;
+manual/invalid/symlink files are never retention candidates. Retention inspection
+is bounded to 2,000 directory entries and failures log one safe warning without
+misreporting a successful save as failed. Failed saves do not prune recovery evidence.
+Normal temporary staging is cleaned on exit; crash leftovers require manual review.
+
+Filesystem replacement and SQLite audit commit are not a distributed transaction.
+If audit finalization fails after a verified write, inspect/reload the actual source
+before retrying; never assume the source stayed unchanged solely from a request
+failure. No raw source, credentials or sensitive path is logged. M5.2 adds no
+Discord event/routing or Woo requests.
+
 ## Deferred integration
 
-M5.2 may add the local registry workspace and a reviewed importer/writer after
-its own authorization. Product controlled assignments and explicit variation
+M5.2 onboarding now displays this same loader's readiness/counts before the
+explicit initial catalogue scan. A valid read-only registry is sufficient;
+missing/invalid source needs mounting/correction and Recheck. Nothing creates or
+copies a registry. This is not scanner taxonomy integration: existing scan and
+product contracts remain unchanged, and legacy installations remain usable.
+Deployment and first-run details are recorded in ARCHITECTURE and DOCKER.
+
+### Ownership clarification — 2026-09-06
+
+The application is generic and supports **bring your own registry**. Startup
+does not require, create or install a registry. A missing file remains missing;
+normal workspace requests never invoke TLC conversion. The missing-registry UI
+prioritizes providing your own file, with TLC conversion explicitly optional.
+
+TLC's reviewed authored artifact is
+[`deployment/examples/tlc/registry.json`](../deployment/examples/tlc/registry.json),
+not application defaults. See its [installation/provenance README](../deployment/examples/tlc/README.md).
+Actual production-loader validation: version 1, Ready, 56 categories, 7 attributes,
+110 terms, 0 Storefront Collections and 0 tags. Content digest:
+`01d7415e5c55ff233e342480c3b6c5577e0a56248e2198e289ef6f06a29bef61`.
+The artifact activates reviewed definitions; the optional interactive converter
+retains its Draft initialization. No product or Woo state is inferred.
+
+Manually place your authored file in the persistent taxonomy host directory as
+`registry.json`, bind that directory to `/taxonomy`, and configure
+`TAXONOMY_ROOT=/taxonomy`. Nothing installs TLC data on startup or moves product
+files. The root remains separate from catalogue, output and instance storage.
+
+Future M5.3+ semantics must support Occasion/Recipient as informational attributes
+alongside Size with only Size designated in `variation_attributes`. These remain
+the same global attributes, not duplicate concepts such as "Variation Size".
+No such product/scanner/Woo integration is implemented in M5.2.
+
+M5.2 provides the local registry workspace/importer/writer only. Product controlled assignments and explicit variation
 designation require the later versioned resolver/projection contract first.
 Store-scoped Woo taxonomy identity, hierarchy sync, Brands/range destination,
 Preview digests and publishing integration remain later slices. None of the

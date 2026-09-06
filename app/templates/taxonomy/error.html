@@ -1,0 +1,2 @@
+{% extends "taxonomy/base.html" %}
+{% block registry_content %}<section class="workspace-panel"><h2>Registry action not completed</h2><p class="alert alert-danger" role="alert">{{ error }}</p><p>Open the registry overview and start a fresh review. No WooCommerce operation was performed.</p>{% if draft %}<label for="retained-draft">Unsaved proposed source (copy before opening a fresh review)</label><textarea class="form-control taxonomy-json" id="retained-draft" rows="16" readonly>{{ draft }}</textarea>{% endif %}</section>{% endblock %}

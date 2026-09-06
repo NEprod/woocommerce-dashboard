@@ -6,9 +6,12 @@ from config import Config
 
 
 @pytest.fixture
-def setup_app(tmp_path):
+def setup_app(tmp_path, monkeypatch):
+    import app as module
     database = tmp_path / "instance" / "site.db"
     database.parent.mkdir()
+    original_flask = module.Flask
+    monkeypatch.setattr(module, "Flask", lambda *a, **kw: original_flask(*a, instance_path=str(database.parent), **kw))
     original_uri = Config.SQLALCHEMY_DATABASE_URI
     Config.SQLALCHEMY_DATABASE_URI = f"sqlite:///{database}"
     try:

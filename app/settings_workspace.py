@@ -105,7 +105,8 @@ def build_settings_workspace():
     catalogue_ok = _directory_state(settings.product_folder if settings else None)
     output_ok = _directory_state(settings.output_folder if settings else None, writable=True)
     app_data_ok = _directory_state(current_app.instance_path, writable=True)
-    setup_complete = User.query.first() is not None and settings is not None
+    from app.onboarding import pending
+    setup_complete = User.query.first() is not None and settings is not None and not pending()
 
     active = readiness.get("active")
     active_label = "No operation active"

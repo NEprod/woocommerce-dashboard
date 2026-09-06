@@ -563,11 +563,9 @@ def test_initial_setup_ui_explains_reconstruction_and_full_reset_separately(
     app, catalogue, _database = reconstruction_app
     _write_catalogue(catalogue)
     response = app.test_client().get("/initial-scan")
-    assert response.status_code == 200
-    page = response.get_data(as_text=True)
-    assert "Reconstruction Required" in page
-    assert "Rebuild catalogue index" in page
+    assert response.status_code == 302
+    page = app.test_client().get(response.headers["Location"]).get_data(as_text=True)
+    assert "Run identity-preserving reconstruction" in page
     assert "Existing catalogue identities" in page
-    assert "Existing parent and variation identities will be preserved" in page
-    assert "Intentional full regeneration" in page
-    assert "may regenerate parent and variation SKU identities" in page
+    assert "existing identities" in page
+    assert "Review Full scan" in page

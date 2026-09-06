@@ -1,0 +1,54 @@
+{
+  "sku_prefix": "HERO-",
+  "collection_type": "Single Variable",
+  "title": "Custom Character, Face & Message | Kids Wall Art",
+  "categories": ["Wall Art", "Kids Room"],
+  "tags": ["superhero", "custom", "wall print", "a3", "a4", "a5", "personalised"],
+  "short_description": "Custom superhero prints available in A5, A4, or A3 sizes. Personalise your hero and choose your size!",
+  "meta_title": "Personalised Superhero Wall Print – Choose Your Size",
+  "meta_description": "Create a unique superhero wall print for your child’s room. Customise your design and choose from multiple sizes.",
+  "attributes": {
+    "Style": ["Hero A", "Hero B", "Hero C"],
+    "Size": ["A5", "A4", "A3"]
+  },
+  "image_attributes": ["Style", "Size"],
+  "variation_modifiers": {
+    "Size=A5": {
+      "price": "5.00",
+      "weight": 50,
+      "dimensions": {
+        "length": 210,
+        "width": 148,
+        "height": 1
+      }
+    },
+    "Size=A4": {
+      "price": "10.00",
+      "weight": 100,
+      "dimensions": {
+        "length": 297,
+        "width": 210,
+        "height": 1
+      }
+    },
+    "Size=A3": {
+      "price": "15.00",
+      "weight": 150,
+      "dimensions": {
+        "length": 420,
+        "width": 297,
+        "height": 1
+      }
+    },
+    "Size=A3|Style=Hero C": {
+      "price": "55.00",
+      "weight": 150,
+      "dimensions": {
+        "length": 420,
+        "width": 297,
+        "height": 1
+      }
+    }
+  },
+  "live": true
+}

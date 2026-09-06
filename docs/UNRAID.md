@@ -1,5 +1,35 @@
 # Unraid Installation and Persistence
 
+## M5.2 first-run ownership
+
+The existing **Catalogue Intake** `/intake` XML path entry is preserved unchanged.
+Product Catalogue, Generated Output and Taxonomy Registry remain separate host
+selections mapped to `/catalogue`, `/output` and `/taxonomy`. The template declares
+`PRODUCT_FOLDER=/catalogue`, `OUTPUT_FOLDER=/output`, `TAXONOMY_ROOT=/taxonomy`
+and a generic required **Public Image URL Prefix** (`URL_PREFIX`). No personal
+host path or TLC domain is supplied. Include the intended trailing slash in a
+directory URL; generated filename concatenation is unchanged.
+
+Explicit deployment values take precedence over local SQLite fallback and cannot
+be overwritten in setup. Restart after configuration changes. Authenticated
+setup now reports readiness instead of asking users to browse deployment folders
+or re-enter configured URLs. Taxonomy must be provided explicitly; no TLC seed or
+example products are installed. Initial scanning remains an explicit action in
+normal Scanner, with existing reconstruction/Full safety and normal operation
+progress. Only a verified successful initial operation permits Continue to
+Dashboard for new installations. Preserve instance `onboarding.json` in backups.
+Failed/interrupted operations remain retryable; Woo availability is not required.
+
+## M5.2 bring-your-own registry
+
+The generic optional taxonomy mount has no personal host path. Choose a persistent
+host directory, bind it to `/taxonomy`, set `TAXONOMY_ROOT=/taxonomy`, and provide
+your compatible `registry.json`. Missing source is safe/not-ready, not seeded.
+For TLC only, manually install the [deployment artifact](../deployment/examples/tlc/registry.json)
+using its [instructions, counts and digest](../deployment/examples/tlc/README.md).
+No automatic TLC installation occurs. Keep this directory across container
+replacement; catalogue product files, output and instance storage remain separate.
+
 Use `neprod/woocommerce-dashboard:0.2.3` for a pinned Phase 1 installation. The
 image supports `linux/amd64` for Unraid and `linux/arm64` for Apple Silicon. It
 runs as a non-root user with one Gunicorn worker, four threads, and container
@@ -11,6 +41,17 @@ basis for a future Community Applications submission; the application is not
 currently claimed to be listed in Community Applications.
 
 ## Required container settings
+
+M5.2 source template adds an optional **Taxonomy Registry** path: select an
+existing independent user-owned taxonomy directory, container target `/taxonomy`,
+read/write for editing; keep the optional Taxonomy Root variable `/taxonomy`.
+Do not reuse catalogue, output, Intake or instance storage. No personal host
+path/default is supplied. Leave the mapping unused when taxonomy is not enabled;
+startup does not require it. Apply this mapping with an approved M5.2-capable image
+when separately released; this implementation slice does not change the template's
+historical image reference or publish an image. Back up registry.json and its
+verified backups, ensure runtime UID access, and explicitly upload/review/confirm
+the TLC seed from the Taxonomy workspace. No automatic seed install or Woo sync.
 
 - Repository: `neprod/woocommerce-dashboard:0.2.3`
 - Network: `bridge`
@@ -156,8 +197,9 @@ change. The page is diagnostic and read-only, not a secret editor.
 3. Install the XML as a user template or reproduce its fields manually.
 4. Set a generated `SECRET_KEY`; leave Discord disabled initially.
 5. Start the container and open `http://<unraid-ip>:7485/`.
-6. Complete `/setup`, then enter the container paths `/catalogue` and `/output`
-   in initial settings.
+6. Set the deployment's container root variables and `URL_PREFIX`, complete
+   `/setup`, and review configuration/Taxonomy readiness. Do not reselect host
+   folders in the application. Provide a compatible mounted registry explicitly.
 7. Review the initial-scan classification before starting any catalogue action.
 
 ## Docker log retention

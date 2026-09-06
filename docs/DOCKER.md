@@ -1,5 +1,47 @@
 # Docker
 
+## M5.2 deployment-owned configuration and first run
+
+Compose keeps `PRODUCT_FOLDER_HOST` and `OUTPUT_FOLDER_HOST` as host-side mount
+inputs only. Container configuration is `PRODUCT_FOLDER=/catalogue`,
+`OUTPUT_FOLDER=/output`, `INTAKE_ROOT=/intake`, `TAXONOMY_ROOT=/taxonomy` and
+`URL_PREFIX` for the public image prefix. Supply URL_PREFIX explicitly (including
+the trailing slash if a directory base is intended); the scanner still performs
+literal prefix + filename concatenation. No URL/path generation algorithm changed.
+
+Explicit process configuration overrides SQLite fallback values, including an
+explicit blank. The UI cannot save competing deployment-owned values. Without
+an explicit value, non-Docker local installs retain the original editable SQLite
+fallback. Deployment values are not copied into those columns. Restart after
+environment changes; never supply Docker host paths as container configuration.
+
+Optional overlays `compose.intake.yaml` and `compose.taxonomy.yaml` require
+`INTAKE_FOLDER_HOST` / `TAXONOMY_FOLDER_HOST` respectively and refuse to create a
+missing host directory. No examples or registry are copied on startup. Select
+independent persistent host directories and use the overlays explicitly.
+
+After admin creation, authenticated setup shows deployment and Taxonomy readiness
+in a wide workspace. A valid registry (including read-only) permits the required
+explicit initial scan in normal Scanner. Missing/invalid registry requires manual
+provision/correction and Recheck. Woo and optional Intake need not be available
+for scanning. Existing-marker reconstruction and intentional Full regeneration
+retain their established identity rules. Operation Detail supplies normal
+progress/results and a server-checked Continue after success. Keep
+`onboarding.json` with the instance database/backups; failed/interrupted setup
+remains recoverable. Existing installations without this new record are not
+retroactively gated. Product/scanner taxonomy semantics remain pre-M5.3.
+
+## M5.2 registry ownership
+
+Bring your own version-1 `registry.json` in the persistent taxonomy host directory,
+mounted separately at `/taxonomy` with `TAXONOMY_ROOT=/taxonomy`. Startup does not
+create/install a registry. The optional overlay requires an explicit host path;
+no product files move. TLC users may manually copy the
+[reviewed deployment artifact](../deployment/examples/tlc/registry.json) following
+its [instructions and verified digest](../deployment/examples/tlc/README.md).
+It is excluded from build context and never copied into the image or installed
+as a fallback. Keep taxonomy storage/backups across container replacement.
+
 Image repository: `neprod/woocommerce-dashboard`
 
 Phase 1 deployment polish publishes the equivalent multi-platform tags `phase-1`, `0.2.3`, and `latest`. The immutable `0.2.3` tag is preferred for deployment. Historical version tags remain unchanged.
@@ -44,9 +86,24 @@ Copy `.env.example` to the ignored `.env` and set:
 IMAGE_TAG=0.2.3 docker compose up -d
 ```
 
-Application settings stored through the UI must use container paths (`/catalogue` and `/output`), not host paths.
+Docker catalogue/output/image-prefix values are supplied through deployment
+configuration, not reselected in the UI. Only unowned local-installation fallback
+settings remain editable. Container paths must never be replaced by host paths.
 
 ## Persistence and backup
+
+M5.2 optional local registry: choose an **existing**, independent host directory
+and set `TAXONOMY_FOLDER_HOST` in `.env`. Enable the source-controlled overlay with
+`docker compose -f compose.yaml -f compose.taxonomy.yaml up -d` after deploying
+an approved image containing M5.2. It binds that directory to `/taxonomy` and
+sets `TAXONOMY_ROOT=/taxonomy`; missing host directories are not auto-created.
+Without the overlay, existing Compose remains unchanged and startup works without
+taxonomy. No image or entrypoint creates `/taxonomy`, copies a seed or recursively
+changes its permissions. Grant the runtime UID write access for editing; a
+read-only mount supports browsing. Keep registry.json and its verified backups
+in the host backup plan. See [Taxonomy Registry](TAXONOMY_REGISTRY.md) for explicit
+upload/bootstrap review and write safety. This source change does not publish an
+image or change protected tags.
 
 The canonical container storage contract is fixed:
 
@@ -56,6 +113,7 @@ The canonical container storage contract is fixed:
 | `/catalogue` | required read/write | authored catalogue, source images, metadata, `.scanned`, `.scanned.pending`, `.update`, and SKU indexes |
 | `/output` | required read/write | processed/generated image output |
 | `/intake` | optional read/write | external loose images, private grouping staging, and provisional `Prepared/` results for Catalogue Intake |
+| `/taxonomy` | optional read/write (read-only browsing supported) | authoritative registry.json and verified local registry backups |
 
 Do not rename `/app/instance` to `/config` or rename `site.db`; either change can
 make an existing installation appear empty. Keep catalogue and output outside the

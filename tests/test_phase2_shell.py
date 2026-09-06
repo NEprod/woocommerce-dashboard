@@ -295,7 +295,7 @@ def test_visual_correction_avoids_broad_background_overrides_and_inline_colors()
         "app/templates/edit_products.html",
         "app/templates/editor.html",
         "app/templates/metadata_reference.html",
-        "app/templates/setup/initial_scan.html",
+        "app/templates/scanner.html",
         "app/templates/setup/initial_settings.html",
     ):
         template = (ROOT / relative_path).read_text(encoding="utf-8")

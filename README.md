@@ -53,7 +53,7 @@ authoritative shared `product_info.json`. Metadata completion remains
 
 ## Current capabilities
 
-- First-user and scanner-folder setup.
+- First-user setup with deployment readiness and an explicitly confirmed initial scan.
 - Simple, Variable Collection, and Single Variable scanning.
 - Shared collection metadata with optional per-product overrides.
 - Stable local SKU markers and variation generation.
@@ -97,7 +97,7 @@ docker compose up -d
 
 The container listens on port `7485`, runs Gunicorn with one worker and four threads, and expects persistent instance, catalogue, and output mounts. Generic Docker defaults preserve UID/GID `100:100`; Unraid should set `PUID=99`, `PGID=100`, and `UMASK=002`. The entrypoint prepares permissions and then runs Gunicorn non-root through `gosu`. Never bake a live `.env`, database, catalogue, or generated output into the image. Full guidance is in [Docker](docs/DOCKER.md).
 
-The canonical persistent mappings are `/app/instance` for `site.db` and application backups, `/catalogue` for authored catalogue and scanner identity state, and `/output` for generated files. Unraid users should start with the tracked [Unraid template](unraid/my-woocommerce-dashboard.xml) and [installation guide](docs/UNRAID.md).
+The canonical persistent mappings are `/app/instance` for the database, onboarding state and backups, `/catalogue` for authored catalogue/scanner identities, `/output` for generated files, plus independent `/intake` and `/taxonomy` mounts for those workspaces. Deployment supplies `PRODUCT_FOLDER`, `OUTPUT_FOLDER` and `URL_PREFIX`; first-run displays readiness rather than asking Docker users to reselect these values. Unraid users should start with the tracked [Unraid template](unraid/my-woocommerce-dashboard.xml) and [installation guide](docs/UNRAID.md). Reference examples are never installed automatically.
 
 ## Project links
 

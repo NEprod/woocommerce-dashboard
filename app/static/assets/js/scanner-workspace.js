@@ -106,13 +106,15 @@
       const params = new URLSearchParams(root.location.search);
       const response = await root.fetch("/scanner/start", {
         method: "POST",
-        headers: {"Content-Type": "application/json", "Accept": "application/json"},
+        headers: {"Content-Type": "application/json", "Accept": "application/json",
+          "X-CSRFToken": (dialog.querySelector('[name="csrf_token"]') || {}).value || ""},
         credentials: "same-origin",
         body: JSON.stringify({
           mode: mode,
           confirm_operation: true,
           confirm_full_regeneration: mode === "full" && fullCheck.checked,
-          retry_of: params.get("retry_of") || ""
+          retry_of: params.get("retry_of") || "",
+          initial_review: params.get("initial") === "1"
         })
       });
       const payload = await readStartResponse(response);

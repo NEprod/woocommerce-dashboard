@@ -1,0 +1,12 @@
+# Optional overlay: docker compose -f compose.yaml -f compose.taxonomy.yaml up -d
+# Select an existing, independent writable host taxonomy directory explicitly.
+services:
+  app:
+    environment:
+      TAXONOMY_ROOT: /taxonomy
+    volumes:
+      - type: bind
+        source: ${TAXONOMY_FOLDER_HOST:?Set TAXONOMY_FOLDER_HOST to an existing taxonomy directory}
+        target: /taxonomy
+        bind:
+          create_host_path: false
