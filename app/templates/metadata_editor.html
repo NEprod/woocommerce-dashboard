@@ -59,11 +59,12 @@
         </div>
       </section>
 
-      <section class="editor-workspace-section" aria-labelledby="categories-tags-title">
+      <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="categories-tags-title">
         <header><div><h2 id="categories-tags-title">Categories and Tags</h2><p>Ordered authored values. The protected override merge remains additive and set-based.</p></div></header>
         <div class="editor-field-grid">
           {% for key, label, singular_label in [('categories','Categories','Category'),('tags','Tags','Tag')] %}<div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}><div class="guided-field-label"><span id="metadata-{{ key }}-label">{{ label }}</span>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override this value</span></label>{% endif %}</div><div class="repeatable-list" data-list-editor="{{ key }}" role="group" aria-labelledby="metadata-{{ key }}-label"></div><button class="btn btn-sm btn-outline-primary" type="button" data-add-list="{{ key }}">Add {{ singular_label }}</button><p class="field-error" data-field-error="{{ key }}" hidden></p></div>{% endfor %}
         </div>
+        {% with picker_kind='categories' %}{% include 'includes/_metadata_taxonomy_choices.html' %}{% endwith %}
       </section>
 
       <section class="editor-workspace-section" aria-labelledby="seo-title">
@@ -73,10 +74,16 @@
         </div>
       </section>
 
-      <section class="editor-workspace-section" aria-labelledby="attributes-title">
-        <header><div><h2 id="attributes-title">Attributes</h2><p>Attribute names and ordered values used for variation generation.</p></div><button class="btn btn-sm btn-outline-primary" type="button" data-add-attribute>Add Attribute</button></header>
+      <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="attributes-title">
+        <header><div><h2 id="attributes-title">Attributes</h2><p>Assign each attribute once. Choose its terms and whether it drives variations in the same row.</p></div><button class="btn btn-sm btn-outline-primary" type="button" data-add-attribute>Add attribute</button></header>
         {% if not is_shared %}<label class="override-switch section-override"><input type="checkbox" data-override-toggle="attributes" {% if 'attributes' in workspace.override.data %}checked{% endif %}><span>Override the attributes object</span></label>{% endif %}
         <div class="structured-editor-list" data-attributes-editor></div><p class="field-error" data-field-error="attributes" hidden></p>
+        <div class="attribute-contract-note"><p data-variation-contract-status></p><button type="button" class="btn btn-sm btn-ghost" data-adopt-variation>Use explicit attribute contract</button><p class="field-helper">Changing a “Use for variations” control adopts the explicit contract and temporarily blocks Woo publishing. No checked rows means an intentional empty driver list. Viewing legacy metadata changes nothing. Advanced JSON remains available for source-level contract changes.</p><p class="field-error" data-field-error="variation_attributes" hidden></p></div>
+        {% with picker_kind='attributes' %}{% include 'includes/_metadata_taxonomy_choices.html' %}{% endwith %}
+      </section>
+
+      <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="image-attributes-title">
+        <header><div><h2 id="image-attributes-title">Image attributes</h2><p>Source-folder image routing, separate from taxonomy assignments. Keep the existing Single Variable image axes and folder names unchanged.</p></div></header>
         <div class="guided-field image-attribute-field" data-field-wrapper="image_attributes" {% if not is_shared %}data-override-field="image_attributes"{% endif %}><div class="guided-field-label"><span id="image-attributes-label">Image attributes</span>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="image_attributes" {% if 'image_attributes' in workspace.override.data %}checked{% endif %}><span>Override this value</span></label>{% endif %}</div><div class="repeatable-list" data-list-editor="image_attributes" role="group" aria-labelledby="image-attributes-label"></div><button class="btn btn-sm btn-outline-primary" type="button" data-add-list="image_attributes">Add Image Attribute</button><p class="field-helper">Exact attribute names used by Single Variable source-image folders.</p><p class="field-error" data-field-error="image_attributes" hidden></p></div>
       </section>
 
@@ -132,6 +139,11 @@
   'collection': workspace.shared.data,
   'override': workspace.override.data,
   'resolved': workspace.resolved,
+  'taxonomy_options': workspace.taxonomy_options,
+  'taxonomy_options_url': url_for('taxonomy.assignment_options'),
+  'taxonomy_term_url': url_for('taxonomy.edit', kind='terms'),
+  'taxonomy_category_url': url_for('taxonomy.edit', kind='categories'),
+  'taxonomy_attribute_url': url_for('taxonomy.edit', kind='attributes'),
   'save_url': url_for('main.product_save_json', sku=product.sku),
   'validate_url': url_for('main.metadata_validate'),
   'template_url_tpl': url_for('main.metadata_reference_template', name='__NAME__'),
@@ -141,4 +153,5 @@
 }|tojson }}</script>
 {% endblock %}
 
+{% block stylesheets %}<link rel="stylesheet" href="{{ url_for('static', filename='assets/css/metadata-taxonomy.css') }}">{% endblock %}
 {% block javascripts %}<script src="{{ url_for('static', filename='assets/js/metadata-editor.js') }}"></script>{% endblock %}

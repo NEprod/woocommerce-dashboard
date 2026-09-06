@@ -69,6 +69,15 @@
   </aside>
 </section>
 
+<section class="workspace-card" aria-labelledby="local-taxonomy-title">
+  <header class="workspace-card-header"><h2 id="local-taxonomy-title">Local taxonomy assignments</h2></header>
+  <p>{{ 'Explicit variation designation — Woo publishing temporarily blocked pending publisher integration.' if workspace.taxonomy.explicit else 'Legacy attribute interpretation preserved.' }}</p>
+  {% if workspace.taxonomy.error %}<p role="alert">{{ workspace.taxonomy.error }}</p>{% endif %}
+  <ul>{% for category in workspace.taxonomy.categories %}<li>{{ category.value }} — {{ 'Registered' if category.definition else 'Legacy · Not in taxonomy registry' }}</li>{% endfor %}</ul>
+  <ul>{% for attribute in workspace.taxonomy.attributes %}<li><strong>{{ attribute.name }}</strong> · {{ 'Variation-driving' if attribute.variation else 'Informational' }} · {{ 'Registered' if attribute.definition else 'Legacy' }}<ul>{% for term in attribute.terms %}<li>{{ term.value }} — {{ 'Registered' if term.definition else 'Legacy · Not in taxonomy registry' }}</li>{% endfor %}</ul></li>{% endfor %}</ul>
+  <p>Edit assignments through Collection Metadata or Product Override. Scanning never adds definitions to the registry.</p>
+</section>
+
 <section class="workspace-card" aria-labelledby="resolved-metadata-title">
   <header class="workspace-card-header"><div><p class="eyebrow">Read-only scanner result</p><h2 id="resolved-metadata-title">Resolved metadata</h2></div><span class="catalogue-pill is-neutral">{{ workspace.comparison|length }} fields</span></header>
   <div class="metadata-comparison" role="table" aria-label="Collection, override and resolved metadata">

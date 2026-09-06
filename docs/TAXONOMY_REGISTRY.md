@@ -2,8 +2,64 @@
 
 M5.1 implements read-only loading and validation. M5.2 adds authenticated local
 registry editing and reviewed bootstrap; the version-1 file contract is unchanged.
-ROADMAP and CURRENT_STATE track slice status. Product metadata and Woo sync
-remain outside this registry-only implementation.
+ROADMAP and CURRENT_STATE track slice status. M5.3 adds local product assignment
+resolution/editing below without changing registry v1. Woo sync remains deferred.
+
+## M5.3 local assignments (implemented, not a registry schema change)
+
+Definitions belong in `registry.json`; assignments remain in existing
+`product_info.json` files. Registry keys and Woo IDs are not written into product
+assignments in this slice. Registry choices use full category paths and readable
+attribute/term names. Unique historical names/aliases can match for display;
+unknown or ambiguous values remain visible as **Legacy · Not in taxonomy registry**.
+Matching does not rewrite values. Scan never imports or normalizes vocabulary.
+
+```json
+{
+  "attributes": {
+    "Occasion": ["Birthday"],
+    "Size": ["Small", "Large"]
+  },
+  "variation_attributes": ["Size"]
+}
+```
+
+Missing `variation_attributes` is legacy. A present list is explicit opt-in;
+`[]` means no drivers and survives guided/Advanced saving and override merging.
+Only exact assigned names are allowed; duplicate/missing names fail validation.
+Simple products allow informational attributes with an empty driver list.
+Explicit drivers are limited to five by the existing child-row representation;
+the local informational-attribute projection is not restricted to five. Existing
+Single Variable image axes must stay driving when generating children. Existing
+SKU, folder, image ownership/order and modifiers are not redesigned.
+
+Collection defaults and sparse overrides retain their existing category/tag
+additive semantics and attribute-object replacement semantics. Driver arrays
+replace, never union. To remove an inherited category, edit its collection source;
+an unrelated override save never copies inherited taxonomy into the override.
+
+The metadata editor shows saved/resolved recognition separately from its draft.
+Choose a registry category, or a scoped attribute and term, to add an assignment;
+remove the old draft assignment to replace it. Existing unrecognised rows remain
+editable. Registry creation/adoption links prefill a proposal, never write.
+Complete the existing registry review/acknowledgement first, then refresh choices
+in the still-open metadata editor, select and save separately. Draft/active
+definitions are selectable; deprecated definitions are retained in existing
+assignments but excluded from new choices. Registry creation alone is not product
+adoption or Woo approval. Term links always use their selected attribute key.
+
+Registry failure leaves assignments untouched. Metadata failure after registry
+success leaves the definition available, not destructively rolled back. Advanced
+JSON remains supported and preserves unknown vocabulary; no automatic seed/import
+or mass migration is performed. The complete fictional example/template now
+demonstrates explicit drivers; ordinary legacy templates remain unchanged.
+
+**Temporary Woo guard:** products resolving an explicit driver field cannot be
+previewed/published until informational-versus-variation mapping is implemented
+in the later publisher slice. Both empty and non-empty lists are guarded before
+Woo requests. Legacy products keep M4 behaviour. Taxonomy sync, Storefront range
+destinations, primary/secondary category roles and broader assignment versioning
+remain future work, not implied by the local resolver.
 
 ## Configuration and invocation
 

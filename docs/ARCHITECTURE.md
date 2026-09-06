@@ -1,5 +1,46 @@
 # Existing Architecture
 
+## M5.3 local assignment boundary — 2026-09-06
+
+`app/taxonomy_assignments.py` reads the confined authored collection/override
+sources and resolves readable category paths/names, attributes and scoped terms
+against the immutable registry. Case/Unicode/whitespace normalization is matching
+only; ambiguous matches remain unrecognised and neither authored file is changed.
+Product Detail uses this read-only view. Dashboard Collections remain filesystem
+groups, not Storefront Collections.
+
+Existing category/tag list inheritance stays additive. Attribute objects keep
+whole-object replacement between sources. Only `variation_attributes` adds a
+replacement-array rule, preserving explicit `[]`; missing inherits a shared
+designation or retains the legacy all-attributes Variable interpretation.
+Simple explicit contracts require no drivers. Explicit Single Variable drivers
+must include existing image axes when generating children; folder/image logic is
+unchanged. At most five explicit drivers are accepted to prevent truncation in
+existing child row slots. Informational assignments can exceed five.
+
+`build_variations` selects only designated axes for opted-in sources. Ingestion
+uses existing ProductAttribute rows for all explicit-contract authored attributes,
+including Simple informational data. The per-product designation stays in authored
+source, resolved on demand, not in a new database column. Existing child rows and
+missing-child reconciliation remain the projection/recovery mechanism. Legacy
+projection is unchanged. No migration or registry mutation occurs.
+
+Registry adoption opens the existing authenticated, CSRF-protected signed review
+and verified backup/atomic registry writer in another tab. It never saves product
+assignments. The editor retains its draft, refreshes registry options locally,
+and separately saves assignments through the established metadata source writer
+and scan operation. A failed registry save cannot alter product metadata; a failed
+subsequent metadata save retains the successfully created registry definition.
+
+Temporary publishing boundary: any resolved presence of `variation_attributes`,
+including empty, rejects Preview through PreviewError before configuration/remote
+reads. A selected scope containing such a product is rejected as a whole; select
+legacy products separately if needed. Execution rechecks authored opt-in before
+the first Woo request, covering a changed source after confirmation. Existing
+freshness/acknowledgement/lock contracts remain active. `_product_payload()` and
+Woo attribute mapping/verification semantics are unchanged. M5.6 must implement
+per-attribute semantics before removing this guard.
+
 ## M5.2 configuration and onboarding boundary — 2026-09-06
 
 `Settings.product_folder`, `output_folder` and `url_prefix` retain their existing

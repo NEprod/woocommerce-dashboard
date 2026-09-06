@@ -1,5 +1,31 @@
 # Phase 3 M5 architecture audit: Taxonomy Registry & Controlled Catalogue Metadata
 
+### Approved bounded M5.3 implementation addendum — 2026-09-06
+
+The subsequent user-approved slice deliberately narrows/supersedes the broader
+proposal below: no `taxonomy_contract` marker, no category replacement semantics,
+no primary/range assignment contract and no migration are introduced now.
+Readable legacy assignments and additive category inheritance remain intact.
+Presence of `variation_attributes` alone is the explicit local opt-in, including
+`[]`. A small authored-source resolver and existing attribute/child projection
+support informational and selected-driver attributes. Five explicit drivers is
+the current child-row capacity; informational attributes are not limited to five.
+Single Variable image-axis compatibility is validated, not redesigned.
+
+Relevant controlled metadata editor/adoption work formerly proposed as M5.4 is
+included in this approved M5.3 slice. It reuses the registry-first reviewed writer,
+then a separate explicit product save. No scan-time registry writes or automatic
+legacy normalization occur. The original larger proposal and numbering below are
+retained as historical design context, not claims of completed functionality.
+
+The user explicitly approved a new-contract-only publishing guard. Preview stops
+before Woo reads; execution rechecks before its first Woo request. Legacy M4
+payloads remain unchanged. The later publisher-integration slice must replace
+this guard only after per-attribute payload/verification semantics are proven.
+Woo taxonomy sync remains the next separately approved destination work, with
+store-identity persistence/destination questions resolved before implementation.
+See TAXONOMY_REGISTRY, ARCHITECTURE and CURRENT_STATE for actual contracts/tests.
+
 ### M5.2 onboarding/reference addendum — 2026-09-06
 
 Current configuration ownership and the explicit initial scan now use deployment

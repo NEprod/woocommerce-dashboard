@@ -18,6 +18,7 @@
     "Size": ["Small", "Large"]
   },
   "image_attributes": ["Finish", "Size"],
+  "variation_attributes": ["Finish", "Size"],
   "variation_modifiers": {
     "Size=Large": {
       "price": "24.00",

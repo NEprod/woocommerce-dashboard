@@ -1,5 +1,50 @@
 # Roadmap
 
+## M5.3 accepted checkpoint — 2026-09-06
+
+M5.3 local controlled assignments and consolidated editors are browser accepted
+for `phase-3-m5-taxonomy-assignments`, together with the live-accepted M5.2
+initial-scan ingestion fix. A clean untouched Variable product retained all
+existing variation SKUs and combinations when informational attributes were
+added with **Use for variations OFF** (`variations_created = 0`,
+`variations_missing = 0`). No further scanner/SKU correction is warranted by
+the earlier contaminated test product.
+
+This acceptance supersedes the review/pending status in the dated notes below.
+The explicit-contract Woo publishing guard remains intentional. Next is the
+separately approved, bounded M5.5 registry taxonomy-sync work; publisher mapping,
+verification and guard removal remain M5.6. Deferred M5.4 work and the existing
+Phase 3 closure gates remain open; this checkpoint does not close all of M5.
+
+## M5.3 bounded local assignments and safety boundary — 2026-09-06
+
+Implemented for focused review, not committed/released: registry-backed category
+and scoped attribute/term choices in existing metadata editors, explicit reviewed
+legacy/new-definition adoption, local matching/projection, explicit variation
+drivers and a small grouped Taxonomy display. The approved bounded scope brings
+the relevant editor work from proposed M5.4 forward into M5.3; it does **not**
+implement all of the earlier versioned-assignment proposal or renumber history.
+
+Readable category names/paths and attribute-name/term arrays remain authored
+assignments. Categories remain additive across sparse overrides. Missing
+`variation_attributes` retains legacy behaviour; present arrays replace inherited
+drivers, including `[]`. New-contract products are blocked before Woo Preview
+reads and rechecked before publication writes. Legacy M4 payloads are untouched.
+No registry writes occur during scanning; no migration/dependency is introduced.
+
+M5.2 checkpoint `30c3e6124680ec79d37f144769ca197de53ae69a` is committed. Its
+subsequent initial-scan fix remains uncommitted and is preserved here; Dale has
+confirmed successful live retesting with the temporary initial-scan image.
+
+Next approval: the existing **M5.5 reviewed Woo taxonomy sync** scope, bounded
+to registry definitions and store identities; settle identity persistence and
+supported destinations first. M5.6 per-attribute publisher/verification integration
+must be separately tested before removing the opt-in guard. Unimplemented M5.4
+items (primary roles, ranges and broader adoption UX) remain deferred. Existing
+Phase 3 closure gates below, including Relationships Pass 2 acceptance, remain open.
+See CURRENT_STATE for actual focused verification and TAXONOMY_REGISTRY for the
+implemented local contract.
+
 ## M5.2 configuration/onboarding checkpoint — 2026-09-06
 
 Implemented but uncommitted: deployment-owned catalogue/output/image prefix,

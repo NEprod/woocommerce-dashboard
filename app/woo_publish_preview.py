@@ -820,6 +820,10 @@ def _scope_summary(scope):
 
 def generate_publish_plan(scope, *, confirm_large=False, client=None, record_operation=True):
     products = resolve_scope(scope)
+    from app.taxonomy_assignments import guard_products, PUBLISH_BLOCK
+    guarded = guard_products(products)
+    if guarded:
+        raise PreviewError(PUBLISH_BLOCK, category="blocked", details={"product_ids": [p.id for p in guarded], "readiness": "blocked"})
     estimate = _estimate_products(products)
     if len(products) >= LARGE_SCOPE_THRESHOLD and not confirm_large:
         raise PreviewError("Large catalogue previews require explicit confirmation.", category="confirmation_required", details=estimate)

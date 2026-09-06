@@ -621,7 +621,9 @@ def build_variations(product_data):
     from itertools import product
 
     # Extract attribute dictionary (e.g., {'Style': ['A', 'B'], 'Color': ['Red', 'Blue']})
-    attrs = product_data.get("attributes", {})
+    from app.taxonomy_assignments import variation_drivers
+    all_attributes = product_data.get("attributes", {})
+    attrs = {name: all_attributes[name] for name in variation_drivers(product_data)}
     if not attrs:
         return []
 

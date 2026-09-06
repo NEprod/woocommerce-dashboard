@@ -240,5 +240,11 @@ def validate_product_info(data, kind):
             (),
         )
     errors = tuple(_schema_errors(data, kind))
+    if "variation_attributes" in data and not errors and (kind == "collection" or "attributes" in data):
+        from app.taxonomy_assignments import variation_drivers
+        try:
+            variation_drivers(data)
+        except ValueError as error:
+            errors += (ValidationIssue("$.variation_attributes", "invalid_variation_drivers", str(error)),)
     warnings = tuple(_warnings(data, kind))
     return ValidationResult(errors, warnings)

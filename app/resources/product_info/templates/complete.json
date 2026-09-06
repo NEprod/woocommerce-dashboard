@@ -15,6 +15,7 @@
   "description": "Every recognized authored key is demonstrated here.",
   "attributes": {"Finish": ["Matte", "Gloss"], "Size": ["Small", "Large"]},
   "image_attributes": ["Finish", "Size"],
+  "variation_attributes": ["Finish", "Size"],
   "variation_modifiers": {
     "Size=Large": {
       "price": "24.00",

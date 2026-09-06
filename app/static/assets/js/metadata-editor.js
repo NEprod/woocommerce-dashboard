@@ -19,7 +19,7 @@
     "collection_type", "title", "sku_prefix", "price", "sale_price",
     "sale_start_date", "sale_end_date", "weight", "dimensions", "categories",
     "tags", "live", "short_description", "description", "attributes",
-    "image_attributes", "variation_modifiers", "shipping_class", "grouped_ids",
+    "image_attributes", "variation_attributes", "variation_modifiers", "shipping_class", "grouped_ids",
     "grouped_products", "upsell_ids", "cross_sell_ids", "upsells", "crosssells",
     "meta_title", "meta_description"
   ]);
@@ -27,6 +27,31 @@
   let dirty = false;
   let busy = false;
   let activeMode = "guided";
+  let registry = boot.taxonomy_options || { categories: [], attributes: [] };
+  let explicitVariation = false;
+  let resolvedVariation = false;
+  let driverNames = [];
+
+  function registryChoices() {
+    const category = guided.querySelector("[data-registry-category]");
+    const attribute = guided.querySelector("[data-registry-attribute]");
+    const term = guided.querySelector("[data-registry-term]");
+    if (!category || !attribute || !term) return;
+    const fill = (select, rows, label) => {
+      const prior = select.value;
+      select.replaceChildren(new Option(label, ""));
+      rows.filter((row) => row.state !== "deprecated").forEach((row) => select.add(new Option(row.value, row.key)));
+      if (Array.from(select.options).some((row) => row.value === prior)) select.value = prior;
+    };
+    fill(category, registry.categories, "Choose a registered category");
+    fill(attribute, registry.attributes, "Choose a registered attribute");
+    const selected = registry.attributes.find((row) => row.key === attribute.value);
+    fill(term, selected ? selected.terms : [], "Choose a registered term");
+    const link = guided.querySelector("[data-new-registry-term]");
+    link.hidden = !selected;
+    if (selected) link.href = `${boot.taxonomy_term_url}?attribute=${encodeURIComponent(selected.key)}`;
+    guided.querySelectorAll("[data-registry-status]").forEach((node) => { node.textContent = `Registry: ${registry.status || "unavailable"}`; });
+  }
 
   function setDirty(value) {
     dirty = value;
@@ -67,6 +92,7 @@
   }
 
   function setControlState(field) {
+    if (field === "variation_attributes") return; // presence is controlled explicitly, not inherited-copy toggle
     if (isShared) return;
     const enabled = overrideEnabled(field);
     const wrapper = guided.querySelector(`[data-field-wrapper="${CSS.escape(field)}"]`);
@@ -77,7 +103,7 @@
       });
     }
     if (field === "attributes") {
-      guided.querySelectorAll("[data-attributes-editor] input, [data-attributes-editor] button, [data-add-attribute]").forEach((control) => { control.disabled = !enabled; });
+      guided.querySelectorAll("[data-attributes-editor] input:not([data-use-variation]), [data-attributes-editor] button, [data-add-attribute]").forEach((control) => { control.disabled = !enabled; });
     }
     if (field === "variation_modifiers") {
       guided.querySelectorAll("[data-modifiers-editor] input, [data-modifiers-editor] button, [data-add-modifier]").forEach((control) => { control.disabled = !enabled; });
@@ -110,6 +136,11 @@
       input.value = value == null ? "" : String(value);
       input.setAttribute("aria-label", `${field.replaceAll("_", " ")} item ${index + 1}`);
       row.append(input, makeButton("Move up", "up", index), makeButton("Move down", "down", index), makeButton("Remove", "remove", index));
+      if (field === "categories") {
+        const status = document.createElement("div"); status.className = "taxonomy-row-status";
+        const update = () => { status.replaceChildren(); recognition(status, input.value, registryMatch(input.value, registry.categories), "category"); };
+        update(); input.addEventListener("change", update); row.append(status);
+      }
       target.appendChild(row);
     });
     setControlState(field);
@@ -129,16 +160,89 @@
       row.dataset.attributeRow = "";
       const nameInput = document.createElement("input");
       nameInput.value = name;
+      nameInput.dataset.attributeName = name;
       nameInput.placeholder = "Attribute name";
       nameInput.setAttribute("aria-label", `Attribute ${index + 1} name`);
       const valueInput = document.createElement("input");
       valueInput.value = Array.isArray(values) ? values.join(", ") : "";
+      // Preserve exact authored terms (including commas) until deliberately edited.
+      valueInput.dataset.terms = JSON.stringify(Array.isArray(values) ? values : []);
+      valueInput.dataset.originalText = valueInput.value;
       valueInput.placeholder = "Ordered values, comma separated";
       valueInput.setAttribute("aria-label", `Attribute ${index + 1} ordered values`);
-      row.append(nameInput, valueInput, makeButton("Move up", "up", index), makeButton("Move down", "down", index), makeButton("Remove", "remove", index));
+      const nameLabel = document.createElement("label"); nameLabel.textContent = "Attribute"; nameLabel.append(nameInput);
+      const termLabel = document.createElement("label"); termLabel.textContent = "Terms"; termLabel.append(valueInput);
+      const status = document.createElement("div"); status.className = "taxonomy-row-status";
+      const updateStatus = () => {
+        status.replaceChildren();
+        const definition = registryMatch(nameInput.value, registry.attributes);
+        recognition(status, nameInput.value, definition, "attribute");
+        const terms = valueInput.value === valueInput.dataset.originalText ? JSON.parse(valueInput.dataset.terms) : valueInput.value.split(",").map((v) => v.trim()).filter(Boolean);
+        terms.forEach((term) => { if (!definition || !registryMatch(term, definition.terms)) recognition(status, term, null, "term", definition); });
+      };
+      updateStatus();
+      nameInput.addEventListener("change", () => {
+        if (explicitVariation) driverNames = driverNames.map((driver) => driver === nameInput.dataset.attributeName ? nameInput.value.trim() : driver);
+        nameInput.dataset.attributeName = nameInput.value.trim(); updateStatus(); renderVariationState();
+      });
+      valueInput.addEventListener("change", updateStatus);
+      const actions = document.createElement("div"); actions.className = "taxonomy-row-actions";
+      const use = document.createElement("label"); use.className = "variation-use-control";
+      const check = document.createElement("input"); check.type = "checkbox"; check.dataset.useVariation = "";
+      const caption = document.createElement("span"); caption.textContent = "Use for variations";
+      const badge = document.createElement("span"); badge.className = "catalogue-pill is-neutral"; badge.dataset.variationLabel = "";
+      check.addEventListener("change", () => { changeVariation(nameInput.value.trim(), check.checked); renderVariationState(); setDirty(true); });
+      use.append(check, caption); actions.append(use, badge, makeButton("Move up", "up", index), makeButton("Move down", "down", index), makeButton("Remove", "remove", index));
+      row.append(nameLabel, termLabel, status, actions);
       target.appendChild(row);
     });
     setControlState("attributes");
+    renderVariationState();
+  }
+
+  function registryMatch(value, rows) {
+    const normalize = (text) => String(text).normalize("NFC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+    const found = rows.filter((row) => [row.value, row.name || row.value, ...(row.aliases || [])].some((name) => normalize(name) === normalize(value)));
+    return found.length === 1 ? found[0] : null;
+  }
+
+  function recognition(target, value, definition, kind, attribute) {
+    const badge = document.createElement("span"); badge.className = `catalogue-pill is-${definition ? "active" : "missing"}`;
+    badge.textContent = definition ? "Registered" : kind === "term" ? `Legacy term: ${value}` : "Legacy";
+    badge.title = definition ? "In taxonomy registry" : "Not in taxonomy registry";
+    badge.setAttribute("aria-label", `${badge.textContent} · ${badge.title}`);
+    target.append(badge);
+    if (!definition && value && (kind !== "term" || attribute)) {
+      const link = document.createElement("a"); link.target = "_blank"; link.rel = "noopener";
+      const base = kind === "category" ? boot.taxonomy_category_url : kind === "attribute" ? boot.taxonomy_attribute_url : boot.taxonomy_term_url;
+      link.href = `${base}?name=${encodeURIComponent(value)}${attribute ? `&attribute=${encodeURIComponent(attribute.key)}` : ""}`;
+      link.textContent = kind === "term" ? `Add ${value} to registry` : "Add to taxonomy registry";
+      target.append(link);
+    }
+  }
+
+  function simpleProduct() {
+    const field = guided.querySelector('[data-field="collection_type"]');
+    return (field ? field.value : boot.resolved.collection_type) === "Simple";
+  }
+
+  function changeVariation(name, checked) {
+    if (!resolvedVariation) driverNames = simpleProduct() ? [] : Object.keys(attributeValues());
+    explicitVariation = true; resolvedVariation = true;
+    driverNames = checked ? Array.from(new Set([...driverNames, name])) : driverNames.filter((driver) => driver !== name);
+  }
+
+  function renderVariationState() {
+    guided.querySelectorAll("[data-attribute-row]").forEach((row) => {
+      const name = row.querySelector("[data-attribute-name]").value.trim();
+      const check = row.querySelector("[data-use-variation]");
+      check.checked = resolvedVariation ? driverNames.includes(name) : !simpleProduct();
+      check.disabled = simpleProduct() || !name;
+      row.querySelector("[data-variation-label]").textContent = check.checked ? "Variation-driving" : "Informational";
+    });
+    const unknown = driverNames.filter((name) => !Object.hasOwn(attributeValues(), name));
+    guided.querySelector("[data-variation-contract-status]").textContent = (resolvedVariation ? `${explicitVariation ? "Explicit" : "Inherited explicit"} contract · Woo publishing temporarily blocked.` : "Legacy contract · unchanged until you use a variation control.") + (unknown.length && resolvedVariation ? ` Unassigned drivers: ${unknown.join(", ")}. Correct these in Advanced JSON or restore the attribute.` : "");
+    guided.querySelector("[data-adopt-variation]").hidden = explicitVariation;
   }
 
   function attributeValues() {
@@ -146,7 +250,9 @@
     guided.querySelectorAll("[data-attribute-row]").forEach((row) => {
       const inputs = row.querySelectorAll("input");
       const name = inputs[0].value.trim();
-      const values = inputs[1].value.split(",").map((value) => value.trim()).filter(Boolean);
+      const values = inputs[1].value === inputs[1].dataset.originalText
+        ? JSON.parse(inputs[1].dataset.terms)
+        : inputs[1].value.split(",").map((value) => value.trim()).filter(Boolean);
       if (name) result[name] = values;
     });
     return result;
@@ -198,6 +304,9 @@
 
   function populate(documentValue) {
     authored = structuredClone(documentValue || {});
+    guided.querySelectorAll("[data-override-toggle]").forEach((toggle) => {
+      toggle.checked = Object.prototype.hasOwnProperty.call(authored, toggle.dataset.overrideToggle);
+    });
     guided.querySelectorAll("[data-field]").forEach((control) => {
       const field = control.dataset.field;
       let value = valueFor(field);
@@ -208,6 +317,9 @@
     const dimensions = valueFor("dimensions");
     guided.querySelectorAll("[data-dimension]").forEach((control) => { control.value = dimensions && dimensions[control.dataset.dimension] != null ? dimensions[control.dataset.dimension] : ""; });
     ["categories", "tags", "image_attributes"].forEach((field) => renderList(field, valueFor(field)));
+    explicitVariation = Object.prototype.hasOwnProperty.call(authored, "variation_attributes");
+    resolvedVariation = Array.isArray(valueFor("variation_attributes"));
+    driverNames = resolvedVariation ? [...valueFor("variation_attributes")] : [];
     renderAttributes(valueFor("attributes"));
     renderModifiers(valueFor("variation_modifiers"));
     guided.querySelectorAll("[data-override-toggle]").forEach((toggle) => setControlState(toggle.dataset.overrideToggle));
@@ -220,7 +332,9 @@
       const result = {};
       Object.entries(value).forEach(([key, item]) => {
         const clean = prune(item);
-        if (clean !== "" && clean != null && !(typeof clean === "object" && !Object.keys(clean).length)) result[key] = clean;
+        if ((key === "variation_attributes" && Array.isArray(clean)) ||
+            (key === "attributes" && Object.prototype.hasOwnProperty.call(value, "variation_attributes") && clean && typeof clean === "object") ||
+            (clean !== "" && clean != null && !(typeof clean === "object" && !Object.keys(clean).length))) result[key] = clean;
       });
       return result;
     }
@@ -240,6 +354,7 @@
     });
     ["categories", "tags", "image_attributes"].forEach((field) => { if (overrideEnabled(field)) result[field] = listValues(field); });
     if (overrideEnabled("attributes")) result.attributes = attributeValues();
+    if (explicitVariation) result.variation_attributes = [...driverNames];
     if (overrideEnabled("variation_modifiers")) result.variation_modifiers = modifierValues();
     if (overrideEnabled("dimensions")) {
       result.dimensions = {};
@@ -388,6 +503,7 @@
   guided.addEventListener("input", () => { setDirty(true); updateCharacterCounts(); });
   guided.addEventListener("change", (event) => {
     if (event.target.matches("[data-override-toggle]")) setControlState(event.target.dataset.overrideToggle);
+    if (event.target.matches('[data-field="collection_type"]')) renderVariationState();
     setDirty(true);
   });
   guided.addEventListener("click", (event) => {
@@ -399,9 +515,13 @@
     if (!action) return;
     const row = action.closest(".repeatable-row, .structured-editor-row");
     const parent = row.parentElement;
-    if (action.dataset.rowAction === "remove") row.remove();
+    if (action.dataset.rowAction === "remove") {
+      if (explicitVariation && row.hasAttribute("data-attribute-row")) driverNames = driverNames.filter((name) => name !== row.querySelector("[data-attribute-name]").value.trim());
+      row.remove();
+    }
     if (action.dataset.rowAction === "up" && row.previousElementSibling) parent.insertBefore(row, row.previousElementSibling);
     if (action.dataset.rowAction === "down" && row.nextElementSibling) parent.insertBefore(row.nextElementSibling, row);
+    if (row.hasAttribute("data-attribute-row")) renderVariationState();
     setDirty(true);
   });
 
@@ -483,5 +603,41 @@
   window.addEventListener("beforeunload", (event) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } });
 
   populate(authored);
+  registryChoices();
+  guided.querySelector("[data-registry-attribute]").addEventListener("change", registryChoices);
+  guided.querySelector("[data-assign-category]").addEventListener("click", () => {
+    if (!overrideEnabled("categories")) return showFeedback("error", "Enable category override", "Inherited categories remain unchanged. Enable the override before adding product categories.");
+    const selected = registry.categories.find((row) => row.key === guided.querySelector("[data-registry-category]").value);
+    if (!selected) return;
+    renderList("categories", Array.from(new Set([...listValues("categories"), selected.value])));
+    setDirty(true);
+  });
+  guided.querySelector("[data-assign-term]").addEventListener("click", () => {
+    if (!overrideEnabled("attributes")) return showFeedback("error", "Enable attributes override", "Enable the attributes override before changing inherited attributes.");
+    const selected = registry.attributes.find((row) => row.key === guided.querySelector("[data-registry-attribute]").value);
+    if (!selected) return;
+    const term = selected.terms.find((row) => row.key === guided.querySelector("[data-registry-term]").value);
+    if (!term) return showFeedback("error", "Choose a term", "Select a term under this attribute before assigning it.");
+    const values = attributeValues();
+    values[selected.value] = Array.from(new Set([...(values[selected.value] || []), ...(term ? [term.value] : [])]));
+    renderAttributes(values);
+    setDirty(true);
+  });
+  guided.querySelectorAll("[data-refresh-taxonomy]").forEach((button) => button.addEventListener("click", async () => {
+    try {
+      const response = await fetch(boot.taxonomy_options_url, { credentials: "same-origin" });
+      if (!response.ok) throw new Error("Registry choices could not be refreshed. Your draft is unchanged.");
+      registry = await response.json();
+      registryChoices();
+      renderAttributes(attributeValues()); renderList("categories", listValues("categories"));
+      showFeedback("success", "Registry choices refreshed", "Select a verified definition, then save metadata separately. No product assignment was automatically changed.");
+    } catch (error) { showFeedback("error", "Refresh failed", error.message); }
+  }));
+  guided.querySelector("[data-adopt-variation]").addEventListener("click", () => {
+    if (!resolvedVariation) driverNames = simpleProduct() ? [] : Object.keys(attributeValues());
+    explicitVariation = true; resolvedVariation = true;
+    renderVariationState();
+    setDirty(true);
+  });
   setDirty(false);
 })();

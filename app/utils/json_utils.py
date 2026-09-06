@@ -98,7 +98,9 @@ def merge_product_json(shared, override, path=None):
     result = dict(shared)
 
     for key, value in override.items():
-        if isinstance(value, list) and isinstance(shared.get(key), list):
+        if key == "variation_attributes":
+            result[key] = value  # explicit replacement, including []
+        elif isinstance(value, list) and isinstance(shared.get(key), list):
             result[key] = list(set(shared[key] + value))
         elif key == "title":
             continue  # Title handled separately

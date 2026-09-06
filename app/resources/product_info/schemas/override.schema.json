@@ -19,6 +19,7 @@
     "short_description": {"type": "string"},
     "description": {"type": "string"},
     "attributes": {"$ref": "#/$defs/attributes"},
+    "variation_attributes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "image_attributes": {"$ref": "#/$defs/stringArray"},
     "variation_modifiers": {"$ref": "#/$defs/variationModifiers"},
     "shipping_class": {"type": "string"},

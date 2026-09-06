@@ -1,0 +1,24 @@
+/* Scoped metadata-editor polish; existing dashboard tokens only. */
+[data-metadata-editor] .taxonomy-editor-section { padding: var(--space-5); }
+[data-metadata-editor] .taxonomy-editor-section > header { padding: var(--space-5); border-radius: var(--radius-card-small); background: var(--color-surface-dark); color: var(--color-text-inverse); }
+[data-metadata-editor] .taxonomy-editor-section > header p { color: var(--color-text-inverse); }
+[data-metadata-editor] .taxonomy-editor-section > header .btn { background: var(--color-surface-primary); color: var(--color-text-primary); }
+[data-metadata-editor] .attribute-editor-row { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); background: var(--color-surface-primary); }
+[data-metadata-editor] .attribute-editor-row > label { min-width: 0; display: grid; gap: var(--space-2); }
+[data-metadata-editor] .taxonomy-row-status, [data-metadata-editor] .taxonomy-row-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); min-width: 0; }
+[data-metadata-editor] .taxonomy-row-status, [data-metadata-editor] .attribute-editor-row > .taxonomy-row-actions { grid-column: 1 / -1; }
+[data-metadata-editor] .taxonomy-row-status { overflow-wrap: anywhere; }
+[data-metadata-editor] .variation-use-control { display: flex; align-items: center; gap: var(--space-3); margin-inline-end: auto; }
+[data-metadata-editor] .variation-use-control input { width: 18px; min-height: 18px; height: 18px; accent-color: var(--color-lime); }
+[data-metadata-editor] .taxonomy-assignment-picker { background: var(--color-surface-secondary); padding: var(--space-4); border-radius: var(--radius-card-small); margin-top: var(--space-4); }
+[data-metadata-editor] .taxonomy-assignment-picker summary { font-weight: 600; cursor: pointer; }
+[data-metadata-editor] .attribute-contract-note { margin-block: var(--space-4); }
+[data-metadata-editor] .taxonomy-editor-section .field-helper { margin-block: var(--space-2); }
+[data-metadata-editor] .image-attribute-field { margin-top: 0; }
+@media (max-width: 767px) {
+  [data-metadata-editor] .attribute-editor-row { grid-template-columns: minmax(0, 1fr); }
+  [data-metadata-editor] .attribute-editor-row > label, [data-metadata-editor] .attribute-editor-row > .taxonomy-row-actions { grid-column: 1; }
+  [data-metadata-editor] .taxonomy-editor-section { padding: var(--space-4); }
+  [data-metadata-editor] .taxonomy-editor-section .repeatable-row > input { grid-column: 1 / -1; }
+  [data-metadata-editor] .taxonomy-editor-section .repeatable-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

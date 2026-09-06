@@ -1,0 +1,13 @@
+<details class="taxonomy-assignment-picker" open>
+  <summary>Add from taxonomy registry</summary>
+  <p class="field-helper">Choose a definition to add to the assignments above. Existing values are not replaced automatically.</p>
+  {% if picker_kind == 'categories' %}
+  <div class="guided-field"><label for="registry-category-choice">Category · parent &gt; child</label><select id="registry-category-choice" data-registry-category></select><button type="button" class="btn btn-sm btn-outline-primary" data-assign-category>Assign category</button><a href="{{ url_for('taxonomy.edit', kind='categories') }}" target="_blank" rel="noopener">Add new category to registry</a></div>
+  <p class="field-helper">Product categories add to collection categories. Edit the collection to remove an inherited category.</p>
+  {% else %}
+  <div class="editor-field-grid"><div class="guided-field"><label for="registry-attribute-choice">Attribute</label><select id="registry-attribute-choice" data-registry-attribute></select></div><div class="guided-field"><label for="registry-term-choice">Term under this attribute</label><select id="registry-term-choice" data-registry-term></select></div></div>
+  <div class="taxonomy-row-actions"><button type="button" class="btn btn-sm btn-outline-primary" data-assign-term>Assign selected attribute and term</button><a href="{{ url_for('taxonomy.edit', kind='attributes') }}" target="_blank" rel="noopener">Add new attribute to registry</a><a data-new-registry-term target="_blank" rel="noopener" hidden>Add term under selected attribute</a></div>
+  {% endif %}
+  <div class="taxonomy-row-actions"><span class="catalogue-pill is-neutral" data-registry-status>{{ workspace.taxonomy_options.status|replace('_',' ') }}</span><button type="button" class="btn btn-sm btn-ghost" data-refresh-taxonomy>Refresh registry choices</button></div>
+  <p class="field-helper">Registry additions open a separate reviewed save. Keep this draft open, save the registry first, refresh choices, then assign and save metadata. A failed metadata save does not delete the registry definition.</p>
+</details>

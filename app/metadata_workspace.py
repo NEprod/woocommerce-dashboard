@@ -90,13 +90,13 @@ def _source_candidate(product: Product, kind: str):
     return None
 
 
-def metadata_source(product: Product, kind: str):
+def metadata_source(product: Product, kind: str, *, catalogue_root=...):
     """Resolve one metadata source through portable identity and catalogue confinement."""
 
     if kind not in {"shared", "override"}:
         raise ValueError("Unsupported metadata source")
     reference = _source_candidate(product, kind)
-    root = _catalogue_root()
+    root = _catalogue_root() if catalogue_root is ... else catalogue_root
     if root and not reference:
         asset = next(
             (
@@ -275,6 +275,7 @@ def variation_page(product_id: int, page=1, per_page=24):
 
 
 def product_workspace(product: Product):
+    from app.taxonomy_assignments import resolve
     from app.product_relationships import relationship_workspace
 
     shared_source = metadata_source(product, "shared")
@@ -345,6 +346,7 @@ def product_workspace(product: Product):
         "shared": shared_source,
         "override": override_source,
         "resolved": resolved,
+        "taxonomy": resolve(resolved),
         "publishing_intent": publishing_intent,
         "comparison": metadata_comparison(shared_source["data"], override_data, resolved),
         "parent_images": parent_images,
@@ -369,6 +371,7 @@ def product_workspace(product: Product):
 
 
 def editor_workspace(product: Product, kind: str):
+    from app.taxonomy_assignments import resolve, options
     shared = metadata_source(product, "shared")
     override = metadata_source(product, "override")
     authored = shared if kind == "shared" else override
@@ -425,6 +428,8 @@ def editor_workspace(product: Product, kind: str):
         "shared": shared,
         "override": override,
         "resolved": resolved,
+        "taxonomy": resolve(resolved),
+        "taxonomy_options": options(),
         "publishing_intent": publishing_intent,
         "collection_publishing_intent": collection_publishing_intent,
         "comparison": metadata_comparison(shared["data"], override_data, resolved),

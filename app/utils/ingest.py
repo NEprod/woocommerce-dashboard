@@ -7,6 +7,7 @@ import json
 import re
 from urllib.parse import unquote, urlsplit
 from sqlalchemy import select
+from flask import current_app
 
 from app import db
 from app.models import (
@@ -590,6 +591,22 @@ def _sync_product_attributes(product, row):
             product_id=product.id
         ).all()
     }
+    from app.taxonomy_assignments import product_document, variation_drivers
+    authored = product_document(product)
+    if "variation_attributes" in authored:
+        variation_drivers(authored)
+        for position, (name, values) in enumerate(authored.get("attributes", {}).items()):
+            attribute = existing.pop(name, None)
+            if attribute is None:
+                attribute = ProductAttribute(product_id=product.id, name=name)
+                db.session.add(attribute)
+            attribute.values = json.dumps(values, ensure_ascii=False)
+            attribute.visible = True
+            attribute.is_global = True
+            attribute.position = position
+        for stale_attribute in existing.values():
+            db.session.delete(stale_attribute)
+        return
     for i in ATTR_SLOTS:
         name = _pick(row.get(ATTR_NAME_FMT.format(i)))
         values = _pick(row.get(ATTR_VALUE_FMT.format(i)))
@@ -691,21 +708,38 @@ class ReconstructionParentError(RuntimeError):
 
 
 def _record_failed_item(operation_id, sku, source_path, error):
-    if not operation_id:
-        return
     with db.session.begin():
-        db.session.add(
-            CatalogueOperationItem(
-                operation_id=operation_id,
-                source_path=source_path,
-                sku=sku,
-                status="failed",
-                database_state="rolled_back",
-                marker_state="not_started",
-                error=sanitize_operation_error(error),
-                finished_at=_utcnow(),
+        # Sanitization reads Settings. Keep that read inside this completed unit,
+        # including callers without history, rather than autobeginning between
+        # this failure and the next parent's explicit transaction.
+        safe_error = sanitize_operation_error(error)
+        if operation_id:
+            db.session.add(
+                CatalogueOperationItem(
+                    operation_id=operation_id,
+                    source_path=source_path,
+                    sku=sku,
+                    status="failed",
+                    database_state="rolled_back",
+                    marker_state="not_started",
+                    error=safe_error,
+                    finished_at=_utcnow(),
+                )
             )
-        )
+    return safe_error
+
+
+def _ingest_catalogue_root():
+    # A SQL selection of Settings.product_folder reads only its persisted
+    # fallback column, not the deployment-aware instance descriptor. Honour
+    # the same precedence without opening the parent-ingestion ORM session.
+    configured = current_app.config.get("PRODUCT_FOLDER")
+    if configured is not None:
+        return configured
+    with db.engine.connect() as connection:
+        return connection.execute(
+            select(Settings.product_folder).limit(1)
+        ).scalar_one_or_none() or ""
 
 
 def _ingest_complete_parent(
@@ -962,10 +996,7 @@ def ingest_rows_to_db(
     }
 
     # Read settings without opening a transaction on the scoped ORM session.
-    with db.engine.connect() as connection:
-        catalogue_root = connection.execute(
-            select(Settings.product_folder).limit(1)
-        ).scalar_one_or_none() or ""
+    catalogue_root = _ingest_catalogue_root()
     sku_to_folder = _scan_sku_folder_index(catalogue_root, log=log)
     sku_to_folder.update(source_folders or {})
     source_by_sku = {
@@ -1011,14 +1042,14 @@ def ingest_rows_to_db(
                 folder, log=lambda *args, **kwargs: None
             ) if folder else {}
             recorded_sku = pending.get("marker", {}).get("sku") or sku
-            _record_failed_item(
+            safe_error = _record_failed_item(
                 operation_id,
                 recorded_sku,
                 context.get("product_relpath"),
                 error,
             )
             log(
-                f"❌ Parent {sku} rolled back: {sanitize_operation_error(error)}",
+                f"❌ Parent {sku} rolled back: {safe_error}",
                 "ERROR",
             )
             continue
@@ -1041,13 +1072,13 @@ def ingest_rows_to_db(
         )
         summary["products_failed"] += 1
         context = source_by_sku.get(missing_sku, {})
-        _record_failed_item(
+        safe_error = _record_failed_item(
             operation_id,
             missing_sku,
             context.get("product_relpath"),
             error,
         )
-        log(f"❌ {error}", "ERROR")
+        log(f"❌ {safe_error}", "ERROR")
 
     # A target may have been ingested after its source parent. Resolve nullable
     # target links after all independently committed parents are available.
@@ -1088,10 +1119,7 @@ def ingest_reconstruction_rows(
     """Replace the resolved catalogue projection in one controlled transaction."""
 
     db.session.rollback()
-    with db.engine.connect() as connection:
-        catalogue_root = connection.execute(
-            select(Settings.product_folder).limit(1)
-        ).scalar_one_or_none() or ""
+    catalogue_root = _ingest_catalogue_root()
     sku_to_folder = _scan_sku_folder_index(catalogue_root, log=log)
     source_by_sku = {
         sku: _source_context(folder, catalogue_root, log=log)

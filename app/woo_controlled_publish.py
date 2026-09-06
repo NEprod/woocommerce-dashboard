@@ -1120,6 +1120,11 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
     recovery_required = False
     fatal_error = None
     try:
+        # Recheck authored opt-in at execution as well as Preview, before any Woo request.
+        from app.taxonomy_assignments import guard_products, PUBLISH_BLOCK
+        selected = Product.query.filter(Product.id.in_(confirmation["product_ids"])).all()
+        if guard_products(selected):
+            raise ControlledPublishError(PUBLISH_BLOCK, category="blocked")
         progress.update("revalidating_preview", "The approved Publish Preview digest was regenerated and verified.")
         gateway.set_stage("revalidating_preview")
         if store["key"] != confirmation["store_identity"]:

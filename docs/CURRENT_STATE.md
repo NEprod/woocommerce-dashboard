@@ -1,5 +1,169 @@
 # Current State
 
+## M5.3 checkpoint acceptance — 2026-09-06
+
+The M5.2 initial-scan ingestion fix and M5.3 local taxonomy assignments/polished
+editors are accepted for the combined `phase-3-m5-taxonomy-assignments` checkpoint.
+The initial Append fix passed live testing: products committed, markers finalized,
+and neither the relationship-authority error nor transaction cascade recurred.
+
+Dale's clean browser control test used an untouched existing Variable product.
+Adding registry-backed informational attributes with **Use for variations OFF**
+retained the genuine drivers, existing combinations and every variation SKU:
+`variations_created = 0`, `variations_missing = 0`; existing variations updated
+normally. The earlier product edited with pre-polish drivers was contaminated
+test state, not evidence requiring a further scanner/SKU change. Polished editor
+browser acceptance is now complete, superseding the pending note below.
+
+The explicit `variation_attributes` contract (including `[]`) remains intentionally
+blocked from Woo publishing until separate per-attribute payload/verification
+integration. Legacy M4 publishing remains unchanged. Reviewed Woo taxonomy sync
+is the next separately approved slice; no sync or publisher integration is included.
+
+Final checkpoint verification: **39 Python tests passed** (13 M5.2 + 26 M5.3)
+using `PYTHONPATH=. /tmp/woocommerce-m4-variation-venv/bin/pytest
+tests/test_m52_scan_ingest_regression.py tests/test_m53_taxonomy_assignments.py
+-q --disable-warnings --maxfail=1`; **8 JavaScript tests passed** using
+`node --test tests/javascript/metadata-taxonomy-client.test.mjs`.
+All **12 changed Python modules** and **6 changed templates** compiled;
+`node --check app/static/assets/js/metadata-editor.js` and `git diff --check`
+passed. Pytest reported existing warnings and a temporary-directory cleanup
+warning after success; no test failed. No full repository suite or live Woo
+requests were run. Earlier dated notes below preserve implementation history.
+
+## M5.3 editor consolidation — 2026-09-06 (polish, uncommitted)
+
+Dale confirmed the preceding M5.3 core editor functionality in a temporary Docker
+browser test. This local polish consolidates each attribute's name, terms,
+registration/legacy badges and “Use for variations” checkbox into one row.
+The separate editable driver list is removed. Row interaction explicitly adopts
+or updates `variation_attributes`; the final unchecked driver preserves `[]`.
+Viewing a legacy source does not opt in. Inherited designation remains sparse
+until edited. A compact status/adoption action supports an explicit all-informational
+contract; Advanced JSON still exposes the actual source contract.
+
+“Add from taxonomy registry” pickers now sit in their respective Category and
+Attribute sections, without a second assignment list. Legacy adoption links live
+with the authored rows. Image attributes have a separate image-routing section.
+Scoped CSS uses existing slate headers, white rows, compact badges, spacing and
+responsive stacking; no dashboard-wide styling or business-logic change.
+
+Verification: **8 editor JS tests passed** with
+`node --test tests/javascript/metadata-taxonomy-client.test.mjs`; **7 Python
+tests passed, 19 deselected** with the existing focused runner and
+`tests/test_m53_taxonomy_assignments.py -q -k 'actual_metadata_save or advanced_unknown or registry_matches or new_contract_preview or execution_guard' --disable-warnings --maxfail=1`.
+A local headless Chrome smoke check used the actual rendered fictional editor,
+blocked network requests and confirmed legacy no-opt-in, row uncheck/empty-array,
+row check, scoped registry assignment, informational new row and 375px attribute
+panel containment, with no page errors. This is not live Docker acceptance.
+
+Only `metadata_editor.html`, its taxonomy-choice partial, `metadata-editor.js`,
+new editor-scoped `metadata-taxonomy.css`, the two focused test files and this
+status note changed in the polish pass. No application Python, scanner/ingestion,
+M5.2 fix, registry writer, Woo guard/payload, schema, inheritance, image or
+relationship code changed. Therefore the 13-case scan-ingest group and curated
+scanner suites were not rerun. No dependency or migration was added.
+Another separately approved temporary rebuild/browser acceptance is required;
+no commit, push, tag, Docker build or Woo sync occurred in this pass.
+
+## M5.3 local assignments — 2026-09-06 (implemented, uncommitted)
+
+This update supersedes the older “M5.3 not started” status below. M5.2 was
+checkpointed at `30c3e6124680ec79d37f144769ca197de53ae69a`. Dale reports the
+subsequent uncommitted initial-scan fix is live accepted on the temporary
+`m5-2-initial-scan-fix-test` image. That root-precedence/transaction fix remains
+intact; this task did not build or publish any image.
+
+The bounded M5.3 slice implements registry-backed category and scoped
+attribute/term choices in Collection Metadata and Product Override, a local
+assignment resolver, read-only Product Detail recognition/driver display and
+grouped categories/visible term lists in Taxonomy. Unknown assignments remain
+visible as legacy; Advanced JSON preserves them. Registry creation/adoption is
+an explicit separate-tab M5.2 review/ack/save, followed by local choices refresh
+and a separate metadata save. Failure never causes a cross-file destructive
+rollback. Normal scans never add definitions or rewrite authored vocabulary.
+
+Category/tag inheritance stays additive; attribute objects keep replacement
+between shared and sparse source. Present `variation_attributes` replaces
+inherited drivers and preserves `[]`. Missing retains legacy behaviour. Explicit
+Simple contracts have informational attributes and no drivers. Only selected
+axes generate new-contract Variable children; existing image axes must remain
+compatible. Existing row capacity limits explicit drivers to five, while all
+informational attributes can project to existing ProductAttribute rows.
+No migration, dependency, registry schema change or new Woo payload mapping.
+
+The approved temporary guard rejects an opted-in Preview scope before Woo reads
+and rechecks execution before its first request. Both non-empty and empty arrays
+are guarded. The existing Preview flash now displays the precise reason. Legacy
+M4 payloads, media reuse, relationships and publishing semantics are unchanged.
+Per-attribute publisher integration must be separately implemented/tested before
+removing this guard. The source resolver shares one configured root lookup per
+Preview scope; the existing 500-parent query/request budget remains green.
+
+Focused verification (no full suite):
+
+- `PYTHONPATH=. /tmp/woocommerce-m4-variation-venv/bin/pytest tests/test_m53_taxonomy_assignments.py -q --disable-warnings --maxfail=1` — **26 passed**.
+- Same pytest runner with `tests/test_m52_scan_ingest_regression.py tests/test_taxonomy_registry.py tests/test_taxonomy_workspace.py -q --disable-warnings --maxfail=1` — **88 passed, 1 skipped** (optional external TLC source pair not configured); includes all **13 M5.2 scan-ingest regressions**.
+- Same runner with `tests/test_product_info_contract.py tests/test_phase2_milestone5.py tests/test_json_merge.py tests/test_onboarding_deployment.py::test_current_scanner_on_temporary_curated_products -q --disable-warnings --maxfail=1` — **45 passed**. The six-collection temporary-copy scan was justified by changed explicit-axis selection: unchanged **15 parents / 39 variations / 54 rows**, original source hashes preserved.
+- Same runner with `tests/test_phase3_woo_publish_preview.py -q -k 'variable_child_uses_verified_global or safe_resume_reuses_verified_variable or large_fixture_has_bounded or variable_parent_precedes_variation or controlled_confirmation' --disable-warnings --maxfail=1` — **6 passed, 125 deselected**.
+- `/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node --test tests/javascript/metadata-taxonomy-client.test.mjs` — **4 passed** (missing/empty distinction, sparse drivers, exact comma-containing terms, Advanced-to-guided override state).
+
+Total: **165 distinct focused Python cases passed, 1 optional skip; 4 JS cases
+passed**. Initial implementation failures (syntax/import shadowing, repeated guard
+lookups, complete-reference inventory and invisible Preview flash) were corrected
+and their affected tests rerun. Pytest reported pre-existing temporary-directory
+cleanup warnings; no Product Relationships or cleanup change was made.
+
+Final checks passed: Python compilation for the 12 changed/new Python modules
+and tests, compilation of all 6 changed/new templates, editor JavaScript syntax,
+and `git diff --check`. Actual route tests also rendered metadata, Product Detail,
+registry and Preview screens. No full browser interaction/live editor acceptance
+is claimed by these checks.
+
+M5.3 is ready for a separately approved temporary-image/live editor check. No live Woo calls,
+commit, tag, push or Docker build occurred. Next: approve bounded registry-only
+Woo taxonomy synchronization (existing proposed M5.5), with store mappings and
+destination decisions reviewed first. Full M5.4 roles/ranges and M5.6 publisher
+integration remain deferred; historical Phase 3 closure gates remain open.
+
+Changed-file inventory (including preserved M5.2 fix):
+
+- Resolver/projection: `app/taxonomy_assignments.py` (new), `app/metadata_workspace.py`, `app/utils/json_utils.py`, `app/utils/scanner.py`, `app/utils/ingest.py`.
+- Metadata contract/save: `app/product_info.py`, `app/routes.py`, `app/resources/product_info/field_inventory.json`, `app/resources/product_info/schemas/{collection,override}.schema.json`, `app/resources/product_info/{examples,templates}/complete.json` (fictional references only).
+- Workspace: `app/taxonomy_routes.py`, `app/static/assets/js/metadata-editor.js`, `app/static/assets/css/taxonomy.css`, `app/templates/metadata_editor.html`, `app/templates/includes/_metadata_taxonomy_choices.html` (new), `app/templates/product_detail.html`, `app/templates/taxonomy/{base,index}.html`.
+- Temporary guard only: `app/woo_publish_preview.py`, `app/woo_controlled_publish.py`, `app/templates/woocommerce_preview.html`.
+- Tests: `tests/test_m53_taxonomy_assignments.py`, `tests/javascript/metadata-taxonomy-client.test.mjs` (new); preserved `tests/test_m52_scan_ingest_regression.py` (uncommitted M5.2).
+- Documentation: `docs/ROADMAP.md`, `docs/CURRENT_STATE.md`, `docs/ARCHITECTURE.md`, `docs/TAXONOMY_REGISTRY.md`, `docs/PHASE_3_M5_TAXONOMY_AUDIT.md`.
+
+## M5.2 initial-scan regression fix — 2026-09-06 (uncommitted)
+
+Following checkpoint `30c3e6124680ec79d37f144769ca197de53ae69a`, focused
+live-style tests reproduced the reported first-parent relationship-authority
+failure and subsequent SQLAlchemy transaction cascade. Discovery was working.
+Ingestion selected the raw SQLite `Settings.product_folder` column, bypassing
+M5.2's deployment-aware instance property used by discovery and relationship
+validation. Empty/stale persisted fallback values therefore lost source context.
+Both Append and reconstruction ingestion now honour explicit `PRODUCT_FOLDER`
+(including explicit blank), using SQLite only when deployment does not own it,
+without opening the scoped parent transaction during root lookup.
+
+The independent cascade existed in the M4 ingestion code: sanitizing the error
+again after failure-item commit queried Settings and implicitly began another
+transaction. Sanitization now completes within failure bookkeeping and its safe
+string is reused for logging. A failed parent rolls back independently; the next
+parent can commit. Relationship authority/path checks and marker recovery are
+unchanged. No scanner discovery, authored metadata, Woo, M4 or M5.3 contract changed.
+
+Verification: new regressions initially **6 failed / 3 passed**, reproducing the
+exact two live errors. After the fix **9 passed**; **4 additional cases passed**
+for reconstruction precedence, explicit blank/fallback lookup and failed-first
+marker recovery/retry. **22 existing focused regressions passed** across complete
+parent rollback, marker ordering/retry, relationship authority/projection and
+onboarding. Total **35 distinct passing cases**. Python compilation and
+`git diff --check` passed. No full suite, six-collection rescan, live Woo access,
+commit, tag, push or image build ran. Temporary AMD64 retest is recommended next
+as `neprod/woocommerce-dashboard:m5-2-initial-scan-fix-test`, not yet built.
+
 ## M5.2 deployment/onboarding follow-up — 2026-09-06 (uncommitted)
 
 Deployment now supplies `PRODUCT_FOLDER=/catalogue`, `OUTPUT_FOLDER=/output`

@@ -17,6 +17,13 @@ LABELS = {"categories": "Categories", "storefront_collections": "Storefront Coll
           "attributes": "Attributes", "terms": "Attribute terms", "tags": "Tags"}
 
 
+@taxonomy.route("/options")
+@login_required
+def assignment_options():
+    from app.taxonomy_assignments import options
+    return options()
+
+
 def signer():
     return URLSafeTimedSerializer(current_app.secret_key, salt="taxonomy-review-v1")
 
@@ -80,6 +87,16 @@ def index():
     query = request.args.get("q", "")[:191].casefold()
     paths = service.category_paths(data) if data else {}
     rows = data[kind] if data else []
+    if kind == "categories":
+        # Preorder keeps descendants beside their parent; search retains ancestry.
+        children = {}
+        for row in rows:
+            children.setdefault(row["parent"], []).append(row)
+        def branch(parent):
+            for row in sorted(children.get(parent, []), key=lambda r: (r.get("order", 0), r["name"].casefold())):
+                yield row
+                yield from branch(row["key"])
+        rows = list(branch(None))
     rows = [r for r in rows if query in json.dumps(r, ensure_ascii=False).casefold() or query in paths.get(r["key"], "").casefold()]
     try:
         page = max(1, int(request.args.get("page", 1)))
@@ -145,6 +162,9 @@ def edit(kind):
         **row, "aliases": "\n".join(row.get("aliases", [])),
         "navigation": "yes" if row.get("navigation") else "",
         "visible_default": "yes" if row.get("visible_default") else ""}
+    if request.method == "GET" and not key and request.args.get("name"):
+        # Prefill is only a proposal: the unchanged reviewed writer validates it.
+        values["name"] = request.args["name"][:191]
     return render_template("taxonomy/edit.html", row=row, values=values, key=key, attribute=attribute,
                            kind=kind, labels=LABELS, categories=data["categories"],
                            paths=service.category_paths(data), base=signature(revision), error=error), 422 if error else 200
@@ -163,5 +183,5 @@ def confirm():
     service.validate(data)
     with operation_context("taxonomy_registry_update", {"action": signed["mode"], "counts": service.counts(data)}):
         service.save_reviewed(data, signed["revision"], bootstrap_only=signed["mode"] == "bootstrap")
-    flash("Local taxonomy registry saved and verified. No catalogue, scanner or WooCommerce changes were made.", "success")
+    flash("Local taxonomy registry saved and verified. No catalogue, scanner or WooCommerce changes were made. Return to your metadata editor, refresh registry choices, select the definition, then save metadata separately. If that save fails, the definition remains available; it is not rolled back.", "success")
     return redirect(url_for("taxonomy.index"))

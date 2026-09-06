@@ -1350,7 +1350,7 @@ def _prune(o):
         out = {}
         for k, v in o.items():
             pv = _prune(v)
-            if pv not in ("", None, [], {}):
+            if (k == "variation_attributes" and isinstance(pv, list)) or (k == "attributes" and "variation_attributes" in o and isinstance(pv, dict)) or pv not in ("", None, [], {}):
                 out[k] = pv
         return out
     if isinstance(o, list):
@@ -1498,6 +1498,16 @@ def product_save_json(sku):
     # Merge + prune
     merged = new_data.copy() if replace_document else _deep_merge(existing.copy(), new_data)
     merged = _prune(merged)
+    # Validate explicit drivers against inherited attributes before any source write.
+    from app.taxonomy_assignments import variation_drivers
+    try:
+        effective = merged
+        if kind == "override":
+            from app.metadata_workspace import resolved_metadata
+            effective = resolved_metadata(p, metadata_source(p, "shared")["data"], merged)
+        variation_drivers(effective)
+    except ValueError as error:
+        return jsonify({"error": "metadata_validation_failed", "errors": [{"path": "$.variation_attributes", "message": str(error)}], "submitted_data": new_data}), 400
     validation = validate_product_info(
         merged, "collection" if kind == "shared" else "override"
     )

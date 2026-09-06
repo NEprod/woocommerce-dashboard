@@ -2,6 +2,9 @@
 {% from 'includes/icons.html' import icon %}
 {% block title %}Woo Publish Preview{% endblock %}
 {% block content %}
+{% for category, message in get_flashed_messages(with_categories=true) %}
+<div class="alert alert-{{ 'danger' if category == 'danger' else 'info' }}" role="alert">{{ message }}</div>
+{% endfor %}
 <header class="page-header woo-preview-header"><div><p class="eyebrow">WooCommerce · Read only</p><h1 class="page-title">Build Publish Preview</h1><p class="page-lede">See exactly what a future controlled publish would create, update, defer, or block. Generating a preview sends bounded GET requests only.</p></div><a class="btn btn-ghost" href="{{ url_for('main.woocommerce') }}">Connection workspace</a></header>
 <section class="preview-readonly-banner" role="status">{{ icon('plug') }}<div><strong>Planning only</strong><p>No product, taxonomy, relationship, variation, or media write is available in this milestone.</p></div></section>
 

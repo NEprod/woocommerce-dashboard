@@ -116,9 +116,17 @@
     "key": "attributes", "aliases": [], "type": "object of attribute-name to non-empty scalar arrays", "units": null,
     "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
     "inheritance": "Inherited unless the attributes object is overridden.", "merge": "Scanner replaces the object; editor save deep-merges the same file.",
-    "parent_effect": "Defines parent attribute columns, limited to five Woo row slots.", "variation_effect": "Creates the Cartesian product and variation attributes.",
+    "parent_effect": "Legacy rows retain five slots; explicit local contracts project all authored attributes.", "variation_effect": "Legacy Variable: all attributes drive combinations. Explicit variation_attributes: only listed names drive combinations.",
     "woo_field": "Attribute 1-5 fields", "sqlite_destination": "product_attribute; variation_attribute; resolved_row_json",
     "classification": "canonical and active", "implementation_status": "Active; more than five attributes are generated but truncated in Woo-style rows.", "example": {"Size": ["Small", "Large"]}, "warning_error": "Unsafe structure blocks; more than five attributes warns."
+  },
+  {
+    "key": "variation_attributes", "aliases": [], "type": "array of exact assigned attribute names", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited only when absent in a sparse override.", "merge": "Replacement, including an explicit empty array.",
+    "parent_effect": "Opts into the local M5.3 attribute contract; Woo publishing temporarily blocked.", "variation_effect": "Only listed attributes drive combinations; empty means no drivers. Simple requires empty.",
+    "woo_field": null, "sqlite_destination": "Authored source/resolver designation; existing attribute and child projections.",
+    "classification": "canonical and active", "implementation_status": "Local M5.3 only; future publisher integration must replace the safety guard.", "example": ["Size"], "warning_error": "Missing/duplicate assigned names and incompatible image axes block save."
   },
   {
     "key": "image_attributes", "aliases": [], "type": "array of strings", "units": null,
