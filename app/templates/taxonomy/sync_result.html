@@ -1,0 +1,8 @@
+{% extends 'taxonomy/base.html' %}
+{% block registry_content %}
+<section class="workspace-panel"><h2>Woo taxonomy sync result</h2>
+<div class="panel-actions">{% for key in ['selected','attempted','succeeded','failed','uncertain','not_attempted'] %}<span class="catalogue-pill is-neutral">{{ key|replace('_',' ')|title }}: {{ report.counts[key] }}</span>{% endfor %}</div>
+<p>Successful definitions remain saved. No product publishing or deletion occurred. Failed or uncertain work is never blindly retried. Regenerate Preview before further actions.</p>
+{% for item in report['items'] %}<article class="taxonomy-row"><h3>{{ item.name }} · {{ item.status|replace('_',' ')|title }}</h3><p>{{ item.id }}</p><p>{{ item.reason }}</p></article>{% endfor %}
+<a class="btn btn-primary" href="{{ url_for('taxonomy.sync_workspace') }}">Return to Woo Sync / regenerate Preview</a></section>
+{% endblock %}

@@ -1,5 +1,173 @@
 # Current State
 
+## M5 taxonomy definition sync — live accepted, 2026-09-08
+
+User live acceptance confirms the grouped Categories / Attributes & Terms /
+Storefront Collections → Woo Brands workflow, useful dependency/conflict and
+per-item result reporting, and term menu_order reconciliation. A reviewed batch
+of **45 definitions completed successfully** in one confirmation; the hard review
+cap remains 50. Confirmation attempts all reviewed eligible selections, retains
+earlier successes and reports any failed/uncertain/not-attempted work. Transient
+GET retry is bounded; POST/PUT are never blindly retried. No delete reconciliation.
+Global attribute-definition numeric ordering is not synchronised because the
+documented Woo v3 contract does not expose it.
+
+Taxonomy Woo IDs remain store-scoped SQLite state, never authoritative authored
+JSON. The approved two-range edit to the deployment-owned TLC example registry
+is included in this checkpoint, not installed as an application default.
+This acceptance supersedes pending live-test notes below. Next is M5.6 product
+publisher integration; the M5.3 explicit-contract guard stays until that integration
+is proven. No product publisher/scanner/relationship semantics changed here.
+
+Closeout verification on 2026-09-08: **40 focused Python tests passed** using
+`PYTHONPATH=. /private/tmp/woo-taxonomy-release-20260908/bin/pytest` with
+`tests/test_taxonomy_sync_acceptance.py tests/test_woo_taxonomy_sync.py
+tests/test_taxonomy_sync_views.py
+tests/test_m53_taxonomy_assignments.py::test_new_contract_preview_blocks_before_any_woo_read
+tests/test_m53_taxonomy_assignments.py::test_execution_guard_rechecks_new_opt_in_after_legacy_confirmation
+-q --disable-warnings --maxfail=1`.
+JavaScript `node --test tests/javascript/metadata-taxonomy-client.test.mjs
+tests/javascript/taxonomy-sync.test.mjs`: **14 passed**; both changed JS files
+passed syntax checks. All 12 changed Python files compiled and 6 changed templates
+parsed. Diff check passed. No full suite was needed. Existing pytest cleanup
+warnings remained non-failing. Docker engine availability was restored before
+closeout; no implementation files changed after verification. Checkpoint tag:
+`phase-3-m5-taxonomy-sync`. The release uses one AMD64/ARM64 build for that immutable
+image tag and `develop`; stable/latest/release are not promoted.
+
+## Taxonomy sync live-acceptance corrections (uncommitted)
+
+The grouped workspace is reported working live. This correction adds reviewed
+ordering-only writes: registry term `order`, falling back to its zero-based array
+position when absent, maps to Woo `menu_order`; global attributes use
+`order_by=menu_order`. Wrong ordering is not Verified. Corrections require a
+trusted identity, exact name/slug/scope and independent GET readback. Numeric
+global attribute-definition order is not exposed by the documented v3 API.
+
+Unverified category parents previously skipped candidate claiming, incorrectly
+letting their possible children enter Woo-only import validation. Those candidates
+now remain with their local dependency/conflict rows. Diagnostics identify local
+parent keys, expected/observed Woo parent IDs, possible match counts or colliding
+local keys. The example Cake Toppers is valid beneath `cat-cake-and-party`; its
+live remote parent/mapping was not supplied, so the precise live state is not
+assumed or rewritten.
+
+The five-item stop was removed after live UX feedback. Confirmation again attempts
+the entire reviewed selection (maximum 50), including the full reviewed import
+proposal. A dedicated result page shows selected/attempted/succeeded/failed/
+uncertain/not-attempted counts and individual reasons; earlier successes persist.
+Access, verification or persistence failure stops further work explicitly.
+Parent GETs are reused only within this operation for up to 15 seconds, and
+invalidated after local global-attribute writes. Fresh exhaustive scoped discovery
+and independent item readback remain: typically 3 requests/create, 2/link, plus a
+shared short-lived parent GET for terms. Category parents are checked in the fresh
+category list already fetched for each action. Confirmation re-plans with the
+original 60-request budget; execution gets 60 + 4 × selected requests (maximum
+260), avoiding an artificial 60-call cutoff for valid 50-item batches. Shared
+3.05s connect / 8s read timeouts remain unchanged. Transient GET retries once
+after 250ms; POST/PUT never retry. Large synchronous operations can still exceed
+browser/proxy time limits; no background runner or hidden tiny batches were added.
+Shapes-style conflicts now report only actual name/slug/parent mismatches or the
+precise owning local key. Stale mappings report stored and current match IDs,
+state, scope and definition changes separately. The supplied Shapes message lacks
+the remote candidate name/slug and ownership state, so its exact live failing
+field cannot be inferred; the next Preview exposes it. Cake Toppers' verified-parent
+dependency remains intact. Product/scanner behaviour and the M5.3 guard are unchanged.
+
+Attempt-all follow-up verification: `test_taxonomy_sync_acceptance.py`,
+`test_woo_taxonomy_sync.py`, `test_taxonomy_sync_views.py`: 34 passed. Additional
+precise-diagnostic, parent-reuse/readback and failed-result rendering tests:
+3 passed (12 deselected), giving 37 distinct focused cases. Changed Python and
+templates compile/parse and diff check passes. JavaScript was unchanged and not
+rerun. No full suite, live Woo calls, Docker build or release actions.
+
+Focused verification (no full suite): acceptance + existing sync + grouped-view
+pytest modules: 31 passed; after adding import-work-unit and successful GET retry
+coverage, acceptance module alone: 11 passed (33 distinct sync/UI cases across
+these overlapping runs). M5.3 `new_contract_preview or execution_guard`: 3 passed,
+23 deselected. Existing `taxonomy-sync.test.mjs`: 4 passed. Changed Python and
+templates compile/parse; diff check passes. Existing pytest temporary-directory
+cleanup warnings were emitted after successful runs; no cleanup code was changed.
+
+## M5 local ranges + reviewed definition sync — 2026-09-07 (uncommitted)
+
+M5.3 checkpoint is `645271f632e773382cb608c181c6aad354b4a9bd`, tagged
+`phase-3-m5-taxonomy-assignments`. This bounded follow-up completes the missing
+local `storefront_collections` assignment and implements reviewed definition
+reconciliation for categories, global attributes, scoped terms and Storefront
+Collections → Woo Brands. Dashboard filesystem Collections remain separate.
+
+The existing metadata editors support registry choices, legacy visibility,
+separate reviewed registry additions, sparse inheritance and explicit range
+removal (`[]`). Product Detail resolves these assignments from authored source.
+No scan-time registry import or product payload integration is added.
+
+Taxonomy → Woo Sync (`/taxonomy/sync`) performs no reads on page load. Explicit
+POST Preview, review and acknowledged confirmation use existing auth/CSRF,
+signed 30-minute reviews, current-store identity, registry revisions, operation
+locking/history and safe registry replacement. Batches contain 1–50 selections;
+imports are reviewed separately from creates/links. Parent categories and global
+attributes must first be verified, then a fresh Preview unlocks children/terms.
+This deliberately uses staged rounds, not a new background orchestration system.
+
+Woo Sync UX polish: compact overview plus Category, Attribute/Term and Storefront
+Collection views reuse one explicit Preview without additional discovery on view
+switches. Hierarchy/group selection and state filters separate Link/Create,
+Verified, Issues and reviewed Woo-only imports. Selection count and atomic group
+selection enforce 50 in UI and backend. Existing request budgets remain unchanged;
+50 selections are not a guarantee that every batch fits the remote request budget.
+Temporary browser acceptance of the grouped presentation remains required.
+Focused polish verification: `test_taxonomy_sync_views.py` plus the existing
+sync route auth/CSRF/freshness case: 5 passed; M5.3 preview/execution guard
+selection: 3 passed (23 deselected); `taxonomy-sync.test.mjs`: 4 passed.
+Changed Python/template compilation, JavaScript syntax and diff checks passed.
+No full suite, live Woo calls or Docker build were run for this polish pass.
+
+Migration `0008_woo_taxonomy_identity` adds one store-scoped mapping table because
+product/variation identities require product FKs and cannot hold registry keys.
+Created IDs are trusted only after separate readback. A durable uncertain-create
+reservation prevents blind retries after interruption. Verified identity drift,
+ambiguity and missing resources block rather than overwrite/delete. Completed
+steps survive later failure; retained operation summaries explain partial work.
+
+This environment has no Woo URL/credentials configured, so **no connected-store
+Brands capability or live sync has been verified**. The current Woo controller
+documents `wc/v3/products/brands`; each Preview requires advertised GET/POST plus
+valid bounded readback before Brand actions appear. Unavailable Brands does not
+prevent category/attribute work or local editing. Hierarchical Brands are not
+silently flattened into flat local ranges. Tags remain deferred.
+
+The user's pre-existing edit to `deployment/examples/tlc/registry.json` is
+preserved, not part of this implementation. No dependencies, scanner/ingestion,
+M4 payload, relationship, image, onboarding or deployment changes are included.
+The M5.3 publishing guard remains. Next is separately approved product publisher
+integration only after definition-sync live acceptance; no release in this slice.
+
+Focused verification: **27 passed** (18 new sync/range/migration cases plus
+9 existing authored-contract/registry safety cases), **7 M5.3 compatibility cases
+passed, 19 deselected**, and **10 editor JavaScript tests passed**. Changed-file
+compilation passed for **9 Python files** and **5 templates**; JS syntax and
+`git diff --check` passed. Pytest emitted existing warnings and temporary-directory
+cleanup warnings after success; no full suite or real Woo call was run.
+
+Exact final Python selections (runner: `PYTHONPATH=.
+/tmp/woocommerce-m4-variation-venv/bin/pytest`; both with
+`-q --disable-warnings --maxfail=1`):
+
+```text
+tests/test_woo_taxonomy_sync.py
+tests/test_product_info_contract.py::test_complete_example_and_templates_cover_the_contract
+tests/test_product_info_contract.py::test_every_inventory_field_has_the_required_contract_classification
+tests/test_taxonomy_workspace.py::test_readonly_stale_edit_and_unsafe_symlink
+tests/test_taxonomy_workspace.py::test_signed_confirmation_safety
+tests/test_taxonomy_workspace.py::test_postwrite_mismatch_keeps_verified_backup_and_reports_failure
+```
+
+Separate M5.3 selection: `tests/test_m53_taxonomy_assignments.py -k
+'sparse_inheritance or actual_metadata_save or advanced_unknown or new_contract_preview or execution_guard'`.
+JS: `node --test tests/javascript/metadata-taxonomy-client.test.mjs` and
+`node --check app/static/assets/js/metadata-editor.js`.
+
 ## M5.3 checkpoint acceptance — 2026-09-06
 
 The M5.2 initial-scan ingestion fix and M5.3 local taxonomy assignments/polished

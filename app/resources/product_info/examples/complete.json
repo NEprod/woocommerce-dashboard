@@ -19,6 +19,7 @@
   },
   "image_attributes": ["Finish", "Size"],
   "variation_attributes": ["Finish", "Size"],
+  "storefront_collections": ["Paper Garden"],
   "variation_modifiers": {
     "Size=Large": {
       "price": "24.00",

@@ -1,5 +1,29 @@
 # Phase 3 M5 architecture audit: Taxonomy Registry & Controlled Catalogue Metadata
 
+Checkpoint status, 2026-09-08: the bounded definition-sync implementation is user
+live accepted, including grouped reconciliation, term ordering and a successful
+45-definition reviewed batch. Earlier implementation-time availability/live-test
+notes below are historical. M5.6 product publisher integration remains next and
+the M5.3 publishing guard remains; no architecture/history is otherwise changed.
+
+### Approved range destination and definition-sync addendum — 2026-09-07
+
+The user has decided Storefront Collection → Woo Brand. Earlier destination
+options below remain historical, not open implementation choices. The existing
+proposed `storefront_collections` assignment name is now implemented using readable
+names and replacement-array inheritance (including empty). Dashboard Collections
+remain internal filesystem groups. No new product publisher mapping is included.
+
+Bounded M5.5 reviewed sync covers categories/global attributes/scoped terms/Brands,
+not tags. One minimal store-scoped mapping migration is required because the M3
+product/variation identity tables cannot store standalone registry definitions.
+Parent dependencies use verified staged rounds. Registry imports reuse M5.2 safe
+replacement; no silent delete/import or bidirectional overwrite. CURRENT_STATE,
+ARCHITECTURE and TAXONOMY_REGISTRY record implementation limits and live gates.
+The environment has no Woo connection configured; actual Brands availability is
+runtime-gated, not claimed from documentation alone. M5.6 remains deferred and
+the explicit-contract publishing guard stays in place.
+
 ### Approved bounded M5.3 implementation addendum — 2026-09-06
 
 The subsequent user-approved slice deliberately narrows/supersedes the broader

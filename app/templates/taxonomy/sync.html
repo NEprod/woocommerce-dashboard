@@ -1,0 +1,28 @@
+{% extends 'taxonomy/base.html' %}
+{% macro branch(node) %}
+<article class="sync-node" data-sync-node data-bucket="{{ node.bucket }}">
+<div class="sync-row"><strong>{{ node.row.name }}</strong> <span class="catalogue-pill is-neutral">{{ node.label }}</span>
+{% if node.children %}<small>Group: {{ node.counts.link }} link · {{ node.counts.create }} create · {{ node.counts.verified }} verified · {{ node.counts.issues }} issues · {{ node.counts.import }} imports</small>{% endif %}
+{% if node.row.action %}<label><input type="checkbox" name="selected" value="{{ node.row.id }}" data-action="{{ node.row.action }}"> {{ node.row.action|title }}</label>{% endif %}
+<details><summary>Details · {{ node.row.state|replace('_',' ') }}</summary><p>{{ node.row.reason }}</p><p>Local key: {{ node.row.key }}{% if node.row.remote %} · Woo ID: {{ node.row.remote.id }} · {{ node.row.remote.slug }}{% endif %}</p></details></div>
+{% if node.children %}<div class="panel-actions sync-group-actions">{% for action in ['link','create','order','import'] %}{% if node.counts[action] %}<button type="button" class="btn btn-ghost" data-group-action="{{ action }}">Select {{ action }} · {{ node.counts[action] }} in {{ node.row.name }} + children</button>{% endif %}{% endfor %}</div><div class="sync-children">{% for child in node.children %}{{ branch(child) }}{% endfor %}</div>{% endif %}
+</article>
+{% endmacro %}
+{% block registry_content %}
+<div data-sync-workspace data-active-view="{{ active_view }}">
+<section class="workspace-panel"><h2>Woo taxonomy sync</h2><p>Reviewed definitions only. No product publishing or deletion. Switching views uses this same Preview; nothing syncs automatically.</p>
+<nav class="panel-actions" aria-label="Woo Sync views"><a class="btn btn-ghost" data-sync-view="overview" href="{{ url_for('taxonomy.sync_workspace') }}">Overview</a>{% for view in views %}<a class="btn btn-secondary" data-sync-view="{{ view.key }}" href="{{ url_for('taxonomy.sync_workspace', view=view.key) }}">{{ view.title }}</a>{% endfor %}</nav>
+<form method="post" action="{{ url_for('taxonomy.sync_preview') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="view" value="{{ active_view }}" data-preview-view><button class="btn btn-primary">{{ 'Refresh' if plan else 'Generate' }} Woo Sync Preview</button></form>
+{% if plan %}<p>Store: {{ plan.store.origin }} · Verify parents first, refresh Preview, then sync children. Request budgets still apply; use smaller batches if requested.</p>{% endif %}</section>
+<section data-sync-panel="overview" class="sync-cards">{% for view in views %}<article class="workspace-panel"><h3>{{ view.title }}</h3>{% if plan %}{% for bucket,label in view.buckets.items() %}<p>{{ label }}: {{ view.counts[bucket] }}</p>{% endfor %}<p>Unavailable resources: {{ view.unavailable|length }}</p>{% else %}<p>Generate Preview to discover current-store status.</p>{% endif %}<a class="btn btn-secondary" data-sync-view="{{ view.key }}" href="{{ url_for('taxonomy.sync_workspace', view=view.key) }}">Open {{ view.title }}</a></article>{% endfor %}</section>
+{% if plan %}<form method="post" action="{{ url_for('taxonomy.sync_review') }}" data-sync-selection data-limit="{{ limit }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="review" value="{{ token }}">
+<div class="sync-toolbar"><span data-selected-count role="status" aria-live="polite">0 / {{ limit }} selected</span><button type="button" class="btn btn-secondary" data-clear-selection>Clear selection</button><button class="btn btn-primary">Review selected actions</button><span data-selection-message role="status"></span></div>
+{% for view in views %}<section data-sync-panel="{{ view.key }}" class="workspace-panel"><h2 class="sync-heading">{{ view.title }}</h2>
+{% if view.key == 'attributes' %}<p>Sync attribute first, then refresh Preview to discover its scoped terms. Unavailable terms cannot be selected.</p>{% endif %}
+{% for item in view.unavailable %}<p class="alert alert-warning">Unavailable · {{ item.kind }}: {{ item.reason }}</p>{% endfor %}
+<label>Show <select data-sync-filter><option value="all">All states</option>{% for bucket,label in view.buckets.items() %}<option value="{{ bucket }}">{{ label }} ({{ view.counts[bucket] }})</option>{% endfor %}</select></label>
+<div class="panel-actions">{% for action in ['link','create','order','import'] %}{% if view.counts[action] %}<button type="button" class="btn btn-secondary" data-section-action="{{ action }}">Select all {{ action }} ({{ view.counts[action] }})</button>{% endif %}{% endfor %}</div>
+{% for node in view.roots %}{{ branch(node) }}{% else %}<p>No definitions available in this view. Check readiness above.</p>{% endfor %}</section>{% endfor %}</form>{% endif %}
+</div>
+{% endblock %}
+{% block javascripts %}{{ super() }}<script src="{{ url_for('static', filename='assets/js/taxonomy-sync.js') }}" defer></script>{% endblock %}

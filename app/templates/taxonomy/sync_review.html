@@ -1,0 +1,10 @@
+{% extends 'taxonomy/base.html' %}
+{% block registry_content %}
+<section class="workspace-panel"><h2>Confirm selected taxonomy actions</h2><p>Store: {{ plan.store.origin }}</p>
+<p>Create writes a new Woo definition. Link persists local trust only. Import writes the local registry after backup. Order changes only menu_order/order_by on a verified attribute or term. No rename, deletion or product publishing.</p>
+<p>This confirmation attempts all {{ rows|length }} reviewed definitions sequentially. A safety, access or persistence failure stops the operation and reports any remaining definitions as not attempted. Earlier successes remain saved.</p>
+{% for row in rows %}<article class="taxonomy-row"><h3>{{ row.action|title }} · {{ row.name }}</h3><p>{{ labels.get(row.kind,row.kind) }} · local key {{ row.key }}{% if row.scope %} · attribute {{ row.scope }}{% endif %}{% if row.remote %} · Woo ID {{ row.remote.id }}{% endif %}</p><pre class="taxonomy-json">{{ (row.order_payload if row.action == 'order' else row.payload if row.action != 'import' else row.local)|tojson(indent=2) }}</pre></article>{% endfor %}
+{% if document %}<details open><summary>Exact proposed registry replacement (verified backup required)</summary><pre class="taxonomy-json">{{ document }}</pre></details>{% endif %}
+<p>Completed steps remain saved if a later step fails. An uncertain create is retained for review, never repeated automatically. Regenerate Preview after completion.</p></section>
+<form class="workspace-panel" method="post" action="{{ url_for('taxonomy.sync_confirm') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="review" value="{{ token }}"><label class="check-row"><input type="checkbox" name="acknowledge" value="yes" required><span>I reviewed this store and these exact taxonomy actions. I authorise all selected creates/imports/identity links/ordering corrections, not product publishing.</span></label><button class="btn btn-primary">Confirm all selected actions</button><a class="btn btn-ghost" href="{{ url_for('taxonomy.sync_workspace') }}">Cancel</a></form>
+{% endblock %}

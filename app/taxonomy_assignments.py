@@ -37,6 +37,7 @@ def options():
     data = result.snapshot.data if result.available else {}
     paths = category_paths(data) if data else {}
     return {"status": result.status, "digest": result.snapshot.digest if result.available else None,
+            "storefront_collections": [{"key": r["key"], "value": r["name"], "aliases": list(r.get("aliases", [])), "state": r["state"]} for r in data.get("storefront_collections", [])],
             "categories": [{"key": r["key"], "value": paths[r["key"]], "name": r["name"], "aliases": list(r.get("aliases", [])), "state": r["state"]} for r in data.get("categories", [])],
             "attributes": [{"key": r["key"], "value": r["name"], "aliases": list(r.get("aliases", [])), "state": r["state"],
                             "terms": [{"key": t["key"], "value": t["name"], "aliases": list(t.get("aliases", [])), "state": t["state"]} for t in r["terms"]]} for r in data.get("attributes", [])]}
@@ -62,7 +63,8 @@ def resolve(data, registry=None):
         attributes.append({"name": name, "definition": definition,
                            "variation": name in drivers and data.get("collection_type") != "Simple",
                            "terms": [{"value": value, "definition": match(value, definition["terms"]) if definition else None} for value in (values if isinstance(values, list) else [values])]})
-    return {"categories": categories, "attributes": attributes, "explicit": "variation_attributes" in data,
+    ranges = [{"value": value, "definition": match(value, registry.get("storefront_collections", []))} for value in data.get("storefront_collections", [])]
+    return {"categories": categories, "storefront_collections": ranges, "attributes": attributes, "explicit": "variation_attributes" in data,
             "drivers": drivers, "error": error, "registry_status": registry["status"]}
 
 

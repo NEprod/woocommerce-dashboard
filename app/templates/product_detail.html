@@ -76,6 +76,7 @@
   <ul>{% for category in workspace.taxonomy.categories %}<li>{{ category.value }} — {{ 'Registered' if category.definition else 'Legacy · Not in taxonomy registry' }}</li>{% endfor %}</ul>
   <ul>{% for attribute in workspace.taxonomy.attributes %}<li><strong>{{ attribute.name }}</strong> · {{ 'Variation-driving' if attribute.variation else 'Informational' }} · {{ 'Registered' if attribute.definition else 'Legacy' }}<ul>{% for term in attribute.terms %}<li>{{ term.value }} — {{ 'Registered' if term.definition else 'Legacy · Not in taxonomy registry' }}</li>{% endfor %}</ul></li>{% endfor %}</ul>
   <p>Edit assignments through Collection Metadata or Product Override. Scanning never adds definitions to the registry.</p>
+  <h3>Storefront Collections</h3><ul>{% for item in workspace.taxonomy.storefront_collections %}<li>{{ item.value }} · {{ 'Registered' if item.definition else 'Legacy · Not in taxonomy registry' }}</li>{% else %}<li>No Storefront Collections assigned.</li>{% endfor %}</ul>
 </section>
 
 <section class="workspace-card" aria-labelledby="resolved-metadata-title">

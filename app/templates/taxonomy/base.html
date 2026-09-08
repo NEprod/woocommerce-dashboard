@@ -6,7 +6,7 @@
 <header class="page-header"><div><p class="eyebrow">Local authored source · Phase 3 M5.2</p><h1 class="page-title">Taxonomy Registry</h1><p class="page-lede">Categories, named ranges, structured attributes and tags. Independent of dashboard catalogue groups.</p></div><a class="btn btn-ghost" href="{{ url_for('taxonomy.index') }}">Registry overview</a></header>
 {% for category, message in get_flashed_messages(with_categories=true) %}<p class="alert alert-success" role="status">{{ message }}</p>{% endfor %}
 {% block registry_content %}{% endblock %}
-<p class="panel-note">Registry definitions remain separate from product assignments. Explicit assignment editing is available in metadata editors; scans never add definitions. Woo synchronization is not yet implemented.</p>
+<p class="panel-note">Registry definitions remain separate from product assignments. Scans never add definitions. <a href="{{ url_for('taxonomy.sync_workspace') }}">Reviewed Woo taxonomy sync</a> handles definitions only; product publishing integration remains deferred.</p>
 </div>
 {% endblock %}
 {% block javascripts %}<script src="{{ url_for('static', filename='assets/js/taxonomy.js') }}" defer></script>{% endblock %}

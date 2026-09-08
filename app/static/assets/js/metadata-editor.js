@@ -18,7 +18,7 @@
   const knownFields = new Set([
     "collection_type", "title", "sku_prefix", "price", "sale_price",
     "sale_start_date", "sale_end_date", "weight", "dimensions", "categories",
-    "tags", "live", "short_description", "description", "attributes",
+    "tags", "storefront_collections", "live", "short_description", "description", "attributes",
     "image_attributes", "variation_attributes", "variation_modifiers", "shipping_class", "grouped_ids",
     "grouped_products", "upsell_ids", "cross_sell_ids", "upsells", "crosssells",
     "meta_title", "meta_description"
@@ -44,6 +44,7 @@
       if (Array.from(select.options).some((row) => row.value === prior)) select.value = prior;
     };
     fill(category, registry.categories, "Choose a registered category");
+    fill(guided.querySelector("[data-registry-range]"), registry.storefront_collections || [], "Choose a Storefront Collection");
     fill(attribute, registry.attributes, "Choose a registered attribute");
     const selected = registry.attributes.find((row) => row.key === attribute.value);
     fill(term, selected ? selected.terms : [], "Choose a registered term");
@@ -136,9 +137,9 @@
       input.value = value == null ? "" : String(value);
       input.setAttribute("aria-label", `${field.replaceAll("_", " ")} item ${index + 1}`);
       row.append(input, makeButton("Move up", "up", index), makeButton("Move down", "down", index), makeButton("Remove", "remove", index));
-      if (field === "categories") {
+      if (field === "categories" || field === "storefront_collections") {
         const status = document.createElement("div"); status.className = "taxonomy-row-status";
-        const update = () => { status.replaceChildren(); recognition(status, input.value, registryMatch(input.value, registry.categories), "category"); };
+        const update = () => { status.replaceChildren(); recognition(status, input.value, registryMatch(input.value, registry[field] || []), field === "categories" ? "category" : "range"); };
         update(); input.addEventListener("change", update); row.append(status);
       }
       target.appendChild(row);
@@ -214,7 +215,7 @@
     target.append(badge);
     if (!definition && value && (kind !== "term" || attribute)) {
       const link = document.createElement("a"); link.target = "_blank"; link.rel = "noopener";
-      const base = kind === "category" ? boot.taxonomy_category_url : kind === "attribute" ? boot.taxonomy_attribute_url : boot.taxonomy_term_url;
+      const base = kind === "range" ? boot.taxonomy_range_url : kind === "category" ? boot.taxonomy_category_url : kind === "attribute" ? boot.taxonomy_attribute_url : boot.taxonomy_term_url;
       link.href = `${base}?name=${encodeURIComponent(value)}${attribute ? `&attribute=${encodeURIComponent(attribute.key)}` : ""}`;
       link.textContent = kind === "term" ? `Add ${value} to registry` : "Add to taxonomy registry";
       target.append(link);
@@ -316,7 +317,7 @@
     });
     const dimensions = valueFor("dimensions");
     guided.querySelectorAll("[data-dimension]").forEach((control) => { control.value = dimensions && dimensions[control.dataset.dimension] != null ? dimensions[control.dataset.dimension] : ""; });
-    ["categories", "tags", "image_attributes"].forEach((field) => renderList(field, valueFor(field)));
+    ["categories", "tags", "storefront_collections", "image_attributes"].forEach((field) => renderList(field, valueFor(field)));
     explicitVariation = Object.prototype.hasOwnProperty.call(authored, "variation_attributes");
     resolvedVariation = Array.isArray(valueFor("variation_attributes"));
     driverNames = resolvedVariation ? [...valueFor("variation_attributes")] : [];
@@ -332,7 +333,7 @@
       const result = {};
       Object.entries(value).forEach(([key, item]) => {
         const clean = prune(item);
-        if ((key === "variation_attributes" && Array.isArray(clean)) ||
+        if ((["variation_attributes", "storefront_collections"].includes(key) && Array.isArray(clean)) ||
             (key === "attributes" && Object.prototype.hasOwnProperty.call(value, "variation_attributes") && clean && typeof clean === "object") ||
             (clean !== "" && clean != null && !(typeof clean === "object" && !Object.keys(clean).length))) result[key] = clean;
       });
@@ -352,7 +353,12 @@
       if (control.dataset.arrayField === "true") value = value.split(",").map((item) => item.trim()).filter(Boolean);
       result[field] = value;
     });
-    ["categories", "tags", "image_attributes"].forEach((field) => { if (overrideEnabled(field)) result[field] = listValues(field); });
+    ["categories", "tags", "storefront_collections", "image_attributes"].forEach((field) => {
+      if (!overrideEnabled(field)) return;
+      const values = listValues(field);
+      if (field === "storefront_collections" && isShared && !Object.hasOwn(authored, field) && !values.length) return;
+      result[field] = values;
+    });
     if (overrideEnabled("attributes")) result.attributes = attributeValues();
     if (explicitVariation) result.variation_attributes = [...driverNames];
     if (overrideEnabled("variation_modifiers")) result.variation_modifiers = modifierValues();
@@ -604,6 +610,13 @@
 
   populate(authored);
   registryChoices();
+  guided.querySelector("[data-assign-range]").addEventListener("click", () => {
+    if (!overrideEnabled("storefront_collections")) return showFeedback("error", "Enable range override", "Enable the Storefront Collection override before replacing inherited assignments.");
+    const selected = (registry.storefront_collections || []).find((row) => row.key === guided.querySelector("[data-registry-range]").value);
+    if (!selected) return;
+    renderList("storefront_collections", Array.from(new Set([...listValues("storefront_collections"), selected.value])));
+    setDirty(true);
+  });
   guided.querySelector("[data-registry-attribute]").addEventListener("change", registryChoices);
   guided.querySelector("[data-assign-category]").addEventListener("click", () => {
     if (!overrideEnabled("categories")) return showFeedback("error", "Enable category override", "Inherited categories remain unchanged. Enable the override before adding product categories.");
@@ -630,6 +643,7 @@
       registry = await response.json();
       registryChoices();
       renderAttributes(attributeValues()); renderList("categories", listValues("categories"));
+      renderList("storefront_collections", listValues("storefront_collections"));
       showFeedback("success", "Registry choices refreshed", "Select a verified definition, then save metadata separately. No product assignment was automatically changed.");
     } catch (error) { showFeedback("error", "Refresh failed", error.message); }
   }));

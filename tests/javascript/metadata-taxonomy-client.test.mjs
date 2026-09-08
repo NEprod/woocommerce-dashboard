@@ -8,17 +8,17 @@ const source = fs.readFileSync(new URL("../../app/static/assets/js/metadata-edit
 function extract(name, next) {
   return source.slice(source.indexOf(`  function ${name}(`), source.indexOf(`  function ${next}(`));
 }
-function draft({explicit = false, names = [], shared = true, authored = {}} = {}) {
+function draft({explicit = false, names = [], shared = true, authored = {}, ranges = []} = {}) {
   const context = vm.createContext({
     authored, isShared: shared, explicitVariation: explicit, driverNames: names,
-    knownFields: new Set(["attributes", "variation_attributes", "categories"]),
+    knownFields: new Set(["attributes", "variation_attributes", "categories", "storefront_collections"]),
     guided: {
       querySelectorAll: () => [],
       querySelector: () => ({checked: explicit}),
     },
     overrideEnabled: () => shared,
     attributeValues: () => ({}), modifierValues: () => ({}),
-    listValues: (field) => field === "variation_attributes" ? names : [],
+    listValues: (field) => field === "variation_attributes" ? names : field === "storefront_collections" ? ranges : [],
   });
   vm.runInContext(extract("prune", "guidedDocument") + extract("guidedDocument", "clearErrors"), context);
   return JSON.parse(JSON.stringify(vm.runInContext("guidedDocument()", context)));
@@ -26,6 +26,27 @@ function draft({explicit = false, names = [], shared = true, authored = {}} = {}
 test("missing field stays legacy; explicit empty is not pruned", () => {
   assert.deepEqual(draft(), {});
   assert.deepEqual(draft({explicit: true}), {attributes: {}, variation_attributes: []});
+});
+test("Storefront Collections preserve readable assignments and explicit removal without opting into drivers", () => {
+  assert.deepEqual(draft({ranges: ["Paper Garden", "Legacy range"]}), {storefront_collections: ["Paper Garden", "Legacy range"]});
+  assert.deepEqual(draft({authored: {storefront_collections: ["Paper Garden"]}, ranges: []}), {storefront_collections: []});
+  assert.deepEqual(draft({shared: false}), {});
+});
+test("range registry assignment appends without replacing legacy or changing variation designation", () => {
+  let click, values;
+  const context = vm.createContext({
+    registry: {storefront_collections: [{key: "range-garden", value: "Paper Garden"}]},
+    guided: {querySelector: (selector) => selector === "[data-assign-range]" ? {addEventListener: (_, callback) => {click = callback;}} : {value: "range-garden"}},
+    overrideEnabled: () => true, listValues: () => ["Legacy range"],
+    renderList: (field, rows) => {values = {field, rows: Array.from(rows)};},
+    setDirty: () => {}, explicitVariation: false,
+  });
+  const start = source.indexOf('  guided.querySelector("[data-assign-range]").addEventListener');
+  const end = source.indexOf('  guided.querySelector("[data-registry-attribute]")', start);
+  vm.runInContext(source.slice(start, end), context);
+  click();
+  assert.deepEqual(values, {field: "storefront_collections", rows: ["Legacy range", "Paper Garden"]});
+  assert.equal(context.explicitVariation, false);
 });
 test("explicit drivers preserve order, sparse override does not copy inherited attributes", () => {
   assert.deepEqual(draft({explicit: true, names: ["Size", "Finish"], shared: false}), {variation_attributes: ["Size", "Finish"]});

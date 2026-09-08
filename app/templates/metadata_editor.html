@@ -67,6 +67,20 @@
         {% with picker_kind='categories' %}{% include 'includes/_metadata_taxonomy_choices.html' %}{% endwith %}
       </section>
 
+      <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="ranges-title">
+        <header><h2 id="ranges-title">Storefront Collections</h2><p>Named ranges, separate from dashboard catalogue groups. Local assignments only; product publishing is deferred.</p></header>
+        <div class="guided-field" data-field-wrapper="storefront_collections" {% if not is_shared %}data-override-field="storefront_collections"{% endif %}>
+          {% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="storefront_collections" {% if 'storefront_collections' in workspace.override.data %}checked{% endif %}>Override inherited ranges</label>{% endif %}
+          <div class="repeatable-list" data-list-editor="storefront_collections" aria-label="Assigned Storefront Collections"></div>
+          <button type="button" class="btn btn-sm btn-ghost" data-add-list="storefront_collections">Add authored range</button>
+          <p class="field-helper">Missing override inherits. An explicit empty list removes all inherited range assignments. Unknown values remain visible.</p><p class="field-error" data-field-error="storefront_collections" hidden></p>
+        </div>
+        <label for="registry-range-choice">Add from taxonomy registry</label><select id="registry-range-choice" data-registry-range></select>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-assign-range>Assign Storefront Collection</button>
+        <a href="{{ url_for('taxonomy.edit', kind='storefront_collections') }}" target="_blank" rel="noopener">Add new Storefront Collection to registry</a>
+        <button type="button" class="btn btn-sm btn-ghost" data-refresh-taxonomy>Refresh registry choices</button>
+      </section>
+
       <section class="editor-workspace-section" aria-labelledby="seo-title">
         <header><div><h2 id="seo-title">SEO</h2><p>Authored metadata projected into the stored Woo-style row.</p></div></header>
         <div class="editor-field-grid">
@@ -143,6 +157,7 @@
   'taxonomy_options_url': url_for('taxonomy.assignment_options'),
   'taxonomy_term_url': url_for('taxonomy.edit', kind='terms'),
   'taxonomy_category_url': url_for('taxonomy.edit', kind='categories'),
+  'taxonomy_range_url': url_for('taxonomy.edit', kind='storefront_collections'),
   'taxonomy_attribute_url': url_for('taxonomy.edit', kind='attributes'),
   'save_url': url_for('main.product_save_json', sku=product.sku),
   'validate_url': url_for('main.metadata_validate'),

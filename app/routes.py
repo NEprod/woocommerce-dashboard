@@ -1350,7 +1350,7 @@ def _prune(o):
         out = {}
         for k, v in o.items():
             pv = _prune(v)
-            if (k == "variation_attributes" and isinstance(pv, list)) or (k == "attributes" and "variation_attributes" in o and isinstance(pv, dict)) or pv not in ("", None, [], {}):
+            if (k in {"variation_attributes", "storefront_collections"} and isinstance(pv, list)) or (k == "attributes" and "variation_attributes" in o and isinstance(pv, dict)) or pv not in ("", None, [], {}):
                 out[k] = pv
         return out
     if isinstance(o, list):

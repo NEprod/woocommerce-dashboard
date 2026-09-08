@@ -1,4 +1,12 @@
 .taxonomy-workspace { min-width: 0; }
+.sync-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: var(--space-5); }
+.sync-heading, .sync-toolbar { background: var(--color-surface-dark); color: var(--color-text-inverse); padding: var(--space-5); border-radius: var(--radius-card-small); }
+.sync-toolbar, .sync-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
+.sync-row { padding: var(--space-4); border-bottom: 1px solid var(--color-divider); overflow-wrap: anywhere; }
+.sync-row details { flex-basis: 100%; }
+.sync-children { margin-inline-start: clamp(8px, 2vw, 24px); border-inline-start: 2px solid var(--color-divider); }
+.sync-group-actions { padding: var(--space-3); }
+.taxonomy-workspace [hidden] { display: none !important; }
 .taxonomy-workspace .workspace-panel { margin-block: var(--space-7); }
 .taxonomy-counts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-5); }
 .taxonomy-counts h2 { font-size: var(--type-body, 14px); }

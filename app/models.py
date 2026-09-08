@@ -337,6 +337,26 @@ class ProductRelationship(db.Model):
     )
 
 
+class WooTaxonomyIdentity(db.Model):
+    """Verified registry-key mapping; no product FK or authored Woo IDs."""
+    __tablename__ = "woo_taxonomy_identity"
+    __table_args__ = (
+        db.UniqueConstraint("store_key", "kind", "scope_key", "local_key", name="uq_taxonomy_local"),
+        db.UniqueConstraint("store_key", "kind", "remote_scope", "woo_id", name="uq_taxonomy_remote"),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    store_key = db.Column(db.String(64), nullable=False)
+    kind = db.Column(db.String(32), nullable=False)
+    scope_key = db.Column(db.String(96), nullable=False, default="")
+    local_key = db.Column(db.String(96), nullable=False)
+    remote_scope = db.Column(db.Integer, nullable=False, default=0)
+    woo_id = db.Column(db.Integer)
+    state = db.Column(db.String(24), nullable=False, default="uncertain")
+    local_digest = db.Column(db.String(64), nullable=False)
+    remote_digest = db.Column(db.String(64))
+    verified_at = db.Column(db.DateTime)
+
+
 class WooProductIdentity(db.Model):
     """Store-scoped Woo identity and sync state; never authored catalogue data."""
 

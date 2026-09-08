@@ -1,5 +1,14 @@
 [
   {
+    "key": "storefront_collections", "aliases": [], "type": "array of readable range names", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Missing inherits; an explicit array replaces, including [].", "merge": "Replacement.",
+    "parent_effect": "Local Storefront Collection assignments, separate from filesystem Collection.", "variation_effect": "None.",
+    "woo_field": null, "sqlite_destination": "Resolved from authored source; no product projection column.",
+    "classification": "canonical and active", "implementation_status": "Local editing/resolution only; product Brand publishing deferred.",
+    "example": ["Paper Garden"], "warning_error": "Unknown names remain legacy; never imported automatically."
+  },
+  {
     "key": "collection_type", "aliases": [], "type": "non-empty string", "units": null,
     "required_collection": true, "required_override": false, "collection_allowed": true, "override_allowed": false,
     "inheritance": "Collection-only scanner selector.", "merge": "Shared value is retained unless an unsupported override supplies the key.",

@@ -15,6 +15,7 @@
     "weight": {"$ref": "#/$defs/numberLike"},
     "dimensions": {"$ref": "#/$defs/dimensions"},
     "categories": {"$ref": "#/$defs/stringArray"},
+    "storefront_collections": {"$ref": "#/$defs/stringArray"},
     "tags": {"$ref": "#/$defs/stringArray"},
     "live": {"type": "boolean"},
     "short_description": {"type": "string"},

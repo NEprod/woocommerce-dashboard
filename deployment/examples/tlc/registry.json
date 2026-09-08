@@ -450,7 +450,22 @@
       "state": "active"
     }
   ],
-  "storefront_collections": [],
+  "storefront_collections": [
+    {
+      "key": "col-16-bit",
+      "name": "16-Bit",
+      "slug": "16-bit",
+      "state": "active",
+      "aliases": []
+    },
+    {
+      "key": "col-adorable-dogs",
+      "name": "Adorable Dogs",
+      "slug": "adorable-dog",
+      "state": "active",
+      "aliases": []
+    }
+  ],
   "attributes": [
     {
       "key": "attr-occasion",

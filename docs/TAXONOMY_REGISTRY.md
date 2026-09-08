@@ -1,9 +1,113 @@
 # Local taxonomy registry contract — version 1
 
+Live acceptance confirmed on 2026-09-08: grouped definition sync, reviewed term
+menu_order corrections, safe conflicts/dependencies and a successful 45-definition
+batch (cap 50). Storefront Collections map to Woo Brands. Global attribute numeric
+definition order is not synchronised; Woo v3 does not document that field.
+No deletion or blind write retry is supported. Product publisher integration is
+next; the M5.3 explicit-contract publishing guard remains until proven integration.
+
+## Local ranges and reviewed Woo definition sync — 2026-09-07
+
+The registry v1 schema is unchanged. The approved authored product assignment is
+`"storefront_collections": ["Paper Garden"]`, using readable names/aliases matched
+to registry `storefront_collections` definitions. Missing sparse override inherits;
+a present array replaces the membership, including `[]`. Categories retain their
+existing additive semantics. Unknown range names remain visible and editable,
+never auto-imported. Registry additions use the existing separate reviewed writer,
+then explicit assignment/save. Dashboard filesystem Collections are not ranges.
+
+The complete fictional examples demonstrate the field; no production catalogue
+is migrated. Product Detail resolves ranges from source; no scanner row/DB product
+column or Woo product Brand payload is added.
+
+### Definition-only reconciliation
+
+`/taxonomy/sync` is authenticated and read-free on load. CSRF-protected POST
+`/sync/preview`, `/sync/review`, `/sync/confirm` perform explicit bounded discovery,
+signed user-bound review and acknowledged execution. Store identity uses the
+existing M4 normalised store-origin hash. Registry byte/mount revision, current
+remote definitions and local mappings are revalidated before confirmation.
+
+| Local definition | Current `wc/v3` endpoint | Verification context |
+| --- | --- | --- |
+| Category | `products/categories` | Name, slug, verified parent |
+| Global attribute | `products/attributes` | Name, slug (`pa_` decoration normalised), `order_by=menu_order` |
+| Scoped term | `products/attributes/{verified_id}/terms` | Name, slug, verified parent attribute, `menu_order` |
+| Storefront Collection | `products/brands` | Name, slug; flat ranges only |
+
+Woo's [Brands controller](https://woocommerce.github.io/code-reference/files/woocommerce-includes-rest-api-controllers-version3-class-wc-rest-product-brands-controller.html)
+uses `products/brands` / `product_brand`. Live availability is not inferred from
+a Woo version: Preview checks the authenticated namespace index advertises both
+GET and POST and reads the collection successfully. Missing/incompatible Brands
+is unavailable without preventing other definition/local work. The external
+website wording override from “Brands” to “Collections” is not application code.
+
+Local-only → reviewed create → independent GET verification → persist identity.
+Exact safe match → reviewed link with no Woo mutation. Woo-only → reviewed Draft
+registry import, schema validation, verified backup/atomic replacement, then local
+identity persistence. Imported attributes start with empty terms and conservative
+navigation/default visibility off; terms are separately reviewed under the linked
+attribute. Keys are deterministic `cat-`, `attr-`, `term-`, `range-` plus the remote
+slug (attribute `pa_` removed); collisions/invalid slugs or overlong keys block
+instead of being silently modified. Neither authored JSON file receives Woo IDs.
+
+Select 1–50 definitions; local imports and remote creates/links use separate
+reviews. Category parents/global attributes must already be verified; regenerate
+Preview after that round to unlock children/terms. This is staged dependency
+processing rather than an unbounded “sync everything” action. Each plan has a
+60-request budget and ten 100-row pages per collection. Confirmation re-plans
+within that bound, then has 60 + 4 × selected execution requests (maximum 260).
+Truncated, repeated,
+invalid or unavailable discovery cannot establish absence. Failed steps stop the
+batch, preserving completed steps and operation history; no destructive rollback.
+
+Confirmation attempts every reviewed definition (up to 50), with no five-item
+stop. The full import proposal is reviewed and applied. Within-operation parent
+GETs are reused for at most 15 seconds, invalidated after global-attribute writes;
+fresh per-item scoped discovery and independent readback are retained. Category
+parent checks reuse that item's exhaustive category list. A result page reports
+selected, attempted, succeeded, failed, uncertain and not attempted with individual
+reasons. Safety/access/persistence failures stop the operation explicitly; earlier
+successes persist. Synchronous browser/proxy limits remain possible even with
+request reductions; no background queue or artificial small batch was introduced.
+Transient GET connect/read/reset or HTTP 502/503/504 failures retry once after
+250ms, consuming the same request budget; writes never retry. Existing shared
+timeouts remain unchanged. Operation summaries distinguish success, failed or
+uncertain work, and pending IDs.
+
+Term `order` maps directly to `menu_order`; absent order uses zero-based position
+in the authored terms array. Equal explicit order values retain that authored tie,
+not a second invented ordering system. Imported terms retain returned menu_order
+as local order. Woo [v3 term ordering](https://developer.woocommerce.com/docs/apis/rest-api/v3/product-attribute-terms/)
+and [attribute order_by](https://developer.woocommerce.com/docs/apis/rest-api/v3/product-attributes/)
+are supported. Global attribute definitions have no documented numeric order
+field; their registry order is not synchronised. Identity-safe ordering drift has
+a separate reviewed correction. The only PUT payloads permitted are
+`{"menu_order": nonnegative_integer}` on a scoped term and
+`{"order_by": "menu_order"}` on a global attribute. Independent readback must
+verify identity and order. Existing safe-match links remain local-only; any order
+drift is separately reviewed after linking. Wrong order prevents Verified status
+and an attribute's order must be reconciled before its terms are actionable.
+
+One SQLite `woo_taxonomy_identity` table maps store/kind/scoped local key to a
+scoped remote ID, with local/remote identity digests and verification time. It
+has no product FK. Unique constraints prohibit double claims. A pre-create row
+with no Woo ID reserves an uncertain outcome; only verified readback trusts the
+ID. On fresh discovery an exact returned match can be explicitly linked; absence
+after an uncertain create never permits an automatic retry. Stale verified IDs,
+renames and conflicts require manual reconciliation, not an identity overwrite.
+
+Local registry/metadata/scanning remain independent of Woo. Tags, general
+definition updates/deletes, product payload mapping and removal of the M5.3 publishing guard
+remain out of scope. Confirm actual live capability and migration on a backed-up
+deployment before live definition writes.
+
 M5.1 implements read-only loading and validation. M5.2 adds authenticated local
 registry editing and reviewed bootstrap; the version-1 file contract is unchanged.
 ROADMAP and CURRENT_STATE track slice status. M5.3 adds local product assignment
-resolution/editing below without changing registry v1. Woo sync remains deferred.
+resolution/editing below without changing registry v1. Definition sync is described
+above; Woo product payload integration remains deferred.
 
 ## M5.3 local assignments (implemented, not a registry schema change)
 

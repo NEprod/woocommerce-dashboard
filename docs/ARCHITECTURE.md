@@ -1,5 +1,33 @@
 # Existing Architecture
 
+## M5 definition sync and range assignment boundary — 2026-09-07
+
+Storefront Collection assignments use the previously proposed
+`storefront_collections` readable-name array; missing inherits and present
+(including empty) replaces. Resolution stays filesystem-based. No filesystem
+Collection reinterpretation, scanner/ingestion change or product projection
+table is introduced. Registry definitions map to Woo Brands, not a custom taxonomy.
+
+`woo_taxonomy_sync.py` reuses Woo transport/store identity, registry reviewed
+replacement and the catalogue operation lease. A narrow GET/POST endpoint policy
+allows only categories, attributes, scoped terms and Brands; PUT is restricted to
+reviewed attribute order_by / scoped-term menu_order corrections. Explicit signed
+Preview/review/confirm detects changes to store/registry/identity/remote state.
+Bounds and staged parent-first rounds are documented in TAXONOMY_REGISTRY.
+Confirmed imports write registry first and mappings second; partial failure
+retains the registry, never performs a fake cross-file rollback.
+
+Migration 0008 adds `WooTaxonomyIdentity`: current-store key, taxonomy kind,
+scoped local key, scoped Woo ID, verification digests/time and uncertain-create
+state. Existing Woo product/variation identities cannot be reused because of
+their required product FKs. Uncertain reservations have no trusted remote ID;
+successful independent readback establishes it. Unique local/remote constraints
+prevent double claims. Operation history records completed steps on failure.
+
+The existing M4 payload builder and explicit M5.3 guard are not changed. Definition
+identity state is not yet consumed by product publishing. Live Brands capability
+must be checked on the deployment; local editing never requires it.
+
 ## M5.3 local assignment boundary — 2026-09-06
 
 `app/taxonomy_assignments.py` reads the confined authored collection/override

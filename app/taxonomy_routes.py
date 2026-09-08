@@ -1,4 +1,4 @@
-"""Authenticated local registry workspace; no product or Woo integration."""
+"""Authenticated registry workspace and reviewed Woo definition sync; no product publishing."""
 import hashlib
 import json
 
@@ -9,12 +9,73 @@ from itsdangerous import URLSafeTimedSerializer, BadData
 from app.models import CatalogueOperation
 from app import taxonomy_registry as registry
 from app import taxonomy_workspace as service
+from app import woo_taxonomy_sync as sync
+from app.taxonomy_sync_view import sync_views
 from app.utils.operation_control import operation_context, CatalogueOperationActive
 
 
 taxonomy = Blueprint("taxonomy", __name__, url_prefix="/taxonomy")
 LABELS = {"categories": "Categories", "storefront_collections": "Storefront Collections",
           "attributes": "Attributes", "terms": "Attribute terms", "tags": "Tags"}
+
+
+@taxonomy.errorhandler(sync.SyncError)
+def sync_rejected(error):
+    if error.report:
+        return render_template("taxonomy/sync_result.html", report=error.report), 409
+    return render_template("taxonomy/error.html", error=str(error)), 409
+
+
+@taxonomy.route("/sync")
+@taxonomy.route("/sync/<view>")
+@login_required
+def sync_workspace(view="overview"):
+    # No Woo discovery on page load, including when the store is offline.
+    return render_sync(view=view)
+
+
+def render_sync(plan=None, token=None, view="overview"):
+    if view not in {"overview", "categories", "attributes", "storefront_collections"}:
+        abort(404)
+    return render_template("taxonomy/sync.html", plan=plan, token=token, labels=LABELS,
+                           views=sync_views(plan), active_view=view, limit=sync.MAX_ACTIONS)
+
+
+@taxonomy.route("/sync/preview", methods=["POST"])
+@login_required
+def sync_preview():
+    plan = sync.plan()
+    token = signature(plan["revision"], mode="sync-preview", digest=plan["digest"])
+    return render_sync(plan, token, request.form.get("view", "overview"))
+
+
+@taxonomy.route("/sync/review", methods=["POST"])
+@login_required
+def sync_review():
+    signed = verified(request.form.get("review", ""))
+    ids = request.form.getlist("selected")
+    if signed.get("mode") != "sync-preview" or not 1 <= len(ids) <= sync.MAX_ACTIONS:
+        raise sync.SyncError(f"Select 1–{sync.MAX_ACTIONS} definitions from a fresh Woo Sync Preview.")
+    plan = sync.plan()
+    if signed.get("digest") != plan["digest"]:
+        raise sync.SyncError("Preview changed. Generate a fresh Woo Sync Preview before review.")
+    rows = sync.selected(plan, ids)
+    document = None
+    if rows[0]["action"] == "import":
+        proposed, _ = sync.import_proposal(rows)
+        document = service.validate(proposed).decode()
+    token = signature(plan["revision"], mode="sync-confirm", digest=plan["digest"], ids=ids)
+    return render_template("taxonomy/sync_review.html", rows=rows, plan=plan, token=token, document=document, labels=LABELS)
+
+
+@taxonomy.route("/sync/confirm", methods=["POST"])
+@login_required
+def sync_confirm():
+    signed = verified(request.form.get("review", ""))
+    if signed.get("mode") != "sync-confirm" or request.form.get("acknowledge") != "yes":
+        raise sync.SyncError("Explicit acknowledgement and a current sync review are required.")
+    report = sync.execute(signed["digest"], signed["ids"], return_report=True)
+    return render_template("taxonomy/sync_result.html", report=report)
 
 
 @taxonomy.route("/options")

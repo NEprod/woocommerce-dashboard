@@ -1,5 +1,52 @@
 # Roadmap
 
+## M5 taxonomy definition sync checkpoint — live accepted, 2026-09-08
+
+The bounded M5.5 definition-sync slice and associated local range assignments are
+live accepted: grouped Categories / Attributes & Terms / Woo Brands, reviewed
+term ordering, safe dependency/conflict diagnostics and per-definition results.
+One 45-definition batch completed successfully; review cap remains 50 and all
+reviewed eligible selections are attempted. No delete reconciliation or blind
+POST/PUT retries. Store-scoped taxonomy IDs remain SQLite state, not authored IDs.
+Global attribute-definition numeric ordering is not supported by the documented
+Woo v3 contract and is intentionally not synchronised.
+This supersedes earlier temporary-live-test gates below. Next: M5.6 product
+publisher integration, retaining the M5.3 guard until payload/verification work is
+proven. Existing Phase 3 closure gates and M1–M4 history remain unchanged.
+
+## Bounded M5.5 definition sync + deferred range assignments — 2026-09-07
+
+Implemented for focused review, not released: the missing local Storefront
+Collection assignment portion of proposed M5.4 and reviewed M5.5 definition sync
+for categories/global attributes/scoped terms/Storefront Collections → Woo Brands.
+No historical slice is renumbered. Tags and broader M5.4 category-role work remain
+deferred. Brands is now the approved destination, not a custom taxonomy.
+
+Use explicit Preview → select → review → acknowledge. Batches are limited to 50;
+verify/import parents first, regenerate, then process child categories/terms.
+No silent imports, deletes or bidirectional overwrites. One minimal store-scoped
+identity migration supports verified mappings and uncertain-create recovery.
+Local registry/metadata/scan availability never depends on Woo.
+
+Focused UX follow-up adds separate Category, Attribute/Term and Storefront
+Collection views, hierarchical selection and Link/Create/import state filters.
+Views reuse a single Preview; reconciliation and dependency rounds are unchanged.
+Grouped UI is reported working live; no publisher integration.
+Live correction: reviewed term menu_order / attribute order_by corrections,
+concrete field/ownership conflict diagnostics, attempt-all confirmation within the
+50-selection review cap, short-lived within-operation parent-read reuse, per-item
+result counts and one bounded transient GET retry. The five-item stop was removed
+after live feedback. These
+corrections require temporary live retest; no automatic POST/PUT retry or queue.
+
+Gate before temporary live acceptance: validate the connected store's Brands
+GET/POST capability and real definition create/link/import readback; no live Woo
+configuration was available during implementation. Confirm safe DB migration on
+a backed-up instance. See CURRENT_STATE and TAXONOMY_REGISTRY for limits/tests.
+M5.6 product publishing integration (including range assignment and per-attribute
+flags) remains separate; the M5.3 publishing guard must stay until then. Existing
+Phase 3 closure gates, including Relationships Pass 2, remain unchanged.
+
 ## M5.3 accepted checkpoint — 2026-09-06
 
 M5.3 local controlled assignments and consolidated editors are browser accepted
