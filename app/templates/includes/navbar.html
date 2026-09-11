@@ -1,84 +1,31 @@
 {% from 'includes/icons.html' import icon %}
-{% set product_endpoints = ['main.products', 'main.edit_products', 'main.product_edit', 'main.product_detail'] %}
-{% set collection_endpoints = ['main.collections', 'main.collection_detail', 'main.collection_metadata_edit'] %}
-{% set relationship_endpoints = ['main.relationships', 'main.relationships_mutual', 'main.relationships_mutual_preview', 'main.relationships_mutual_confirm'] %}
-{% set catalogue_endpoints = product_endpoints + collection_endpoints + relationship_endpoints %}
-{% set scanner_endpoints = ['main.scanner', 'main.initial_scan_page'] %}
-{% set operation_endpoints = ['main.operations', 'main.operation_detail'] %}
-{% set intake_endpoints = ['main.image_preparation', 'main.image_preparation_group', 'main.image_preparation_rename', 'main.image_preparation_rename_preview', 'main.image_preparation_rename_confirm', 'main.image_preparation_folders', 'main.image_preparation_folders_edit', 'main.image_preparation_folders_preview', 'main.image_preparation_folders_confirm', 'main.image_preparation_metadata', 'main.image_preparation_metadata_edit', 'main.image_preparation_metadata_preview', 'main.image_preparation_metadata_confirm'] %}
-{% set woo_endpoints = ['main.woocommerce', 'main.woocommerce_test', 'main.woocommerce_preview', 'main.woocommerce_preview_estimate', 'main.woocommerce_preview_generate', 'main.woocommerce_preview_operation', 'main.woocommerce_preview_product', 'main.api_woocommerce_preview_product'] %}
-{% set more_endpoints = collection_endpoints + relationship_endpoints + intake_endpoints + woo_endpoints + ['main.metadata_reference', 'main.settings', 'main.woo_sync', 'main.orders', 'main.website_automation', 'main.analytics'] %}
-{% set taxonomy_endpoints = ['taxonomy.index', 'taxonomy.edit', 'taxonomy.advanced', 'taxonomy.import_seed', 'taxonomy.confirm'] %}
-{% set more_endpoints = more_endpoints + taxonomy_endpoints %}
-
+{% set groups = [
+ ('Catalogue', [('Products','main.products','box',['main.products','main.edit_products','main.product_edit','main.product_detail']),('Collections','main.collections','collection',['main.collections','main.collection_detail','main.collection_metadata_edit']),('Relationships','main.relationships','link',['main.relationships']),('Catalogue Intake','main.image_preparation','folder',['main.image_preparation'])]),
+ ('WooCommerce', [('Product Sync','main.woo_sync','box',['main.woo_sync','main.woocommerce_preview','main.woocommerce_link_candidate','main.woocommerce_unlink','main.woocommerce_publish']),('Taxonomy','taxonomy.index','book',['taxonomy.']),('Integration Health','main.woocommerce','plug',['main.woocommerce','main.woocommerce_test'])]),
+ ('Operations', [('Scanner','main.scanner','scanner',['main.scanner','main.initial_scan_page']),('Operations','main.operations','history',['main.operations','main.operation_detail'])]),
+ ('System', [('Metadata Reference','main.metadata_reference','book',['main.metadata_reference']),('Settings','main.settings','settings',['main.settings'])])
+] %}
+{% macro destination(item) %}
+{% set active = namespace(value=false) %}{% for prefix in item[3] %}{% if request.endpoint == prefix or (prefix in ['taxonomy.','main.relationships','main.image_preparation','main.woocommerce_preview','main.woocommerce_link_candidate','main.woocommerce_unlink','main.woocommerce_publish'] and (request.endpoint or '').startswith(prefix)) %}{% set active.value = true %}{% endif %}{% endfor %}
+<a class="sidebar-link sidebar-child {{ 'is-active' if active.value }}" href="{{ url_for(item[1]) }}"{% if active.value %} aria-current="page"{% endif %} title="{{ item[0] }}">{{ icon(item[2]) }}<span class="sidebar-label">{{ item[0] }}</span></a>
+{% endmacro %}
+{% macro navigation() %}
+<a class="sidebar-link {{ 'is-active' if request.endpoint == 'main.dashboard' }}" href="{{ url_for('main.dashboard') }}"{% if request.endpoint == 'main.dashboard' %} aria-current="page"{% endif %} title="Dashboard">{{ icon('dashboard') }}<span class="sidebar-label">Dashboard</span></a>
+{% for label, items in groups %}<details class="sidebar-group" open data-navigation-group="{{ label }}">
+<summary class="sidebar-group-label" aria-label="{{ label }} navigation"><span class="sidebar-label">{{ label }}</span></summary>
+{% for item in items %}{{ destination(item) }}{% endfor %}</details>{% endfor %}
+{% endmacro %}
 <aside class="app-sidebar" aria-label="Primary navigation">
-  <div class="sidebar-brand">
-    <img src="{{ url_for('static', filename='assets/img/woocommerce-dashboard-icon.png') }}" alt="">
-    <span class="sidebar-label"><strong>WooCommerce</strong><small>Dashboard</small></span>
-  </div>
-  <nav class="sidebar-navigation">
-    <a class="sidebar-link {{ 'is-active' if request.endpoint == 'main.dashboard' }}" href="{{ url_for('main.dashboard') }}"{% if request.endpoint == 'main.dashboard' %} aria-current="page"{% endif %} title="Dashboard">{{ icon('dashboard') }} <span class="sidebar-label">Dashboard</span></a>
-    <div class="sidebar-group">
-      <p class="sidebar-group-label sidebar-label">Catalogue</p>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in product_endpoints }}" href="{{ url_for('main.products') }}"{% if request.endpoint in product_endpoints %} aria-current="page"{% endif %} title="Products">{{ icon('box') }} <span class="sidebar-label">Products</span></a>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in collection_endpoints }}" href="{{ url_for('main.collections') }}"{% if request.endpoint in collection_endpoints %} aria-current="page"{% endif %} title="Collections">{{ icon('collection') }} <span class="sidebar-label">Collections</span></a>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in relationship_endpoints }}" href="{{ url_for('main.relationships') }}"{% if request.endpoint in relationship_endpoints %} aria-current="page"{% endif %} title="Relationships">{{ icon('link') }} <span class="sidebar-label">Relationships</span></a>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in intake_endpoints }}" href="{{ url_for('main.image_preparation') }}"{% if request.endpoint in intake_endpoints %} aria-current="page"{% endif %} title="Catalogue Intake">{{ icon('folder') }} <span class="sidebar-label">Catalogue Intake</span></a>
-    </div>
-    <div class="sidebar-group">
-      <p class="sidebar-group-label sidebar-label">Scanner</p>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in scanner_endpoints }}" href="{{ url_for('main.scanner') }}"{% if request.endpoint in scanner_endpoints %} aria-current="page"{% endif %} title="Scanner">{{ icon('scanner') }} <span class="sidebar-label">Scanner</span></a>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in operation_endpoints }}" href="{{ url_for('main.operations') }}"{% if request.endpoint in operation_endpoints %} aria-current="page"{% endif %} title="Operations">{{ icon('history') }} <span class="sidebar-label">Operations</span></a>
-    </div>
-    <div class="sidebar-group">
-      <p class="sidebar-group-label sidebar-label">Metadata</p>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in taxonomy_endpoints }}" href="{{ url_for('taxonomy.index') }}"{% if request.endpoint in taxonomy_endpoints %} aria-current="page"{% endif %} title="Taxonomy">{{ icon('book') }} <span class="sidebar-label">Taxonomy</span></a>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint == 'main.metadata_reference' }}" href="{{ url_for('main.metadata_reference') }}"{% if request.endpoint == 'main.metadata_reference' %} aria-current="page"{% endif %} title="Reference">{{ icon('book') }} <span class="sidebar-label">Reference</span></a>
-    </div>
-    <div class="sidebar-group">
-      <p class="sidebar-group-label sidebar-label">Integrations</p>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint in woo_endpoints }}" href="{{ url_for('main.woocommerce') }}"{% if request.endpoint in woo_endpoints %} aria-current="page"{% endif %} title="WooCommerce">{{ icon('plug') }} <span class="sidebar-label">WooCommerce</span></a>
-    </div>
-    <div class="sidebar-group">
-      <p class="sidebar-group-label sidebar-label">System</p>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint == 'main.settings' }}" href="{{ url_for('main.settings') }}"{% if request.endpoint == 'main.settings' %} aria-current="page"{% endif %} title="Settings">{{ icon('settings') }} <span class="sidebar-label">Settings</span></a>
-    </div>
-    <div class="sidebar-group">
-      <p class="sidebar-group-label sidebar-label">Future</p>
-      <a class="sidebar-link sidebar-child {{ 'is-active' if request.endpoint == 'main.woo_sync' }}" href="{{ url_for('main.woo_sync') }}"{% if request.endpoint == 'main.woo_sync' %} aria-current="page"{% endif %} title="Woo Sync">{{ icon('plug') }} <span class="sidebar-label">Woo Sync</span></a>
-    </div>
-  </nav>
-  <button class="sidebar-collapse" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse navigation">{{ icon('chevron') }} <span class="sidebar-label">Collapse</span></button>
+ <a class="sidebar-brand" href="{{ url_for('main.dashboard') }}"><img src="{{ url_for('static', filename='assets/img/woocommerce-dashboard-logo.svg') }}" alt=""><span class="sidebar-label"><strong>WooCommerce</strong><small>Dashboard</small></span></a>
+ <nav class="sidebar-navigation">{{ navigation() }}</nav>
+ <button class="sidebar-collapse" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse navigation">{{ icon('chevron') }}<span class="sidebar-label">Collapse</span></button>
 </aside>
-
 <nav class="mobile-bottom-nav" aria-label="Mobile primary navigation">
-  <a class="mobile-primary-link {{ 'is-active' if request.endpoint == 'main.dashboard' }}" href="{{ url_for('main.dashboard') }}"{% if request.endpoint == 'main.dashboard' %} aria-current="page"{% endif %}>{{ icon('dashboard') }}<span>Dashboard</span></a>
-  <a class="mobile-primary-link {{ 'is-active' if request.endpoint in product_endpoints }}" href="{{ url_for('main.products') }}"{% if request.endpoint in product_endpoints %} aria-current="page"{% endif %}>{{ icon('box') }}<span>Products</span></a>
-  <a class="mobile-primary-link {{ 'is-active' if request.endpoint in scanner_endpoints }}" href="{{ url_for('main.scanner') }}"{% if request.endpoint in scanner_endpoints %} aria-current="page"{% endif %}>{{ icon('scanner') }}<span>Scanner</span></a>
-  <a class="mobile-primary-link {{ 'is-active' if request.endpoint in operation_endpoints }}" href="{{ url_for('main.operations') }}"{% if request.endpoint in operation_endpoints %} aria-current="page"{% endif %}>{{ icon('history') }}<span>Operations</span></a>
-  <button class="mobile-primary-link {{ 'is-active' if request.endpoint in more_endpoints }}" type="button" data-bs-toggle="offcanvas" data-bs-target="#appNavigation" aria-controls="appNavigation" aria-expanded="false" aria-label="Open more navigation{% if request.endpoint in more_endpoints %}; current page is in More{% endif %}">{{ icon('menu') }}<span>More</span></button>
+{% for label, endpoint, glyph, prefixes in [('Dashboard','main.dashboard','dashboard',['main.dashboard']),('Products','main.products','box',['main.products','main.product_detail','main.edit_products','main.product_edit']),('Scanner','main.scanner','scanner',['main.scanner','main.initial_scan_page']),('Operations','main.operations','history',['main.operations','main.operation_detail'])] %}
+<a class="mobile-primary-link {{ 'is-active' if request.endpoint in prefixes }}" href="{{ url_for(endpoint) }}"{% if request.endpoint in prefixes %} aria-current="page"{% endif %}>{{ icon(glyph) }}<span>{{ label }}</span></a>{% endfor %}
+<button class="mobile-primary-link" type="button" data-bs-toggle="offcanvas" data-bs-target="#appNavigation" aria-controls="appNavigation" aria-expanded="false" aria-label="Open more navigation">{{ icon('menu') }}<span>More</span></button>
 </nav>
-
 <div class="offcanvas offcanvas-end app-offcanvas" tabindex="-1" id="appNavigation" aria-labelledby="appNavigationLabel">
-  <div class="offcanvas-header">
-    <div><p class="eyebrow mb-1">Navigation</p><h2 class="h5 mb-0" id="appNavigationLabel">More destinations</h2></div>
-    <button class="icon-button" type="button" data-bs-dismiss="offcanvas" aria-label="Close navigation">{{ icon('close') }}</button>
-  </div>
-  <div class="offcanvas-body">
-    <nav aria-label="Secondary navigation">
-      <a class="mobile-nav-link {{ 'is-active' if request.endpoint in taxonomy_endpoints }}" href="{{ url_for('taxonomy.index') }}"{% if request.endpoint in taxonomy_endpoints %} aria-current="page"{% endif %}>{{ icon('book') }} Taxonomy</a>
-      <div class="mobile-nav-section"><p class="mobile-nav-label">Catalogue</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint in collection_endpoints }}" href="{{ url_for('main.collections') }}"{% if request.endpoint in collection_endpoints %} aria-current="page"{% endif %}>{{ icon('collection') }} Collections</a><a class="mobile-nav-link {{ 'is-active' if request.endpoint in relationship_endpoints }}" href="{{ url_for('main.relationships') }}"{% if request.endpoint in relationship_endpoints %} aria-current="page"{% endif %}>{{ icon('link') }} Relationships</a><a class="mobile-nav-link {{ 'is-active' if request.endpoint in intake_endpoints }}" href="{{ url_for('main.image_preparation') }}"{% if request.endpoint in intake_endpoints %} aria-current="page"{% endif %}>{{ icon('folder') }} Catalogue Intake</a></div>
-      <div class="mobile-nav-section"><p class="mobile-nav-label">Metadata</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.metadata_reference' }}" href="{{ url_for('main.metadata_reference') }}"{% if request.endpoint == 'main.metadata_reference' %} aria-current="page"{% endif %}>{{ icon('book') }} Metadata Reference</a></div>
-      <div class="mobile-nav-section"><p class="mobile-nav-label">Integrations</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint in woo_endpoints }}" href="{{ url_for('main.woocommerce') }}"{% if request.endpoint in woo_endpoints %} aria-current="page"{% endif %}>{{ icon('plug') }} WooCommerce</a></div>
-      <div class="mobile-nav-section"><p class="mobile-nav-label">System</p><a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.settings' }}" href="{{ url_for('main.settings') }}"{% if request.endpoint == 'main.settings' %} aria-current="page"{% endif %}>{{ icon('settings') }} Settings</a></div>
-      <div class="mobile-nav-section">
-        <p class="mobile-nav-label">Future</p>
-        <a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.woo_sync' }}" href="{{ url_for('main.woo_sync') }}"{% if request.endpoint == 'main.woo_sync' %} aria-current="page"{% endif %}>{{ icon('plug') }} Woo Sync</a>
-        <a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.orders' }}" href="{{ url_for('main.orders') }}"{% if request.endpoint == 'main.orders' %} aria-current="page"{% endif %}>{{ icon('orders') }} Orders</a>
-        <a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.website_automation' }}" href="{{ url_for('main.website_automation') }}"{% if request.endpoint == 'main.website_automation' %} aria-current="page"{% endif %}>{{ icon('wand') }} Website Automation</a>
-        <a class="mobile-nav-link {{ 'is-active' if request.endpoint == 'main.analytics' }}" href="{{ url_for('main.analytics') }}"{% if request.endpoint == 'main.analytics' %} aria-current="page"{% endif %}>{{ icon('chart') }} Analytics</a>
-      </div>
-      <div class="mobile-nav-section border-top pt-3"><a class="mobile-nav-link" href="{{ url_for('main.logout') }}">{{ icon('logout') }} Sign out</a></div>
-    </nav>
-  </div>
+<div class="offcanvas-header"><h2 id="appNavigationLabel">Navigation</h2><button class="btn-close" type="button" data-bs-dismiss="offcanvas" aria-label="Close navigation"></button></div>
+<nav class="offcanvas-body" aria-label="All destinations">{{ navigation() }}</nav>
 </div>

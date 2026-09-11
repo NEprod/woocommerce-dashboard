@@ -917,7 +917,7 @@ def products():
     if issue_key:
         issue_filter = {
             "key": issue_key,
-            "label": METADATA_ISSUE_DEFINITIONS[issue_key]["label"],
+            "label": "Needs attention: description, images or SEO metadata" if issue_key == "all" else METADATA_ISSUE_DEFINITIONS[issue_key]["label"],
         }
     collections = [
         {"id": collection.id, "name": collection_display_name(collection)}
@@ -2206,12 +2206,23 @@ def scanner_start():
     if initial_setup or payload.get("initial_review") is True:
         setup_state = detect_setup_state()
         if not setup_state.safe_to_run or mode == "update" or (setup_state.recommended_action == "reconstruction" and mode != "full"):
+            try:
+                from app.utils.discord import notify_operation_attention
+                notify_operation_attention("scanner", "blocked", error="; ".join(setup_state.errors) or setup_state.message,
+                                           summary={"woo_writes": 0, "stage": "Initial identity preflight"})
+            except Exception:
+                current_app.logger.warning("Discord scanner preflight notification failed safely")
             return jsonify({"message": "The initial scan requires the detected identity-safe action. Review reconstruction or explicitly confirm full regeneration."}), 409
     readiness = scanner_readiness()
     if readiness["active"]:
         return _operation_conflict(CatalogueOperationActive(readiness["active"]))
     if not readiness["mounts_ready"]:
         failures = [check["label"] for check in readiness["checks"] if not check["ok"]]
+        try:
+            from app.utils.discord import notify_operation_attention
+            notify_operation_attention("scanner", "blocked", error="; ".join(failures), summary={"woo_writes": 0, "stage": "Storage/database readiness"})
+        except Exception:
+            current_app.logger.warning("Discord scanner readiness notification failed safely")
         return jsonify({"error": "scanner_not_ready", "message": "Required scanner storage or database checks did not pass.", "failures": failures}), 409
     run_id = uuid.uuid4().hex
     scope = {"scan_mode": mode, "initiating_source": "scanner_workspace"}
@@ -2380,11 +2391,8 @@ def operation_logs(operation_id):
 @main.route("/woo-sync")
 @login_required
 def woo_sync():
-    return _render_planned(
-        "Woo Sync",
-        "Future",
-        "WooCommerce connection and publishing workflows are planned for a future phase.",
-    )
+    from app.woo_sync_workspace import workspace
+    return render_template("woo_sync.html", workspace=workspace(request.args))
 
 
 @main.route("/sync")
@@ -2509,8 +2517,19 @@ def woocommerce_preview_generate():
         flash("Another operation is active. Follow it before generating a preview.", "warning")
         return redirect(url_for("main.operation_detail", operation_id=error.active["id"]))
     except (PreviewError, WooConnectionError, TypeError, ValueError) as error:
-        flash(str(error), "danger")
-        return redirect(url_for("main.woocommerce_preview"))
+        from app.woo_publish_preview import resolve_scope
+        from app.utils.discord import notify_operation_attention
+        try:
+            affected = resolve_scope(_woo_preview_scope(request.form))
+        except (ValueError, TypeError):
+            affected = []
+        if getattr(error, "details", {}).get("readiness") == "blocked":
+            try:
+                notify_operation_attention("woo_publish_preview", "blocked", error=str(error),
+                    summary={"scope": ", ".join(f"{p.title} ({p.sku})" for p in affected[:5]), "woo_writes": 0})
+            except Exception:
+                current_app.logger.warning("Discord blocked-preview notification failed safely")
+        return render_template("woocommerce_preview_blocked.html", error=str(error), products=affected), 409
     return redirect(url_for("main.woocommerce_preview_operation", operation_id=plan["operation_id"]))
 
 

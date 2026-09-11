@@ -19,10 +19,10 @@
     ('missing', 'alert', 'Missing products'),
     ('metadata_issues', 'file', 'Needs attention')
   ] %}
-  <article class="products-stat-card">
+  {% set destination = url_for('main.collections') if key == 'collections' else url_for('main.products', issue='all') if key == 'metadata_issues' else url_for('main.products', status=key) if key in ['active','missing'] else url_for('main.products', type='variable') if key == 'variations' else url_for('main.products') %}<a class="products-stat-card" href="{{ destination }}">
     <span class="products-stat-icon">{{ icon(icon_name) }}</span>
     <div><p>{{ label }}</p><strong data-summary-value="{{ key }}">—</strong></div>
-  </article>
+  </a>
   {% endfor %}
 </section>
 

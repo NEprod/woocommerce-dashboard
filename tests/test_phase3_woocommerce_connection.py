@@ -747,7 +747,8 @@ def test_settings_and_unraid_are_safe_and_environment_only(woo_app):
     html = _client(woo_app).get("/settings").get_data(as_text=True)
     assert "WooCommerce connection" in html
     assert "Runtime environment" in html
-    assert "Woo writes" in html and "Disabled for this milestone" in html
+    assert "Woo writes" in html and "Only through separately reviewed publishing and Taxonomy Sync" in html
+    assert "never from this health page" in html
     assert KEY not in html and SECRET not in html
     xml = (ROOT / "unraid" / "my-woocommerce-dashboard.xml").read_text()
     for variable in ("WOO_STORE_URL", "WOO_CONSUMER_KEY", "WOO_CONSUMER_SECRET"):

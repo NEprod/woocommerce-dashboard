@@ -269,7 +269,12 @@ def build_dashboard_data():
         ),
     }
 
+    from app.woo_sync_workspace import overview, product_status
+    woo = overview()
+    for product in recent_products:
+        product["woo_label"] = product_status(product["id"])
     return {
+        "woo": woo,
         "generated_at": datetime.now(UTC),
         "summary": summary,
         "health": {

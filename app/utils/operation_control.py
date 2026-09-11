@@ -252,6 +252,7 @@ def finish_catalogue_operation(
 
     if status not in FINAL_STATUSES:
         raise ValueError(f"Unsupported final operation status: {status}")
+    notification = None
     try:
         row = db.session.get(CatalogueOperation, operation_id)
         if row:
@@ -286,6 +287,22 @@ def finish_catalogue_operation(
                     scope = {}
                 scope["operation_summary"] = operation_summary
                 row.scope = json.dumps(scope, ensure_ascii=False, separators=(",", ":"))
+            # Dedicated scan/publish/connection/intake notifiers retain their summaries.
+            # Capture before commit: notification delivery must never refresh an ORM row.
+            dedicated = {"append", "product_update", "shared_collection_update", "full",
+                         "woo_controlled_publish", "woo_connection_test", "intake_catalogue_handoff"}
+            if row.operation_type == "woo_publish_preview" and operation_summary and operation_summary.get("readiness"):
+                dedicated.add("woo_publish_preview")
+            if row.operation_type not in dedicated and (status != "succeeded" or row.recovery_state not in (None, "none") or row.operation_type == "woo_taxonomy_sync"):
+                try:
+                    saved_summary = json.loads(row.scope or "{}").get("operation_summary", {})
+                except (ValueError, AttributeError):
+                    saved_summary = {}
+                if not isinstance(saved_summary, dict):
+                    saved_summary = {}
+                notification = (row.operation_type, dict(saved_summary,
+                    products_attempted=row.products_attempted, products_failed=row.products_failed,
+                    recovery_state=row.recovery_state), row.error)
             db.session.commit()
     except Exception:
         db.session.rollback()
@@ -297,6 +314,14 @@ def finish_catalogue_operation(
                 _active_operation = None
         if matches and _catalogue_lock.locked():
             _catalogue_lock.release()
+    if notification:
+        try:
+            from app.utils.discord import notify_operation_attention
+            notify_operation_attention(notification[0], status, operation_id=operation_id,
+                                       summary=notification[1], error=notification[2])
+        except Exception:
+            if has_app_context():
+                current_app.logger.warning("Discord terminal notification failed safely")
     try:
         prune_operation_history()
     except Exception as cleanup_error:
@@ -325,12 +350,25 @@ def recover_interrupted_operations() -> int:
     if not rows:
         return 0
     finished_at = _utcnow()
+    notices = [(row.id, row.operation_type) for row in rows[:10]]
     for row in rows:
         row.status = "interrupted"
         row.finished_at = finished_at
         row.recovery_state = "review_required"
         row.error = row.error or "Application stopped before operation completion"
     db.session.commit()
+    try:
+        from app.utils.discord import notify_operation_attention
+        notify_operation_attention(
+            "operation_recovery", "interrupted",
+            error=f"Application stopped before {len(rows)} operation(s) completed; review interrupted operations and retained item/marker state.",
+            summary={"recovery_state": "review_required", "stage": "Application restart",
+                     "scope": f"{len(rows)} interrupted operations; first 5 listed",
+                     "items": [{"name": f"{kind} · {operation_id}", "status": "interrupted",
+                                "reason": "Review recovery before retrying"} for operation_id, kind in notices[:5]]},
+        )
+    except Exception:
+        current_app.logger.warning("Discord interrupted-operation notification failed safely")
     return len(rows)
 
 

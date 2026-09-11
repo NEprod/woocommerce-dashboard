@@ -223,6 +223,9 @@ def _grouped_warning_text(summary):
 
 
 def notify_scan_completed(mode, summary, elapsed_text, *, operation_id=None):
+    if summary.get("products_failed") or summary.get("recovery_state") not in (None, "none"):
+        return notify_operation_attention("scanner", "partial", operation_id=operation_id,
+                                          summary=summary, error=summary.get("failure"))
     warnings = int(summary.get("warnings", 0) or 0)
     fields = _summary_fields(summary)
     if warnings:
@@ -247,6 +250,7 @@ def notify_scan_failed(mode, error_text, *, summary=None, elapsed_text=None, ope
     if operation_id:
         details.append(f"Operation: `{_truncate(operation_id)}`")
     details.append(f"Error: `{_truncate(error_text)}`")
+    details.append("Action: Open the operation, review failed parent/marker recovery items before retrying. Successful parents may already be committed.")
     embed = build_embed("Scan Failed", "\n".join(details), COLORS["error"], _summary_fields(summary))
     return send_discord_message(embeds=[embed], channels=["scans_errors"])
 
@@ -586,7 +590,9 @@ def notify_woo_publish_preview_completed(summary, *, operation_id):
     ]
     embed = build_embed(
         "WooCommerce Publish Preview Completed",
-        f"Operation: `{_truncate(operation_id)}`\nRead-only plan generated. No WooCommerce write was sent.",
+        f"Operation: `{_truncate(operation_id)}`\nRead-only plan generated. No WooCommerce write was sent.\n"
+        + ("Action: Review the listed product blockers, repair metadata or verify definitions in Taxonomy Sync, then generate a fresh Preview.\n"
+           + _truncate(summary.get("notification_problems")) if summary.get("blocker_count") else ""),
         COLORS["warn"] if summary.get("blocker_count") or summary.get("warning_count") else COLORS["success"],
         fields,
     )
@@ -623,11 +629,34 @@ def notify_woo_publish_completed(summary, *, operation_id):
     has_attention = bool(summary.get("failed_products") or summary.get("recovery_required") or summary.get("pending_relationship_count"))
     embed = build_embed(
         "WooCommerce Controlled Publish Completed with Attention" if has_attention else "WooCommerce Controlled Publish Completed",
-        f"Operation: `{_truncate(operation_id)}`\nVerified two-pass publication finished. Review the operation before any retry.",
+        f"Operation: `{_truncate(operation_id)}`\n"
+        + ("Publication needs attention. Do not blindly retry uncertain writes; open the operation's reviewed recovery / Safe Resume workflow.\n" if has_attention else "Two-pass publication completed and verified.\n")
+        + f"Woo write requests attempted: {summary.get('write_request_count', 'not recorded')}. Independently verified products: {summary.get('verified_products', 0)}.\n"
+        + ("Pending Relationships Pass 2: " + str(summary.get('pending_relationship_count', 0)) + ".\n")
+        + _truncate("\n".join(f"{item.get('title', '')} {item.get('sku', '')}: {item.get('status')} — {item.get('error', '')}" for item in summary.get("product_results", []) if item.get("error")) or summary.get("failure") or ""),
         COLORS["warn"] if has_attention else COLORS["success"],
         fields,
     )
     return send_discord_message(embeds=[embed], channels=["scans_errors" if has_attention else "scans_info"])
+
+
+def notify_operation_attention(kind, status, *, operation_id=None, summary=None, error=None):
+    """Fallback for operations without a dedicated notifier; no database reads."""
+    summary = summary or {}
+    recovery = summary.get("recovery_required") or summary.get("uncertain") or summary.get("recovery_state") not in (None, "none")
+    fields = [
+        {"name": "Result", "value": error or summary.get("failure") or summary.get("failures") or summary.get("counts") or "Review the operation's item results and diagnostics."},
+        {"name": "Stage / scope", "value": f"{summary.get('stage', 'Terminal result')} · {summary.get('scope', 'See operation')}"},
+        {"name": "Affected items", "value": "\n".join(f"{item.get('name', item.get('sku', 'Item'))}: {item.get('status', '')} — {item.get('reason', item.get('error', ''))}" for item in summary.get("items", [])[:5]) or "See the operation's per-item results"},
+        {"name": "Products / failures", "value": f"{summary.get('products_attempted', 'Not recorded')} / {summary.get('products_failed', 'See results')}"},
+        {"name": "Woo write requests", "value": summary.get("write_request_count", summary.get("woo_writes", "Not recorded — inspect operation before retrying"))},
+        {"name": "Local changes", "value": "No operation started; no catalogue changes" if status == "blocked" else "Successful items may remain committed; inspect per-item results."},
+        {"name": "Next action", "value": "Do not blindly retry uncertain writes. Review recovery / Safe Resume and independent readback." if recovery else "Open the operation or source workspace, correct the reported prerequisite and review again before execution."},
+    ]
+    embed = build_embed(f"{kind.replace('_', ' ').title()} — {status.replace('_', ' ').title()}",
+                        f"Operation: {_truncate(operation_id) if operation_id else 'Not started'}\nRecovery: {'review required' if recovery else 'see item results'}",
+                        COLORS["error"] if status in {"failed", "interrupted"} or recovery else COLORS["success"] if status == "succeeded" else COLORS["warn"], fields)
+    return send_discord_message(embeds=[embed], channels=["scans_info" if status == "succeeded" and not recovery else "scans_errors"])
 
 
 def notify_override_created(sku, path=None, *, product=None, collection=None):

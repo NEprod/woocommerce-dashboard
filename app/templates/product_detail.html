@@ -48,7 +48,7 @@
         <div><dt>Publishing intent source</dt><dd>{{ workspace.publishing_intent.source }}</dd></div>
         <div><dt>Inheritance</dt><dd>{{ workspace.publishing_intent.inheritance }}</dd></div>
       </dl>
-      <p class="publishing-intent-note">Future WooCommerce publishing intent only. Controlled publishing uses this reviewed status; verified remote identity is reported separately from local catalogue lifecycle.</p>
+      <p class="publishing-intent-note">Authored WooCommerce publishing intent. Controlled publishing uses this reviewed status; verified remote identity is reported separately from local catalogue lifecycle.</p>
       <dl class="product-key-facts" aria-label="WooCommerce sync identity"><div><dt>Woo sync state</dt><dd>{{ workspace.woo_sync.label }}</dd></div><div><dt>Woo ID</dt><dd>{{ workspace.woo_sync.woo_id or 'Not assigned' }}</dd></div><div><dt>Current store</dt><dd>{{ workspace.woo_sync.store_host or 'Not linked' }}</dd></div><div><dt>Last successful sync</dt><dd>{{ workspace.woo_sync.last_successful_sync_at.strftime('%d %b %Y, %H:%M') if workspace.woo_sync.last_successful_sync_at else 'Never' }}</dd></div></dl>
     </div>
   </article>
@@ -70,7 +70,7 @@
 </section>
 
 <section class="workspace-card" aria-labelledby="local-taxonomy-title">
-  <header class="workspace-card-header"><h2 id="local-taxonomy-title">Local taxonomy assignments</h2></header>
+  <header class="workspace-card-header"><h2 id="local-taxonomy-title">Local taxonomy assignments</h2></header><div class="workspace-card-body">
   <p>{{ 'Explicit variation designation — Woo publishing requires verified controlled taxonomy identities. Check Publish Preview.' if workspace.taxonomy.explicit else 'Legacy attribute interpretation preserved.' }}</p>
   {% set missing_drivers = namespace(found=false) %}
   {% for attribute in workspace.taxonomy.attributes %}{% if attribute.variation %}
@@ -85,7 +85,7 @@
   <ul>{% for category in workspace.taxonomy.categories %}<li>{{ category.value }} — {{ 'Registered' if category.definition else 'Legacy · Not in taxonomy registry' }}</li>{% endfor %}</ul>
   <ul>{% for attribute in workspace.taxonomy.attributes %}<li><strong>{{ attribute.name }}</strong> · {{ 'Variation-driving' if attribute.variation else 'Informational' }} · {{ 'Registered' if attribute.definition else 'Legacy' }}<ul>{% for term in attribute.terms %}<li>{{ term.value }} — {{ 'Registered' if term.definition else 'Legacy · Not in taxonomy registry' }}</li>{% endfor %}</ul></li>{% endfor %}</ul>
   <p>Edit assignments through Collection Metadata or Product Override. Scanning never adds definitions to the registry.</p>
-  <h3>Storefront Collections</h3><ul>{% for item in workspace.taxonomy.storefront_collections %}<li>{{ item.value }} · {{ 'Registered' if item.definition else 'Legacy · Not in taxonomy registry' }}</li>{% else %}<li>No Storefront Collections assigned.</li>{% endfor %}</ul>
+  <h3>Storefront Collections</h3><ul>{% for item in workspace.taxonomy.storefront_collections %}<li>{{ item.value }} · {{ 'Registered' if item.definition else 'Legacy · Not in taxonomy registry' }}</li>{% else %}<li>No Storefront Collections assigned.</li>{% endfor %}</ul></div>
 </section>
 
 <section class="workspace-card" aria-labelledby="resolved-metadata-title">
@@ -152,7 +152,7 @@
   data-mutual-confirm-url="{{ url_for('main.api_mutual_cross_sell_confirm') }}"
   data-csrf-token="{{ csrf_token() }}">
   <header class="workspace-card-header">
-    <div><p class="eyebrow">Local merchandising source of truth</p><h2 id="relationships-title">Product Relationships</h2><p>Choose local products now. A later publishing pass will translate these stable SKUs into WooCommerce IDs.</p><span class="catalogue-pill is-neutral">{{ workspace.relationships.source_label }}</span>{% if workspace.relationships.source == 'legacy' %}<p class="text-muted">These values come from resolved legacy metadata. The first intentional save writes the ordered product-specific relationship contract.</p>{% endif %}</div>
+    <div><p class="eyebrow">Local merchandising source of truth</p><h2 id="relationships-title">Product Relationships</h2><p>Choose local products now. The reviewed second publishing pass translates these stable SKUs into verified WooCommerce IDs.</p><span class="catalogue-pill is-neutral">{{ workspace.relationships.source_label }}</span>{% if workspace.relationships.source == 'legacy' %}<p class="text-muted">These values come from resolved legacy metadata. The first intentional save writes the ordered product-specific relationship contract.</p>{% endif %}</div>
     <button class="btn btn-dark" type="button" data-open-relationship-picker>Add related products</button>
   </header>
   <div class="relationship-columns">
@@ -165,7 +165,7 @@
         <li class="relationship-card{% if target.broken %} is-broken{% endif %}" draggable="{{ 'false' if target.broken else 'true' }}" data-target-sku="{{ target.sku }}">
           <button class="relationship-drag" type="button" aria-label="Reorder {{ target.title }}" data-drag-handle>⋮⋮</button>
           <div class="relationship-thumbnail">{% if target.thumbnail %}<img src="{{ target.thumbnail }}" alt="" loading="lazy">{% else %}<span aria-hidden="true">{{ icon('box') }}</span>{% endif %}</div>
-          <div class="relationship-copy"><strong>{{ target.title }}</strong><code>{{ target.sku }}</code><small>{{ target.collection }} · {{ target.product_type }}</small>{% for warning in target.warnings %}<span class="relationship-warning">{{ warning }}</span>{% endfor %}</div>
+          <div class="relationship-copy">{% if target.id %}<a href="{{ url_for('main.product_detail', product_id=target.id) }}"><strong>{{ target.title }}</strong><code>{{ target.sku }}</code></a>{% else %}<strong>{{ target.title }}</strong><code>{{ target.sku }}</code>{% endif %}<small>{{ target.collection }} · {{ target.product_type }}</small>{% for warning in target.warnings %}<span class="relationship-warning">{{ warning }}</span>{% endfor %}</div>
           <div class="relationship-card-actions"><button class="btn btn-sm btn-ghost" type="button" data-move-relationship="up" aria-label="Move {{ target.title }} up">↑</button><button class="btn btn-sm btn-ghost" type="button" data-move-relationship="down" aria-label="Move {{ target.title }} down">↓</button><button class="btn btn-sm btn-outline-danger" type="button" data-remove-relationship aria-label="Remove {{ target.title }}">Remove</button></div>
         </li>
         {% else %}

@@ -1,5 +1,65 @@
 # Current State
 
+## Phase 3 Final Polish / Operations UX — implementation, user acceptance pending
+
+The existing M5.6 checkpoint remains intact. Shared metric cards, wrapping filter
+bars, deliberate slate panels, navigation groups and the light/lime WD mark now
+serve desktop and mobile from one navigation definition. Dashboard and Products
+metrics link to real filtered destinations; Product Detail taxonomy padding and
+relationship links are consistent. Metadata editors retain sparse/inherited
+authoring and now describe the accepted M5.6 publishing prerequisites accurately.
+
+Woo Product Sync is an active-parent operational overview with direct product,
+collection and selected-product handoffs into the existing reviewed Publish Preview.
+Current-store persisted identities are distinguished from fresh Preview actions.
+Only cached, locally revalidated Preview results younger than 15 minutes qualify;
+expired/restarted/unavailable plans are unknown, never fabricated No Change.
+Overview requests do not discover Woo taxonomy/products remotely. The latest 20
+Preview/publish operations provide bounded evidence; lists paginate at 50 parents.
+Link and recovery destinations remain the existing reviewed workflows. Integration
+Health remains separate; its read-only capability limitations are not hidden.
+Dashboard also displays recorded connection health and its timestamp only when
+the recorded hostname matches the configured store; it is labelled as recorded,
+not a live test or proof of current credential permissions.
+
+Taxonomy prominently exposes Woo Sync and starts its initial read-only Preview
+automatically through the existing CSRF-protected endpoint. Failed initial loads
+show useful diagnostics and manual refresh, without an automatic retry loop.
+All taxonomy writes still require review and confirmation. Operation logs follow
+new output only while near the bottom (48px); scrolling up pauses following and
+offers Jump to latest. Modal metrics share aligned sizing.
+
+Optional Discord terminal summaries now cover registry/recovery/Preview gaps and
+include available causes, affected products, write/recovery uncertainty and safe
+next actions. Uncertain writes explicitly discourage blind retry. Restart recovery
+uses one bounded summary, not a notification storm. Notification data is captured
+before commit; delivery does not query Settings or refresh ORM objects afterward.
+Scanner error summaries use already-captured redaction paths. Delivery failure
+never changes operation success. Actual Discord delivery remains a live gate.
+
+Verification: the prior 72-case checkpoint is retained. Post-resume focused tests:
+42 passed. The single final full Python run completed with 1,068 passed, two obsolete
+copy assertions failed and one optional external-reference test skipped (572.09s).
+Those assertions expected future publishing/disabled Woo writes; they were updated
+without changing behavior. Final targeted Dashboard/Products/operations-UX/health
+checks passed 46 cases; the remaining collection-editor copy assertion then passed
+its isolated rerun (one case). No second full suite was run. The preserved 13-case
+scan-ingest regression passed within the full run. Full JavaScript: 48 passed.
+Changed Python compilation, all 68 HTML templates parsed, changed JS syntax and
+git diff checks passed. Test reports remain outside the repository.
+
+Responsive mobile/tablet/desktop checks used isolated fictional catalogue/registry
+data with external networking disabled. Editors, Product Detail, Products,
+Dashboard, Woo Product Sync/scoped Preview, Integration, grouped Taxonomy Sync,
+Relationships, Scanner/confirmation and Operations were checked. No document-wide
+horizontal overflow was found; wide tables scroll within their panels. A nested
+duration value inheriting label styling was corrected. Temporary servers were
+stopped and the viewport restored. No scanner/publisher/relationship contract
+changes, migration, dependency, catalogue rewrite, commit, tag, push or Docker
+publication occurred.
+Temporary Docker/browser acceptance, representative catalogue/remaining relationship
+scenarios and final Discord delivery remain before separately approved promotion.
+
 ## M5.6 closeout — complete / live accepted, 2026-09-11
 
 User-reported live acceptance supersedes the dated pending notes below.

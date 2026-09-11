@@ -398,7 +398,8 @@ def test_settings_icon_uses_the_shared_stroked_icon_family():
     assert "<circle" in symbol and "<path" in symbol
     assert ".app-icon { width: 18px; height: 18px;" in stylesheet
     assert "stroke-width: 1.8" in stylesheet
-    assert "{{ icon('settings') }}" in navbar
+    assert "'Settings','main.settings','settings'" in navbar
+    assert "{{ icon(item[2]) }}" in navbar
 
 
 def test_dashboard_styles_define_responsive_feature_and_empty_states():

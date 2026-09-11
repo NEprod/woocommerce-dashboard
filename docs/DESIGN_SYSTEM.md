@@ -316,35 +316,26 @@ Dashboard
 Catalogue
   Products
   Collections
-  Variations
-  Overrides
+  Relationships
+  Catalogue Intake
 
-Scanner
-  Scanner
-  Schedules
-  Logs
-
-Data Quality
-  Validation
-  Issues
-
-Metadata
-  Reference
-  Templates
-  Examples
+WooCommerce
+  Product Sync
+  Taxonomy
+  Integration Health
 
 Operations
-Integrations
+  Scanner
+  Operations
 
-Settings
-  General
-  Users
-  Preferences
+System
+  Metadata Reference
+  Settings
 ```
 
-Unimplemented destinations render a polished planned-feature page that retains
-the shell, names the intended outcome, and states that the feature is not yet
-available. Never use blank templates, fake data presented as live, or raw 404s.
+Both sidebar and mobile drawer render this same definition. Do not advertise
+unimplemented destinations as operational features. Never use fake data presented
+as live, or obsolete future-feature copy for completed functionality.
 
 ## Component state contract
 
@@ -369,6 +360,23 @@ Focus must remain visible on dark and light surfaces. Loading states must not
 replace content with an unexplained spinner.
 
 ## Component library
+
+### Phase 3 operational consolidation
+
+- Reuse shared white metric/card surfaces and purposeful slate operational panels;
+  keep `workspace-card-header` and padded `workspace-card-body` consistent. Do not
+  introduce page-specific copies of these components.
+- Shared filter bars wrap with consistent control heights and legible inverse
+  labels; wide data tables scroll inside their panel, not the document.
+- Desktop and mobile navigation render the same grouped definition. Desktop group
+  collapse is optional; active destinations remain identifiable on both surfaces.
+- Operational status must name its evidence: a local Woo identity is not a fresh
+  remote comparison. Expired/missing Preview state is unknown, never No Change.
+  Summary cards link to corresponding filters; mutations use existing reviewed flows.
+- Live logs follow only while the reader is within 48px of the bottom. Scrolling
+  upward pauses following; an explicit latest-output action restores it.
+- Taxonomy's automatic initial Preview is read-only. Manual refresh and reviewed
+  mutation confirmation remain separate, visibly distinct actions.
 
 ### Buttons and compact controls
 

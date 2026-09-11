@@ -897,6 +897,10 @@ def _scan_thread(
             _runs[run_id]["summary"].setdefault("warnings", _runs[run_id].get("warnings", 0))
             _runs[run_id]["summary"].update(warning_summary(_runs[run_id]))
             _runs[run_id]["recovery_state"] = operation_recovery_state or "none"
+            _runs[run_id]["summary"]["recovery_state"] = operation_recovery_state or "none"
+            _runs[run_id]["summary"]["failure"] = redact_diagnostic(
+                operation_error or "", paths=_runs[run_id].get("redaction_paths"), limit=2000
+            )
             try:
                 _persist_run_snapshot(run_id)
             except Exception:

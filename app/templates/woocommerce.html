@@ -4,7 +4,7 @@
 {% block content %}
 <div class="woo-preview-entry"><a class="btn btn-dark" href="{{ url_for('main.woocommerce_preview') }}">Build Publish Preview</a><small>Read-only planning. No WooCommerce writes.</small></div>
 <section class="page-heading page-heading-actions">
-  <div><p class="eyebrow">Integrations</p><h1>WooCommerce Connection</h1><p>Verify secure read access and discover the store capabilities needed by later Phase 3 milestones.</p></div>
+  <div><p class="eyebrow">Integrations</p><h1>WooCommerce Connection</h1><p>Verify secure read access and discover the store capabilities used by reviewed taxonomy and product publishing.</p></div>
   <form method="post" action="{{ url_for('main.woocommerce_test') }}" data-woo-test-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button class="btn btn-accent" type="submit"{% if not workspace.configuration.configured or workspace.health.state == 'testing' %} disabled aria-disabled="true"{% endif %}>{{ 'Testing…' if workspace.health.state == 'testing' else 'Test Connection' }}</button>
@@ -13,7 +13,7 @@
 
 <div class="settings-guidance" role="note">
   <div aria-hidden="true">i</div>
-  <p><strong>Read-only discovery</strong><span>This milestone issues bounded GET requests only. It does not publish products, upload media, change settings, or verify credential write permission.</span></p>
+  <p><strong>Read-only discovery</strong><span>This connection test issues bounded GET requests only. It does not publish products, upload media, change settings, or verify credential write permission.</span></p>
 </div>
 
 {% set state = workspace.health.state %}
@@ -21,7 +21,7 @@
   <article><span>Overall state</span><strong>{{ {'not_configured':'Not configured','not_tested':'Not tested','testing':'Testing','connected':'Connected','connected_with_limitations':'Connected with limitations','failed':'Failed'}.get(state, state|replace('_',' ')|title) }}</strong><small>Latest recorded health</small></article>
   <article><span>Store URL</span><strong>{{ 'Configured' if workspace.configuration.store_url_configured else 'Not configured' }}</strong><small>Runtime environment</small></article>
   <article><span>API credentials</span><strong>{{ 'Configured' if workspace.configuration.consumer_key_configured and workspace.configuration.consumer_secret_configured else 'Incomplete' }}</strong><small>Values are never displayed</small></article>
-  <article><span>Woo writes</span><strong>Disabled</strong><small>Deferred to a later milestone</small></article>
+  <article><span>Woo writes</span><strong>Reviewed workflows</strong><small>This health test sends no writes</small></article>
 </section>
 
 {% if not workspace.configuration.configured %}

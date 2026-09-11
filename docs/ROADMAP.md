@@ -24,7 +24,17 @@ is now accepted evidence, not acceptance of every relationship scenario. Earlier
 dated entries below preserve then-current pending/guard history; this status
 supersedes those predictions.
 
-## Phase 3 Final Polish / Operations UX — next backlog, not implemented
+## Phase 3 Final Polish / Operations UX — implemented, acceptance pending
+
+Implementation now includes shared card/filter/navigation styling, one desktop/mobile
+navigation definition, operational Woo Product Sync with scoped reviewed-Preview
+handoffs, truthful local-vs-fresh Woo state, actionable metrics/relationship links,
+automatic initial read-only Taxonomy Sync Preview, respectful log following and
+bounded actionable Discord summaries. Automated/responsive verification is complete;
+CURRENT_STATE records exact results, corrected obsolete assertions and remaining
+temporary Docker/browser/Discord live gates. No release is performed.
+The original checklist below is retained as the acceptance baseline, not a new
+feature backlog. M5.6 publisher/scanner contracts remain unchanged.
 
 Preserve the approved warm-light SaaS identity: white cards, restrained borders and
 shadows, selective dark slate panels, lime healthy/primary accents, compact pills,

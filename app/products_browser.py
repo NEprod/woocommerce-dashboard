@@ -52,7 +52,7 @@ def parse_products_filters(args):
     collection = args.get("collection", "").strip()
     query = args.get("q", "").strip()[:191]
 
-    if issue and issue not in METADATA_ISSUE_DEFINITIONS:
+    if issue and issue not in METADATA_ISSUE_DEFINITIONS and issue != "all":
         raise ValueError("Unsupported metadata issue filter")
     if product_type and product_type not in SUPPORTED_PRODUCT_TYPES:
         raise ValueError("Unsupported product type filter")
@@ -128,7 +128,7 @@ def _apply_filters(query, filters):
     if filters["source"]:
         query = query.filter(_source_conditions(filters["source"]))
     if filters["issue"]:
-        query = query.filter(metadata_issue_condition(filters["issue"]))
+        query = query.filter(metadata_problem_condition() if filters["issue"] == "all" else metadata_issue_condition(filters["issue"]))
     return query
 
 
@@ -156,6 +156,7 @@ def _asset_presence(assets, label):
 
 
 def _product_view(product, variation_count, minimum_price, maximum_price):
+    from app.woo_sync_workspace import product_status
     assets = list(product.assets)
     shared_present = _asset_presence(assets, "shared")
     override_present = _asset_presence(assets, "override")
@@ -170,6 +171,7 @@ def _product_view(product, variation_count, minimum_price, maximum_price):
     publishing_intent = projected_publishing_intent(product.published)
 
     row = {
+        "woo_state_label": product_status(product.id),
         "id": product.id,
         "sku": product.sku or "",
         "title": product.title or "Untitled product",

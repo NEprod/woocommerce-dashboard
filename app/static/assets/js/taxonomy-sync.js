@@ -13,6 +13,11 @@
   if (typeof document === 'undefined') return;
   const workspace = document.querySelector('[data-sync-workspace]');
   if (!workspace) return;
+  const initialPreview = workspace.querySelector('[data-auto-preview]');
+  if (initialPreview && typeof initialPreview.requestSubmit === 'function') {
+    workspace.querySelector('[data-preview-loading]').hidden = false;
+    initialPreview.requestSubmit();
+  }
   const form = workspace.querySelector('[data-sync-selection]');
   const rows = form ? Array.from(form.querySelectorAll('input[name="selected"]')) : [];
   const limit = form ? Number(form.dataset.limit) : 50;

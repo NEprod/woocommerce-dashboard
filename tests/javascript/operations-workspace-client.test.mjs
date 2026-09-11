@@ -9,6 +9,12 @@ context.globalThis = context;
 vm.runInNewContext(source, context);
 const client = context.OperationsWorkspaceClient;
 
+test("live log follows near bottom but preserves deliberate history reading", () => {
+  assert.equal(client.shouldFollow({scrollHeight: 1000, scrollTop: 600, clientHeight: 400}), true);
+  assert.equal(client.shouldFollow({scrollHeight: 1000, scrollTop: 560, clientHeight: 400}), true);
+  assert.equal(client.shouldFollow({scrollHeight: 1000, scrollTop: 200, clientHeight: 400}), false);
+});
+
 test("live endpoint URLs encode operation identity and retain cursor query", () => {
   const query = new URLSearchParams({after: "42"});
   assert.equal(client.liveUrl("operation / ü", "logs", query), "/api/operations/operation%20%2F%20%C3%BC/logs?after=42");

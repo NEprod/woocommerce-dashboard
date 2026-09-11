@@ -12,22 +12,23 @@
 
 <section class="dashboard-stats" aria-label="Catalogue summary">
   {% set cards = [
-    ('collection', 'Collections', dashboard.summary.collections),
-    ('box', 'Parent products', dashboard.summary.products),
-    ('chart', 'Variations', dashboard.summary.variations),
-    ('box', 'Active in Catalogue', dashboard.summary.active_products),
-    ('scanner', 'Missing products', dashboard.summary.missing_products),
-    ('file', 'Products with overrides', dashboard.summary.overrides)
+    ('collection', 'Collections', dashboard.summary.collections, url_for('main.collections')),
+    ('box', 'Parent products', dashboard.summary.products, url_for('main.products')),
+    ('chart', 'Variations', dashboard.summary.variations, url_for('main.products', type='variable')),
+    ('box', 'Active in Catalogue', dashboard.summary.active_products, url_for('main.products', status='active')),
+    ('scanner', 'Missing products', dashboard.summary.missing_products, url_for('main.products', status='missing')),
+    ('file', 'Products with overrides', dashboard.summary.overrides, url_for('main.products', source='override'))
   ] %}
-  {% for icon_name, label, value in cards %}
-  <article class="dashboard-stat-card">
+  {% for icon_name, label, value, destination in cards %}
+  <a class="dashboard-stat-card" href="{{ destination }}">
     <span class="dashboard-stat-icon">{{ icon(icon_name) }}</span>
     <div><p>{{ label }}</p><strong>{{ value }}</strong></div>
-  </article>
+  </a>
   {% endfor %}
 </section>
 <p class="dashboard-summary-note">Active in Catalogue is the local scanned catalogue lifecycle state. It does not indicate current WooCommerce publication or sync state.</p>
 
+<section class="operational-panel"><h2>WooCommerce</h2><p>Current-store identities and recent, locally revalidated Preview results. No remote reads on dashboard load.</p><p>Recorded connection health: {{ dashboard.woo.health.label|capitalize }}{% if dashboard.woo.health.checked_at %} · checked {{ dashboard.woo.health.checked_at.strftime('%d %b %Y, %H:%M') }} UTC{% endif %}. Not a live connection test.</p><div class="panel-actions"><a class="btn btn-primary" href="{{ url_for('main.woo_sync') }}">Open Product Sync</a><a class="btn btn-ghost" href="{{ url_for('main.woocommerce') }}">Integration health</a></div></section><section class="metric-grid" aria-label="Woo summary">{% for key in ['linked','create','no_change','update','local_only','link_candidate','blocked','recovery_required'] %}<a class="metric-card" href="{{ url_for('main.woo_sync', status=key) }}"><span>{{ dashboard.woo.labels[key] }}</span><strong>{{ dashboard.woo.counts[key] }}</strong></a>{% endfor %}</section>
 <section class="dashboard-feature-grid" aria-label="Catalogue and scanner health">
   <article class="feature-panel catalogue-health-panel" aria-labelledby="catalogue-health-title">
     <div class="dashboard-panel-heading">
@@ -118,11 +119,11 @@
   {% if dashboard.recent_products %}
   <div class="table-responsive dashboard-desktop-products">
     <table class="table align-middle"><thead><tr><th scope="col">Product</th><th scope="col">Collection</th><th scope="col">SKU</th><th scope="col">Type</th><th scope="col">Variations</th><th scope="col">Catalogue state and publishing intent</th><th scope="col">Updated</th></tr></thead>
-      <tbody>{% for product in dashboard.recent_products %}<tr><td><div class="dashboard-product-identity"><span class="product-thumbnail dashboard-product-thumbnail" data-catalogue-thumbnail><span class="product-thumbnail-fallback" aria-hidden="true">{{ (product.title or 'P')[:1]|upper }}</span>{% if product.thumbnail %}<img src="{{ product.thumbnail }}" alt="{{ product.thumbnail_alt }}" loading="lazy">{% endif %}</span><span><strong>{{ product.title }}</strong>{% if product.has_override %}<span class="compact-status is-override">Override</span>{% endif %}</span></div></td><td>{{ product.collection }}</td><td><code>{{ product.sku }}</code></td><td>{{ product.product_type|title }}</td><td>{{ product.variation_count }}</td><td><div class="product-state-stack"><span class="compact-status is-{{ product.catalogue_status }}">{{ product.catalogue_status|title }}</span><span class="catalogue-pill is-intent-{{ product.publishing_intent.state }}">{{ product.publishing_intent.compact_label }}</span></div></td><td>{{ product.updated_at.strftime('%d %b %Y, %H:%M') if product.updated_at else 'Not recorded' }}</td></tr>{% endfor %}</tbody>
+      <tbody>{% for product in dashboard.recent_products %}<tr><td><div class="dashboard-product-identity"><span class="product-thumbnail dashboard-product-thumbnail" data-catalogue-thumbnail><span class="product-thumbnail-fallback" aria-hidden="true">{{ (product.title or 'P')[:1]|upper }}</span>{% if product.thumbnail %}<img src="{{ product.thumbnail }}" alt="{{ product.thumbnail_alt }}" loading="lazy">{% endif %}</span><span><a href="{{ url_for('main.product_detail', product_id=product.id) }}"><strong>{{ product.title }}</strong></a>{% if product.has_override %}<span class="compact-status is-override">Override</span>{% endif %}</span></div></td><td>{{ product.collection }}</td><td><code>{{ product.sku }}</code><small>{{ product.woo_label }}</small></td><td>{{ product.product_type|title }}</td><td>{{ product.variation_count }}</td><td><div class="product-state-stack"><span class="compact-status is-{{ product.catalogue_status }}">{{ product.catalogue_status|title }}</span><span class="catalogue-pill is-intent-{{ product.publishing_intent.state }}">{{ product.publishing_intent.compact_label }}</span></div></td><td>{{ product.updated_at.strftime('%d %b %Y, %H:%M') if product.updated_at else 'Not recorded' }}</td></tr>{% endfor %}</tbody>
     </table>
   </div>
   <div class="dashboard-mobile-products" aria-label="Recently updated products">
-    {% for product in dashboard.recent_products %}<article><div class="dashboard-product-identity"><span class="product-thumbnail dashboard-product-thumbnail" data-catalogue-thumbnail><span class="product-thumbnail-fallback" aria-hidden="true">{{ (product.title or 'P')[:1]|upper }}</span>{% if product.thumbnail %}<img src="{{ product.thumbnail }}" alt="{{ product.thumbnail_alt }}" loading="lazy">{% endif %}</span><span><strong>{{ product.title }}</strong><code>{{ product.sku }}</code></span></div><span class="compact-status is-{{ product.catalogue_status }}">{{ product.catalogue_status|title }}</span><dl><div><dt>Collection</dt><dd>{{ product.collection }}</dd></div><div><dt>Variations</dt><dd>{{ product.variation_count }}</dd></div><div><dt>Publishing intent</dt><dd><span class="catalogue-pill is-intent-{{ product.publishing_intent.state }}">{{ product.publishing_intent.compact_label }}</span></dd></div></dl></article>{% endfor %}
+    {% for product in dashboard.recent_products %}<article><div class="dashboard-product-identity"><span class="product-thumbnail dashboard-product-thumbnail" data-catalogue-thumbnail><span class="product-thumbnail-fallback" aria-hidden="true">{{ (product.title or 'P')[:1]|upper }}</span>{% if product.thumbnail %}<img src="{{ product.thumbnail }}" alt="{{ product.thumbnail_alt }}" loading="lazy">{% endif %}</span><span><a href="{{ url_for('main.product_detail', product_id=product.id) }}"><strong>{{ product.title }}</strong></a><code>{{ product.sku }}</code><small>{{ product.woo_label }}</small></span></div><span class="compact-status is-{{ product.catalogue_status }}">{{ product.catalogue_status|title }}</span><dl><div><dt>Collection</dt><dd>{{ product.collection }}</dd></div><div><dt>Variations</dt><dd>{{ product.variation_count }}</dd></div><div><dt>Publishing intent</dt><dd><span class="catalogue-pill is-intent-{{ product.publishing_intent.state }}">{{ product.publishing_intent.compact_label }}</span></dd></div></dl></article>{% endfor %}
   </div>
   {% else %}<div class="empty-state"><strong>No projected products yet</strong><p>Run the initial scan to populate the dashboard.</p><a class="btn btn-primary" href="{{ url_for('main.initial_scan_page') }}">Run Initial Scan</a></div>{% endif %}
 </section>

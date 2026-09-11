@@ -170,7 +170,7 @@ def test_settings_reports_safe_read_only_woo_connection_state(settings_client):
     html = settings_client.get("/settings").get_data(as_text=True)
     assert "WooCommerce connection" in html
     assert "Woo writes" in html
-    assert "Disabled for this milestone" in html
+    assert "Only through separately reviewed publishing and Taxonomy Sync" in html
     assert "WooCommerce connected" not in html
     assert "Woo credentials" not in html
 
@@ -178,8 +178,9 @@ def test_settings_reports_safe_read_only_woo_connection_state(settings_client):
 def test_settings_navigation_is_reachable_and_active_on_desktop_and_mobile(settings_client):
     html = settings_client.get("/settings").get_data(as_text=True)
     assert re.search(r'class="sidebar-link sidebar-child is-active"[^>]+aria-current="page"[^>]*title="Settings"', html)
-    assert re.search(r'class="mobile-primary-link is-active"[^>]+aria-controls="appNavigation"', html)
-    assert re.search(r'class="mobile-nav-link is-active"[^>]+aria-current="page"[^>]*>.*Settings', html, re.DOTALL)
+    assert html.count('href="/settings" aria-current="page"') == 2
+    assert 'aria-controls="appNavigation"' in html
+    assert html.count('data-navigation-group="System"') == 2
 
 
 def test_settings_uses_text_labels_for_every_health_state(settings_client):

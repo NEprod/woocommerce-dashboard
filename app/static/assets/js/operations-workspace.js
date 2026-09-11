@@ -11,6 +11,8 @@
     return Number.isSafeInteger(candidate) && candidate >= current ? candidate : current;
   }
 
+  function shouldFollow(log) { return log.scrollHeight - log.scrollTop - log.clientHeight <= 48; }
+
   function shouldPause(failures) { return failures >= 3; }
 
   function shouldRefreshIntakeResult(wasTerminal, isTerminal, hasPanel) {
@@ -37,6 +39,7 @@
 
   root.OperationsWorkspaceClient = {
     liveUrl,
+    shouldFollow,
     nextCursor,
     shouldPause,
     shouldRefreshIntakeResult,
@@ -51,6 +54,8 @@
   if (!hero) return;
   const operationId = hero.dataset.operationId;
   const logs = documentRef.querySelector("[data-operation-logs]");
+  const jump = documentRef.querySelector("[data-log-latest]");
+  if (jump) jump.addEventListener("click", function () { logs.scrollTop = logs.scrollHeight; jump.hidden = true; });
   const logForm = documentRef.querySelector("[data-log-form]");
   const logPagination = documentRef.querySelector("[data-log-pagination]");
   const logNote = documentRef.querySelector("[data-log-note]");
@@ -153,6 +158,8 @@
   }
 
   function appendLogEntries(payload) {
+    const follow = shouldFollow(logs);
+    const previousSize = renderedSequences.size;
     if (payload.gap && logNote) logNote.textContent = "Earlier retained lines rolled over. Display resumed from the oldest available sequence.";
     (payload.entries || []).forEach(function (entry) {
       const sequence = Number(entry.sequence);
@@ -164,6 +171,8 @@
       row.textContent = entry.line;
       logs.appendChild(row);
     });
+    if (follow) logs.scrollTop = logs.scrollHeight;
+    if (jump && renderedSequences.size > previousSize) jump.hidden = follow;
     cursor = nextCursor(cursor, payload);
     if (!logs.children.length) {
       const empty = documentRef.createElement("p");

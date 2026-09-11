@@ -30,6 +30,36 @@ def test_discord_disabled_and_missing_configuration_skip_safely(monkeypatch):
     assert module.configuration_summary()["state"] == "disabled"
 
 
+def test_publish_recovery_has_actionable_context_without_secrets(discord_enabled, monkeypatch):
+    payloads = []
+    monkeypatch.setattr(discord_enabled.requests, "post", lambda url, **kw: payloads.append(kw["json"]) or Response())
+    discord_enabled.notify_woo_publish_completed({"selected_products": 1, "failed_products": 1,
+        "recovery_required": True, "write_request_count": 1, "pending_relationship_count": 1,
+        "product_results": [{"title": "Fictional Ornament", "sku": "ORN-1", "status": "recovery_required",
+                             "error": "Term readback uncertain; consumer_secret=never-display-this"}]}, operation_id="recovery-example")
+    text = str(payloads)
+    for expected in ["ORN-1", "Fictional Ornament", "Do not blindly retry", "Safe Resume", "write requests attempted: 1", "Relationships Pass 2", "recovery-example"]:
+        assert expected in text
+    assert "never-display-this" not in text
+    assert "Verified two-pass publication finished" not in text
+
+
+def test_generic_blocked_notification_reports_no_operation_and_next_action(discord_enabled, monkeypatch):
+    payloads = []
+    monkeypatch.setattr(discord_enabled.requests, "post", lambda url, **kw: payloads.append(kw["json"]) or Response())
+    discord_enabled.notify_operation_attention("scanner", "blocked", error="Fictional Cards: product_info.json missing",
+                                               summary={"woo_writes": 0})
+    text = str(payloads)
+    assert "Fictional Cards" in text and "product_info.json" in text
+    assert "Not started" in text and "no catalogue changes" in text and "Next action" in text
+
+
+def test_new_notifications_remain_optional(monkeypatch):
+    monkeypatch.setenv("DISCORD_ENABLED", "false")
+    monkeypatch.setattr(discord.requests, "post", lambda *a, **k: pytest.fail("Discord disabled"))
+    assert discord.notify_operation_attention("scanner", "blocked")[0] is False
+
+
 def test_existing_embed_style_and_success_are_preserved(discord_enabled, monkeypatch):
     calls = []
     monkeypatch.setattr(discord_enabled.requests, "post", lambda url, **kwargs: calls.append((url, kwargs)) or Response())

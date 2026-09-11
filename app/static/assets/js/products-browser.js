@@ -152,7 +152,7 @@
     identity.setAttribute("role", "cell");
     identity.appendChild(thumbnail(product));
     const copy = document.createElement("span");
-    copy.appendChild(text("strong", "product-title", product.title));
+    const titleLink = text("a", "product-title", product.title); titleLink.href = product.view_url; copy.appendChild(titleLink);
     copy.appendChild(text("small", "product-id", `ID ${product.id}`));
     identity.appendChild(copy);
     row.appendChild(identity);
@@ -163,6 +163,7 @@
     stateCell.className = "product-state-stack";
     stateCell.appendChild(pill(product.catalogue_status === "missing" ? "Missing" : "Active", product.catalogue_status));
     stateCell.appendChild(pill(product.publishing_intent_label, `intent-${product.publishing_intent}`));
+    stateCell.appendChild(pill(product.woo_state_label || "Preview required", "neutral"));
     row.appendChild(stateCell);
     const variationCell = document.createElement("div");
     variationCell.appendChild(variationToggle(product, false));
@@ -193,7 +194,7 @@
     heading.className = "product-mobile-heading";
     heading.appendChild(thumbnail(product));
     const identity = document.createElement("div");
-    identity.appendChild(text("strong", "product-title", product.title));
+    const titleLink = text("a", "product-title", product.title); titleLink.href = product.view_url; identity.appendChild(titleLink);
     identity.appendChild(text("code", "product-sku", product.sku || "Not set"));
     heading.appendChild(identity);
     heading.appendChild(pill(product.catalogue_status === "missing" ? "Missing" : "Active", product.catalogue_status));
@@ -203,6 +204,7 @@
     facts.appendChild(labelledFact("Type", pill(product.type === "variable" ? "Variable" : "Simple", "neutral")));
     facts.appendChild(labelledFact("Price", text("span", "product-price", formatPrice(product.price))));
     facts.appendChild(labelledFact("Publishing intent", pill(product.publishing_intent_label, `intent-${product.publishing_intent}`)));
+    facts.appendChild(labelledFact("Woo state", pill(product.woo_state_label || "Preview required", "neutral")));
     facts.appendChild(labelledFact("Metadata", pill(sourceLabel(product.metadata_source), product.metadata_source)));
     facts.appendChild(labelledFact("Updated", text("time", "product-updated", formatDate(product.updated_at))));
     card.appendChild(facts);

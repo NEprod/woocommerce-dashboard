@@ -5,6 +5,19 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 const {selectRows} = createRequire(import.meta.url)('../../app/static/assets/js/taxonomy-sync.js');
 const row = (action, disabled = false) => ({dataset: {action}, checked: false, disabled});
+test('initial load submits only the existing read-only preview form once', () => {
+  let submissions = 0;
+  const loading = {hidden: true}, view = {};
+  const preview = {requestSubmit: () => { submissions += 1; }};
+  const workspace = {dataset: {activeView: 'overview'}, querySelectorAll: () => [],
+    querySelector: s => ({'[data-auto-preview]': preview, '[data-preview-loading]': loading,
+                          '[data-preview-view]': view}[s] || null)};
+  vm.runInNewContext(fs.readFileSync(new URL('../../app/static/assets/js/taxonomy-sync.js', import.meta.url), 'utf8'),
+    {document: {querySelector: () => workspace}});
+  assert.equal(submissions, 1);
+  assert.equal(loading.hidden, false);
+  assert.equal(view.value, 'overview');
+});
 test('group picks only eligible rows of one action; isolates other groups', () => {
   const group = [row('link'), row('create'), row(undefined), row('link', true)];
   const other = row('link');

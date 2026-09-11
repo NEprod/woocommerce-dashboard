@@ -48,11 +48,11 @@
           {% endfor %}
           <div class="guided-field" data-field-wrapper="live" {% if not is_shared %}data-override-field="live"{% endif %}>
             <div class="guided-field-label"><label for="metadata-live">Publishing intent</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="live" {% if 'live' in workspace.override.data %}checked{% endif %}><span>Override collection intent</span></label>{% endif %}</div>
-            <select id="metadata-live" data-field="live"><option value="">Not set — scanner default</option><option value="true">Published — publish when Woo sync is introduced</option><option value="false">Draft — draft when Woo sync is introduced</option></select>
+            <select id="metadata-live" data-field="live"><option value="">Not set — scanner default</option><option value="true">Published — on reviewed Woo publication</option><option value="false">Draft — on reviewed Woo publication</option></select>
             {% if is_shared %}
-            <p class="field-helper">Publish when Woo sync is introduced when enabled/true; Draft when Woo sync is introduced when disabled/false. This affects all products that inherit this collection value.</p>
+            <p class="field-helper">Sets Published or Draft intent for reviewed Woo publication. Saving metadata does not publish. This affects all products that inherit this collection value.</p>
             {% else %}
-            <p class="field-helper">Inherited collection intent: {{ workspace.collection_publishing_intent.label }}. Leave “Override collection intent” disabled to inherit. Removing this override restores the collection intent. This is future WooCommerce intent, not current remote status.</p>
+            <p class="field-helper">Inherited collection intent: {{ workspace.collection_publishing_intent.label }}. Leave “Override collection intent” disabled to inherit. Removing this override restores the collection intent. This is authored publishing intent, not current remote status.</p>
             {% endif %}
             <p class="field-error" data-field-error="live" hidden></p>
           </div>
@@ -68,7 +68,7 @@
       </section>
 
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="ranges-title">
-        <header><h2 id="ranges-title">Storefront Collections</h2><p>Named ranges, separate from dashboard catalogue groups. Local assignments only; product publishing is deferred.</p></header>
+        <header><h2 id="ranges-title">Storefront Collections</h2><p>Named ranges, separate from dashboard catalogue groups. Reviewed explicit-contract publication assigns their verified Woo Brands.</p></header>
         <div class="guided-field" data-field-wrapper="storefront_collections" {% if not is_shared %}data-override-field="storefront_collections"{% endif %}>
           {% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="storefront_collections" {% if 'storefront_collections' in workspace.override.data %}checked{% endif %}>Override inherited ranges</label>{% endif %}
           <div class="repeatable-list" data-list-editor="storefront_collections" aria-label="Assigned Storefront Collections"></div>
@@ -92,7 +92,7 @@
         <header><div><h2 id="attributes-title">Attributes</h2><p>Assign each attribute once. Choose its terms and whether it drives variations in the same row.</p></div><button class="btn btn-sm btn-outline-primary" type="button" data-add-attribute>Add attribute</button></header>
         {% if not is_shared %}<label class="override-switch section-override"><input type="checkbox" data-override-toggle="attributes" {% if 'attributes' in workspace.override.data %}checked{% endif %}><span>Override the attributes object</span></label>{% endif %}
         <div class="structured-editor-list" data-attributes-editor></div><p class="field-error" data-field-error="attributes" hidden></p>
-        <div class="attribute-contract-note"><p data-variation-contract-status></p><button type="button" class="btn btn-sm btn-ghost" data-adopt-variation>Use explicit attribute contract</button><p class="field-helper">Changing a “Use for variations” control adopts the explicit contract and temporarily blocks Woo publishing. No checked rows means an intentional empty driver list. Viewing legacy metadata changes nothing. Advanced JSON remains available for source-level contract changes.</p><p class="field-error" data-field-error="variation_attributes" hidden></p></div>
+        <div class="attribute-contract-note"><p data-variation-contract-status></p><button type="button" class="btn btn-sm btn-ghost" data-adopt-variation>Use explicit attribute contract</button><p class="field-helper">Changing a “Use for variations” control adopts the explicit contract. Publishing then requires verified controlled taxonomy and a fresh Preview. No checked rows means an intentional empty driver list. Viewing legacy metadata changes nothing. Advanced JSON remains available for source-level contract changes.</p><p class="field-error" data-field-error="variation_attributes" hidden></p></div>
         {% with picker_kind='attributes' %}{% include 'includes/_metadata_taxonomy_choices.html' %}{% endwith %}
       </section>
 
@@ -132,6 +132,7 @@
   </div>
 
   <aside class="metadata-editor-sidebar">
+    <section class="side-summary-card"><h2>Publishing context</h2><p>Saving preserves sparse overrides and inheritance. Viewing never adopts the explicit variation contract.</p><dl><div><dt>Last local update</dt><dd>{{ product.local_updated_at or 'Not recorded' }}</dd></div></dl><a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.woo_sync', q=product.sku) }}">Review Woo state</a></section>
     <section class="side-summary-card"><div class="side-summary-heading"><span>{{ icon('file') }}</span><div><h2>Metadata Source</h2><span class="catalogue-pill is-{{ 'shared' if is_shared else 'override' }}">{{ 'Collection metadata' if is_shared else 'Product override' }}</span></div></div><dl><div><dt>Collection</dt><dd>{{ workspace.collection_display_name }}</dd></div><div><dt>Shared product title</dt><dd>{{ workspace.shared_product_title or 'Not set' }}</dd></div><div><dt>Source file</dt><dd><code>{{ workspace.authored.reference or 'Not registered' }}</code></dd></div><div><dt>Scope</dt><dd>{{ workspace.affected_total ~ ' products' if is_shared else 'This product only' }}</dd></div><div><dt>Current state</dt><dd>{{ 'Available' if workspace.authored.exists else 'Unavailable' }}</dd></div></dl></section>
     <section class="side-summary-card"><div class="side-summary-heading"><span>{{ icon('check') }}</span><div><h2>Validation</h2><span class="catalogue-pill is-{{ 'active' if workspace.authored.validation.valid else 'missing' }}">{{ 'Valid' if workspace.authored.validation.valid else 'Needs attention' }}</span></div></div><p>Validation uses the existing product_info.json schema and field inventory.</p><a href="{{ url_for('main.metadata_reference') }}">Metadata reference</a></section>
     <section class="side-summary-card"><h2>Authoring Template</h2><label for="templateSelect">Load a fictional template into this unsaved draft</label><select id="templateSelect"><option value="">Choose a template</option>{% if not is_shared %}<option value="minimal-override">Minimal partial override</option>{% endif %}<option value="minimal-collection">Minimal collection</option><option value="simple">Simple collection</option><option value="variable-collection">Variable Collection</option><option value="single-variable">Single Variable</option><option value="complete">Complete reference</option></select><button class="btn btn-sm btn-outline-primary" id="loadTemplateBtn" type="button">Load Template</button><p class="field-helper">Loading never saves automatically. The normal override template remains <code>{}</code>.</p></section>

@@ -103,7 +103,7 @@ def test_shell_uses_neutral_branding_local_assets_and_accessible_navigation(
     assert "Operations" in html
     assert "Metadata" in html
     assert "System" in html
-    assert "Future" in html
+    assert "WooCommerce" in html
     assert "account-avatar" not in html
 
 
@@ -135,7 +135,6 @@ def test_planned_pages_are_professional_and_do_not_claim_live_features(
     authenticated_client,
 ):
     expected = {
-        "/woo-sync": "Woo Sync",
         "/orders": "Orders",
         "/website-automation": "Website Automation",
         "/analytics": "Analytics",
@@ -153,6 +152,8 @@ def test_planned_pages_are_professional_and_do_not_claim_live_features(
         html = authenticated_client.get(route).get_data(as_text=True)
         assert title in html
         assert "Planned" not in html
+    sync_html = authenticated_client.get("/woo-sync").get_data(as_text=True)
+    assert "Woo Product Sync" in sync_html and "Planned" not in sync_html
 
     settings_html = authenticated_client.get("/settings").get_data(as_text=True)
     assert "Storage and mounts" in settings_html

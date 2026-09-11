@@ -3,13 +3,13 @@
 {% block title %}Product Relationships{% endblock %}
 {% block content %}
 <header class="page-header relationship-page-header">
-  <div><p class="eyebrow">Catalogue health</p><h1 class="page-title">Product Relationships</h1><p class="page-lede">Review local cross-sells and upsells before future WooCommerce payload work.</p></div>
+  <div><p class="eyebrow">Catalogue health</p><h1 class="page-title">Product Relationships</h1><p class="page-lede">Review local cross-sells and upsells and their reviewed two-pass WooCommerce publishing dependencies.</p></div>
   <a class="btn btn-dark" href="{{ url_for('main.relationships_mutual') }}">Create Mutual Cross-Sell Family</a>
 </header>
 
 <section class="relationship-summary-grid" aria-label="Relationship summary">
 {% for key,label in [('products','Parent products'),('with_cross_sells','With cross-sells'),('with_upsells','With upsells'),('with_both','With both'),('with_none','With none'),('broken_targets','Broken targets'),('unresolved_targets','Unresolved target SKUs'),('legacy_products','Legacy-derived'),('explicit_products','Explicit JSON'),('inactive_targets','Inactive targets')] %}
-  <article class="products-stat-card"><span class="products-stat-icon">{{ icon('link' if 'with_' in key else 'alert' if key in ['broken_targets','inactive_targets'] else 'box') }}</span><div><p>{{ label }}</p><strong>{{ workspace.summary[key] }}</strong></div></article>
+  {% set filter = {'with_cross_sells':'cross_sells','with_upsells':'upsells','with_both':'both','with_none':'none','broken_targets':'broken','unresolved_targets':'broken','legacy_products':'legacy','explicit_products':'explicit','inactive_targets':'inactive_targets'}.get(key, '') %}<a href="{{ url_for('main.relationships', relationship=filter) }}" class="products-stat-card"><span class="products-stat-icon">{{ icon('link' if 'with_' in key else 'alert' if key in ['broken_targets','inactive_targets'] else 'box') }}</span><div><p>{{ label }}</p><strong>{{ workspace.summary[key] }}</strong></div></a>
 {% endfor %}
 </section>
 
@@ -31,7 +31,7 @@
   <div class="relationship-table" role="table" aria-label="Product relationship health" aria-rowcount="{{ workspace.pagination.total }}">
     <div class="relationship-table-head" role="row"><span role="columnheader">Product</span><span role="columnheader">State</span><span role="columnheader">Cross-sells</span><span role="columnheader">Upsells</span><span role="columnheader">Health</span><span role="columnheader">Source</span><span role="columnheader">Action</span></div>
     {% for item in workspace['items'] %}<article class="relationship-browser-row" role="row">
-      <div class="relationship-browser-product" role="cell">{% if item.thumbnail %}<img src="{{ item.thumbnail }}" alt="" loading="lazy">{% else %}<span class="product-thumbnail-fallback" aria-hidden="true">{{ item.title[:1] }}</span>{% endif %}<span><strong>{{ item.title }}</strong><code>{{ item.sku }}</code><small>{{ item.collection }} · {{ item.product_type|title }}</small></span></div>
+      <div class="relationship-browser-product" role="cell">{% if item.thumbnail %}<img src="{{ item.thumbnail }}" alt="" loading="lazy">{% else %}<span class="product-thumbnail-fallback" aria-hidden="true">{{ item.title[:1] }}</span>{% endif %}<span><a href="{{ url_for('main.product_detail', product_id=item.id) }}"><strong>{{ item.title }}</strong><code>{{ item.sku }}</code></a><small>{{ item.collection }} · {{ item.product_type|title }}</small></span></div>
       <div role="cell"><span class="catalogue-pill is-{{ item.catalogue_status }}">{{ item.catalogue_status|title }}</span><small>{{ item.publishing_intent }}</small></div>
       <strong role="cell" data-label="Cross-sells">{{ item.cross_sell_count }}</strong><strong role="cell" data-label="Upsells">{{ item.upsell_count }}</strong>
       <div role="cell" data-label="Health">{% if item.broken_count %}<span class="catalogue-pill is-missing">{{ item.broken_count }} unresolved</span>{% elif item.inactive_count %}<span class="catalogue-pill is-archived">{{ item.inactive_count }} inactive</span>{% else %}<span class="catalogue-pill is-active">Healthy</span>{% endif %}</div>

@@ -48,6 +48,11 @@ def variation_proposal(product_id):
 def sync_rejected(error):
     if error.report:
         return render_template("taxonomy/sync_result.html", report=error.report), 409
+    if request.endpoint == "taxonomy.sync_preview":
+        view = request.form.get("view", "overview")
+        if view not in {"overview", "categories", "attributes", "storefront_collections"}:
+            view = "overview"
+        return render_sync(view=view, error=str(error)), 409
     return render_template("taxonomy/error.html", error=str(error)), 409
 
 
@@ -59,11 +64,11 @@ def sync_workspace(view="overview"):
     return render_sync(view=view)
 
 
-def render_sync(plan=None, token=None, view="overview"):
+def render_sync(plan=None, token=None, view="overview", error=None):
     if view not in {"overview", "categories", "attributes", "storefront_collections"}:
         abort(404)
     return render_template("taxonomy/sync.html", plan=plan, token=token, labels=LABELS,
-                           views=sync_views(plan), active_view=view, limit=sync.MAX_ACTIONS)
+                           views=sync_views(plan), active_view=view, limit=sync.MAX_ACTIONS, preview_error=error)
 
 
 @taxonomy.route("/sync/preview", methods=["POST"])

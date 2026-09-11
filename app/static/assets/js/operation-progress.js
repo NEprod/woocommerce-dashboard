@@ -78,8 +78,9 @@
 
     function appendLog(line) {
       if (!log) return;
+      const follow = log.scrollHeight - log.scrollTop - log.clientHeight <= 48;
       log.textContent += line + "\n";
-      log.scrollTop = log.scrollHeight;
+      if (follow) log.scrollTop = log.scrollHeight;
     }
 
     function fail(message) {

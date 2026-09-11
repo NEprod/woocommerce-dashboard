@@ -3,7 +3,7 @@
 {% block stylesheets %}<link rel="stylesheet" href="{{ url_for('static', filename='assets/css/taxonomy.css') }}">{% endblock %}
 {% block content %}
 <div class="taxonomy-workspace">
-<header class="page-header"><div><p class="eyebrow">Local authored source · Phase 3 M5.2</p><h1 class="page-title">Taxonomy Registry</h1><p class="page-lede">Categories, named ranges, structured attributes and tags. Independent of dashboard catalogue groups.</p></div><a class="btn btn-ghost" href="{{ url_for('taxonomy.index') }}">Registry overview</a></header>
+<header class="page-header"><div><p class="eyebrow">Local authored source</p><h1 class="page-title">Taxonomy Registry</h1><p class="page-lede">Categories, named ranges, structured attributes and tags. Independent of dashboard catalogue groups.</p></div><div class="page-actions"><a class="btn btn-ghost" href="{{ url_for('taxonomy.index') }}">Registry overview</a><a class="btn btn-primary" href="{{ url_for('taxonomy.sync_workspace') }}">Woo Taxonomy Sync</a></div></header>
 {% for category, message in get_flashed_messages(with_categories=true) %}<p class="alert alert-success" role="status">{{ message }}</p>{% endfor %}
 {% block registry_content %}{% endblock %}
 <p class="panel-note">Registry definitions remain separate from product assignments. Scans never add definitions. <a href="{{ url_for('taxonomy.sync_workspace') }}">Reviewed Woo taxonomy sync</a> handles definitions; explicit product publishing consumes verified identities through Publish Preview.</p>

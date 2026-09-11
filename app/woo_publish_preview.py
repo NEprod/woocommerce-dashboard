@@ -1083,6 +1083,10 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
         }
         summary["capability"] = capability
         summary["checklist"] = checklist
+        summary["notification_problems"] = "\n".join(
+            f"{item['title']} · {item['sku']}: {'; '.join(item['blockers'])}"
+            for item in plans if item["blockers"]
+        )[:2000]
         plan = {"operation_id": lease.id if lease else None, "summary": summary, "capability": capability, "products": plans, "taxonomy": taxonomy, "digest": plan_digest}
         failed_products = counts["blocked"] + counts["recovery_required"]
         if lease:

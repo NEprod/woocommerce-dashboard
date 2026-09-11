@@ -298,7 +298,7 @@ def test_product_detail_separates_catalogue_state_from_override_publishing_inten
     assert "Product override" in html
     assert "Overridden" in html
     assert "currently published in WooCommerce" not in html
-    assert "Future WooCommerce publishing intent only" in html
+    assert "Authored WooCommerce publishing intent" in html
 
 
 def test_product_detail_identifies_inherited_collection_publishing_intent(
@@ -383,8 +383,9 @@ def test_collection_editor_identifies_shared_scope_and_affected_products(milesto
     assert "Aurora - Fictional Print" in html
     assert "Advanced JSON" in html
     assert "Publishing intent" in html
-    assert "Publish when Woo sync is introduced" in html
-    assert "Draft when Woo sync is introduced" in html
+    assert "Sets Published or Draft intent for reviewed Woo publication" in html
+    assert "Saving metadata does not publish" in html
+    assert "Draft — on reviewed Woo publication" in html
     assert "all products that inherit this collection value" in html
     assert str(catalogue) not in html
 
