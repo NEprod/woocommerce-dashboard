@@ -19,6 +19,31 @@ LABELS = {"categories": "Categories", "storefront_collections": "Storefront Coll
           "attributes": "Attributes", "terms": "Attribute terms", "tags": "Tags"}
 
 
+@taxonomy.route("/variation-proposal/<int:product_id>", methods=["GET", "POST"])
+@login_required
+def variation_proposal(product_id):
+    from app import db
+    from app.models import Product
+    from app.variation_taxonomy_proposal import proposal
+    if request.method == "POST":
+        signed = verified(request.form.get("review", ""))
+        if (signed.get("mode") != "variation-proposal" or signed.get("product_id") != product_id
+                or request.form.get("acknowledge") != "yes"):
+            raise service.RegistryEditError("Explicit acknowledgement and a product-specific review are required.")
+        with operation_context("taxonomy_registry_update", {"action": "variation-proposal", "product_id": product_id}):
+            db.session.expire_all()
+            current = proposal(db.get_or_404(Product, product_id))
+            if current["digest"] != signed.get("digest") or not current["additions"]:
+                raise service.RegistryEditError("Registry, product or child projection changed. Open a fresh proposal.")
+            service.save_reviewed(current["data"], signed["revision"])
+        flash("Variation taxonomy saved and verified locally. Product metadata and SKUs are unchanged. Continue to Woo Taxonomy Sync to review and verify definitions; no Woo action has run.", "success")
+        return redirect(url_for("taxonomy.sync_workspace", view="attributes"))
+    product = db.get_or_404(Product, product_id)
+    current = proposal(product)
+    token = signature(current["revision"], mode="variation-proposal", product_id=product_id, digest=current["digest"])
+    return render_template("taxonomy/variation_proposal.html", product=product, proposal=current, token=token)
+
+
 @taxonomy.errorhandler(sync.SyncError)
 def sync_rejected(error):
     if error.report:

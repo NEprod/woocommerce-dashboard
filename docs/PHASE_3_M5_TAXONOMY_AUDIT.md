@@ -1,5 +1,11 @@
 # Phase 3 M5 architecture audit: Taxonomy Registry & Controlled Catalogue Metadata
 
+Current checkpoint, 2026-09-11: M5.6 product publisher integration and reviewed
+variation-taxonomy proposals are complete/live accepted. Verified prerequisites
+replace the former blanket M5.3 publishing guard. CURRENT_STATE records the exact
+Simple/Variable evidence; ROADMAP defines Final Polish / Operations UX next. The
+dated audit/addenda below preserve history and are superseded on milestone status.
+
 Checkpoint status, 2026-09-08: the bounded definition-sync implementation is user
 live accepted, including grouped reconciliation, term ordering and a successful
 45-definition reviewed batch. Earlier implementation-time availability/live-test

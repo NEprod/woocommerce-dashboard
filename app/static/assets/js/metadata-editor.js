@@ -242,7 +242,7 @@
       row.querySelector("[data-variation-label]").textContent = check.checked ? "Variation-driving" : "Informational";
     });
     const unknown = driverNames.filter((name) => !Object.hasOwn(attributeValues(), name));
-    guided.querySelector("[data-variation-contract-status]").textContent = (resolvedVariation ? `${explicitVariation ? "Explicit" : "Inherited explicit"} contract · Woo publishing temporarily blocked.` : "Legacy contract · unchanged until you use a variation control.") + (unknown.length && resolvedVariation ? ` Unassigned drivers: ${unknown.join(", ")}. Correct these in Advanced JSON or restore the attribute.` : "");
+    guided.querySelector("[data-variation-contract-status]").textContent = (resolvedVariation ? `${explicitVariation ? "Explicit" : "Inherited explicit"} contract · Woo publishing requires verified controlled taxonomy identities.` : "Legacy contract · unchanged until you use a variation control.") + (unknown.length && resolvedVariation ? ` Unassigned drivers: ${unknown.join(", ")}. Correct these in Advanced JSON or restore the attribute.` : "");
     guided.querySelector("[data-adopt-variation]").hidden = explicitVariation;
   }
 

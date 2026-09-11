@@ -7,7 +7,7 @@ import pytest
 
 from app import db
 from app.models import Product, ProductAttribute, CatalogueOperation
-from app.taxonomy_assignments import resolve, options, variation_drivers, PUBLISH_BLOCK
+from app.taxonomy_assignments import resolve, options, variation_drivers
 from app.utils.json_utils import merge_product_json
 from app.utils.scanner import build_variations, scan_collection
 from app.utils.ingest import ingest_rows_to_db
@@ -114,7 +114,7 @@ def test_actual_metadata_save_preserves_explicit_contract_and_sparse_override(mi
     assert json.loads(override.read_text()) == document
     assert shared.read_bytes() == before
     page = milestone5_client.get(f"/products/{ids['variable']}")
-    assert b"Legacy value" in page.data and b"publishing temporarily blocked" in page.data
+    assert b"Legacy value" in page.data and b"requires verified controlled taxonomy identities" in page.data
     editor = milestone5_client.get(f"/edit_products/{ids['variable']}/edit/override")
     assert editor.status_code == 200
     assert b"Refresh registry choices" in editor.data and b"Add new category to registry" in editor.data
@@ -223,12 +223,12 @@ def test_new_contract_preview_blocks_before_any_woo_read(preview_app, drivers):
         source.parent.mkdir(parents=True)
         source.write_text(json.dumps({"attributes": {"Size": ["A5"]}, "variation_attributes": drivers}))
         client = FakeWooClient()
-        with pytest.raises(PreviewError, match="M5.3 explicit attribute contract"):
+        with pytest.raises(PreviewError, match="Taxonomy registry is not ready"):
             generate_publish_plan({"kind": "product", "product_id": 4}, client=client)
         assert client.methods == []
     from test_phase3_woo_publish_preview import _client
     response = _client(preview_app).post("/woocommerce/preview/generate", data={"scope_kind": "product", "product_id": "4"}, follow_redirects=True)
-    assert b"M5.3 explicit attribute contract" in response.data
+    assert b"Taxonomy registry is not ready" in response.data
 
 
 def test_execution_guard_rechecks_new_opt_in_after_legacy_confirmation(preview_app, monkeypatch):
@@ -243,4 +243,4 @@ def test_execution_guard_rechecks_new_opt_in_after_legacy_confirmation(preview_a
         assert publisher.methods == before
         operation = db.session.get(CatalogueOperation, operation_id)
         assert operation.status == "failed"
-        assert "M5.3 explicit attribute contract" in operation.scope
+        assert "Explicit taxonomy assignments or verified identities changed" in operation.scope

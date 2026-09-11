@@ -1,5 +1,25 @@
 # Woo Publish Preview
 
+M5.6 explicit controlled product Preview/publishing is complete/live accepted
+(2026-09-11); historical temporary-guard descriptions are superseded. Both accepted
+Simple products returned fresh No Change. Variable publication/storefront acceptance
+is recorded separately in CURRENT_STATE. Final Polish will improve actionable
+blocker links and a catalogue Woo Product Sync overview using these same contracts;
+those UX changes are not part of this checkpoint.
+
+## M5.6 explicit-contract Preview
+
+Builder `phase3-m56-verified-taxonomy-v1` replaces the blanket opt-in guard with
+verified registry prerequisites. Unresolved controlled assignments block before
+remote access. Valid explicit products plan categories/Brands/global attributes
+using trusted IDs, and validate scanner-projected children against only their
+explicit drivers. Tags retain permissive M4 planning. Legacy absence is unchanged.
+Registry content, authored resolved source and current-store taxonomy mappings
+enter the digest; execution and safe resume revalidate this contract. Trusted-ID
+reads are bounded to 200 distinct definitions per operation phase. Category/Brand
+membership and global attribute options/flags are compared semantically, including
+Simple informational attributes. Unknown IDs never fall back to name matching.
+
 Phase 3 Milestone 3 provides an authenticated, read-only planning workspace at
 `/woocommerce/preview`. It answers what a controlled publisher would create,
 link, update, leave unchanged, defer, or block. Preview generation does not

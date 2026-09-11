@@ -602,7 +602,7 @@ def test_legacy_numeric_dimension_preview_is_stale(preview_app, monkeypatch):
         preview["summary"]["builder_version"] = "phase3-m3-v1"
         preview["products"][0]["payload"]["dimensions"]["length"] = 148
         preview["digest"] = "legacy-numeric-dimension-preview"
-        assert BUILDER_VERSION == "phase3-m4-taxonomy-reconcile-v1"
+        assert BUILDER_VERSION == "phase3-m56-verified-taxonomy-v1"
         with pytest.raises(ControlledPublishError, match="stale"):
             prepare_publish_confirmation(
                 preview["operation_id"], preview["digest"], [1], client=publisher
@@ -763,7 +763,7 @@ def test_default_category_is_discovered_and_included_in_plan_digest(preview_app,
 def test_identity_migration_is_minimal_store_scoped_and_reversible(tmp_path):
     database = tmp_path / "identity.db"; config = _alembic_config(f"sqlite:///{database}")
     command.upgrade(config, "0006_relationship_workspace")
-    command.upgrade(config, "head")
+    command.upgrade(config, "0007_woo_sync_identity")
     import sqlite3
     connection = sqlite3.connect(database)
     tables = {row[0] for row in connection.execute("select name from sqlite_master where type='table'")}

@@ -202,6 +202,7 @@ def _reviewed_contract(plan, product_ids):
             "sku": item["sku"],
             "woo_type": item["woo_type"],
             "payload_digest": payload_contract(item["payload"]),
+            "explicit_taxonomy_digest": (item.get("explicit_taxonomy") or {}).get("digest"),
             "taxonomy": taxonomy_contract(item),
             "media": media_contract(item),
             "relationships": {
@@ -671,6 +672,10 @@ def _product_taxonomy_error(product_plan, errors):
 
 def _resolved_product_payload(product_plan, taxonomy):
     payload = deepcopy(product_plan["payload"])
+    if product_plan.get("explicit_taxonomy") is not None:
+        payload["tags"] = [{"id": taxonomy["tags"][row["slug"]]}
+                           for row in product_plan.get("taxonomy", {}).get("tags", [])]
+        return payload  # Already bound to reviewed current-store registry identities.
     payload["categories"] = [
         {"id": taxonomy["categories"][row["slug"]]}
         for row in product_plan.get("taxonomy", {}).get("categories", [])
@@ -761,9 +766,9 @@ def _verification_differences(payload, remote, *, default_category_id=None):
             else managed_title_equal(expected.get(key), observed.get(key))
             if key == "name"
             else managed_taxonomy_membership_equal(expected.get(key), observed.get(key))
-            if key in {"categories", "tags"}
+            if key in {"categories", "tags", "brands"}
             else managed_parent_attributes_equal(expected.get(key), observed.get(key))
-            if key == "attributes" and expected.get("type") == "variable"
+            if key == "attributes" and (expected.get("type") == "variable" or ("brands" in expected and expected.get("type") == "simple"))
             else managed_variation_attributes_equal(expected.get(key), observed.get(key))
             if key == "attributes" and isinstance(expected.get(key), list)
             and any(isinstance(row, dict) and "option" in row for row in expected["attributes"])
@@ -1121,10 +1126,16 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
     fatal_error = None
     try:
         # Recheck authored opt-in at execution as well as Preview, before any Woo request.
-        from app.taxonomy_assignments import guard_products, PUBLISH_BLOCK
+        from app.woo_product_taxonomy import contracts
         selected = Product.query.filter(Product.id.in_(confirmation["product_ids"])).all()
-        if guard_products(selected):
-            raise ControlledPublishError(PUBLISH_BLOCK, category="blocked")
+        reviewed = {p["product_id"]: p.get("explicit_taxonomy") for p in confirmation["products"]}
+        current_contracts = contracts(selected, store["key"])
+        for product in selected:
+            current = current_contracts[product.id]
+            if current != reviewed.get(product.id):
+                raise ControlledPublishError("Explicit taxonomy assignments or verified identities changed. Generate a fresh Preview and review Taxonomy Sync.", category="stale_preview")
+            if current and current["blockers"]:
+                raise ControlledPublishError(" ".join(current["blockers"]), category="blocked")
         progress.update("revalidating_preview", "The approved Publish Preview digest was regenerated and verified.")
         gateway.set_stage("revalidating_preview")
         if store["key"] != confirmation["store_identity"]:
@@ -1140,6 +1151,11 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
         db.session.commit()
         progress.update("resolving_taxonomy", "Resolving exact taxonomy identities required by the selected products.")
         gateway.set_stage("resolving_taxonomy")
+        from app.woo_product_taxonomy import verify_identities
+        try:
+            verify_identities(reviewed.values(), gateway.get)
+        except ValueError as error:
+            raise ControlledPublishError(str(error), category="taxonomy_conflict") from error
         taxonomy, taxonomy_counts, taxonomy_errors = _resolve_taxonomy(gateway, confirmation)
         progress.summary["taxonomy"] = {
             **dict(taxonomy_counts),

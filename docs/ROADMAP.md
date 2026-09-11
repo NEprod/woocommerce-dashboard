@@ -1,5 +1,118 @@
 # Roadmap
 
+## M5.6 — complete and live accepted, 2026-09-11
+
+Verified taxonomy identity consumption is integrated at the existing M4 payload
+boundary, including Storefront Collections → Brands and per-attribute variation
+flags. The blanket explicit-contract guard is replaced with strict prerequisites,
+current-store/digest/readback checks and child-projection completeness validation.
+Tags are deliberately permissive through the proven tag publishing path. Legacy
+absent-field products retain M4 behavior; no scanner or relationship changes.
+
+User acceptance: Simple 16bit-0003 and LCBC-0002 published controlled categories,
+informational attributes, isolated 16-Bit Brand and reciprocal cross-sells; both
+fresh Previews returned No Change. Variable 3DCO-0001 published its existing
+14-child Build Type × Design Style projection after reviewed vocabulary addition
+and separate Taxonomy Sync. Global driver selectors and informational fields work
+on the storefront. CURRENT_STATE records exact evidence (no unreported Variable
+No Change claim). The former M5.3 blanket guard is superseded by M5.6 prerequisites.
+
+Next development is **Phase 3 Final Polish / Operations UX**. Representative
+catalogue, remaining relationship scenarios, Discord/final regression and separately
+approved stable promotion remain closure gates. Simple reciprocal cross-sell Pass 2
+is now accepted evidence, not acceptance of every relationship scenario. Earlier
+dated entries below preserve then-current pending/guard history; this status
+supersedes those predictions.
+
+## Phase 3 Final Polish / Operations UX — next backlog, not implemented
+
+Preserve the approved warm-light SaaS identity: white cards, restrained borders and
+shadows, selective dark slate panels, lime healthy/primary accents, compact pills,
+strong typography and spacing. The supplied Dashboard/Products references supplement
+DESIGN_SYSTEM's existing references. Two images were attached to this closeout;
+no third new reference is inferred. Mockup sample data/trends are not requirements.
+
+### Shared system and navigation first
+
+- Standardise shell, breadcrumbs, page headers, metric/content cards, deliberate
+  full-width versus inset header variants, dark panels, tables, filter bars,
+  inputs/selects, buttons, pills, alerts, modals and spacing/responsiveness. Consistent
+  heights/alignment and adequate secondary-action contrast; do not independently
+  restyle each page. Fix taxonomy Review selected buttons blending into dark panels.
+- Group/collapse appropriate desktop navigation, with clear active states and
+  consistent icons. Mobile exposes the same information architecture, not a separate
+  arbitrary menu. Preserve existing palette/identity.
+- Later logo review: light mark, lime folder and stylised WD monogram, legible at
+  small sidebar/mobile sizes. No asset generation in this closeout.
+
+### Dashboard and Woo Product Sync
+
+- Dashboard retains genuine catalogue/scanner counts and gains trustworthy Woo
+  linked/Create/Update/No Change/Link Candidate/Blocked/Recovery state, connection
+  health and last-check freshness. Reuse persisted/recent state, never full live
+  discovery per render or invented trend/history metrics.
+- Recent Products gains reliable Woo state. Needs Attention and meaningful metric
+  subsets become links to matching filtered workspaces/issues consistently.
+- Replace the Woo Product Sync placeholder with an active-parent catalogue view:
+  thumbnail/title, SKU, internal Collection, type/local state, trusted Woo identity,
+  classification and reliable checked timestamps; search/filters and stale/unknown
+  where evidence is insufficient. Summary cards link to real filters.
+- Reuse existing workflows: Create/Update → Preview; Link → Review & Link;
+  taxonomy blockers → Product Detail/editors/Taxonomy Sync; recovery → operation.
+  Clickable product blocker names/SKUs and actionable fixing links. No second
+  publisher or direct Woo mutation from the overview.
+- Keep Integration Health separate: connection/capability health versus catalogue
+  operational state versus reviewed Publish Preview versus taxonomy definitions.
+  Restyle consistently and remove stale promises, not factual probe limitations.
+
+### Catalogue, taxonomy and relationships
+
+- Product Detail: clickable linked products, consistent internal padding (notably
+  local taxonomy), compact readable status without hiding diagnostics. Preserve
+  central resolved/read-only role, metadata editor routes, inheritance and overrides.
+- Products: evolve current layout with grouping, thumbnails, SKU/type, variation
+  count, metadata source, local/Woo state, genuine update time and View/Edit actions;
+  expandable children where useful. Metrics/Needs Attention need real destinations.
+- Relationships: repair broken/misaligned filters; audit search, responsive layout,
+  buttons, summary filters, empty states, product links and mutual cross-sells.
+  Preserve authored SKU persistence and two-pass Woo semantics unless a bug is proven.
+- Taxonomy: prominent top Woo Taxonomy Sync entry, consistent spacing/components.
+  Investigate safely loading bounded read-only Preview on entry plus manual Refresh
+  Woo data; no automatic sync. Preserve budgets, parent-first checks, selection caps,
+  explicit review/confirmation, independent readback, no blind POST/PUT retries and
+  uncertain-write safety. Functionally accepted work is polished, not redesigned.
+
+### Scanner/operations and required Discord hardening
+
+- Equal-height modal metrics despite wrapping labels. Live logs follow only while
+  already near the bottom; preserve deliberate history scrolling and provide a
+  jump/follow action. No scanner catalogue-semantic change.
+- Extend the existing notifier, never a duplicate. Enabled FAILED/BLOCKED/PARTIAL/
+  UNCERTAIN/RECOVERY-REQUIRED notifications must include applicable safe context:
+  operation type/ID, product/title/SKU/internal Collection, stage (Preview/taxonomy/
+  Pass 1/variation/Pass 2), clear problem/exact blocker, known or uncertain Woo writes,
+  local effects, skipped stages, recovery need, next action and dashboard link.
+  Never encourage blind retry of uncertain mutations or expose secrets/unsafe paths.
+- Example taxonomy failure: name missing definition, no Woo writes, Pass 2 skipped,
+  direct to Taxonomy Sync. Missing product_info.json scanner blocker: identify
+  collection/file, no scan/catalogue change, restore metadata then retry.
+- Successful summaries include counts, created/updated/no-change, taxonomy and
+  relationship outcomes, warnings and operation ID. Consistent Info/Success,
+  Warning, Error and Recovery severity. Discord-disabled tests must work; delivery
+  availability never controls core operation success. End-to-end Discord regression
+  is a required final closure gate.
+
+### Acceptance order and limits
+
+Shared components → Dashboard/Woo Product Sync → Products/Detail → Taxonomy and
+Relationships → Scanner/Operations/Discord → deliberate responsive tests of
+navigation, metrics, filters, tables, editor rails, taxonomy/Woo Sync, details,
+relationships, modals and logs → representative catalogue/relationship/final
+regression → separately authorised stable checkpoint. Do not rely only on desktop
+screenshots. Full Adopt Controlled Publishing remains a reviewed future polish
+decision, not a scanner mass rewrite. Preserve all accepted M1–M5 behavior.
+No broad polish implementation, new dependencies or migrations in this closeout.
+
 ## M5 taxonomy definition sync checkpoint — live accepted, 2026-09-08
 
 The bounded M5.5 definition-sync slice and associated local range assignments are

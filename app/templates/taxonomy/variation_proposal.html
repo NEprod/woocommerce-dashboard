@@ -1,0 +1,22 @@
+{% extends "taxonomy/base.html" %}
+{% block registry_content %}
+<section class="workspace-panel">
+  <h2>Review &amp; add variation taxonomy</h2>
+  <p>{{ product.title }} · {{ product.sku }} · {{ proposal.children }} existing children</p>
+  <p>Only explicit variation drivers are included. Nothing has been saved. Existing definitions remain unchanged. New definitions will be Active, with navigation and default visibility off; product variation use remains authored separately.</p>
+  {% for group in proposal.groups %}
+  <h3>{{ group.name }} <span class="catalogue-pill">{{ 'New attribute' if group.new else 'Existing attribute' }}</span></h3>
+  <ul>{% for term in group.terms %}<li>{{ term.name }} — {{ 'Add term' if term.new else 'Existing term' }}</li>{% endfor %}</ul>
+  {% endfor %}
+  <details><summary>Exact proposed registry, including keys and slugs</summary><pre class="taxonomy-json">{{ proposal.data | tojson(indent=2) }}</pre></details>
+</section>
+{% if proposal.additions %}
+<form method="post" class="workspace-panel taxonomy-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="review" value="{{ token }}">
+  <label class="check-row"><input type="checkbox" name="acknowledge" value="yes" required><span>I approve these {{ proposal.additions }} additions to the local registry. No product, child SKU or Woo data will change.</span></label>
+  <button class="btn btn-primary">Approve registry additions</button>
+</form>
+{% else %}<p>No additions required. Nothing will be written.</p>{% endif %}
+<a class="btn btn-secondary" href="{{ url_for('taxonomy.sync_workspace', view='attributes') }}">Continue to Woo Taxonomy Sync</a>
+{% endblock %}

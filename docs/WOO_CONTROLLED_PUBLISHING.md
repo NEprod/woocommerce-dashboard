@@ -1,5 +1,44 @@
 # Controlled Woo Publishing
 
+M5.6 is complete/live accepted as of 2026-09-11. Simple 16bit-0003 and LCBC-0002
+verified category/Brand/informational assignments, reciprocal cross-sells and fresh
+No Change. Variable 3DCO-0001 published its existing 14 children after reviewed
+driver registration and separate Taxonomy Sync; global selectors and informational
+Additional Information are live confirmed. No unreported Variable No Change result
+is implied. CURRENT_STATE records evidence; ROADMAP defines remaining Phase 3
+Final Polish / Operations UX and final acceptance gates.
+
+## M5.6 explicit taxonomy integration
+
+For resolved metadata containing `variation_attributes` (including `[]`), the
+publisher consumes verified category/Brand/global-attribute/scoped-term IDs instead
+of creating controlled definitions. It rechecks local source/registry/mappings and
+bounded independent GET-by-ID identity readback before parent writes. Tags remain
+permissive through the existing exact compatible reuse/create/error path.
+Absent-field products retain the M4 two-pass behavior described below.
+
+Selecting registered category/attribute values does not itself adopt this contract.
+For a Simple product, deliberately author `"variation_attributes": []` (shared or
+override) to use verified controlled taxonomy and informational global attributes.
+Keep readable paths such as `Cards > Birthday Cards`; do not flatten them. Without
+the explicit field, the legacy category planner treats projected category names
+literally and does not consume the registry mapping. After adoption, generate a
+new reviewed Preview: the old operation's legacy contract is not resumable as the
+new explicit contract. This preserves the approved absent-field compatibility rule.
+
+Storefront Collections use the core v3 product `brands: [{"id": …}]` field, not the
+filesystem Collection. This contract is documented in the [official Woo v3 product
+API](https://developer.woocommerce.com/docs/apis/rest-api/v3/products).
+Explicit attributes use global IDs, readable verified term names, projected
+visibility and per-attribute variation flags. Only existing projected child rows
+matching the explicit drivers are published; no SKU regeneration. Parent commercial
+ownership, child images/galleries and relationship Pass 2 are unchanged.
+
+The blanket M5.3 guard is replaced by actionable prerequisites. Tags never require
+a controlled identity. A Variable product with explicit `[]` cannot be published
+as a purchasable Variable without drivers/children and is blocked safely. Simple
+`[]` is supported. Product live acceptance remains pending; no release in this slice.
+
 Phase 3 Milestone 4 is the first intentionally narrow WooCommerce write path.
 It publishes only one to ten explicitly selected parent products from a current
 Milestone 3 preview. There is no catalogue-wide publish action.

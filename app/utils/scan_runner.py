@@ -337,11 +337,14 @@ def build_scan_scope(scan_folder, scan_mode, *, collection_relpath=None):
     expected = {}
     try:
         for path in collection_paths:
-            shared = validate_json(
-                load_json(os.path.join(path, "product_info.json")),
-                is_collection=True,
-            )
             relative = os.path.relpath(path, scan_folder).replace(os.sep, "/")
+            metadata_path = os.path.join(path, "product_info.json")
+            try:
+                if not os.path.exists(metadata_path):
+                    raise ValueError("Collection metadata file is missing. Restore the collection's product_info.json before scanning.")
+                shared = validate_json(load_json(metadata_path), is_collection=True)
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                raise ValueError(f"{relative}/product_info.json: {error}") from error
             collection_type = shared.get("collection_type")
             if collection_type == "Single Variable":
                 sources = {relative}

@@ -213,7 +213,7 @@ def test_user_facing_categories_and_uk_english_copy_are_canonical():
     assert "Categorys" not in rendered_source
     assert "Add Categorie" not in rendered_source
     assert "('categories','Categories','Category')" in rendered_source
-    assert "scanner behaviour" in rendered_source
+    assert "planned behaviour" in rendered_source
     assert "scanner behavior" not in rendered_source
     assert "Known unchanged behaviour" in rendered_source
 

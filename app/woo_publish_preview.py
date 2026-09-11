@@ -35,7 +35,7 @@ from app.woocommerce_connection import ReadOnlyWooClient, WooConnectionError, bu
 
 
 OPERATION_TYPE = "woo_publish_preview"
-BUILDER_VERSION = "phase3-m4-taxonomy-reconcile-v1"
+BUILDER_VERSION = "phase3-m56-verified-taxonomy-v1"
 MAPPING_VERSION = "woo-v3-managed-fields-v2"
 MAX_SCOPE_PRODUCTS = 1000
 LARGE_SCOPE_THRESHOLD = 100
@@ -505,13 +505,16 @@ def _text_identity(value):
     return " ".join(str(value or "").strip().casefold().split())
 
 
-def _taxonomy_plan(products, reader):
+def _taxonomy_plan(products, reader, *, kinds=("categories", "tags", "attributes")):
     categories = sorted({(row.slug or _normalised_slug(row.name), row.name) for product in products for row in product.categories})
     tags = sorted({(row.slug or _normalised_slug(row.name), row.name) for product in products for row in product.tags})
     attributes = sorted({(_normalised_slug(row.name), row.name) for product in products for row in product.attributes if row.is_global})
     routes = (("categories", categories), ("tags", tags), ("attributes", attributes))
     result, remote = {}, {}
     for kind, values in routes:
+        if kind not in kinds:
+            result[kind] = []
+            continue
         try:
             remote[kind] = reader.taxonomy(f"products/{kind}")
         except WooConnectionError:
@@ -536,7 +539,7 @@ def _taxonomy_plan(products, reader):
     used_terms = {}
     for product in products:
         for attribute in product.attributes:
-            if attribute.is_global:
+            if attribute.is_global and "attributes" in kinds:
                 used_terms.setdefault(_normalised_slug(attribute.name), set()).update(_attribute_values(attribute.values))
     for slug, values in sorted(used_terms.items()):
         attribute = attribute_plan.get(slug)
@@ -648,7 +651,7 @@ def _normalise_remote(remote, managed_fields=None):
         value = remote[key]
         if key in {"description", "short_description"} and isinstance(value, dict):
             value = value.get("raw") if value.get("raw") is not None else value.get("rendered")
-        if key in {"categories", "tags"} and isinstance(value, list):
+        if key in {"categories", "tags", "brands"} and isinstance(value, list):
             value = [{"id": item.get("id")} for item in value if isinstance(item, dict) and item.get("id") is not None]
         elif key == "images" and isinstance(value, list):
             value = [
@@ -682,9 +685,9 @@ def _comparison(payload, remote, *, default_category_id=None, known_attribute_id
             else managed_title_equal(local, observed)
             if key == "name"
             else managed_taxonomy_membership_equal(local, observed)
-            if key in {"categories", "tags"}
+            if key in {"categories", "tags", "brands"}
             else managed_parent_attributes_equal(local, observed, known_attribute_ids=known_attribute_ids)
-            if key == "attributes" and payload.get("type") == "variable"
+            if key == "attributes" and (payload.get("type") == "variable" or ("brands" in payload and payload.get("type") == "simple"))
             else managed_variation_attributes_equal(local, observed, known_attribute_ids=known_attribute_ids)
             if key == "attributes" and variation_attributes
             else _stable_json(local) == _stable_json(observed)
@@ -785,8 +788,12 @@ def _media_plan(product, resolver):
     }
 
 
-def _local_state(products, identities, variation_identities):
+def _local_state(products, identities, variation_identities, *, explicit=None):
+    from app.woo_product_taxonomy import contracts
+    store_key = store_identity(effective_configuration())["key"]
+    explicit = contracts(products, store_key) if explicit is None else explicit
     return [{
+        "explicit_taxonomy": explicit[p.id],
         "id": p.id, "stable_identity": p.source_relpath or f"product:{p.id}", "sku": p.sku, "resolved_row": p.resolved_row_json,
         "title": p.title, "slug": p.slug, "status": p.catalogue_status, "published": p.published, "type": p.product_type,
         "content": [p.description, p.short_description],
@@ -820,10 +827,12 @@ def _scope_summary(scope):
 
 def generate_publish_plan(scope, *, confirm_large=False, client=None, record_operation=True):
     products = resolve_scope(scope)
-    from app.taxonomy_assignments import guard_products, PUBLISH_BLOCK
-    guarded = guard_products(products)
-    if guarded:
-        raise PreviewError(PUBLISH_BLOCK, category="blocked", details={"product_ids": [p.id for p in guarded], "readiness": "blocked"})
+    from app.woo_product_taxonomy import contracts
+    store_key = store_identity(effective_configuration())["key"]
+    explicit = contracts(products, store_key)
+    failures = [reason for value in explicit.values() if value for reason in value["blockers"]]
+    if failures:
+        raise PreviewError(" ".join(dict.fromkeys(failures)), category="blocked", details={"readiness": "blocked"})
     estimate = _estimate_products(products)
     if len(products) >= LARGE_SCOPE_THRESHOLD and not confirm_large:
         raise PreviewError("Large catalogue previews require explicit confirmation.", category="confirmation_required", details=estimate)
@@ -857,7 +866,19 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
         # This keeps catalogue-sized previews from degrading into per-row
         # relationship queries while preserving the operation lock boundary.
         products = resolve_scope(scope)
-        taxonomy = _taxonomy_plan(products, reader)
+        from app.woo_product_taxonomy import verify_identities
+        try:
+            if any(explicit.values()) and reader.namespace != "wc/v3":
+                raise ValueError("Explicit taxonomy publishing requires the verified Woo v3 namespace.")
+            verify_identities(explicit.values(), reader.get)
+        except ValueError as error:
+            raise PreviewError("Verified taxonomy readback failed. Review Taxonomy Sync. " + str(error), category="blocked") from error
+        except WooConnectionError as error:
+            raise PreviewError(f"Verified taxonomy readback is unavailable ({error.category}). Review Taxonomy Sync before publishing.", category="blocked") from error
+        legacy = [p for p in products if explicit[p.id] is None]
+        taxonomy = _taxonomy_plan(legacy, reader) if legacy else {k: [] for k in ("categories", "tags", "attributes", "terms")}
+        if any(explicit.values()):
+            taxonomy["tags"] = _taxonomy_plan(products, reader, kinds=("tags",))["tags"]
         # The current-store default is relevant only to a remote product whose
         # authored category set is intentionally empty.  Defer the bounded
         # setting read until that exact comparison is needed so ordinary and
@@ -870,13 +891,18 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
         target_ids = {edge.resolved_target_product_id for product in products for edge in product.relationship_edges if edge.resolved_target_product_id}
         targets = {row.id: row for row in Product.query.filter(Product.id.in_(target_ids)).all()} if target_ids else {}
         target_identities = _product_identity_map(list(target_ids), store["key"]) if target_ids else {}
-        local_state_digest = _digest(_local_state(products, identities, variation_identities))
+        local_state_digest = _digest(_local_state(products, identities, variation_identities, explicit=explicit))
         plans, selected = [], set(product_ids)
         for product in products:
-            product_taxonomy = _product_taxonomy_plan(product, taxonomy)
+            controlled = explicit[product.id]
+            product_taxonomy = _product_taxonomy_plan(product, taxonomy) if controlled is None else {k: [] for k in taxonomy}
+            if controlled is not None:
+                product_taxonomy["tags"] = _product_taxonomy_plan(product, taxonomy)["tags"]
             identity = _identity_resolution(product, store, reader, identity=identities.get(product.id), other=other_identities.get(product.id))
             media = _media_plan(product, media_resolver)
             payload, trace = _product_payload(product, taxonomy, media)
+            if controlled is not None:
+                payload.update(controlled["payload"])
             blockers = [identity["blocker"]] if identity.get("blocker") else []
             warnings = []
             if payload.get("status") is None: blockers.append("Publishing intent is unresolved.")
@@ -940,6 +966,8 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
                 seen_skus.add(variation.sku)
                 variation_media = next((row for row in media["variations"] if row["variation_id"] == variation.id), {"images": []})
                 vp = _variation_payload(variation, variation_media)
+                if controlled is not None:
+                    vp["attributes"] = controlled["children"][str(variation.id)]
                 variation_gallery_ids = _variation_gallery_attachment_ids(variation_media)
                 vid = variation_identities.get(variation.id)
                 remote_variation = None
@@ -1006,6 +1034,7 @@ def generate_publish_plan(scope, *, confirm_large=False, client=None, record_ope
                 "collection": product.collection.name if product.collection else "Unassigned", "local_type": product.product_type, "woo_type": payload.get("type"),
                 "identity_state": identity["state"], "woo_id": remote.get("id") if remote else (last.woo_product_id if last else None), "action": action,
                 "parent_action": parent_action,
+                "explicit_taxonomy": controlled,
                 "remote_summary": {key: remote.get(key) for key in ("id", "name", "sku", "type", "status") if remote and remote.get(key) is not None},
                 "trace": trace, "payload": payload, "payload_digest": local_payload_digest, "remote_managed": remote_managed, "remote_digest": remote_digest,
                 "differences": differences, "drift": drift, "blockers": blockers, "warnings": warnings,

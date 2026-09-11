@@ -1,5 +1,63 @@
 # Local taxonomy registry contract — version 1
 
+## Current acceptance — 2026-09-11
+
+M5.6 is live accepted: two Simple products verified category/Brand/informational
+attributes and reciprocal cross-sells, with fresh No Change; Variable 3DCO-0001
+used reviewed driver proposals and separate Taxonomy Sync before publishing its
+existing 14-child structure. Global driver selectors and informational attributes
+work on the storefront. Historical pending/guard notes below are superseded.
+See CURRENT_STATE for precise observations and ROADMAP for Final Polish / Operations
+UX; no taxonomy model redesign is planned as part of that polish.
+
+## M5.6 product consumption — 2026-09-08
+
+Explicit product assignments now consume verified current-store categories,
+Storefront Collections → Woo Brands, global attributes and scoped terms. Unknown,
+inactive, stale or unverified assignments block with a Taxonomy Sync instruction;
+publishing never creates/links those controlled definitions. Trusted IDs are read
+back by ID, not rediscovered by a similar name. No Woo IDs enter authored JSON.
+All explicit attributes are global; only `variation_attributes` names have
+variation=true. `[]` is meaningful; absence remains legacy. Existing child rows
+must match the explicit driver set; no publisher-side SKU or child generation.
+
+The explicit contract includes variation drivers in the mandatory registry/sync
+prerequisite; there is no unregistered-driver bootstrap exception. This follows
+the audit's registry-approved vocabulary and separately reviewed creation rules.
+Legacy absent-field products retain M4 attribute/term reuse/create. Missing or
+unverified explicit attributes now report that prerequisite without comparing
+children against an incomplete verified driver map or demanding a speculative
+Update scan. Registry adoption remains explicit/reviewed, never a scanner or
+publisher side effect.
+
+### Reviewed missing variation vocabulary — 2026-09-10
+
+Product Detail now links explicit Variable products with missing driver vocabulary
+to `/taxonomy/variation-proposal/<product_id>`. The read-only proposal proves
+existing child rows cover the declared authored combinations exactly, with unique
+SKUs, non-empty selections and a 1,000-child bound. Terms are taken from those
+child selections; informational assignments are not imported. Existing names and
+aliases use the shared resolver. New keys use the existing bootstrap conventions
+(`attr-`/`term-` plus the shared slug helper); collisions require manual review,
+not silent suffixes. New records are Active, navigation/default visibility off,
+with term ordering following the validated authored options. Review displays
+these defaults and the complete proposed JSON before approval.
+
+Authentication, CSRF, acknowledgement and a user-bound expiring signature are
+required. Confirmation regenerates the proposal under the shared operation lock,
+binding registry revision, resolved metadata, child IDs/SKUs/selections and proposed
+bytes. Existing `save_reviewed` performs backup, atomic replacement and readback;
+no parallel writer exists. Empty proposals do not save. Success directs to the
+separate Woo Taxonomy Sync workspace, without a Woo call or automatic sync.
+Product JSON and child identities remain untouched. Full controlled-publishing
+adoption remains deferred.
+
+**Tags are loose/permissive metadata**, not part of this strict identity contract.
+Existing authored tag projections continue through safe Woo tag reuse/create and
+managed readback. Unregistered tags alone do not block or require Taxonomy Sync.
+Definition-sync schema/ordering semantics are unchanged. The historical blanket
+guard below is replaced by these prerequisites; product live acceptance is pending.
+
 Live acceptance confirmed on 2026-09-08: grouped definition sync, reviewed term
 menu_order corrections, safe conflicts/dependencies and a successful 45-definition
 batch (cap 50). Storefront Collections map to Woo Brands. Global attribute numeric

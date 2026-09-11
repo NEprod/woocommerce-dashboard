@@ -97,7 +97,7 @@ def test_authentication_csrf_overview_and_templates(registry_app):
     assert client.post("/taxonomy/confirm", data={}).status_code == 400
     page = client.get("/taxonomy")
     assert page.status_code == 200
-    for text in ["Registry readiness", "Ready", "Storefront Collections", "not yet implemented", "Cards > Notelets"]:
+    for text in ["Registry readiness", "Ready", "Storefront Collections", "Reviewed Woo taxonomy sync", "Cards > Notelets"]:
         assert text in html.unescape(page.get_data(as_text=True))
     assert str(root) not in page.get_data(as_text=True)
     with app.app_context():
@@ -415,7 +415,7 @@ def test_supplied_tlc_bootstrap_readonly():
 
 
 TLC_ARTIFACT = Path(__file__).resolve().parents[1] / 'deployment/examples/tlc/registry.json'
-TLC_DIGEST = '01d7415e5c55ff233e342480c3b6c5577e0a56248e2198e289ef6f06a29bef61'
+TLC_DIGEST = 'a7a249ca6cfcf87845c2cec3629b98b1b5b29f44d6e7d7c08f96b4c5abbc084f'
 
 
 def test_tlc_artifact_production_loader_and_independent_counts(tmp_path):
@@ -429,7 +429,7 @@ def test_tlc_artifact_production_loader_and_independent_counts(tmp_path):
     data = json.loads(original)
     assert len(data['categories']) == 56 and len(data['attributes']) == 7
     assert sum(len(a['terms']) for a in data['attributes']) == 110
-    assert data['storefront_collections'] == data['tags'] == []
+    assert len(data['storefront_collections']) == 2 and data['tags'] == []
     assert all(r['state'] == 'active' for kind in registry.KINDS for r in data[kind])
     assert all(t['state'] == 'active' for a in data['attributes'] for t in a['terms'])
     (root / 'registry.json').write_text(json.dumps(data, sort_keys=True))
@@ -442,7 +442,7 @@ def test_tlc_artifact_workspace_roundtrip(registry_app):
     original = TLC_ARTIFACT.read_bytes()
     (root / 'registry.json').write_bytes(original)
     overview = html.unescape(client.get('/taxonomy').get_data(as_text=True))
-    for label, count in [('Categories',56), ('Attributes',7), ('Attribute terms',110), ('Storefront Collections',0), ('Tags',0)]:
+    for label, count in [('Categories',56), ('Attributes',7), ('Attribute terms',110), ('Storefront Collections',2), ('Tags',0)]:
         assert f'<h2>{label}</h2><p>{count}</p>' in overview
     category = html.unescape(client.get('/taxonomy?q=Birthday Cards').get_data(as_text=True))
     assert 'Cards > Birthday Cards' in category

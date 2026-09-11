@@ -3,7 +3,13 @@
 {% block content %}
 {% if initial_setup %}
 <section class="workspace-panel"><p class="eyebrow">Required initial catalogue scan</p><h2>Build your catalogue workspace</h2><p>{{ setup_state.message }}</p><p>No scan starts automatically. A successful operation is required before completing setup; failed or interrupted work remains retryable here.</p>
-{% if not setup_state.safe_to_run %}<p role="alert">Catalogue identity state needs review before scanning.</p>{% endif %}
+{% if not setup_state.safe_to_run %}
+<div class="alert alert-warning" role="alert">
+  <strong>Catalogue identity state needs review before scanning.</strong>
+  {% if setup_state.errors %}<ul>{% for error in setup_state.errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+  <p>Storage readiness checks mounts and database health only. Resolve the catalogue issue above, then reload this page. No scan has started.</p>
+</div>
+{% endif %}
 {% if setup_state.recommended_action == 'reconstruction' or setup_state.identities_preserved %}<form method="post" action="{{ url_for('main.catalogue_reconstruct') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label><input type="checkbox" name="confirm_reconstruction" value="yes" required> Rebuild the catalogue index using existing identities.</label><button class="btn btn-primary" type="submit" {% if not setup_state.safe_to_run or readiness.active %}disabled{% endif %}>Run identity-preserving reconstruction</button></form>{% endif %}<a href="{{ url_for('main.initial_settings') }}">Back to readiness</a></section>
 {% endif %}
 <section class="page-heading page-heading-actions">

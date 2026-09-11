@@ -133,9 +133,9 @@
     "key": "variation_attributes", "aliases": [], "type": "array of exact assigned attribute names", "units": null,
     "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
     "inheritance": "Inherited only when absent in a sparse override.", "merge": "Replacement, including an explicit empty array.",
-    "parent_effect": "Opts into the local M5.3 attribute contract; Woo publishing temporarily blocked.", "variation_effect": "Only listed attributes drive combinations; empty means no drivers. Simple requires empty.",
+    "parent_effect": "Opts into the explicit attribute contract; Woo publishing requires verified controlled taxonomy identities.", "variation_effect": "Only listed attributes drive combinations; empty means no drivers. Simple requires empty.",
     "woo_field": null, "sqlite_destination": "Authored source/resolver designation; existing attribute and child projections.",
-    "classification": "canonical and active", "implementation_status": "Local M5.3 only; future publisher integration must replace the safety guard.", "example": ["Size"], "warning_error": "Missing/duplicate assigned names and incompatible image axes block save."
+    "classification": "canonical and active", "implementation_status": "M5.6 local resolution and verified taxonomy publishing are live accepted.", "example": ["Size"], "warning_error": "Missing/duplicate assigned names and incompatible image axes block save."
   },
   {
     "key": "image_attributes", "aliases": [], "type": "array of strings", "units": null,

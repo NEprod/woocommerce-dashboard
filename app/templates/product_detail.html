@@ -71,7 +71,16 @@
 
 <section class="workspace-card" aria-labelledby="local-taxonomy-title">
   <header class="workspace-card-header"><h2 id="local-taxonomy-title">Local taxonomy assignments</h2></header>
-  <p>{{ 'Explicit variation designation — Woo publishing temporarily blocked pending publisher integration.' if workspace.taxonomy.explicit else 'Legacy attribute interpretation preserved.' }}</p>
+  <p>{{ 'Explicit variation designation — Woo publishing requires verified controlled taxonomy identities. Check Publish Preview.' if workspace.taxonomy.explicit else 'Legacy attribute interpretation preserved.' }}</p>
+  {% set missing_drivers = namespace(found=false) %}
+  {% for attribute in workspace.taxonomy.attributes %}{% if attribute.variation %}
+    {% if not attribute.definition %}{% set missing_drivers.found = true %}{% endif %}
+    {% for term in attribute.terms %}{% if not term.definition %}{% set missing_drivers.found = true %}{% endif %}{% endfor %}
+  {% endif %}{% endfor %}
+  {% if product.product_type == 'variable' and workspace.taxonomy.explicit and missing_drivers.found %}
+  <p>Missing variation vocabulary? Review additions from the existing child projection. Unsafe or incomplete projections remain blocked.</p>
+  <a class="btn btn-secondary" href="{{ url_for('taxonomy.variation_proposal', product_id=product.id) }}">Review &amp; add variation taxonomy</a>
+  {% endif %}
   {% if workspace.taxonomy.error %}<p role="alert">{{ workspace.taxonomy.error }}</p>{% endif %}
   <ul>{% for category in workspace.taxonomy.categories %}<li>{{ category.value }} — {{ 'Registered' if category.definition else 'Legacy · Not in taxonomy registry' }}</li>{% endfor %}</ul>
   <ul>{% for attribute in workspace.taxonomy.attributes %}<li><strong>{{ attribute.name }}</strong> · {{ 'Variation-driving' if attribute.variation else 'Informational' }} · {{ 'Registered' if attribute.definition else 'Legacy' }}<ul>{% for term in attribute.terms %}<li>{{ term.value }} — {{ 'Registered' if term.definition else 'Legacy · Not in taxonomy registry' }}</li>{% endfor %}</ul></li>{% endfor %}</ul>

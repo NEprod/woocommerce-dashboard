@@ -1,5 +1,168 @@
 # Current State
 
+## M5.6 closeout — complete / live accepted, 2026-09-11
+
+User-reported live acceptance supersedes the dated pending notes below.
+Simple 16bit-0003 and LCBC-0002 used explicit `variation_attributes: []`, verified
+Birthday Cards child assignment (not literal path creation), informational global
+attributes and the 16-Bit Brand only where authored. Reciprocal cross-sells appeared
+in Woo Linked Products and fresh Preview returned No Change for both. This is
+Relationships Pass 2 evidence for these Simple cross-sells, not blanket acceptance
+of every relationship scenario.
+
+Variable 3DCO-0001 used reviewed variation vocabulary addition, then separate Woo
+Taxonomy Sync, and published successfully with its existing 14 children
+3DCO-0001-1 through -14: Build Type (Flat 3 Layer, 3d 3 Layer) × Design Style
+(Farm, Fireplace, Horse, Street, Town, Train, Trees). Live inspection confirmed
+global Build Type/Design Style enabled as storefront variation selectors; global
+Occasion/Recipient informational attributes appear in Additional Information and
+are not variation-driving. Expected categories are present and the storefront
+product is operational. No scanner/SKU model replacement was required. A fresh
+Variable No Change result was not separately reported and is not claimed here.
+
+Explicit M5 publishing consumes verified controlled identities; tags remain
+permissive and absent-field legacy behavior remains intact. Prerequisite-first
+diagnostics, reviewed driver proposals and initial-scan missing-metadata diagnostics
+are included. No automatic registry/source rewrite, taxonomy deletion, dependency
+or migration is introduced by this checkpoint.
+
+Next development: **Phase 3 Final Polish / Operations UX**, with the complete
+handoff backlog in ROADMAP. No broad polish, Woo Product Sync overview, automatic
+Preview loading, notification expansion or logo assets were implemented here.
+Representative catalogue/remaining relationship acceptance, final Discord delivery
+regression and separately approved stable promotion remain closure gates.
+
+Closeout verification: initial focused M5.6/proposal/category/diagnostic cases
+passed; a wording-sensitive Health assertion required a copy-only adjustment.
+Health plus pinned migration check then passed 61 tests. The single full Python
+run completed with 1,044 passed, seven stale expectations failed and one optional
+external-reference test skipped. All seven were corrected and passed on targeted
+rerun (no second full run). They expected pre-existing old field inventory,
+migration 0007 rather than baseline 0008, obsolete UI text, or the original TLC
+seed without the two ranges already committed in 4e7ca5c. No application behavior,
+migration, relationship contract or deployment artifact was altered to satisfy
+them. The M4 identity-migration unit test now pins its intended 0007 target rather
+than upgrading to head and asserting an older revision. JavaScript: 46 passed.
+Changed Python compilation, template parsing, JS syntax and diff checks passed.
+
+Checkpoint tag: `phase-3-m5-product-publishing` (annotated Git convention).
+Docker publication is a manual handoff for cost control, not claimed completed:
+build committed source once for linux/amd64 + linux/arm64 with both immutable
+`neprod/woocommerce-dashboard:phase-3-m5-product-publishing` and moving `develop`
+tags. Inspect both remote manifests after pushing; no image digests are available
+from this closeout. Latest/stable/release/historical tags must remain untouched.
+
+## Reviewed variation-taxonomy proposal — 2026-09-10
+
+Approved follow-up implemented: Product Detail offers **Review & add variation
+taxonomy** for explicit Variable products with missing driver vocabulary.
+`GET/POST /taxonomy/variation-proposal/<product_id>` derives only declared driver
+terms evidenced by a complete, unique existing child projection (at most 1,000
+children). Informational attributes and legacy/Simple adoption are excluded.
+Existing definitions/aliases are reused; schema/key/slug conflicts block. New
+definitions are reviewed as Active, with navigation/default visibility off.
+
+Approval requires authentication, CSRF, acknowledgement and a 30-minute user-bound
+signed review. Registry revision, resolved metadata, child selections/SKUs and
+the exact proposal are regenerated under the existing operation lock before the
+existing backed-up atomic registry writer is called. No-op proposals cannot save.
+Success directs to Attributes & Terms Woo Taxonomy Sync; it does not start sync.
+No scanner, product JSON, SKU, Woo or publishing write occurs in this workflow.
+The full Adopt Controlled Publishing feature remains deferred. Variable live
+publication remains pending; the existing Simple acceptance is preserved.
+Verification: 12 proposal cases and one combined relevant regression selection
+(57 passed) covering M5.6, category/relationship boundaries, Safe Resume and
+registry write safety. Three Python modules compiled, two templates parsed and
+`git diff --check` passed. No full suite, JavaScript change or release operation.
+
+## M5.6 Variable taxonomy prerequisite diagnostics — 2026-09-10
+
+History review confirms the explicit M5 contract requires registry approval and
+verified current-store identities for **all** global attributes/terms, including
+variation drivers (audit §§10–11). M4's product-driven create/reuse path remains
+legacy-only. No automatic registry adoption or driver-bootstrap exception was
+implemented. A future batch proposal derived from existing driver rows could
+reuse registry review, then Taxonomy Sync, without manual term-by-term entry;
+that workflow requires separate approval and is not implemented here.
+
+Fixed misleading downstream child errors: an incomplete verified attribute map
+now blocks on its taxonomy prerequisites before child comparison, rather than
+claiming an Update scan is required. A fictional exact Build Type (2) × Design
+Style (7) projection publishes its existing 14 SKUs and reaches No Change once
+verified; missing/unverified drivers do not trigger false projection diagnostics,
+and a genuinely wrong child selection still blocks. Variable live acceptance
+remains pending; no scanner/source rewrite is needed based on the reported errors.
+Verification: four new 14-child prerequisite cases passed; the final focused M5.6,
+category-path and three Safe Resume regression selections passed together
+(37 tests). Python compilation and `git diff --check` passed; no full suite ran.
+
+## M5.6 category-path investigation — 2026-09-10
+
+The two supplied live Simple product documents omit `variation_attributes` in
+both metadata layers, so the approved compatibility rule selects legacy M4
+taxonomy behavior. Registry-backed names/paths or a Storefront Collection alone
+do not adopt the explicit contract. Paired tests reproduce one shared literal-path
+category POST in legacy mode (and the reported conflict with an entity-encoded
+readback), while explicit `[]` consumes the verified child ID without category
+writes, preserves per-product Brands, completes reciprocal relationship Pass 2
+and reaches No Change. Wrong-parent readback remains blocked. No production
+behavior or authored product file was changed for that investigation. Subsequent
+local diagnostic evidence confirms Cards = 519, Birthday Cards = 526, and failed
+operation 79b8805c27c44721bba09b7ab45dd583 retained candidate 686 for
+categories/cards-birthday-cards. The user manually deleted 686; the exact raw
+readback mismatch is not retained in that summary.
+Deliberate Simple adoption requires explicit `variation_attributes: []`, retaining
+the readable category path; then generate a new Preview/review, not an automatic
+resume of the legacy contract. The user subsequently live accepted both Simple
+products: verified child category, isolated 16-Bit Brand, informational attributes,
+reciprocal cross-sells and fresh Preview No Change. Variable acceptance is pending.
+
+## Initial-scan diagnostics — 2026-09-09
+
+Live investigation identified a missing collection-level `product_info.json` in
+3D Christmas Ornament Set, not a circular fresh-instance identity gate. Storage/DB
+readiness can pass while catalogue-content preflight fails. Initial Scanner now
+shows the existing sanitised errors; collection metadata failures include the
+catalogue-relative file reference and distinguish a missing file from missing
+required fields. No automatic repair/scan or identity-gate bypass was added.
+Seven focused diagnostic/onboarding/recovery tests passed, plus Python compilation,
+Scanner template parsing and whitespace checks. M5.6 publisher work is unchanged;
+the live metadata file still needs restoring by the deployment owner.
+
+## M5.6 product publisher integration — local verification, 2026-09-08
+
+The explicit `variation_attributes` contract now consumes verified current-store
+category, Brand, global-attribute and scoped-term identities. A read-only adapter
+reuses authored-source resolution and definition-sync digests, checks the existing
+child projection, and supplies payload fields to the M4 parent/child publisher.
+Informational attributes are global with variation=false; only explicit drivers
+select child options. Simple `[]` is supported; Variable with no drivers/children
+is blocked rather than inventing purchasable children. Existing absent-field M4
+behavior remains separate and unchanged.
+
+The blanket M5.3 guard is replaced by precise prerequisite/freshness checks.
+Unknown/unverified controlled assignments block before Woo reads. Trusted IDs
+receive bounded GET-by-ID readback before product writes; no controlled definition
+is created, linked or repaired. **Tags remain permissive**, using the existing
+safe exact-match reuse/create/readback and uncertain-write behavior, without a
+registry identity requirement. Registry/source/mapping changes invalidate Preview.
+
+No scanner, relationships, images/gallery, migration, dependency or authored-file
+write changes. Focused verification: `PYTHONPATH=. /private/tmp/woo-m56-tests/bin/pytest
+tests/test_m56_product_taxonomy.py tests/test_m53_taxonomy_assignments.py -q
+--disable-warnings --maxfail=1` passed **52 tests**, plus the subsequently added
+read-only-status regression passed individually (**53 distinct focused cases**).
+The broader run of `tests/test_phase3_woo_publish_preview.py` together with the two
+decorated-readback M5.6 publish cases passed **132 tests**, excluding only
+`identity_migration_is_minimal_store_scoped_and_reversible`, whose pre-existing
+head assertion still expects 0007 despite the approved baseline's 0008 migration.
+The builder-version assertion was updated for the intentional Preview contract
+bump. Editor JS: **10 passed**; JS syntax, seven Python modules' compilation,
+Product Detail template parsing and whitespace checks passed. No full suite run.
+Temporary Docker/live Simple + mixed-Variable product acceptance is still required.
+No release/build is part of this implementation slice. Historical checkpoints below
+remain unchanged; their pending publisher-integration notes are superseded here.
+
 ## M5 taxonomy definition sync — live accepted, 2026-09-08
 
 User live acceptance confirms the grouped Categories / Attributes & Terms /

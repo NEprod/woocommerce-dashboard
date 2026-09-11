@@ -1,5 +1,47 @@
 # Existing Architecture
 
+## Current checkpoint — 2026-09-11
+
+M5.6 verified product taxonomy integration and reviewed driver proposals are
+complete/live accepted. CURRENT_STATE records exact Simple/Variable evidence;
+ROADMAP defines the next Final Polish / Operations UX milestone. Historical
+guard/deferred descriptions below refer to earlier stages, not current capability.
+Driver proposals reuse source resolution, registry naming/validation, signed
+review, operation locking and the backed-up atomic writer; they never publish or
+run Taxonomy Sync automatically. Dependent-route Integration Health probes remain
+factual probe limitations, not missing product-publishing support.
+
+## M5.6 verified product taxonomy boundary — 2026-09-08
+
+`woo_product_taxonomy.py` composes the existing confined source resolver, immutable
+registry snapshot and `WooTaxonomyIdentity` contracts; it does not write either
+authored source or identity state. It returns legacy mode when the resolved
+`variation_attributes` field is absent. Explicit contracts require active registry
+definitions, current-store verified IDs, matching definition digests and exact term
+scope. Parent category dependencies are checked against current verified parent IDs.
+An immutable snapshot supplies all assignment matching for each contract.
+
+Preview overlays categories/brands/global attributes onto the unchanged M4 payload
+builder. Attribute visibility retains projected intent (registry default only when
+not projected); authored option ordering is retained. Children come solely from
+existing scanner-projected rows: selections must cover the exact explicit driver
+Cartesian set, with unique combinations and no informational axes. Validation is
+bounded to 1,000 combinations, without generating rows or SKUs. Variable with no
+drivers is blocked; Simple with explicit empty drivers publishes informational data.
+
+Controlled definitions bypass M4 taxonomy discovery/create. Preview and execution
+perform at most 200 distinct trusted-ID GETs each, checking stored canonical identity
+digests and category parent/scope before any product mutation. Execution also
+rechecks the entire reviewed local explicit contract. Registry/source/mappings
+participate in Preview freshness and safe-resume contracts. Brands and Simple
+global attributes use semantic managed readback; existing parent/child verification,
+identity persistence, images and relationships remain in the M4 path.
+
+Tags are an intentional exception: explicit products retain the M4 tag planner,
+exact compatible reuse, safe creation and readback/error handling. No Tag identity
+table or requirement is added. Legacy taxonomy/payload behavior is unchanged.
+The M5.3 blanket guard described historically below is superseded by these checks.
+
 ## M5 definition sync and range assignment boundary — 2026-09-07
 
 Storefront Collection assignments use the previously proposed

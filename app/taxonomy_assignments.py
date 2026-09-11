@@ -2,10 +2,6 @@
 import unicodedata
 
 
-PUBLISH_BLOCK = ("Product uses the M5.3 explicit attribute contract. Woo publisher "
-                 "integration for informational vs variation-driving attributes is not yet enabled.")
-
-
 def normal(value):
     return " ".join(unicodedata.normalize("NFC", str(value)).casefold().split())
 
@@ -30,13 +26,14 @@ def variation_drivers(data):
     return names
 
 
-def options():
+def options(*, snapshot=None):
     from app.taxonomy_registry import load_configured_registry
     from app.taxonomy_workspace import category_paths
-    result = load_configured_registry()
-    data = result.snapshot.data if result.available else {}
+    result = load_configured_registry() if snapshot is None else None
+    snapshot = snapshot if snapshot is not None else result.snapshot if result.available else None
+    data = snapshot.data if snapshot else {}
     paths = category_paths(data) if data else {}
-    return {"status": result.status, "digest": result.snapshot.digest if result.available else None,
+    return {"status": result.status if result is not None else "ready", "digest": snapshot.digest if snapshot else None,
             "storefront_collections": [{"key": r["key"], "value": r["name"], "aliases": list(r.get("aliases", [])), "state": r["state"]} for r in data.get("storefront_collections", [])],
             "categories": [{"key": r["key"], "value": paths[r["key"]], "name": r["name"], "aliases": list(r.get("aliases", [])), "state": r["state"]} for r in data.get("categories", [])],
             "attributes": [{"key": r["key"], "value": r["name"], "aliases": list(r.get("aliases", [])), "state": r["state"],
@@ -74,10 +71,3 @@ def product_document(product, *, catalogue_root=...):
     shared = metadata_source(product, "shared", catalogue_root=root)
     override = metadata_source(product, "override", catalogue_root=root)
     return resolved_metadata(product, shared["data"], override["data"] if override["exists"] else {})
-
-
-def guard_products(products):
-    """Read current authored source, not a potentially stale SQLite projection."""
-    from app.metadata_workspace import _catalogue_root
-    root = _catalogue_root()  # one local configuration lookup for the whole scope
-    return [p for p in products if "variation_attributes" in product_document(p, catalogue_root=root)]
