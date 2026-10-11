@@ -1,0 +1,6 @@
+{% macro woo_state(id, state) -%}
+<span data-woo-product="{{ id }}" data-woo-state="{{ state.state }}" data-woo-needs-refresh="{{ '1' if state.needs_refresh else '0' }}">
+  <span class="catalogue-pill is-neutral" data-woo-label>{{ state.label }}</span>
+  <small data-woo-note>{{ state.message }}{% if state.checked_at %} · Checked <time datetime="{{ state.checked_at }}">{{ state.checked_at[:19]|replace('T', ' ') }} UTC</time>{% elif state.verified_at %} · Last verified <time datetime="{{ state.verified_at }}">{{ state.verified_at[:19]|replace('T', ' ') }} UTC</time>{% endif %}</small>
+</span>
+{%- endmacro %}

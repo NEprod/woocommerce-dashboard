@@ -1,5 +1,17 @@
 # Woo Publish Preview
 
+Operational Woo Live State is separate from this reviewed write boundary. Its
+ten-minute read cache and persisted whole-product verification inform Dashboard
+and Product Sync without an in-memory Preview. Neither authorizes a write:
+Preview freshness, digest regeneration, acknowledgements and identity/recovery
+checks remain required and unchanged.
+
+Checkpoint review (2026-10-11): the user's earlier 3DCO-0001 operational Update
+versus Preview No Change observation was not reproduced on the fresh build. This
+does not establish a permanent fix. No Preview/fingerprint semantics are changed;
+genuine authored changes must still invalidate operational proof. A successful
+Preview is not a substitute for completed-publish or independent live-state evidence.
+
 M5.6 explicit controlled product Preview/publishing is complete/live accepted
 (2026-09-11); historical temporary-guard descriptions are superseded. Both accepted
 Simple products returned fresh No Change. Variable publication/storefront acceptance

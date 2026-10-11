@@ -1,5 +1,27 @@
 # Roadmap
 
+### Phase 3 final verification / checkpoint review — 2026-10-11
+
+Preserve the complete uncommitted live-state/recovery/UI/branding slice. The user
+reports the historical 3DCO-0001 state contradiction is not reproduced on the fresh
+build; it is not a confirmed current blocker or a claimed permanent fix. No
+speculative fingerprint changes are planned. CURRENT_STATE separates automated
+verification from outstanding deployed recovery/terminal-state, relationship,
+Discord and responsive/branding acceptance. An approved source checkpoint may
+preserve this work without claiming final release acceptance; no release or next
+development phase begins as part of this verification task.
+
+### Woo live-state refinement — implementation pending user acceptance
+
+After interim polish checkpoint `ad63060`, shared read-only state is separated
+from reviewed Publish Preview. Approved migration 0009 stores bounded/versioned
+complete-product evidence on existing identities, with no old-row backfill.
+Ten-minute shared reads, local invalidation, progressive Product Sync/Dashboard/
+Products/Detail status, manual refresh and last-known failure display are added.
+No automatic linking, Woo mutation or recovery clearance. Next: temporary browser
+acceptance and page-by-page final UX audit, including current unresolved attention
+versus historical failures. This is not a final Phase 3 release.
+
 ## M5.6 — complete and live accepted, 2026-09-11
 
 Verified taxonomy identity consumption is integrated at the existing M4 payload

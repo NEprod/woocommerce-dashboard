@@ -1,6 +1,131 @@
 # Current State
 
+## Phase 3 checkpoint preparation — 2026-10-11
+
+The user reports that the historical 3DCO-0001 Update Available versus canonical
+No Change contradiction could not be reproduced on the fresh build. This is
+fresh-build non-reproduction, not a proven permanent fix or evidence that every
+live-state scenario has passed. Preserve the earlier investigation; no source
+fingerprint normalization, Preview change or weakening of authored-change detection
+is included in this closeout.
+
+The current tree also includes the subsequent live-state corrections: transient
+read failures cannot become sticky observation-derived recovery; strictly later,
+complete matching publish evidence can supersede old recovery for current product
+health without modifying operation history. Retained historical taxonomy candidates
+alone do not poison current health; uncertain/truncated evidence remains protected.
+Checking Woo represents active requests only, with finite busy retries, a 45-second
+client request deadline and terminal cleanup. Unknown is not fabricated No Change.
+
+Already live accepted: the M5.6 Simple category/Brand/informational-attribute and
+reciprocal cross-sell scenarios, and the existing 14-child Variable publication
+described below. Automated fictional-store verification is separate from live
+acceptance. Still requiring explicit final sign-off: latest recovery/terminal-state
+behaviour on the deployed build, representative remaining relationship scenarios,
+actual Discord delivery, and the final responsive/branding page audit. No new
+current functional contradiction has been established by this closeout.
+
+Checkpoint preparation does not authorize staging, committing, tagging, pushing,
+Docker publication, stable promotion, application renaming or platform integration.
+All existing work, including untracked assets and migration 0009, is retained.
+
+Focused closeout verification: **120 Python cases passed, zero failed/skipped**
+(39.89s); **11 live-state JavaScript cases passed, zero failed/skipped**. Python
+3.13 reported existing utcnow/Query.get deprecation warnings (1,272), not failures.
+The former temporary environment was absent; pinned requirements-dev.txt dependencies
+were installed into an isolated temporary venv after network access approval. No
+dependency file changed. Compilation passed for all 11 changed/untracked Python
+files, parsing for all 13 affected templates, and syntax for both changed client
+scripts. No full suite, curated scanner sweep, browser rerun or live Woo call ran.
+
+Exact Python selection (`python -m pytest -q` in the isolated environment):
+
+```text
+tests/test_woo_live_state.py
+tests/test_phase3_operations_ux.py
+tests/test_m56_product_taxonomy.py
+tests/test_m56_category_path_boundary.py
+tests/test_branding.py
+tests/test_setup_flow.py
+tests/test_phase2_milestone5.py::test_collection_preview_query_count_is_bounded_for_large_collection
+tests/test_phase3_woo_publish_preview.py::test_stored_id_404_is_recovery_required
+tests/test_phase3_woo_publish_preview.py::test_scope_estimate_is_local_and_large_scope_requires_confirmation
+tests/test_phase3_woo_publish_preview.py::test_digest_is_deterministic_timing_free_and_stale_after_local_change
+tests/test_phase3_woo_publish_preview.py::test_simple_draft_two_pass_publish_verifies_identity_relationships_and_no_json_write
+tests/test_phase3_woo_publish_preview.py::test_same_batch_relationship_resolves_new_ids_in_authored_order
+tests/test_phase3_woo_publish_preview.py::test_pending_relationship_does_not_erase_verified_pass_one
+tests/test_phase3_woo_publish_preview.py::test_safe_resume_reuses_verified_variable_parent_and_creates_missing_child
+tests/test_phase3_woo_publish_preview.py::test_local_change_prevents_resume_and_concurrent_operation_blocks_start
+```
+
+JavaScript command: `node --test tests/javascript/woo-live-state.test.mjs`.
+Syntax: `node --check` on `app/static/assets/js/woo-live-state.js` and
+`app/static/assets/js/products-browser.js`. Final `git diff --check` passed.
+No source, test, asset or migration correction was needed in this verification
+task; only the five authoritative closeout documents were updated. An approved
+source-preservation commit is ready for review, but final Phase 3 live sign-off
+must not be inferred from the automated results or historical non-reproduction.
+
+## Woo live state — implementation, user acceptance pending
+
+Interim polish checkpoint `ad630609c524892b4eceacd59947a14824869321` was pushed
+to develop without a milestone tag. The following live-state slice is uncommitted.
+
+Product Sync, Dashboard, Products and Product Detail now share read-only Woo
+operational evidence, independent of the temporary Publish Preview cache. Local
+rows render first; one CSRF-protected incremental request checks one active parent.
+Canonical existing comparisons run without recording or authorizing a Preview;
+ordered Relationships Pass 2 assignments are checked separately. Writes still
+require the existing reviewed Preview and every M5.6 safety gate.
+
+Approved migration 0009 adds nullable `woo_product_identity.live_state_json` only.
+Existing rows are not backfilled or inferred verified. Versioned evidence is
+bounded to 4 KiB. Existing publisher/identity hashes retain their meanings.
+Complete publish evidence is recorded after parent/child readback and Pass 2,
+only without pending relationships and with unchanged local source. Authored
+JSON, scanner, payload and relationship semantics are unchanged. Local source,
+projection and identity-dependency changes invalidate No Change without Woo GETs.
+Matching an old projection remotely after a source edit does not erase the edit.
+Starting a new write attempt invalidates earlier proof before any Woo mutation,
+so failed attempts cannot leave an obsolete verified baseline looking current.
+
+Operational freshness is ten minutes. Verified proof and known remote drift
+survive restart; unlinked results and failure cooldown use bounded process cache.
+Refresh failure explicitly preserves last-known proof. Manual Refresh Woo bypasses
+the read cache. A nonblocking shared refresh lock matches the current one-worker,
+four-thread deployment. Checks allow at most 60 GET calls and stop starting calls
+after 20 seconds, with existing per-call timeouts still applicable. Read cache:
+128 responses, each at most 256 KiB; product-result cache: 1,000 entries. Reusing a
+cached response does not extend its original observation's freshness. Busy UI
+requests retry at most twice, never in an infinite loop. No GET refresh links an
+identity, clears recovery, creates taxonomy or changes Woo.
+
+Status filters use currently known state; reapply after progressive checks finish.
+Complex products exceeding the read budget show last-known/unavailable status,
+not fabricated verification. Next is temporary Docker/browser acceptance followed
+by the user's page-by-page UX audit. Current-attention versus historical failures
+remains a Dashboard audit item; no acknowledgement/history rewrite is included.
+
+Verification closeout: the recovered publisher/Preview compatibility run completed
+with 226 passes and one query-budget failure (227 cases). Reusing the existing
+eager-loading query fixed that failure without relaxing its budget; the final
+targeted rerun passed 19 cases, including all 18 live-state cases and the query
+budget. Earlier 94-case focused coverage and explicit Simple/Variable publisher
+smokes are retained; no full repository rerun was needed. Relevant JavaScript:
+11 passed. Changed Python compilation, five changed-template parses, changed-JS
+syntax and diff whitespace checks passed.
+
+Isolated desktop/mobile checks covered shared Dashboard/Product Sync/Product
+Detail states, progressive checks, last-known evidence during a simulated Woo
+read outage, immediate local-change detection and one-product Review Create/Update
+handoffs. No horizontal document overflow was observed at the checked widths.
+Initial timestamps now omit fractional seconds for readable mobile wrapping.
+These fictional-store checks do not replace the pending user's Docker acceptance.
+
 ## Phase 3 Final Polish / Operations UX — implementation, user acceptance pending
+
+Historical interim-checkpoint description below: its Preview-cache-based Woo
+overview has been superseded by the shared live-state slice above.
 
 The existing M5.6 checkpoint remains intact. Shared metric cards, wrapping filter
 bars, deliberate slate panels, navigation groups and the light/lime WD mark now

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-3 -38 160 160" role="img" aria-labelledby="title">
+  <title id="title">WooCommerce Dashboard — WD</title>
+  <!-- Square canvas; same approved mark and theme colours as the horizontal logo. -->
+  <path fill="#10262D" d="M4 2H15Q18 2 19 5L29 35 44 4Q45 2 48 2H59Q62 2 63 5L73 33 65 57 56 34 35 76Q34 79 31 79H28Q26 79 25 76L1 8Q-1 2 4 2Z"/>
+    <path fill="#9BDC32" d="M76 2H111C135 2 151 17 151 40S136 79 112 79H73Q65 79 68 70L82 34Q83 30 87 30H96L83 64H111C127 64 136 55 136 40S126 17 110 17H82Z"/>
+    <g fill="#10262D"><rect x="95" y="45" width="8" height="14" rx="4"/><rect x="106" y="37" width="8" height="22" rx="4"/><rect x="117" y="27" width="8" height="32" rx="4"/></g>
+</svg>

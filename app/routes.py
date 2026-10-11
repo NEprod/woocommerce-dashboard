@@ -994,7 +994,8 @@ def product_detail(product_id):
         .filter_by(id=product_id)
         .first_or_404()
     )
-    return render_template("product_detail.html", workspace=product_workspace(product))
+    from app.woo_live_state import product_state
+    return render_template("product_detail.html", workspace=product_workspace(product), woo_live=product_state(product))
 
 
 def _relationship_payload():
@@ -2393,6 +2394,21 @@ def operation_logs(operation_id):
 def woo_sync():
     from app.woo_sync_workspace import workspace
     return render_template("woo_sync.html", workspace=workspace(request.args))
+
+
+@main.route("/woo-sync/state/<int:product_id>", methods=["POST"])
+@login_required
+def woo_live_refresh(product_id):
+    from app.woo_live_state import refresh_product
+    from app.woo_publish_preview import _product_query
+    product = _product_query().filter_by(id=product_id, catalogue_status="active").first_or_404()
+    try:
+        state = refresh_product(product, force=request.form.get("force") == "1")
+    except (ValueError, WooConnectionError):
+        return jsonify(error="Woo state is unavailable. Review Integration health."), 409
+    response = jsonify(state)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @main.route("/sync")

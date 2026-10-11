@@ -2,6 +2,8 @@
 {% from 'includes/icons.html' import icon %}
 {% block title %}{{ workspace.product.title }}{% endblock %}
 {% block content %}
+{% from 'includes/woo_live_state.html' import woo_state %}
+<section class="workspace-card"><div class="workspace-card-body"><strong>WooCommerce</strong> {{ woo_state(workspace.product.id, woo_live) }} <button type="button" class="btn btn-sm btn-outline-primary" data-woo-refresh>Refresh Woo</button></div></section>
 {% set product = workspace.product %}
 <nav class="workspace-breadcrumb" aria-label="Breadcrumb">
   <a href="{{ url_for('main.products') }}">Catalogue</a><span aria-hidden="true">/</span><span>Products</span><span aria-hidden="true">/</span><span aria-current="page">{{ product.title }}</span>

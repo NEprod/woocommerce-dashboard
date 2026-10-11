@@ -1,5 +1,40 @@
 # Existing Architecture
 
+## Shared Woo operational evidence
+
+`woo_live_state.py` supplies the four operational product surfaces. Concepts remain
+separate: Woo Identity is trusted store linkage; Verified Sync State is last
+independently proven whole managed-product state; Woo Live State is informational
+GET reconciliation; Publish Preview is the mandatory reviewed write plan.
+
+Approved migration 0009 adds nullable `WooProductIdentity.live_state_json`, a
+versioned record bounded to 4 KiB. Local-source/dependency and managed verification
+fingerprints are separate from existing publisher hashes. No backfill infers
+verification. Proof is recorded after expected children and Pass 2 complete, not
+at parent identity upsert. Local changes invalidate proof; incomplete stages and
+pending relationships cannot create No Change. Recovery takes precedence.
+
+Recovery precedence means genuine unresolved operation/identity recovery, not a
+permanent latch on a read-only observation. Transient incomplete reads retain
+last-known/unavailable state and can be refreshed. Strictly later complete verified
+publishing for the same product/store/trusted identity may supersede an older
+failure for current product health; historical rows and taxonomy candidates remain
+unchanged and reviewable. Uncertain or truncated evidence cannot be superseded by
+that rule. Preview alone never clears operation recovery or records live proof.
+The client exposes Checking only during active requests; terminal success, failure,
+deadline and exhausted busy retries clear it without automatic publishing.
+
+One authenticated/CSRF-protected incremental request checks one active parent,
+reusing canonical Preview comparisons without an operation or execution token.
+Ten-minute shared GET cache, bounded result cache and nonblocking per-app refresh
+lock prevent repeat work in the existing one-worker deployment. Manual force
+bypasses cache; 60-call and 20-second between-call budgets retain transport timeouts.
+Persistent observations retain known drift independently of the last verified
+baseline. Failed refresh preserves useful last-known evidence. More than one app
+worker would require shared coordination before claiming cross-worker deduplication;
+worker configuration is unchanged. There are no automatic identity/authored/Woo
+writes beyond the approved informational SQLite evidence.
+
 ## Current checkpoint — 2026-09-11
 
 M5.6 verified product taxonomy integration and reviewed driver proposals are

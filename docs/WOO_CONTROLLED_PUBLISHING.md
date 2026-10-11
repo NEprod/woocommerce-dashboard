@@ -37,7 +37,14 @@ ownership, child images/galleries and relationship Pass 2 are unchanged.
 The blanket M5.3 guard is replaced by actionable prerequisites. Tags never require
 a controlled identity. A Variable product with explicit `[]` cannot be published
 as a purchasable Variable without drivers/children and is blocked safely. Simple
-`[]` is supported. Product live acceptance remains pending; no release in this slice.
+`[]` is supported. The live acceptance recorded at the top supersedes the original
+M5.6 pending status; final Phase 3 operational/UI acceptance remains separate.
+
+The subsequent live-state hooks record bounded evidence only after complete managed
+parent/variation and relationship verification, with unchanged local source. A new
+write attempt invalidates old proof. Later complete matching successes can supersede
+historical failures for current health without rewriting history or discarding
+uncertain-write evidence; this does not alter Safe Resume or reviewed write authority.
 
 Phase 3 Milestone 4 is the first intentionally narrow WooCommerce write path.
 It publishes only one to ten explicitly selected parent products from a current

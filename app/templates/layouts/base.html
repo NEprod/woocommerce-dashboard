@@ -1,8 +1,10 @@
 <!doctype html>
+{% from 'includes/brand.html' import brand %}
 <html lang="en">
 <head>
   <title>{% block title %}Dashboard{% endblock %} | WooCommerce Dashboard</title>
   {% include 'includes/head.html' %}
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   {% block stylesheets %}{% endblock %}
 </head>
 <body class="app-body">
@@ -12,8 +14,7 @@
     <div class="app-workspace">
       <header class="app-utility-header">
         <a class="app-mobile-brand" href="{{ url_for('main.dashboard') }}">
-          <img src="{{ url_for('static', filename='assets/img/woocommerce-dashboard-logo.svg') }}" alt="">
-          <span>WooCommerce Dashboard</span>
+          {{ brand() }}
         </a>
         <div class="app-account-summary">
           <span>Signed in as <strong>{{ current_user.username }}</strong></span>
@@ -29,6 +30,7 @@
     </div>
   </div>
   {% include 'includes/scripts.html' %}
+  <script src="{{ url_for('static', filename='assets/js/woo-live-state.js') }}" defer></script>
   {% block javascripts %}{% endblock %}
 </body>
 </html>

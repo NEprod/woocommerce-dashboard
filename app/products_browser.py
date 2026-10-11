@@ -156,7 +156,7 @@ def _asset_presence(assets, label):
 
 
 def _product_view(product, variation_count, minimum_price, maximum_price):
-    from app.woo_sync_workspace import product_status
+    from app.woo_sync_workspace import product_status, overview
     assets = list(product.assets)
     shared_present = _asset_presence(assets, "shared")
     override_present = _asset_presence(assets, "override")
@@ -172,6 +172,7 @@ def _product_view(product, variation_count, minimum_price, maximum_price):
 
     row = {
         "woo_state_label": product_status(product.id),
+        "woo_live": overview()["by_id"].get(product.id, {}).get("live"),
         "id": product.id,
         "sku": product.sku or "",
         "title": product.title or "Untitled product",

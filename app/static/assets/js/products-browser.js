@@ -22,6 +22,24 @@
     return node;
   }
 
+  function wooState(product) {
+    const node = document.createElement("span");
+    const label = pill(product.woo_state_label || "Unknown / not checked", "neutral");
+    label.setAttribute("data-woo-label", "");
+    node.appendChild(label);
+    if (product.woo_live) {
+      const note = text("small", "", product.woo_live.message || "");
+      note.setAttribute("data-woo-note", "");
+      node.appendChild(note);
+    }
+    if (product.catalogue_status === "active") {
+      node.setAttribute("data-woo-product", String(product.id));
+      node.setAttribute("data-woo-state", product.woo_live ? product.woo_live.state : "unknown");
+      node.setAttribute("data-woo-needs-refresh", product.woo_live && !product.woo_live.needs_refresh ? "0" : "1");
+    }
+    return node;
+  }
+
   function button(label, className) {
     const node = text("button", className, label);
     node.type = "button";
@@ -163,7 +181,7 @@
     stateCell.className = "product-state-stack";
     stateCell.appendChild(pill(product.catalogue_status === "missing" ? "Missing" : "Active", product.catalogue_status));
     stateCell.appendChild(pill(product.publishing_intent_label, `intent-${product.publishing_intent}`));
-    stateCell.appendChild(pill(product.woo_state_label || "Preview required", "neutral"));
+    stateCell.appendChild(wooState(product));
     row.appendChild(stateCell);
     const variationCell = document.createElement("div");
     variationCell.appendChild(variationToggle(product, false));
@@ -204,7 +222,7 @@
     facts.appendChild(labelledFact("Type", pill(product.type === "variable" ? "Variable" : "Simple", "neutral")));
     facts.appendChild(labelledFact("Price", text("span", "product-price", formatPrice(product.price))));
     facts.appendChild(labelledFact("Publishing intent", pill(product.publishing_intent_label, `intent-${product.publishing_intent}`)));
-    facts.appendChild(labelledFact("Woo state", pill(product.woo_state_label || "Preview required", "neutral")));
+    facts.appendChild(labelledFact("Woo state", wooState(product)));
     facts.appendChild(labelledFact("Metadata", pill(sourceLabel(product.metadata_source), product.metadata_source)));
     facts.appendChild(labelledFact("Updated", text("time", "product-updated", formatDate(product.updated_at))));
     card.appendChild(facts);

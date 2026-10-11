@@ -1,4 +1,5 @@
 {% from 'includes/icons.html' import icon %}
+{% from 'includes/brand.html' import brand %}
 {% set groups = [
  ('Catalogue', [('Products','main.products','box',['main.products','main.edit_products','main.product_edit','main.product_detail']),('Collections','main.collections','collection',['main.collections','main.collection_detail','main.collection_metadata_edit']),('Relationships','main.relationships','link',['main.relationships']),('Catalogue Intake','main.image_preparation','folder',['main.image_preparation'])]),
  ('WooCommerce', [('Product Sync','main.woo_sync','box',['main.woo_sync','main.woocommerce_preview','main.woocommerce_link_candidate','main.woocommerce_unlink','main.woocommerce_publish']),('Taxonomy','taxonomy.index','book',['taxonomy.']),('Integration Health','main.woocommerce','plug',['main.woocommerce','main.woocommerce_test'])]),
@@ -16,7 +17,7 @@
 {% for item in items %}{{ destination(item) }}{% endfor %}</details>{% endfor %}
 {% endmacro %}
 <aside class="app-sidebar" aria-label="Primary navigation">
- <a class="sidebar-brand" href="{{ url_for('main.dashboard') }}"><img src="{{ url_for('static', filename='assets/img/woocommerce-dashboard-logo.svg') }}" alt=""><span class="sidebar-label"><strong>WooCommerce</strong><small>Dashboard</small></span></a>
+ <a class="sidebar-brand" href="{{ url_for('main.dashboard') }}">{{ brand(responsive=true) }}</a>
  <nav class="sidebar-navigation">{{ navigation() }}</nav>
  <button class="sidebar-collapse" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse navigation">{{ icon('chevron') }}<span class="sidebar-label">Collapse</span></button>
 </aside>

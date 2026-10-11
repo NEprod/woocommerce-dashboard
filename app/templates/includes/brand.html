@@ -1,0 +1,4 @@
+{% macro brand(responsive=false) -%}
+<img class="brand-full" src="{{ url_for('static', filename='assets/img/woocommerce-dashboard-logo.svg') }}" width="420" height="82" alt="WooCommerce Dashboard">
+{% if responsive %}<img class="brand-icon" src="{{ url_for('static', filename='assets/img/woocommerce-dashboard-icon.svg') }}" width="40" height="40" alt="WooCommerce Dashboard">{% endif %}
+{%- endmacro %}

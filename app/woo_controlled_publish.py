@@ -1124,10 +1124,19 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
     )
     recovery_required = False
     fatal_error = None
+    live_sources = {}
     try:
         # Recheck authored opt-in at execution as well as Preview, before any Woo request.
         from app.woo_product_taxonomy import contracts
-        selected = Product.query.filter(Product.id.in_(confirmation["product_ids"])).all()
+        from app.woo_publish_preview import _product_query
+        selected = _product_query().filter(Product.id.in_(confirmation["product_ids"])).all()
+        from app.woo_live_state import source_digest, record_verified_publish
+        for product in selected:
+            try:
+                live_sources[product.id] = source_digest(product)
+            except ValueError:
+                # Informational evidence must never loosen the publish gate.
+                live_sources[product.id] = None
         reviewed = {p["product_id"]: p.get("explicit_taxonomy") for p in confirmation["products"]}
         current_contracts = contracts(selected, store["key"])
         for product in selected:
@@ -1136,6 +1145,8 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
                 raise ControlledPublishError("Explicit taxonomy assignments or verified identities changed. Generate a fresh Preview and review Taxonomy Sync.", category="stale_preview")
             if current and current["blockers"]:
                 raise ControlledPublishError(" ".join(current["blockers"]), category="blocked")
+        from app.woo_live_state import invalidate_products
+        invalidate_products(confirmation["product_ids"], store["key"])
         progress.update("revalidating_preview", "The approved Publish Preview digest was regenerated and verified.")
         gateway.set_stage("revalidating_preview")
         if store["key"] != confirmation["store_identity"]:
@@ -1281,6 +1292,10 @@ def execute_publish_operation(operation_id, confirmation, *, client=None):
             "Final remote verification skipped — no safe parent identity was available.",
         )
         progress.update("saving_sync_state", "Saving bounded verified sync and audit state.")
+        live_products = {p.id: p for p in _product_query().filter(Product.id.in_(confirmation["product_ids"])).all()}
+        for plan, result in zip(confirmation["products"], progress.summary["product_results"]):
+            product = live_products[plan["product_id"]]
+            record_verified_publish(product, plan, result, live_sources.get(product.id), store["key"])
         for result in progress.summary["product_results"]:
             item = CatalogueOperationItem.query.filter_by(operation_id=operation_id, sku=result["sku"]).one_or_none()
             if item:

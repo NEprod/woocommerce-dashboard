@@ -22,11 +22,12 @@ def cached_action(action, *, stale=False):
         {"product_id": 1, "action": action, "blockers": ["Verify Material"] if action == "blocked" else []}]})
 
 
-@pytest.mark.parametrize("action", ["create", "update", "no_change", "blocked", "link_candidate", "recovery_required"])
-def test_current_preview_classifications_and_filters(preview_app, monkeypatch, action):
-    monkeypatch.setattr(ui, "plan_is_stale", lambda plan: False)
+@pytest.mark.parametrize("action", ["local_only", "update", "no_change", "blocked", "link_candidate", "recovery_required"])
+def test_shared_live_classifications_and_filters(preview_app, monkeypatch, action):
+    from app import woo_live_state as live
+    monkeypatch.setattr(live, "product_state", lambda product, **kw:
+        live._view(action if product.id == 1 else "unknown", message="Verify Material", refresh=False))
     with preview_app.app_context():
-        cached_action(action)
         data = ui.workspace({"status": action})
         assert [r["product"].id for r in data["rows"]] == [1]
         assert data["counts"][action] == 1
@@ -34,18 +35,17 @@ def test_current_preview_classifications_and_filters(preview_app, monkeypatch, a
     assert page.status_code == 200
     assert b'product_ids' in page.data
     if action == "link_candidate":
-        assert b'/woocommerce/preview/link/1?' in page.data
+        assert b'Review &amp; Link' in page.data
     if action == "blocked":
-        assert b'Verify Material' in page.data and b'Review CREATE-1 metadata' in page.data
+        assert b'Verify Material' in page.data and b'resolve issues' in page.data
 
 
 @pytest.mark.parametrize("expired,local_stale", [(True, False), (False, True)])
 def test_old_preview_never_claims_no_change(preview_app, monkeypatch, expired, local_stale):
-    monkeypatch.setattr(ui, "plan_is_stale", lambda plan: local_stale)
     with preview_app.app_context():
         cached_action("no_change", stale=expired)
         assert ui.overview()["counts"]["no_change"] == 0
-        assert ui.overview()["counts"]["unknown"] == 4
+        assert ui.overview()["counts"]["local_only"] == 4
 
 
 def test_overview_performs_no_woo_discovery_and_scoped_handoffs(preview_app, monkeypatch):
@@ -67,11 +67,11 @@ def test_overview_performs_no_woo_discovery_and_scoped_handoffs(preview_app, mon
 def test_real_generated_preview_has_usable_freshness(preview_app):
     with preview_app.app_context():
         generate_publish_plan({"kind": "product", "product_id": 1}, client=FakeWooClient())
-        assert ui.overview()["counts"]["create"] == 1
+        assert ui.overview()["counts"]["local_only"] == 4
         product = db.session.get(Product, 1)
         product.title = "Changed after review"
         db.session.commit()
-        assert ui.overview()["counts"]["create"] == 0
+        assert ui.overview()["counts"]["local_only"] == 4
 
 
 def test_current_store_identity_and_persisted_recovery(preview_app):

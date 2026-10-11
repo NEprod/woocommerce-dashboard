@@ -378,6 +378,7 @@ class WooProductIdentity(db.Model):
     last_remote_modified_at = db.Column(db.DateTime)
     last_remote_digest = db.Column(db.String(64))
     sync_state = db.Column(db.String(32), nullable=False, default="unlinked")
+    live_state_json = db.Column(db.Text, nullable=True)
     verification_state = db.Column(db.String(32), nullable=False, default="unverified")
     created_at = db.Column(db.DateTime, nullable=False, server_default=func.now())
     updated_at = db.Column(db.DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
