@@ -1,5 +1,28 @@
 # Existing Architecture
 
+## Phase 4 M1 platform boundary
+
+`commerce.py` selects a small WooCommerce/Shopify adapter. Existing Woo publishing
+continues through its proven services, not a new generic publisher. Shopify only
+exposes a fixed connection query through `shopify_connection.py`; authenticated
+settings routes live in `commerce_routes.py`. Shopify installations cannot execute
+Woo workflow routes. Catalogue/scanner/SKU/taxonomy authority is unchanged.
+
+`commerce_config.py` owns version-1 `instance/commerce.json`: active platform plus
+optional Shopify configuration. Missing settings mean WooCommerce; invalid
+settings never silently fall back. Only first-admin setup chooses the platform.
+Directory locking, the existing same-directory atomic writer, private 0600 files,
+symlink rejection and revision checks protect saves. Tokens are plaintext in
+private storage, excluded from browser redisplay; protect volume access/backups.
+Deployment-provided Shopify variables override as a complete configuration unit,
+never combining a saved token with an environment domain. No database migration.
+
+`CatalogueSnapshot` recursively freezes resolved authored metadata, local identity,
+SKU/type, projected attributes/variations and image references. It uses existing
+metadata inheritance and suppresses ORM autoflush, without writing source or
+remote identities. Shopify product mapping, writes, platform switching and OAuth
+token lifecycle are deferred; see [Shopify integration](SHOPIFY_INTEGRATION.md).
+
 ## Shared Woo operational evidence
 
 `woo_live_state.py` supplies the four operational product surfaces. Concepts remain

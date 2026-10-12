@@ -51,6 +51,18 @@ def create_app():
     app.register_blueprint(main)
     from .taxonomy_routes import taxonomy
     app.register_blueprint(taxonomy)
+    from .commerce_routes import commerce, guard_platform
+    app.register_blueprint(commerce)
+    app.before_request(guard_platform)
+
+    @app.context_processor
+    def commerce_context():
+        from .commerce_config import active_platform, CommerceConfigError
+        try:
+            platform = active_platform()
+        except CommerceConfigError:
+            platform = "unavailable"
+        return {"commerce_platform": platform}
 
     @app.context_processor
     def inject_current_year():

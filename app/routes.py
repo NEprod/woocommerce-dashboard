@@ -995,7 +995,11 @@ def product_detail(product_id):
         .first_or_404()
     )
     from app.woo_live_state import product_state
-    return render_template("product_detail.html", workspace=product_workspace(product), woo_live=product_state(product))
+    from app.commerce_config import active_platform
+    from app.woo_live_state import _view
+    woo_live = product_state(product) if active_platform() == "woocommerce" else _view(
+        "unknown", message="Shopify product sync is not implemented.", refresh=False)
+    return render_template("product_detail.html", workspace=product_workspace(product), woo_live=woo_live)
 
 
 def _relationship_payload():
@@ -2769,6 +2773,12 @@ def setup():
         return redirect(url_for("main.login"))
     form = SetupAdminForm()
     if form.validate_on_submit():
+        from app.commerce_config import initialize_platform, CommerceConfigError
+        try:
+            initialize_platform(form.commerce_platform.data)
+        except CommerceConfigError as error:
+            flash(str(error), "danger")
+            return render_template("setup/setup.html", form=form), 409
         new_admin = User(
             email=form.email.data.strip(),
             username=form.username.data.strip(),

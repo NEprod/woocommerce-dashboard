@@ -10,18 +10,22 @@ LABELS = {"all": "Active local", "linked": "Woo linked", **live.LABELS}
 
 
 def overview():
+    from app.commerce_config import active_platform, CommerceConfigError
     if has_request_context() and hasattr(g, "woo_overview"):
         return g.woo_overview
     try:
-        store = store_identity()
-    except (ValueError, WooConnectionError):
+        selected_platform = active_platform()
+        store = store_identity() if selected_platform == "woocommerce" else None
+    except (ValueError, WooConnectionError, CommerceConfigError):
+        selected_platform = "unavailable"
         store = None
     identities = {r.product_id: r for r in WooProductIdentity.query.filter_by(store_key=store["key"]).all()} if store else {}
     rows = []
     for product in _product_query().filter_by(catalogue_status="active").order_by("title", "id"):
         identity = identities.get(product.id)
         state = live.product_state(product, store=store["key"], identity=identity) if store else live._view(
-            "blocked", message="Configure WooCommerce in Integration health.", refresh=False)
+            "unknown" if selected_platform == "shopify" else "blocked",
+            message="Shopify product sync is not implemented." if selected_platform == "shopify" else "Review commerce configuration in Settings.", refresh=False)
         rows.append(dict(product=product, variation_count=len(product.variations), identity=identity,
             linked=live._trusted(product, identity), local_only=identity is None,
             state=state["state"], label=state["label"], fresh=not state["needs_refresh"],

@@ -3,6 +3,7 @@
 {% block content %}
 <section class="page-heading"><p class="eyebrow">Initial setup · Configuration and Taxonomy</p><h1>Check your deployment</h1><p>Deployment owns mounted folders and the public image URL. No registry or example products are installed automatically.</p></section>
 {% for category, message in get_flashed_messages(with_categories=true) %}<div class="alert alert-{{ category }}" role="status">{{ message }}</div>{% endfor %}
+<section class="workspace-panel"><h2>Commerce platform · {{ commerce_platform|title }}</h2><p>Credentials are optional for local setup and scanning. <a href="{{ url_for('commerce.settings') }}">Configure / test commerce connection</a>. Shopify publishing is not available in this foundation milestone.</p></section>
 {% if not readiness.state_valid %}<div class="alert alert-danger" role="alert">Application setup state is unreadable or invalid. Restore the verified onboarding.json from your application-data backup before continuing.</div>{% endif %}
 <div class="onboarding-grid">
 <section class="workspace-panel"><h2>Storage and image configuration</h2><dl class="detail-definition-grid">

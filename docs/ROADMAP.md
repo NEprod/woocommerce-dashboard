@@ -1,5 +1,20 @@
 # Roadmap
 
+### Phase 4 M1 — Shopify foundation, implementation awaiting acceptance
+
+Source checkpoint `3856cf32dc1eeb3be10850ed092b434bbc959285` preserves Phase 3;
+`feature/shopify-foundation` contains the uncommitted foundation. Phase 3 final
+page-by-page polish is paused; earlier live acceptance gaps are not erased.
+Implemented: persistent first-install platform selection, protected Shopify
+connection settings, fixed read-only GraphQL identity/scope test, a small adapter
+selector and immutable local catalogue snapshot. Existing installations remain
+WooCommerce; preparing Shopify settings cannot switch them. No scanner/publisher
+rewrite, migration, Shopify writes or application rename.
+
+Next milestone: bounded read-only Shopify product/variant, collection and taxonomy
+discovery. Product writes, reviewed platform migration/activation, navigation sync,
+personalisation, inventory/orders and token lifecycle automation remain deferred.
+
 ### Phase 3 final verification / checkpoint review — 2026-10-11
 
 Preserve the complete uncommitted live-state/recovery/UI/branding slice. The user
@@ -393,7 +408,9 @@ not reimplementation. Historical stable and immutable tags remain protected.
   Pass 1, then translate local relationship edges into `cross_sell_ids` and
   `upsell_ids` in Pass 2. Incremental synchronization, media upload and broad
   remote management remain later milestones.
-- **Phase 4 — Extended WooCommerce updates and synchronization:** planned.
+- **Phase 4 — Shopify foundation:** M1 implementation awaiting acceptance; see
+  the current entry above. The earlier extended-Woo-only plan is superseded,
+  without removing working Woo integration.
 - **Later — Website/header automation, scheduling, notifications, and business dashboard modules:** planned.
 
 Phase 1 is the current catalogue-integrity release. Future work must continue to treat its scanner contract and database/recovery behaviour as protected baselines.

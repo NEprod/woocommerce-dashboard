@@ -10,6 +10,7 @@
   <div aria-hidden="true">i</div>
   <p><strong>Read-only configuration</strong><span>Environment and Discord changes are configured in Unraid and require a container restart. Secret values are never shown here.</span></p>
 </div>
+<section class="workspace-panel"><h2>Commerce platform · {{ commerce_platform|title }}</h2><p>Prepare and verify a Shopify read-only connection without changing existing WooCommerce mappings.</p><a class="btn btn-outline-primary" href="{{ url_for('commerce.settings') }}">Commerce connection settings</a></section>
 
 <section class="settings-summary-grid" aria-label="Configuration overview">
   <article><span>Database</span><strong>{{ 'Available' if workspace.application.database_available else 'Unavailable' }}</strong><small>Migration {{ workspace.application.migration_head }}</small></article>

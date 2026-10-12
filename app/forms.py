@@ -1,5 +1,5 @@
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, BooleanField, SubmitField
+from wtforms import StringField, PasswordField, BooleanField, SubmitField, SelectField
 from wtforms.validators import DataRequired, Email, EqualTo
 
 
@@ -11,6 +11,7 @@ class LoginForm(FlaskForm):
 
 
 class SetupAdminForm(FlaskForm):
+    commerce_platform = SelectField("Commerce platform", choices=[("woocommerce", "WooCommerce"), ("shopify", "Shopify")], default="woocommerce")
     email = StringField("E-Mail", validators=[DataRequired(), Email()])
     username = StringField("Username", validators=[DataRequired()])
     password = PasswordField("Password", validators=[DataRequired()])

@@ -1,0 +1,27 @@
+{% extends 'layouts/base.html' %}
+{% block title %}Commerce connection{% endblock %}
+{% block content %}
+<section class="page-heading"><p class="eyebrow">Settings · Commerce</p><h1>Commerce connection</h1><p>Read-only Shopify foundation. No product publishing or automatic migration.</p></section>
+<section class="workspace-panel">
+  <div class="panel-heading"><h2>Installation platform</h2><span class="catalogue-pill">{{ active|title }}</span></div>
+  <p>The platform is chosen when creating the first administrator. Existing installations default to WooCommerce. Changing it requires a future explicit migration workflow.</p>
+  {% if active == 'woocommerce' %}<p>You can prepare Shopify credentials here without changing your active WooCommerce integration. <a href="{{ url_for('main.woocommerce') }}">WooCommerce Integration Health</a></p>{% endif %}
+</section>
+<section class="workspace-panel">
+  <div class="panel-heading"><h2>Shopify Admin API</h2></div>
+  {% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
+  {% if saved %}<div class="alert alert-success" role="status">Verified Shopify configuration saved. Active platform unchanged.</div>{% endif %}
+  {% if result %}<div class="alert alert-info" role="status">Read-only connection verified for {{ result.domain }} ({{ result.shop_id }}). API {{ result.api_version }}.
+    {% if result.products_readable %}Product read scope granted.{% else %}Product read scope is missing; request read_products before the next milestone.{% endif %}
+    <p>Granted scopes: {{ result.scopes|join(', ') or 'None reported' }}. Scopes are reported, not proof of future publishing support.</p></div>{% endif %}
+  <p>Use the installed app's <strong>Admin API access token</strong>, not its client secret or a Storefront API token. Expiring tokens must be replaced when expired; automatic OAuth/token renewal is deferred. Credentials are never displayed after saving.</p>
+  <p>{{ 'Deployment-owned configuration; only testing is available here.' if owned else 'Saved in private (0600) instance storage. Protect the instance volume and its backups; this is not encrypted-at-rest storage.' }}</p>
+  <form method="post" autocomplete="off">
+    {{ form.hidden_tag() }}
+    <div class="form-group mb-3">{{ form.domain.label }}{{ form.domain(class="form-control", placeholder="your-shop.myshopify.com", readonly=owned, maxlength=100) }}</div>
+    <div class="form-group mb-3">{{ form.token.label }}{{ form.token(class="form-control", autocomplete="new-password", disabled=owned, maxlength=512) }}<small>{{ 'A token is configured. Leave blank to retain it for the same domain.' if has_token else 'No token configured.' }}</small></div>
+    <div class="form-group mb-3">{{ form.api_version.label }}{{ form.api_version(class="form-select", disabled=owned) }}</div>
+    <div class="panel-actions"><button class="btn btn-outline-primary" name="action" value="test">Test connection</button>{% if not owned %}<button class="btn btn-primary" name="action" value="save">Test and save configuration</button>{% endif %}<a class="btn btn-ghost" href="{{ url_for('main.initial_settings') }}">Configuration readiness</a></div>
+  </form>
+</section>
+{% endblock %}

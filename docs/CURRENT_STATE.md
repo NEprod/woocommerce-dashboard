@@ -1,5 +1,41 @@
 # Current State
 
+## Phase 4 M1 — Shopify foundation, implementation awaiting acceptance
+
+Phase 3 source was preserved at `3856cf32dc1eeb3be10850ed092b434bbc959285`
+(`feat(woo): checkpoint verified live-state and operations UX`). Development is
+on `feature/shopify-foundation`; the foundation remains uncommitted. Further
+Phase 3 page-by-page polish is paused, not implicitly accepted or released.
+Historical acceptance notes below remain evidence, including fresh-build
+non-reproduction of 3DCO-0001; no fingerprint change is included.
+
+First-admin setup now selects WooCommerce or Shopify. Existing installations
+without platform settings default to WooCommerce. The choice persists in private
+versioned instance storage and cannot be changed through connection settings.
+Administrators can prepare/test/save Shopify credentials without activating it
+on an existing Woo installation. Shopify-selected installations require no token
+to boot; Woo workflows are guarded rather than redirected into a new publisher.
+
+The fixed GraphQL connection query reads shop identity and granted scopes only.
+Connection saving requires successful read evidence, authentication/CSRF and a
+fresh settings revision. Tokens are never redisplayed; private instance storage
+is not encrypted, and expiring tokens require manual replacement. No migration,
+remote product mappings, Shopify publishing or automatic token exchange exists.
+The local catalogue snapshot is recursively immutable and reuses the existing
+authored metadata resolver without modifying JSON, markers, SKU indexes or ORM
+state. Existing Woo publishing/scanner services retain their contracts.
+
+See [Shopify integration](SHOPIFY_INTEGRATION.md) for configuration, boundaries
+and deferred work. Mocked verification does not imply live Shopify acceptance.
+Next: read-only Shopify catalogue and taxonomy discovery; no release is made.
+
+Focused verification: the combined foundation/setup/operations UX and M5.6
+Simple/Variable/category-path selection passed **65 cases**. Final foundation
+rerun after malformed-input coverage passed **42 cases**, zero failures/skips.
+Nine changed Python files compiled; five affected templates parsed;
+`git diff --check` passed. Existing SQLAlchemy/utcnow deprecations are warnings.
+No JavaScript changed. No full-suite run, network API call or Docker build occurred.
+
 ## Phase 3 checkpoint preparation — 2026-10-11
 
 The user reports that the historical 3DCO-0001 Update Available versus canonical

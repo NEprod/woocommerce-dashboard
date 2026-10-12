@@ -25,6 +25,12 @@
 
             <form method="POST">
               {{ form.hidden_tag() }}
+              {% for category, message in get_flashed_messages(with_categories=true) %}<div class="alert alert-danger" role="alert">{{ message }}</div>{% endfor %}
+              <div class="form-group mb-3">
+                {{ form.commerce_platform.label }}{{ form.commerce_platform(class="form-select") }}
+                <small>Choose once for this installation. Shopify currently supports read-only connection testing, not publishing. Credentials can be configured after account creation.</small>
+                {% for error in form.commerce_platform.errors %}<p class="text-danger">{{ error }}</p>{% endfor %}
+              </div>
 
               <div class="form-group mb-3">
                 <label for="email">Email Address</label>
