@@ -427,3 +427,17 @@ def test_existing_collection_candidate_inspection_never_links_or_creates(world, 
     assert token is None and plan["candidates"]["nodes"][0]["id"] == "gid://shopify/Collection/999"
     assert ShopifyCollectionIdentity.query.count() == 1
     assert adapter.calls == ["connection_read"]
+
+
+def test_mapping_edit_during_remote_compare_cannot_borrow_new_mapping_equality(world):
+    row, adapter = created(world)
+    original = adapter.read_simple
+    def read(*args):
+        remote = original(*args)
+        mapped = taxonomy.mapping(row.store_id, "collection:" + world[0].collection.source_relpath)
+        mapped.standard_category_id = "gid://shopify/TaxonomyCategory/aa-1"
+        db.session.commit()
+        return remote
+    adapter.read_simple = read
+    drafts.preview(world[0], adapter)
+    assert status(world[0])["label"] != "Up to Date"

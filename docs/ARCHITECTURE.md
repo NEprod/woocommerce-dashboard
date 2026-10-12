@@ -11,6 +11,9 @@ definitions, mapping evidence, identity evidence and configuration fingerprints.
 Ten-minute freshness is informational, never write authorization. Source changes
 during reads cannot inherit equality from the older reviewed plan. Signed Preview
 still hashes bytes, rereads remote state and binds collection actions to confirmation.
+Comparison summaries retain the mapping fingerprint captured before remote reads,
+not whatever mapping is current when those reads finish; concurrent mapping edits
+invalidate equality rather than borrowing evidence from an older mapping.
 
 `shopify_taxonomy.py` projects the existing registry's active category and storefront
 collection keys, plus catalogue Collection.source_relpath. Its operational

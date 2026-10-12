@@ -77,11 +77,13 @@ def mapping(store, key):
 
 
 def membership_plan(product, store, remote_id, config, adapter):
+    from app.shopify_comparison import mapping_digest
     rows, blockers = assignments(product)
     result, standards = [], set()
     for source in rows:
         row = mapping(store, source["key"])
-        item = dict(source, remote_id=row.remote_id if row else None, mapping_state=row.state if row else "missing", action="Resolve mapping", member=None)
+        item = dict(source, remote_id=row.remote_id if row else None, mapping_state=row.state if row else "missing",
+            mapping_fingerprint=mapping_digest(row), action="Resolve mapping", member=None)
         if not row or row.state != "verified" or not row.remote_id:
             blockers.append("Collection mapping required: " + source["label"])
         else:

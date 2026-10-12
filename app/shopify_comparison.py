@@ -23,7 +23,6 @@ def fingerprint(product, images):
 
 def record(product, plan, identity=None):
     from app.shopify_drafts import now, digest
-    from app.shopify_taxonomy import mapping
     if not plan.get("taxonomy_fingerprint") or not plan.get("workspace_source_fingerprint"):
         return False  # legacy publishing verification did not cover the new taxonomy contract
     expected_local = digest({"local": plan["workspace_source_fingerprint"], "taxonomy": plan["taxonomy_fingerprint"]})
@@ -42,7 +41,7 @@ def record(product, plan, identity=None):
         "remote_digest": plan.get("remote_digest"), "classification": plan["classification"],
         "changes": changes[:100], "change_count": len(changes), "blockers": plan.get("blockers", []),
         "identity": digest(identity.media_evidence_json) if identity else None,
-        "mappings": {r["key"]: mapping_digest(mapping(plan["store_id"], r["key"])) for r in plan.get("collections", [])},
+        "mappings": {r["key"]: r.get("mapping_fingerprint") for r in plan.get("collections", [])},
         "actual_status": plan.get("actual_status", "Not yet created")}
     summary["config"] = plan.get("config_digest")
     from app.shopify_simple_fields import review_rows

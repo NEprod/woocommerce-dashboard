@@ -35,7 +35,7 @@ No bulk, Variable, storefront menu or channel publishing. Next bounded milestone
 complete Create/Edit JSON forms after M3A.8 acceptance. User-owned Unraid XML stays
 outside the milestone commit.
 
-Verification: 137 distinct focused Python cases and 11 JavaScript cases passed;
+Verification: 138 distinct focused Python cases and 11 JavaScript cases passed;
 changed-Python compilation, affected-template parsing, JavaScript syntax and diff
 checks passed. Coverage includes signed/CSRF boundaries, legacy readback, failed
 refresh, mapping uniqueness/uncertainty, additive memberships, standard categories,
