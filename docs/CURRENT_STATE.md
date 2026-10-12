@@ -1,5 +1,23 @@
 # Current State
 
+## M3A.5 — managed Simple drafts/updates, live acceptance pending
+
+The existing Shopify Preview/Confirm now supports reviewed updates by retained
+Shop/product/variant/inventory identity, complete managed readback and No Change
+without duplicate creation. Shipping/origin, safe unscheduled sale/compare-at,
+vendor/tags/SEO/explicit handle and typed product dimension metafields join existing
+title/description/SKU/media support. Missing optional fields remain unmanaged;
+tracking/quantities/locations/services are not written. Original media are retained
+on update, with reviewed alt/order only; replacement/add/remove remain blocked.
+Alt changes require `write_files`; gallery jobs remain Processing until readback.
+
+Pending evidence and existing operation locking/history protect uncertain outcomes;
+reconciliation remains read-only and never blindly resumes a write. No migration,
+source/scanner/Woo publisher changes or infrastructure rename. The pre-existing
+Unraid XML edit remains separate. Mocked compatibility is not live acceptance:
+the next user test must update the retained LCBC-0001 draft and reach fresh No Change.
+See [exact procedure and limitations](SHOPIFY_INTEGRATION.md#m3a5--complete-managed-simple-drafts-and-reviewed-updates).
+
 ## M3A.4 — catalogue information readiness, Unraid acceptance pending
 
 The cohesive catalogue slice adds optional origin/shipping intent and stable-ID

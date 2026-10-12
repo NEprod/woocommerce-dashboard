@@ -21,6 +21,7 @@ from app.catalogue_images import product_image_diagnostics, _source_context
 from app.models import Product, ShopifyProductIdentity, CatalogueOperation
 from app.shopify_connection import ShopifyAdapter, ShopifyConfiguration, ShopifyError, _gid
 from app.utils.operation_control import acquire_catalogue_operation, finish_catalogue_operation
+from app import shopify_simple_fields as fields
 
 MAX_IMAGE = 10 * 1024 * 1024
 MAX_TOTAL = 30 * 1024 * 1024
@@ -117,6 +118,10 @@ def local_plan(product):
         raise ShopifyError("Selected images exceed the 30 MiB operation bound.")
     plan = {"product_id": product.id, "source_identity": snapshot.stable_identity, "sku": snapshot.sku,
             "title": title, "description": body, "price": format(price, ".2f"), "status": "DRAFT", "images": images}
+    plan["managed"], plan["warnings"] = fields.contract(snapshot, plan)
+    plan["price"] = plan["managed"]["variant"]["price"]
+    plan["unsupported"] = ["Standard categories and collections", "Customer-facing customisation",
+        "Inventory quantities/tracking/locations", "Media replacement, addition or removal on existing drafts"]
     # Include resolved source/projection, not just the emitted subset, in freshness.
     plan["digest"] = digest({"plan": plan, "snapshot": dict(snapshot.data)})
     return plan
@@ -134,23 +139,40 @@ def matching_identity(store_id, product):
         ShopifyProductIdentity.source_identity == product.source_relpath)).limit(2).all()
     if len(rows) > 1:
         raise ShopifyError("Multiple retained Shopify identities require administrator review; another create is blocked.")
+    if not rows and ShopifyProductIdentity.query.filter(or_(
+            ShopifyProductIdentity.product_id == product.id,
+            ShopifyProductIdentity.source_identity == product.source_relpath)).first():
+        raise ShopifyError("Recovery required: this local product has a retained identity in another Shopify store. Restore that store; automatic copying/migration is not supported.")
     return rows[0] if rows else None
 
 
 def preview(product, adapter=None):
     plan = local_plan(product)
     config = configuration()
-    shop = (adapter or ShopifyAdapter()).test_connection(config)
+    adapter = adapter or ShopifyAdapter()
+    shop = adapter.test_connection(config)
     if "write_products" not in shop["scopes"]:
         raise ShopifyError("Grant write_products to create a reviewed draft; connection/discovery alone need only read_products.")
     store_key = digest({"id": shop["shop_id"]})
     row = matching_identity(shop["shop_id"], product)
+    origin = plan["managed"]["variant"]["inventoryItem"].get("countryCodeOfOrigin")
+    if origin and origin not in adapter.country_codes(config):
+        raise ShopifyError("Country of origin is not supported by Shopify's current CountryCode contract.")
     if row and row.state != "failed_before_create":
-        raise ShopifyError(f"This product already has Shopify attempt {row.id} ({row.state}). Open its identity and reconcile; another create is blocked.")
+        if row.state != "verified" or row.verification_state != "verified":
+            raise ShopifyError(f"Recovery required for Shopify identity {row.id} ({row.state}). Reconcile its retained operation before any write; another create is blocked.")
+        return update_preview(product, row, plan, config, shop, adapter)
     plan.update(store_key=store_key, store_id=shop["shop_id"], domain=config.domain,
                 config_digest=config.fingerprint(),
                 nonce=uuid.uuid4().hex)
-    plan["handle"] = "tlc-draft-" + plan["nonce"]
+    plan["handle"] = plan["managed"]["product"].get("handle") or "tlc-draft-" + plan["nonce"]
+    if "handle" in plan["managed"]["product"] and adapter.find_draft(config, plan["handle"])["nodes"]:
+        raise ShopifyError("The authored handle already belongs to a Shopify product. Another create is refused.")
+    plan["classification"] = "create"
+    plan["fields"] = [{"field": key, "before": None, "after": value, "changed": True}
+        for key, value in plan["managed"]["product"].items()]
+    plan["fields"] += [{"field": key, "before": None, "after": value, "changed": True}
+        for key, value in plan["managed"]["variant"].items()]
     encode({"version": 1, "plan": plan})
     token = serializer().dumps({k: plan[k] for k in ("product_id", "digest", "store_id", "store_key", "domain", "config_digest", "nonce")})
     return plan, token
@@ -182,6 +204,8 @@ def confirm(token, acknowledged, adapter=None):
         reviewed = serializer().loads(token, max_age=900)
     except BadSignature:
         raise ShopifyError("Draft Preview expired or is invalid. Generate a fresh Preview.") from None
+    if reviewed.get("mode") == "update":
+        return confirm_update(reviewed, adapter)
     product = db.session.get(Product, reviewed["product_id"])
     if not product:
         raise ShopifyError("Local product is unavailable. Generate a fresh Preview.")
@@ -189,12 +213,17 @@ def confirm(token, acknowledged, adapter=None):
     config = configuration()
     adapter = adapter or ShopifyAdapter()
     shop = adapter.test_connection(config)
+    origin = plan["managed"]["variant"]["inventoryItem"].get("countryCodeOfOrigin")
+    if origin and origin not in adapter.country_codes(config):
+        raise ShopifyError("Country of origin is unsupported; generate a fresh Preview.")
     if (plan["digest"] != reviewed["digest"] or shop["shop_id"] != reviewed["store_id"]
             or config.domain != reviewed["domain"] or "write_products" not in shop["scopes"]
             or config.fingerprint() != reviewed["config_digest"]):
         raise ShopifyError("Source, image bytes, credentials or store changed. Generate a fresh Preview.")
     plan.update({k: reviewed[k] for k in ("store_key", "store_id", "domain", "nonce")})
-    plan["handle"] = "tlc-draft-" + plan["nonce"]
+    plan["handle"] = plan["managed"]["product"].get("handle") or "tlc-draft-" + plan["nonce"]
+    if "handle" in plan["managed"]["product"] and adapter.find_draft(config, plan["handle"])["nodes"]:
+        raise ShopifyError("The reviewed handle is now occupied. Generate a fresh Preview.")
     lease = acquire_catalogue_operation("shopify_draft_publish", {"product_id": product.id, "sku": product.sku, "store_id": shop["shop_id"]})
     row = None
     try:
@@ -236,9 +265,13 @@ def confirm(token, acknowledged, adapter=None):
             raise ShopifyError("Local product changed during uploads. Product creation was not attempted.")
         data.update(stage="product_create", create_attempted=True)
         save(row, data, "creating")
-        response = adapter.create_draft(config, {"title": plan["title"], "descriptionHtml": plan["description"],
-            "status": "DRAFT", "handle": plan["handle"], "metafields": [{"namespace": "tlc_dashboard", "key": "publish_attempt",
-                "type": "single_line_text_field", "value": plan["nonce"]}]}, media_inputs)
+        product_input = dict(plan["managed"]["product"])
+        # The independent attempt metafield remains the durable correlation,
+        # including when an explicitly reviewed authored handle is used.
+        product_input.update(status="DRAFT", handle=plan["handle"], metafields=[
+            {"namespace": "tlc_dashboard", "key": "publish_attempt", "type": "single_line_text_field", "value": plan["nonce"]},
+            *plan["managed"]["product"].get("metafields", [])])
+        response = adapter.create_draft(config, product_input, media_inputs)
         created = (response.get("productCreate") or {}).get("product")
         if isinstance(created, dict) and created.get("id"):
             row.shopify_product_id = _gid(created["id"], "Product")
@@ -251,12 +284,14 @@ def confirm(token, acknowledged, adapter=None):
         if len(variants) != 1:
             raise ShopifyError("Created draft did not return exactly one Simple variant. Reconcile in Shopify Admin.")
         variant_id = _gid(variants[0]["id"], "ProductVariant")
+        data["variant_id"] = variant_id
         data["stage"] = "variant_update"
         save(row, data)
-        payload_result(adapter.set_simple_variant(config, row.shopify_product_id, variant_id, plan["sku"], plan["price"]), "productVariantsBulkUpdate")
+        payload_result(adapter.update_simple_variant(config, row.shopify_product_id,
+            {"id": variant_id, **plan["managed"]["variant"]}), "productVariantsBulkUpdate")
         data["stage"] = "independent_readback"
         save(row, data)
-        apply_readback(row, data, adapter.read_draft(config, row.shopify_product_id))
+        apply_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]))
         state = row.state
         finish_catalogue_operation(lease.id, status="succeeded" if state == "verified" else "partial",
             products_attempted=1, products_succeeded=int(state == "verified"), recovery_state="none" if state == "verified" else "review_required",
@@ -277,6 +312,8 @@ def confirm(token, acknowledged, adapter=None):
 
 
 def apply_readback(row, data, remote):
+    if data["plan"].get("managed"):
+        return apply_simple_readback(row, data, remote)
     plan = data["plan"]
     if (not isinstance(remote, dict) or remote.get("id") != row.shopify_product_id
             or remote.get("handle") != plan["handle"] or not isinstance(remote.get("metafield"), dict)
@@ -338,7 +375,276 @@ def recovery_token(row):
     return None
 
 
+def simple_identity(row, data, remote):
+    if (not isinstance(remote, dict) or remote.get("id") != row.shopify_product_id
+            or remote.get("status") != "DRAFT" or not isinstance(remote.get("metafield"), dict)
+            or remote["metafield"].get("value") != data["plan"]["nonce"]):
+        raise ShopifyError("Recovery required: retained product ID, draft status or attempt correlation is not trusted. No create/update is allowed.")
+    _gid(remote["id"], "Product")
+    connection = remote.get("simpleVariants")
+    if (not isinstance(connection, dict) or connection.get("pageInfo", {}).get("hasNextPage") is not False
+            or len(connection.get("nodes", [])) != 1 or not isinstance(connection["nodes"][0], dict)):
+        raise ShopifyError("Recovery required: retained product no longer has one complete Simple variant.")
+    variant = connection["nodes"][0]
+    _gid(variant.get("id"), "ProductVariant")
+    if data.get("variant_id") and variant["id"] != data["variant_id"]:
+        raise ShopifyError("Recovery required: retained Simple variant identity changed.")
+    inventory = variant.get("inventoryItem")
+    if not isinstance(inventory, dict):
+        raise ShopifyError("Recovery required: inventory-item identity evidence is incomplete.")
+    _gid(inventory.get("id"), "InventoryItem")
+    if data.get("inventory_item_id") and inventory["id"] != data["inventory_item_id"]:
+        raise ShopifyError("Recovery required: inventory-item identity changed.")
+    media = remote.get("media")
+    if (not isinstance(media, dict) or media.get("pageInfo", {}).get("hasNextPage") is not False
+            or not isinstance(media.get("nodes"), list) or len(media["nodes"]) > MAX_IMAGES):
+        raise ShopifyError("Recovery required: remote media evidence is incomplete.")
+    ids = []
+    for node in media["nodes"]:
+        if not isinstance(node, dict) or node.get("mediaContentType") != "IMAGE":
+            raise ShopifyError("Unsupported remote gallery content; review Shopify Admin.")
+        if node.get("image") is not None and not isinstance(node.get("image"), dict):
+            raise ShopifyError("Remote image evidence is incomplete.")
+        ids.append(_gid(node.get("id"), "MediaImage"))
+    if len(ids) != len(set(ids)):
+        raise ShopifyError("Remote media identity is ambiguous.")
+    return variant
+
+
+def media_review(plan, data, remote):
+    retained = data.get("media", [])
+    if not isinstance(retained, list) or any(not isinstance(m, dict) for m in retained):
+        raise ShopifyError("Retained media mapping is invalid; administrator recovery review is required.")
+    by_source = {m.get("source"): m for m in retained}
+    if len(by_source) != len(retained) or len(retained) != len(plan["images"]):
+        raise ShopifyError("Unsupported media addition/removal. Existing media will not be deleted or re-uploaded.")
+    desired, alt, rows = [], [], []
+    remote_nodes = {m["id"]: m for m in remote["media"]["nodes"]}
+    for image in plan["images"]:
+        mapped = by_source.get(image["source"], {})
+        if mapped.get("sha256") != image["sha256"] or mapped.get("id") not in remote_nodes:
+            raise ShopifyError("Unsupported media replacement or missing mapping. Retain original files; no automatic upload/delete is allowed.")
+        node = remote_nodes[mapped["id"]]
+        if node.get("status") != "READY" or not (node.get("image") or {}).get("url", "").startswith("https://"):
+            raise ShopifyError("Media processing is not ready; reconcile before reviewing updates.")
+        desired.append(node["id"])
+        changed = node.get("alt") != image["alt"]
+        rows.append({"field": f"media.alt.{node['id']}", "before": node.get("alt"), "after": image["alt"], "changed": changed})
+        if changed:
+            alt.append({"id": node["id"], "alt": image["alt"]})
+    if len(set(desired)) != len(desired) or set(desired) != set(remote_nodes):
+        raise ShopifyError("Unsupported remote media addition/removal or ambiguous mapping. No media will be deleted.")
+    before = [m["id"] for m in remote["media"]["nodes"]]
+    rows.append({"field": "media.order", "before": before, "after": desired, "changed": before != desired})
+    return {"ids": desired, "alt": alt, "reorder": before != desired}, rows
+
+
+def update_preview(product, row, plan, config, shop, adapter):
+    data = evidence(row)
+    if row.source_identity != plan["source_identity"] or row.sku != plan["sku"]:
+        raise ShopifyError("Stable local source/SKU does not match its retained Shopify identity.")
+    remote = adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"])
+    variant = simple_identity(row, data, remote)
+    if not data.get("variant_id") and variant.get("sku") != row.sku:
+        raise ShopifyError("Legacy Simple variant cannot be adopted with a different SKU; recovery review is required.")
+    actions, media_rows = media_review(plan, data, remote)
+    if actions["alt"] and "write_files" not in shop["scopes"]:
+        raise ShopifyError("Alt-text changes require write_files in addition to write_products. Grant it and review again; no fields were written.")
+    rows = fields.field_rows(plan["managed"], remote) + media_rows
+    classification = "update" if any(r["changed"] for r in rows) else "no_change"
+    if "handle" in plan["managed"]["product"] and plan["managed"]["product"]["handle"] != remote["handle"]:
+        collision = adapter.find_draft(config, plan["managed"]["product"]["handle"])
+        if collision["pageInfo"].get("hasNextPage") or any(n.get("id") != row.shopify_product_id for n in collision["nodes"]):
+            raise ShopifyError("The reviewed handle belongs to another Shopify product; no update is allowed.")
+        plan["warnings"].append("Explicit URL-handle change; no redirect is created by this workflow.")
+    plan.update(classification=classification, fields=rows, media_actions=actions,
+        identity_id=row.id, remote_id=row.shopify_product_id, variant_id=variant["id"],
+        inventory_item_id=variant["inventoryItem"]["id"], store_id=shop["shop_id"],
+        store_key=row.store_key, domain=config.domain, config_digest=config.fingerprint(),
+        handle=plan["managed"]["product"].get("handle", remote["handle"]), nonce=data["plan"]["nonce"],
+        remote_digest=digest(remote), identity_digest=digest(data))
+    if actions["alt"]:
+        plan["warnings"].append("Alt text is a Shopify file property; other uses of that same file may also reflect the change.")
+    encode({"version": 1, "plan": plan})
+    token = None
+    if classification == "update":
+        token = serializer().dumps({"mode": "update", **{key: plan[key] for key in (
+            "product_id", "digest", "identity_id", "remote_id", "store_id", "domain", "config_digest",
+            "remote_digest", "identity_digest")}})
+    return plan, token
+
+
+def update_inputs(plan):
+    changed = {r["field"] for r in plan["fields"] if r["changed"]}
+    product = {"id": plan["remote_id"]}
+    for key, value in plan["managed"]["product"].items():
+        if key in changed:
+            product[key] = value
+        elif key == "seo":
+            seo = {k: v for k, v in value.items() if f"seo.{k}" in changed}
+            if seo:
+                product[key] = seo
+        elif key == "metafields":
+            items = [i for i in value if "dimensions." + i["key"].removeprefix("product_") in changed]
+            if items:
+                product[key] = items
+    variant = {"id": plan["variant_id"]}
+    for key in ("price", "compareAtPrice"):
+        if key in changed:
+            variant[key] = plan["managed"]["variant"][key]
+    inventory = {k: v for k, v in plan["managed"]["variant"]["inventoryItem"].items()
+        if k in changed or (k == "measurement" and "weight" in changed)
+        or (k == "sku" and "variant.sku" in changed)}
+    if inventory:
+        variant["inventoryItem"] = inventory
+    if "handle" in product:
+        product["redirectNewHandle"] = False
+    return product, variant
+
+
+def confirm_update(reviewed, adapter=None):
+    adapter = adapter or ShopifyAdapter()
+    product = db.session.get(Product, reviewed["product_id"])
+    row = db.session.get(ShopifyProductIdentity, reviewed["identity_id"])
+    if not product or not row or row.state != "verified" or row.verification_state != "verified":
+        raise ShopifyError("Identity is not verified or another attempt requires recovery. Generate a fresh Preview.")
+    # Acquire before revalidation; reviewed update cannot overlap another write.
+    lease = acquire_catalogue_operation("shopify_draft_publish", {"product_id": product.id, "sku": product.sku, "mode": "update"})
+    attempted = False
+    try:
+        plan, _ = preview(product, adapter)
+        for key in ("digest", "identity_id", "remote_id", "store_id", "domain", "config_digest", "remote_digest", "identity_digest"):
+            if plan.get(key) != reviewed.get(key):
+                raise ShopifyError("Source/configuration/remote state changed since review. Generate a fresh Preview; no update was attempted.")
+        if plan["classification"] != "update":
+            raise ShopifyError("The reviewed update is no longer current. Generate a fresh Preview.")
+        data = evidence(row)
+        data.pop("reorder_job", None)
+        data["completed_steps"] = []
+        data["previous_verified"] = {"operation_id": row.operation_id, "reviewed_digest": row.reviewed_digest,
+            "verified_at": row.verified_at.isoformat() if row.verified_at else None, "plan": data["plan"]}
+        data.update(plan=plan, stage="update_pending", update_attempted=False,
+            variant_id=plan["variant_id"], inventory_item_id=plan["inventory_item_id"])
+        row.operation_id, row.reviewed_digest, row.verification_state = lease.id, plan["digest"], "unverified"
+        save(row, data, "pending")
+        config = configuration()
+        product_input, variant_input = update_inputs(plan)
+        steps = []
+        if len(product_input) > 1:
+            steps.append(("product_update", lambda: adapter.update_simple_product(config, product_input), "productUpdate"))
+        if len(variant_input) > 1:
+            steps.append(("variant_update", lambda: adapter.update_simple_variant(config, row.shopify_product_id, variant_input), "productVariantsBulkUpdate"))
+        if plan["media_actions"]["alt"]:
+            steps.append(("media_alt", lambda: adapter.update_media_alt(config, plan["media_actions"]["alt"]), "fileUpdate"))
+        if plan["media_actions"]["reorder"]:
+            steps.append(("media_order", lambda: adapter.reorder_media(config, row.shopify_product_id, plan["media_actions"]["ids"]), "productReorderMedia"))
+        for stage, call, payload in steps:
+            if local_plan(product)["digest"] != plan["digest"] or configuration().fingerprint() != plan["config_digest"]:
+                raise ShopifyError("Local source/configuration changed during execution. Review retained evidence before any further write.")
+            data.update(stage=stage, update_attempted=True)
+            save(row, data, "updating")  # durable BEFORE every mutation
+            attempted = True
+            result = call()
+            if payload == "productReorderMedia" and (result.get(payload) or {}).get("mediaUserErrors"):
+                raise ShopifyError("Shopify rejected gallery order. Reconcile the retained update.")
+            result = payload_result(result, payload)
+            if payload == "productReorderMedia":
+                job = (result.get("job") or {}).get("id")
+                data["reorder_job"] = _gid(job, "Job")
+            data.setdefault("completed_steps", []).append(stage)
+            save(row, data)
+        apply_simple_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]))
+        finish_catalogue_operation(lease.id, status="succeeded" if row.state == "verified" else "partial",
+            products_attempted=1, products_succeeded=int(row.state == "verified"),
+            recovery_state="none" if row.state == "verified" else "review_required",
+            operation_summary={"identity_id": row.id, "mode": "update", "stage": data["stage"], "completed_steps": data.get("completed_steps", [])})
+        return row
+    except Exception as exc:
+        db.session.rollback()
+        message = str(exc) if isinstance(exc, ShopifyError) else "Update failed with uncertain evidence. Reconcile before another write."
+        if attempted:
+            row = db.session.get(ShopifyProductIdentity, row.id)
+            data = evidence(row)
+            data["error"] = message
+            save(row, data, "uncertain")
+        finish_catalogue_operation(lease.id, status="partial" if attempted else "failed", error=message,
+            recovery_state="review_required" if attempted else "none", products_attempted=1, products_failed=1,
+            operation_summary={"identity_id": row.id, "mode": "update", "write_attempted": attempted})
+        if not attempted:
+            # A local failure after reservation but before any write is safe to
+            # restore; the failed operation remains visible in history.
+            data = evidence(row)
+            if data.get("stage") == "update_pending" and not data.get("update_attempted"):
+                previous = data.pop("previous_verified")
+                data.update(plan=previous["plan"], stage="verified", last_failed_review_operation_id=lease.id)
+                row.operation_id = previous["operation_id"]
+                row.reviewed_digest = previous["reviewed_digest"]
+                row.verification_state = "verified"
+                save(row, data, "verified")
+            raise ShopifyError(message) from None
+        return row
+
+
+def apply_simple_readback(row, data, remote):
+    plan = data["plan"]
+    variant = simple_identity(row, data, remote)
+    managed = {"product": {**plan["managed"]["product"], "handle": plan["handle"]},
+        "variant": plan["managed"]["variant"]}
+    rows = fields.field_rows(managed, remote)
+    data["checked_at"] = now().isoformat()
+    data["recovery_remote_digest"] = digest(remote)
+    data["observed_media"] = [{"id": m["id"], "url": (m.get("image") or {}).get("url"),
+        "status": m.get("status"), "alt": m.get("alt")} for m in remote["media"]["nodes"]]
+    save(row, data)
+    if any(r["changed"] for r in rows):
+        raise ShopifyError("Managed Simple fields differ from the reviewed plan. Reconcile; do not repeat the update blindly.")
+    expected = plan.get("media_actions", {}).get("ids") or [m.get("id") for m in data.get("created_media", [])]
+    if not expected:
+        raise ShopifyError("Creation media receipts are missing. Inspect the retained draft and explicitly approve its mapping; no duplicate create is allowed.")
+    observed = [m["id"] for m in remote["media"]["nodes"]]
+    if set(expected) != set(observed) or len(expected) != len(plan["images"]):
+        raise ShopifyError("Media identities differ from the reviewed gallery; no media will be deleted or re-uploaded.")
+    by_id = {m["id"]: m for m in remote["media"]["nodes"]}
+    if any(by_id[mid].get("alt") != image["alt"] for mid, image in zip(expected, plan["images"])):
+        raise ShopifyError("Media alt text differs from the reviewed plan.")
+    if any(m.get("status") == "FAILED" for m in remote["media"]["nodes"]):
+        raise ShopifyError("Media processing failed; inspect the retained draft.")
+    ready = all(m.get("status") == "READY" and (m.get("image") or {}).get("url", "").startswith("https://") for m in remote["media"]["nodes"])
+    if observed != expected and not data.get("reorder_job"):
+        raise ShopifyError("Gallery order differs from the reviewed plan.")
+    ready = ready and observed == expected
+    data["variant_id"], data["inventory_item_id"] = variant["id"], variant["inventoryItem"]["id"]
+    mapping = {m["id"]: m for m in data["observed_media"]}
+    for image, media_id in zip(plan["images"], expected):
+        receipt = next((m for m in data["media"] if m.get("source") == image["source"]), None)
+        if receipt is None:
+            raise ShopifyError("Local media receipt is missing; automatic adoption is refused.")
+        receipt.update(mapping[media_id])
+    row.verification_state = "verified" if ready else "processing"
+    if ready:
+        row.verified_at = now()
+    data["stage"] = "verified" if ready else "media_reordering" if observed != expected else "media_processing"
+    data.pop("error", None)
+    save(row, data, "verified" if ready else "processing")
+
+
 def reconcile(row, candidate_id=None, adapter=None, approval=None):
+    operation = db.session.get(CatalogueOperation, row.operation_id) if row.operation_id else None
+    if operation and operation.status == "running":
+        raise ShopifyError("This publishing operation is still active. Wait for completion; reconciliation cannot overlap writes.")
+    lease = acquire_catalogue_operation("shopify_draft_publish", {"mode": "read_only_reconciliation", "identity_id": row.id})
+    try:
+        result = _reconcile(row, candidate_id, adapter, approval)
+        finish_catalogue_operation(lease.id, status="succeeded" if result.state == "verified" else "partial",
+            recovery_state="none" if result.state == "verified" else "review_required",
+            operation_summary={"identity_id": row.id, "mode": "read_only_reconciliation", "state": result.state, "remote_writes": 0})
+        return result
+    except Exception:
+        finish_catalogue_operation(lease.id, status="failed", error="Shopify read-only reconciliation requires review; original publishing history is retained.")
+        raise
+
+
+def _reconcile(row, candidate_id=None, adapter=None, approval=None):
     operation = db.session.get(CatalogueOperation, row.operation_id) if row.operation_id else None
     if operation and operation.status == "running":
         raise ShopifyError("This publishing operation is still active. Wait for completion; reconciliation cannot overlap writes.")
@@ -362,10 +668,11 @@ def reconcile(row, candidate_id=None, adapter=None, approval=None):
         if found["pageInfo"]["hasNextPage"] or len(found["nodes"]) != 1:
             raise ShopifyError("Uncertain create is not conclusively resolved. Search Shopify Admin for " + data["plan"]["handle"] + "; supply its GraphQL product ID here. An empty read does not authorize another create.")
         product_id = found["nodes"][0]["id"]
-    remote = adapter.read_draft(config, _gid(product_id, "Product"))
+    remote = (adapter.read_simple(config, _gid(product_id, "Product"), data["plan"]["managed"]["namespace"])
+        if data["plan"].get("managed") else adapter.read_draft(config, _gid(product_id, "Product")))
     if (not isinstance(remote, dict) or not isinstance(remote.get("metafield"), dict)
             or remote["metafield"].get("value") != data["plan"]["nonce"]
-            or remote.get("handle") != data["plan"]["handle"]):
+            or (not data.get("update_attempted") and remote.get("handle") != data["plan"]["handle"])):
         raise ShopifyError("Candidate draft does not match this operation's correlation. Identity remains protected.")
     row.shopify_product_id = _gid(product_id, "Product")
     save(row, data)

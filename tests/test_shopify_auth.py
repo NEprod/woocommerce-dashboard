@@ -251,7 +251,7 @@ def test_token_rotation_during_review_preserves_full_draft_safety(world, monkeyp
                 data = fake.create_draft(settings, variables["product"], variables["media"])
             elif query == connection.PRICE_QUERY:
                 variant = variables["variants"][0]
-                data = fake.set_simple_variant(settings, variables["id"], variant["id"], variant["inventoryItem"]["sku"], variant["price"])
+                data = fake.update_simple_variant(settings, variables["id"], variant)
             else: data = {"product": copy.deepcopy(fake.remote)}
             return Response({"data": data})
     monkeypatch.setattr(connection.requests, "Session", RoutedSession)

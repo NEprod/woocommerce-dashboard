@@ -48,6 +48,27 @@ FIND_DRAFT_QUERY = "query DraftFind($query: String!) { products(first: 2, query:
 READ_QUERIES = READ_QUERIES | frozenset((DRAFT_QUERY, FIND_DRAFT_QUERY))
 WRITE_QUERIES = frozenset((STAGE_QUERY, CREATE_QUERY, PRICE_QUERY))
 
+# Full Simple managed readback, separate from the legacy M3A recovery contract.
+SIMPLE_QUERY = """query SimpleRead($id: ID!, $namespace: String!) {
+ product(id: $id) { """ + DRAFT_FIELDS + """
+ vendor tags seo { title description }
+ length: metafield(namespace: $namespace, key: "product_length") { id type value }
+ width: metafield(namespace: $namespace, key: "product_width") { id type value }
+ height: metafield(namespace: $namespace, key: "product_height") { id type value }
+ simpleVariants: variants(first: 2) { nodes { id sku price compareAtPrice
+ inventoryItem { id sku requiresShipping countryCodeOfOrigin tracked
+ measurement { weight { value unit } } } } pageInfo { hasNextPage endCursor } }
+ } }"""
+COUNTRIES_QUERY = 'query SupportedCountries { __type(name: "CountryCode") { enumValues { name } } }'
+UPDATE_QUERY = """mutation SimpleUpdate($product: ProductUpdateInput!) {
+ productUpdate(product: $product) { product { id handle } userErrors { field message } } }"""
+FILES_QUERY = """mutation SimpleAlt($files: [FileUpdateInput!]!) {
+ fileUpdate(files: $files) { files { id alt } userErrors { field message } } }"""
+ORDER_QUERY = """mutation SimpleOrder($id: ID!, $moves: [MoveInput!]!) {
+ productReorderMedia(id: $id, moves: $moves) { job { id } mediaUserErrors { field message } } }"""
+READ_QUERIES = READ_QUERIES | frozenset((SIMPLE_QUERY, COUNTRIES_QUERY))
+WRITE_QUERIES = WRITE_QUERIES | frozenset((UPDATE_QUERY, FILES_QUERY, ORDER_QUERY))
+
 
 def _cursor(value):
     if value in (None, ""):
@@ -58,7 +79,10 @@ def _cursor(value):
 
 
 def _gid(value, kind):
-    if not isinstance(value, str) or not re.fullmatch(r"gid://shopify/" + kind + r"/\d{1,30}", value):
+    suffix = r"\d{1,30}"
+    if kind == "Job":
+        suffix = r"(?:\d{1,30}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+    if not isinstance(value, str) or not re.fullmatch(r"gid://shopify/" + kind + "/" + suffix, value):
         raise ShopifyError("Invalid Shopify resource ID. Retrieve the list again.")
     return value
 
@@ -301,11 +325,36 @@ class ShopifyAdapter:
         return self._write(configuration, PRICE_QUERY, {"id": product_id,
             "variants": [{"id": variant_id, "price": price, "inventoryItem": {"sku": sku}}]})
 
+    def read_simple(self, configuration, product_id, namespace):
+        return self._read(configuration, SIMPLE_QUERY,
+            {"id": _gid(product_id, "Product"), "namespace": namespace}).get("product")
+
+    def country_codes(self, configuration):
+        values = (self._read(configuration, COUNTRIES_QUERY).get("__type") or {}).get("enumValues")
+        if (not isinstance(values, list) or not 1 <= len(values) <= 300
+                or any(not isinstance(v, dict) or not isinstance(v.get("name"), str)
+                    or not re.fullmatch(r"[A-Z]{2}", v["name"]) for v in values)):
+            raise ShopifyError("Supported origin codes could not be verified. Review again later.")
+        return {v["name"] for v in values}
+
+    def update_simple_product(self, configuration, product):
+        return self._write(configuration, UPDATE_QUERY, {"product": product})
+
+    def update_simple_variant(self, configuration, product_id, variant):
+        return self._write(configuration, PRICE_QUERY, {"id": product_id, "variants": [variant]})
+
+    def update_media_alt(self, configuration, files):
+        return self._write(configuration, FILES_QUERY, {"files": files})
+
+    def reorder_media(self, configuration, product_id, ids):
+        return self._write(configuration, ORDER_QUERY,
+            {"id": product_id, "moves": [{"id": media_id, "newPosition": str(i)} for i, media_id in enumerate(ids)]})
+
     def read_draft(self, configuration, product_id):
         return self._read(configuration, DRAFT_QUERY, {"id": _gid(product_id, "Product")}).get("product")
 
     def find_draft(self, configuration, handle):
-        if not re.fullmatch(r"tlc-draft-[a-f0-9]{32}", handle):
+        if not isinstance(handle, str) or len(handle) > 255 or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", handle):
             raise ShopifyError("Invalid draft recovery handle.")
         return _connection(self._read(configuration, FIND_DRAFT_QUERY, {"query": "handle:" + handle}).get("products"))
 

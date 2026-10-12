@@ -1,5 +1,107 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.5 — complete managed Simple drafts and reviewed updates
+
+Implemented, mocked-test verified; **live update acceptance pending**. The original
+M3A live test below remains creation/media acceptance only. `/shopify/drafts`
+now previews Create, Update or No Change; unsafe/uncertain identities show an
+explicit recovery blocker. A retained product never falls back to Create, even
+if it disappears remotely or configuration points at a different store. Verified
+legacy mappings are read without rewriting their store keys/domain. Only one
+active local Simple parent and one remote Simple variant are supported; DRAFT
+only. No sales-channel publication, Variables, collections or category writes.
+
+### Managed product information
+
+| Authored/resolved source | Shopify target / policy |
+|---|---|
+| Title, description | `title`, `descriptionHtml`; same filesystem resolver |
+| Stable SKU | Retained default variant / inventory item SKU, never new local allocation |
+| Regular/sale price | No sale: regular → price, compare-at cleared. Valid unscheduled sale below regular: sale → price, regular → compare-at. Invalid/equal/higher sale or scheduled sale dates block review. Removing a sale restores regular price. No automatic sale scheduler. |
+| Weight in grams | `inventoryItem.measurement.weight`, unit `GRAMS`; readback compares equivalent weight units |
+| Shipping intent, origin | `requiresShipping`, `countryCodeOfOrigin`; absent values are unmanaged. Origin is checked against the configured API's authoritative `CountryCode` enum, not only its format. GB is never implicit. |
+| Optional vendor | `vendor` only when explicitly authored/configured in resolved metadata |
+| Tags | Reviewed full tag-list replacement, including remote-only tags; absent tags stay unmanaged |
+| `meta_title`, `meta_description` | Shopify SEO title/description when authored; supported limits 70/320 characters |
+| Optional `handle` | Explicit lowercase slug; uniqueness checked. Updates preserve attempt correlation, do not create redirects. Without authored handle, existing URL stays unchanged. |
+| Dimensions in millimetres | Product metafields of type `dimension`, keys `product_length`, `product_width`, `product_height` in namespace `tlc_dashboard` |
+| Original image gallery | Create uploads original PNG/JPEG/WebP; update retains IDs/URLs and unchanged source hashes, with reviewed order/alt changes |
+
+Dimension namespace is optionally configured with
+`SHOPIFY_PRODUCT_DIMENSIONS_NAMESPACE` (default `tlc_dashboard`). Values are typed
+JSON such as `{"value":155,"unit":"mm"}`. Namespace/key upserts reuse existing
+metafields; no definitions are automatically created. Incompatible existing field
+types block review. These are **individual product dimensions**, not finished
+parcels, package presets or Shopify Shipping label measurements. Changing namespace
+does not delete old fields. Zero/absent dimensions are omitted. Missing optional
+fields never manufacture defaults or silently clear remote information. Current
+vendor/handle are forward-compatible Advanced JSON values, validated by publishing.
+
+Inventory tracking, quantities, locations, fulfilment services and shipping package
+configuration are never written. Standard categories, collections, relationships,
+customer-facing customisation and scheduled-sale automation remain deferred.
+
+### Review, execution and recovery
+
+Preview reads connection/store identity, the current complete remote Simple state
+and original local hashes. It shows changed/matching fields, warnings, unsupported
+features and media actions. Country enum and handle checks add bounded reads only
+when needed. Confirm is administrator-only, CSRF-protected and signed for 15 minutes.
+It revalidates local/configuration/identity/remote digests under the existing
+operation lock. Only the reviewed changed fields are mutated; source/configuration
+is rechecked between write steps. A No Change plan has no confirmation/write token.
+
+Pending/update-attempt evidence is committed before mutations to the existing
+`ShopifyProductIdentity` record. Bounded version-1 evidence retains previous verified
+plan provenance, variant/inventory IDs, media receipts, completed stages and job
+receipt where applicable. CatalogueOperation history is retained, not rewritten.
+Independent readback must prove the whole managed contract, IDs, correlation and
+gallery before state becomes verified. No migration, source rewrite or Woo change.
+
+Update, readback or transport failure retains earlier successful steps and blocks
+another write. Explicit reconciliation uses only reads, serialized against writes,
+and does not retry/delete/recreate anything. A complete match verifies the reviewed
+result; incomplete/partial/different results remain uncertain. An unchanged read
+alone does not prove that an uncertain delayed mutation cannot still arrive. Inspect
+the retained draft and correct the reviewed fields in Shopify Admin if necessary,
+then reconcile again. Historical partial/interrupted operations remain visible.
+
+Unchanged images are never staged or re-uploaded on update. Image replacement,
+addition/removal, missing mappings or remote-only media block review rather than
+delete/overwrite. Alt uses `fileUpdate` and requires **`write_files`**; the existing
+`read_products` / `write_products` scopes cover product/variant read/update. A shared
+Shopify file's other uses can reflect its alt change; this is disclosed at review.
+Gallery reorder is asynchronous: an incomplete order stays Processing until an
+explicit read observes it. No background retry/poll storm. Actual returned CDN URLs
+remain evidence; extensions are never rewritten. API contracts:
+[inventory fields](https://shopify.dev/docs/api/admin-graphql/latest/input-objects/InventoryItemInput),
+[alt updates](https://shopify.dev/docs/api/admin-graphql/latest/mutations/fileUpdate),
+[gallery order](https://shopify.dev/docs/api/admin-graphql/latest/mutations/productReorderMedia).
+
+### Live acceptance: update the retained LCBC-0001 draft
+
+1. Back up persistent appdata/database and retain the previous image tag. Deploy
+   the unique M3A.5 AMD64 test image manually, keeping all current volume mappings.
+   No new migration is required; existing 0010 remains authoritative.
+2. Keep the verified store configuration. If changing alt text, release/install
+   an app version granting `write_files` too; test connection (restart to obtain
+   a fresh Client Credentials token after a scope change if necessary).
+3. Use existing metadata editor/Advanced JSON to review accurate origin, shipping,
+   weight, descriptions, prices/SEO/vendor/tags/dimensions. Use the offered affected
+   update workflow where projection changed. Never change source filenames/SKU.
+4. Open `/shopify/drafts`, select `LCBC-0001` and build read-only Preview. Verify
+   retained Shop `gid://shopify/Shop/103940129151` and Product
+   `gid://shopify/Product/16009365160319`; the plan must say Update or No Change,
+   not Create. Stop if the identity is missing or a recovery blocker appears.
+5. Inspect every field/tag replacement/handle/media action and confirm once. Check
+   the same draft in Shopify Admin: SKU, customer price/compare-at, shipping/origin,
+   SEO/vendor/tags, product dimension metafields and retained image IDs/URLs.
+6. If Processing, use read-only reconciliation after the gallery job finishes.
+   If uncertain, do not confirm again; reconcile and report the retained operation.
+7. Successful verification followed by fresh Preview must show No Change. Confirm
+   that no duplicate product or unchanged-image upload occurred. Report differences
+   before continuing to category/collection mapping.
+
 ## M3A.4 catalogue snapshot readiness
 
 The existing resolver supports optional `country_of_origin`, `requires_shipping`

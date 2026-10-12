@@ -53,6 +53,16 @@ class FakeDraftAdapter:
             variants={"nodes": [{"id": "gid://shopify/ProductVariant/200", "sku": "", "price": "0.00"}], "pageInfo": {"hasNextPage": False}},
             media={"nodes": [{"id": f"gid://shopify/MediaImage/{300+i}", "alt": m["alt"], "status": "PROCESSING" if self.processing else "READY",
                 "mediaContentType": "IMAGE", "image": None if self.processing else {"url": f"https://cdn.shopify.com/image-{i}.png?v=123"}} for i, m in enumerate(media)], "pageInfo": {"hasNextPage": False}})
+        self.remote.setdefault("vendor", "")
+        self.remote.setdefault("tags", [])
+        self.remote.setdefault("seo", {"title": None, "description": None})
+        for key in ("length", "width", "height"):
+            self.remote[key] = next((dict(m, id=f"gid://shopify/Metafield/{400+len(key)}")
+                for m in product["metafields"] if m["key"] == "product_" + key), None)
+        self.remote["simpleVariants"] = copy.deepcopy(self.remote["variants"])
+        self.remote["simpleVariants"]["nodes"][0].update(compareAtPrice=None, inventoryItem={
+            "id": "gid://shopify/InventoryItem/250", "sku": "", "requiresShipping": True,
+            "countryCodeOfOrigin": None, "tracked": False, "measurement": {"weight": {"value": 0, "unit": "GRAMS"}}})
         if self.failure == "create": raise ShopifyError("Creation outcome uncertain")
         return {"productCreate": {"product": copy.deepcopy(self.remote), "userErrors": []}}
 
@@ -66,6 +76,21 @@ class FakeDraftAdapter:
     def read_draft(self, config, product_id):
         self.calls.append("product_read")
         return copy.deepcopy(self.remote)
+
+    def country_codes(self, config):
+        return {"GB", "CN", "US"}
+
+    def update_simple_variant(self, config, product_id, variant):
+        current = self.remote["simpleVariants"]["nodes"][0]
+        self.set_simple_variant(config, product_id, variant["id"],
+            variant.get("inventoryItem", {}).get("sku", current["sku"]), variant.get("price", current["price"]))
+        current.update({k: v for k, v in variant.items() if k != "inventoryItem"})
+        current["inventoryItem"].update(variant.get("inventoryItem", {}))
+        current["sku"] = current["inventoryItem"]["sku"]
+        return {"productVariantsBulkUpdate": {"userErrors": [], "productVariants": [current]}}
+
+    def read_simple(self, config, product_id, namespace):
+        return self.read_draft(config, product_id)
 
     def find_draft(self, config, handle):
         self.calls.append("find_read")
@@ -146,8 +171,8 @@ def test_alias_preserves_legacy_identity_and_duplicate_recovery_guards(world, mo
     db.session.commit()
     before = row.store_key, row.store_domain, row.shopify_product_id
     monkeypatch.setenv("SHOPIFY_STORE_DOMAIN", "alias.myshopify.com")
-    with pytest.raises(ShopifyError, match="already has"):
-        drafts.preview(product, adapter)
+    plan, token = drafts.preview(product, adapter)
+    assert plan["classification"] == "no_change" and token is None
     drafts.reconcile(row, adapter=adapter)
     assert before == (row.store_key, row.store_domain, row.shopify_product_id)
     assert row.state == "verified" and adapter.calls.count("product_create") == 1
@@ -203,6 +228,8 @@ def test_uncertain_create_review_and_explicit_media_adoption(world):
     assert row.shopify_product_id is None
     # Operator fixes the retained draft in Shopify Admin, not this implementation.
     adapter.remote["variants"]["nodes"][0].update(sku=product.sku, price="3.50")
+    adapter.remote["simpleVariants"]["nodes"][0].update(sku=product.sku, price="3.50")
+    adapter.remote["simpleVariants"]["nodes"][0]["inventoryItem"]["sku"] = product.sku
     db.session.expire_all()  # Cache loss does not permit another create.
     row = db.session.get(ShopifyProductIdentity, row.id)
     drafts.reconcile(row, adapter=adapter)

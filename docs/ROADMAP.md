@@ -1,5 +1,16 @@
 # Roadmap
 
+## M3A.5 Simple completeness — implemented, awaiting live update acceptance
+
+Reviewed create/update/No Change and complete managed Simple readback are implemented
+using existing identities/evidence, with shipping/origin, sale, SEO/vendor/tags,
+explicit handles, dimensions and retained-media alt/order. No Variable, category,
+collection, customer-input, inventory-policy or Woo expansion. Next gate: manually
+update retained LCBC-0001 through the unique test image; verify no duplicate/upload
+and fresh No Change. Then explicit Shopify standard-category/collection mapping,
+reference-safe local taxonomy preparation and separately reviewed membership/menu
+publication. Do not combine this with repository/image renaming.
+
 ## M3A.4 catalogue readiness — implemented, local acceptance pending
 
 Optional origin/shipping/customisation and immutable snapshot field propagation

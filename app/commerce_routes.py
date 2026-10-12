@@ -147,7 +147,8 @@ def drafts():
     products = Product.query.filter_by(product_type="simple", catalogue_status="active").order_by(Product.title).limit(500).all()
     identities = ShopifyProductIdentity.query.order_by(ShopifyProductIdentity.updated_at.desc()).limit(30).all()
     return render_template("shopify_drafts.html", form=form, plan=plan, token=token, error=error,
-        products=products, identities=identities), 400 if error else 200, {"Cache-Control": "no-store"}
+        products=products, identities=identities,
+        selected_id=request.form.get("product_id", type=int) or request.args.get("product_id", type=int)), 400 if error else 200, {"Cache-Control": "no-store"}
 
 
 @commerce.route("/shopify/drafts/identity/<int:identity_id>", methods=["GET", "POST"])
@@ -157,6 +158,7 @@ def draft_identity(identity_id):
     from app.models import ShopifyProductIdentity
     from app import shopify_drafts as service
     from sqlalchemy.exc import IntegrityError
+    from app.utils.operation_control import CatalogueOperationActive
     if not current_user.is_admin:
         abort(403)
     row = db.session.get(ShopifyProductIdentity, identity_id)
@@ -172,7 +174,7 @@ def draft_identity(identity_id):
             if approval and request.form.get("acknowledge_mapping") != "yes":
                 raise ShopifyError("Explicit approval of the displayed media mapping is required.")
             service.reconcile(row, request.form.get("candidate_id") or None, approval=approval)
-        except (ShopifyError, config.CommerceConfigError) as exc:
+        except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
             error = str(exc)
         except IntegrityError:
             db.session.rollback()

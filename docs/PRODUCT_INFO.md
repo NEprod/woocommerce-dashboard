@@ -31,6 +31,23 @@ types therefore retain their protected scanner behaviour.
 
 ## Inheritance and merge behaviour
 
+### Shopify Simple publication (M3A.5)
+
+The same resolved metadata now feeds reviewed draft create/update. An existing
+verified Shopify identity is updated, never replaced by another Create. Missing
+optional shipping/origin/vendor/SEO fields remain unmanaged remotely. An explicit
+valid unscheduled sale below regular maps sale to customer price and regular to
+compare-at; no sale restores regular and clears compare-at. Scheduled sale dates
+block sale publication pending an approved scheduler policy.
+
+Forward-compatible Advanced JSON `vendor` and `handle` are consumed when explicit:
+vendor up to 255 characters; handle a lowercase hyphenated slug, at most 255, unique
+in Shopify. They retain existing editor unknown-field review behaviour. Prefer
+unique product overrides for handles, not one shared handle across many products.
+SEO uses existing `meta_title` / `meta_description`. Product grams/mm retain their
+units; dimension metafields are not parcel measurements. Customisation remains
+definitions only. See [publishing contract](SHOPIFY_INTEGRATION.md#m3a5--complete-managed-simple-drafts-and-reviewed-updates).
+
 ### M3A.4 optional shipping and customisation
 
 Existing JSON remains valid. Optional `country_of_origin` is an uppercase
