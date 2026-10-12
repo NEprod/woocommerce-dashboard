@@ -1,8 +1,239 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
 Connection/discovery remain read-only. M3A adds separately reviewed creation of
-one Simple draft with original images; live acceptance is pending. It does not
-replace Woo, rename the application or migrate catalogue data.
+one Simple draft with original images; the user has now accepted that core live
+path (details below). Complete publishing remains unfinished. Woo remains a
+temporary fallback; no runtime rename or catalogue migration has occurred.
+
+## TLCDashboard transition assessment 2026-10-12
+
+### Direction and live evidence
+
+TLCDashboard is exclusively for Tender Loving Creations. Shopify is the intended
+permanent commerce platform, not one half of a permanent dual-platform product.
+Keep Woo as a working fallback without new features until a separate retirement
+milestone. Do not implement generic plugins, public distribution, multi-business
+support or a platform-switching migration workflow.
+
+User-reported live evidence (not a new API call by this assessment): Client
+Credentials authenticated Shop `gid://shopify/Shop/103940129151`, API `2026-10`,
+with `read_products` and `write_products`. SKU `LCBC-0001`, £3.50, was created as
+unpublished draft `gid://shopify/Product/16009365160319`. Original local PNG upload
+and product were visibly confirmed in Shopify Admin. Explicit read-only
+reconciliation reached retained stage `verified`. This proves core Simple create,
+media and reconciliation, not shipping completeness, updates, Variable products,
+modifiers, collections/categories/navigation, personalisation, orders or bulk sync.
+Full-lifetime automatic token renewal was not part of the reported live test.
+
+The user observed `tenderlcreations.myshopify.com` failing identity comparison and
+`jrg9sr-yy.myshopify.com` successfully verifying this Shop. Preserve that evidence
+and working configuration. M3A.2's domain-alias correction is mocked-test verified,
+not yet separately live accepted; do not attribute the successful original-domain
+test to the alias fix. Store GID remains authoritative; authentication alone
+never proves a configured domain belongs to a store.
+
+### Catalogue authority, intake and projection
+
+The physical layouts are fixed: Simple Product (`collection_type: Simple`),
+Variable Collection (`Variable Collection`) and Single Variable Product
+(`Single Variable`). Labels are not instructions to rename stored enum values.
+Collection-root shared JSON, optional Simple/Variable Collection overrides,
+Single Variable root JSON and reserved case-insensitive Parent image ownership
+remain exactly as implemented. Do not move folders/images, allocate replacement
+SKUs, rewrite JSON or change marker semantics.
+
+`intake_structured_import.py` safely copies reviewed existing trees into Prepared;
+existing JSON is preserved byte-for-byte. `intake_metadata_builder.py` validates
+and explicitly authors missing definitions through the existing staged writer.
+Prepared validation/copy handoff precedes an explicit catalogue scan. Existing
+metadata/override editors use `product_info.py`, `metadata_workspace.py` and safe
+JSON writers; inherited defaults are not flattened into product overrides.
+The legacy `/api/override/create` route operates on an already projected product
+and cannot bootstrap a catalogue lacking collection JSON; it creates only `{}`
+when missing. Fresh folder import must therefore use the pre-scan Intake/editor
+path, not assume this projected-product action can create shared requirements.
+This is not automatic generation of unknown product details.
+
+`scan_runner.py` plans scope/locks/history; `scanner.py` resolves shared metadata,
+children, modifiers and images; `sku_manager.py` retains marker-based identity and
+atomic indexes. `ingest.py` projects complete parent units transactionally into
+Collection/Product/Variation, attributes, images, assets and taxonomy memberships.
+`product_info.json` stays authoritative; SQLite is projection/identity/operations.
+`commerce.py` freezes authored and projected state for Shopify. Shopify draft
+publishing reads authorized original bytes, not generated WebP output URLs.
+
+### Evidence-backed optimisation candidates, not implementation
+
+1. `ingest_rows_to_db` always runs `_scan_sku_folder_index` (full `os.walk`) even
+   with `source_folders`; `_source_context` is then called for every indexed SKU,
+   reloading the same collection JSON repeatedly. First candidate: operation-local
+   source/context cache for affected parents, with proven fallback parity.
+2. `catalogue_snapshot` calls the authored resolver, then lazily traverses ORM
+   attributes/images/children. Future batch publishing should eager-load bounded
+   parent scopes once; M3A deliberately handles one parent, so no current query
+   storm or measured timing is asserted.
+3. SKU index load/save occurs during variation allocation. This is deliberate
+   durable identity behaviour, not permission to batch counters. Image byte hashes
+   are reread at Confirm intentionally for source freshness; do not cache across
+   that boundary. No measured startup bottleneck was established.
+
+Baselines before scanner optimisation: `test_scanner_contract_characterization`,
+`test_phase0_scanner_output_parity`, `test_scanner_resolution`,
+`test_m52_scan_ingest_regression`, `test_transactional_ingest`,
+`test_ingest_mapping`, `test_reconstruction`, `test_single_variable_parent_images`,
+`test_source_image_resolution`, `test_product_info_contract` and relevant Intake
+tests. Select cases proving same IDs/SKUs/combinations/modifiers/inheritance/images,
+scope selection and marker/database recovery; older Phase 0 discrepancy tests
+are historical characterisation, not a mandate to restore obsolete durability.
+
+Detailed discovery, skipped/unchanged, new/updated, missing/invalid JSON, SKU,
+modifier matches, variation, warnings and completion logs must survive. Preserve
+`utils/discord.py`, existing webhook names and bounded non-fatal delivery,
+`ingest.notify_ingest_product`, metadata/Intake events and operation terminal hooks.
+Woo-specific `notify_woo_publish_*` formatters/callers can retire only after shared
+Discord infrastructure is retained. Avoid duplicate generic/specialized terminal
+messages. New Shopify/order/proof notification types are deferred.
+
+### Field gaps and minimum backwards-compatible authoring
+
+| Information | Existing authority / M3A status | Planned boundary |
+| --- | --- | --- |
+| Title, description, SKU, regular price | Authored/inherited + projection; M3A sends and verifies these | Preserve resolver; review HTML/short-description display policy, do not concatenate silently |
+| Weight, dimensions | Existing authored grams/mm; projected parent/modified variants; M3A omits them | Variant InventoryItem weight; typed dimensions metafields, not assumed parcel dimensions |
+| Sale price/dates | Existing authored/projected fields; M3A omits them | Reviewed price/compare-at policy; scheduled sales separately |
+| Origin, requires shipping, vendor | Not recognised canonical authored fields | Optional `country_of_origin`, `requires_shipping`, `vendor`; collection defaults/overrides; reviewed configurable GB origin only when accurate |
+| SEO title/description | Existing `meta_title`, `meta_description`; M3A omits | Shopify SEO fields; optional authored `handle` separate from existing correlation handle/recovery |
+| Category, tags, collections | Existing local categories/tags/`storefront_collections`; M3A omits | Explicit standard-category mapping and operational collection identities; never convert Dashboard Collection into remote membership implicitly |
+| Images, alt/order | M3A uploads original PNG/JPEG/WebP, retains actual IDs/URLs and verifies order/alt | Live proved one PNG, not multi-image or WebP cases; variant media deferred |
+| Inventory | Existing projected defaults are not reviewed Shopify stock/location policy | Separate tracked/backorder/location decision; do not publish invented stock |
+| Personalisation/photos/proof/recipe | No canonical typed authoring/publishing contract established | Later optional `personalisation`, `proof_required`, `production_recipe` definitions after separate schema approval; no bulk JSON rewrite |
+
+No authored fields are added by this assessment. Existing optional overrides and
+units remain; do not require every new field on every product. Update the existing
+schemas/inventory/editor only for approved fields. All remote IDs, upload receipts,
+store identity and verification evidence stay in operational storage. Product
+dimensions are not proof of packaging dimensions or carrier eligibility.
+
+### Product types and customisation
+
+Simple maps to one Shopify product/default variant. Variable Collection maps each
+existing parent to its Shopify product, not the filesystem collection to a single
+product. Single Variable maps its existing root parent/child projection directly.
+Keep child SKUs and local source identities; map remote variant IDs separately.
+Only explicit variation drivers produce options; informational attributes become
+typed metadata/taxonomy, not additional combinations. Absence of
+`variation_attributes` retains current legacy resolution; `[]` stays meaningful.
+
+Shopify currently supports up to three options and normally 2,048 variants per
+product; read actual Shop resource limits before planning writes. The known 2×7
+14-child projection fits. The local proposal UI's 1,000-child bound is a separate
+current workflow limit. Never silently truncate larger local products. Preserve
+exact/most-specific modifier price, weight and dimensions; the characterised
+modifier sale-price emission discrepancy needs its own approved decision before
+claiming sale-modifier parity. Existing immutable snapshot omits projected variant
+weight/dimensions, so extend that read boundary rather than re-running the scanner.
+
+Names/age/messages/dropdowns/checkboxes should normally be storefront form inputs
+and line-item properties, not variants. Photo uploads need a verified private file
+handling/retention contract; arbitrary uploaded URLs are not production evidence.
+Conditional/required input validation and proof consent require theme/server work.
+Properties do not authorize additional charges. Paid customisation needs real
+priced variants/add-on line items and checkout validation, not a client-set price.
+Basic-plan custom apps cannot assume Shopify Functions availability (custom apps
+containing Functions require Plus). Do not buy an app or implement that feature now.
+
+### Taxonomy, completeness and controlled updates
+
+The mounted `TAXONOMY_ROOT/registry.json` remains the sole vocabulary/hierarchy:
+stable keys, parent keys, aliases, order, category paths, storefront collections,
+attributes and scoped terms. Keep its reviewed atomic writer. Local categories can
+drive reviewed Shopify collections and nested menu items; Shopify collections
+are flat membership resources. Shopify's standard product category is a separate
+Shopify taxonomy selection mapped explicitly to existing local intent, not an
+automatic match to local category names. Proposed standard-category mapping should
+extend the current authority, never create a competing manually maintained file.
+Keep remote collection/menu IDs outside JSON; menu eligibility/empty-collection
+filtering belongs in a future reviewed navigation plan. Tags remain readable tags.
+
+M3A creates only; existing identities block another Create. An update must read
+the retained Shop/product/default-variant identity, compare current managed fields,
+show signed scoped field diff, revalidate source/config/remote freshness at Confirm,
+record pending operation evidence before mutation, update by retained ID and read
+back the complete approved contract. Never create-on-missing, delete-on-failure,
+blindly retry uncertain writes or reupload unchanged verified media. Preserve
+unmanaged remote fields, stock and sales-channel publication. Local page rendering
+should remain immediate; bounded explicit/incremental reads supply remote evidence.
+
+**Single next milestone recommendation: Simple shipping-ready draft + reviewed
+update**, one parent per operation, DRAFT only. Reuse existing weight/dimensions;
+approve minimal optional shipping/origin fields with inherited defaults, explicit
+GB review, typed dimensions metafields and full readback. Update the live retained
+draft without a second Create or image replacement. Add bounded versioned operation
+evidence using the existing identity table; stop for approval if a schema change is
+genuinely required. No Variables, taxonomy/menu writes, rename, scanner optimisation,
+inventory quantity changes or bulk publishing. Confirm API scopes required for the
+chosen inventory-item mutation before changing installed app permissions.
+
+Then merchandising/SEO/tags/sale fields; Variables/modifiers/media; reviewed
+collections/categories/navigation; customisation; orders/proofs/production;
+Shipping labels/fulfillment/tracking. Shopify now documents `shippingLabelPurchase`,
+but eligibility, shipping terms, required order/fulfillment scopes and
+`buy_shipping_labels` permission must be independently confirmed before that later
+financial workflow; it is not included in current `read_products/write_products`.
+
+### Theme, naming and eventual Woo retirement
+
+`custom.css :root` already centralises semantic palette/spacing/radii; common
+navigation, cards, filterbars, buttons and statuses reuse it. Remaining fixed RGBA
+values in header overlays/focus rings/shadows/Intake/relationship controls and
+`#F0BBC2` blocking borders would resist a palette swap. Small future work should
+tokenise these semantic derivatives, align legacy SCSS/Bootstrap mappings, and
+handle fixed SVG/PNG artwork separately. Keep current appearance; Shopify pages
+must reuse shared components. No redesign or vendor CSS rewrite.
+
+Names remain: local `woocommerce-dashboard`, GitHub `NEprod/woocommerce-dashboard`,
+Docker `neprod/woocommerce-dashboard`, Compose service `app`/container
+`woocommerce-dashboard`, Unraid `my-woocommerce-dashboard.xml`, appdata
+`/mnt/user/appdata/woocommerce-dashboard/instance`, template/image/support/raw URLs,
+brand filenames/page titles/footer, Discord default name and branding assertions.
+No tracked CI workflow directory was found; audit any external build automation,
+Hub credentials/token repository permissions, repository webhooks, raw asset URLs
+and deployment scripts before rename. Local absolute paths may exist in external
+IDE/task/build settings; portable catalogue paths must not be rewritten to follow
+the repository directory rename.
+
+After shipping-ready Simple acceptance, approve names/availability separately:
+`tlc-dashboard`, `NEprod/tlc-dashboard`, `neprod/tlc-dashboard` are proposals only.
+First snapshot/backup source, DB and mounts; change visible branding and assertions
+in one bounded commit; rename GitHub/update remotes and external integration URLs;
+create a new approved Docker repository and publish a unique test artifact while
+retaining the old repository/tags; introduce a parallel Unraid template. Keep
+existing host appdata/catalogue/output/intake/taxonomy paths, internal container
+mounts, port, environment keys and credentials unchanged. Stop old container before
+mounting its writable DB in the replacement; never run two writers over that state.
+Rename local checkout last with tooling references updated. Test rollback against
+backup and prior image; newer schemas may prevent older-image reuse without DB
+restore. Do not rely solely on GitHub redirects or delete the previous artifacts.
+
+Eventual removal candidates: `woocommerce_connection.py`, `woo_*` publishing/
+preview/live-state/taxonomy/identity services, Woo routes/templates/JS, Woo adapter,
+credentials and platform controls. Retain `catalogue_images.py`,
+`taxonomy_assignments.py`, registry/writer, metadata resolver, scanner/markers/SKU,
+SQLite projection/operations, `utils/discord.py` and source safety. Scanner still
+emits Woo-style rows and uses `csv_writer.py`; that is shared catalogue plumbing,
+not safe to delete by filename. Capture an immutable recoverable checkpoint before
+cleanup. All listed Shopify publishing/customisation/taxonomy/order/proof/
+production/shipping/fulfillment gates must pass first. Historical Woo identity and
+operation records are not deleted without separate approval.
+
+Official contracts consulted: [InventoryItemInput](https://shopify.dev/docs/api/admin-graphql/latest/input-objects/InventoryItemInput),
+[Product input](https://shopify.dev/docs/api/admin-graphql/latest/input-objects/ProductInput),
+[variant limits](https://shopify.dev/docs/api/admin-graphql/latest/objects/ProductVariant),
+[three options](https://help.shopify.com/en/manual/products/variants/add-variants),
+[cart properties](https://shopify.dev/docs/api/ajax/reference/cart),
+[Functions plan restrictions](https://shopify.dev/docs/apps/build/functions),
+[Shipping label purchase](https://shopify.dev/docs/api/admin-graphql/latest/mutations/shippingLabelPurchase).
+These are planning contracts, not evidence of live acceptance for those features.
 
 ## Installation and configuration
 

@@ -1,5 +1,41 @@
 # Current State
 
+## TLCDashboard — Shopify-first transition and M3A live acceptance (2026-10-12)
+
+TLCDashboard is for Tender Loving Creations, with Shopify the intended permanent
+commerce platform. WooCommerce remains a working temporary fallback; no new Woo
+features, permanent switching workflow, generic plugin framework or multi-business
+scope is planned. Existing implementation and historical checkpoints below remain
+preserved. No runtime platform setting or infrastructure name was changed.
+
+User-confirmed live acceptance: Client Credentials succeeded for Shop
+`gid://shopify/Shop/103940129151`, API `2026-10`, scopes `read_products` and
+`write_products`. Simple SKU `LCBC-0001`, price £3.50, became unpublished draft
+`gid://shopify/Product/16009365160319`. Its original PNG and product were visible
+in Shopify Admin; read-only reconciliation completed with retained stage `verified`.
+This accepts core Simple creation/media/reconciliation, not complete shipping
+fields, updates, Variables/modifiers, taxonomy/navigation, personalisation, orders
+or bulk publishing. Automatic renewal over a full token lifetime was not reported.
+
+Live domain observation: `tenderlcreations.myshopify.com` failed the comparison;
+`jrg9sr-yy.myshopify.com` verified the intended Shop. M3A.2 source at `f4c121b`
+recognises authoritative shop domains and uses stable Shop identity, but that
+specific alias correction is not claimed live accepted. Keep the verified working
+domain until another explicit connection test; do not weaken identity protection.
+
+Assessment baseline: `feature/shopify-foundation`, HEAD
+`f4c121bdcf484235b804b0d69d257ef04401d856`. The existing uncommitted Unraid XML
+edit removing client fields is retained and excluded from documentation commits.
+The prior source push failed DNS resolution; a subsequent push must be verified.
+
+Next recommendation, awaiting approval: one Simple draft shipping-completeness
+milestone with reviewed updates to the retained draft, existing grams/mm values,
+explicit requires-shipping and reviewed origin default, bounded managed readback
+and recovery. No Variable publishing, taxonomy publishing, rename or scanner
+optimisation in that slice. See [assessment and sequence](SHOPIFY_INTEGRATION.md#tlcdashboard-transition-assessment-2026-10-12).
+Earlier pending-acceptance entries below are historical stage records, superseded
+only to the extent established by the live evidence above.
+
 ## Phase 4 M3A.1 — Shopify Client Credentials, live authentication acceptance pending
 
 The existing adapter now acquires expiring tokens server-side for an installed

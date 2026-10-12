@@ -1,5 +1,16 @@
 # Existing Architecture
 
+## TLC-only transition policy — 2026-10-12
+
+TLCDashboard targets Shopify permanently for Tender Loving Creations. The small
+existing adapter/configuration boundary remains implemented compatibility, not a
+mandate for a permanent dual-platform system. Do not extend switching, generic
+plugins or multi-business abstractions. Woo stays operational until an independently
+approved cleanup; retain filesystem catalogue, scanner/SKU/recovery, taxonomy,
+image ownership, operation history, logging and Discord independently of Woo.
+Remote product/media/collection/menu identities remain operational SQLite state,
+never authored JSON. See [transition assessment](SHOPIFY_INTEGRATION.md#tlcdashboard-transition-assessment-2026-10-12).
+
 ## Phase 4 M1 platform boundary
 
 `commerce.py` selects a small WooCommerce/Shopify adapter. Existing Woo publishing

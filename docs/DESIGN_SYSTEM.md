@@ -1,5 +1,17 @@
 # WooCommerce Dashboard Design System
 
+## TLCDashboard transition note — 2026-10-12
+
+TLCDashboard is the intended TLC application identity; existing visible branding
+and asset filenames remain unchanged until a reviewed migration. This established
+visual specification still governs new Shopify pages. Keep the present palette,
+layout and responsive behaviour. `app/static/assets/css/custom.css` owns runtime
+semantic tokens. A later small consolidation should tokenise remaining coloured
+overlays/focus rings/borders/shadows there and fixed logo colours separately, not
+introduce page-specific palettes or rewrite vendor styles. Preserve appearance
+before approving any new colours. SCSS/Bootstrap token mappings must stay aligned
+if the legacy stylesheet build is used.
+
 ## Status and authority
 
 This document is the permanent visual specification for WooCommerce Dashboard.

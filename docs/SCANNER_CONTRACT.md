@@ -2,6 +2,23 @@
 
 The scanner is established behaviour. It must not be modified incidentally while improving the database, UI, Woo integration, or deployment system.
 
+## TLCDashboard optimisation policy — 2026-10-12
+
+The three physical layouts are immutable: Simple Product (`Simple`), Variable
+Collection (`Variable Collection`), and Single Variable Product (`Single Variable`).
+Keep exact existing JSON locations, image ownership/names, inheritance, modifiers,
+markers, scan modes and SKU identities. No automatic metadata/registry rewrite.
+Internal optimisation may be approved for measured performance/correctness benefit
+only after scan-output, identity, modifier, image, inheritance and recovery parity
+tests establish the baseline. Preserve per-product discovery/skip/update/SKU/
+variation/warning logs and optional Discord events, not merely a terminal summary.
+
+Assessment found ingestion's full marker-tree lookup followed by shared JSON
+loading per indexed SKU (`ingest_rows_to_db`, `_source_context`) as candidates for
+an operation-local index/context cache. Do not eliminate fallback lookup or batch
+durable SKU writes without proving recovery equivalence. No implementation change
+or performance measurement is included in this assessment.
+
 ## Catalogue hierarchy
 
 ```text

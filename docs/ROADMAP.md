@@ -1,5 +1,32 @@
 # Roadmap
 
+## TLCDashboard direction — 2026-10-12
+
+Shopify is the intended permanent platform for Tender Loving Creations.
+WooCommerce is a temporary fallback, not a permanent dual-platform roadmap.
+No further Woo features or platform-switching framework; retain all working Woo
+services and data until separately approved retirement. Prior milestones below
+are historical, not rewritten by this change in direction.
+
+User live acceptance now covers one Simple unpublished draft (`LCBC-0001`),
+original PNG upload, Client Credentials and read-only verified reconciliation.
+Full product fields, existing-product updates and Variables remain unaccepted.
+
+The **single next implementation recommendation** is Simple draft shipping
+completeness plus reviewed update of the existing verified draft: reuse authored
+weight/dimensions, add optional shipping/origin contract, verify the same remote
+identity without create/reupload, retain signed review and uncertain-write safety.
+Only implement after approval. Subsequent gates: merchandising/SEO/sale fields;
+Variable options/modifiers/media; taxonomy collections/navigation; personalisation;
+orders, proofs, production; Shipping labels, fulfillment/tracking. Rename after
+the next shipping-ready Simple acceptance, before broader deployment changes.
+
+Folder structures, JSON authority, marker/SKU semantics, detailed logs and Discord
+are protected. Scanner optimisation requires evidence and baseline parity tests.
+Palette consolidation must preserve appearance. Names/repositories/appdata paths
+remain unchanged pending a controlled migration. See
+[detailed transition assessment](SHOPIFY_INTEGRATION.md#tlcdashboard-transition-assessment-2026-10-12).
+
 ### Phase 4 M3A.1 — Client Credentials authentication, live acceptance pending
 
 Focused extension of the existing adapter: optional Docker client pair, automatic
