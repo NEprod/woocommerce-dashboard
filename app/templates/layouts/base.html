@@ -2,7 +2,7 @@
 {% from 'includes/brand.html' import brand %}
 <html lang="en">
 <head>
-  <title>{% block title %}Dashboard{% endblock %} | WooCommerce Dashboard</title>
+  <title>{% block title %}Dashboard{% endblock %} | TLCDashboard</title>
   {% include 'includes/head.html' %}
   <meta name="csrf-token" content="{{ csrf_token() }}">
   {% block stylesheets %}{% endblock %}
@@ -30,7 +30,7 @@
     </div>
   </div>
   {% include 'includes/scripts.html' %}
-  <script src="{{ url_for('static', filename='assets/js/woo-live-state.js') }}" defer></script>
+  {% if (request.endpoint or '').startswith('main.woo') %}<script src="{{ url_for('static', filename='assets/js/woo-live-state.js') }}" defer></script>{% endif %}
   {% block javascripts %}{% endblock %}
 </body>
 </html>

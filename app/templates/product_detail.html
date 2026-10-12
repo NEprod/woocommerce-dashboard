@@ -2,8 +2,7 @@
 {% from 'includes/icons.html' import icon %}
 {% block title %}{{ workspace.product.title }}{% endblock %}
 {% block content %}
-{% from 'includes/woo_live_state.html' import woo_state %}
-<section class="workspace-card"><div class="workspace-card-body"><strong>WooCommerce</strong> {{ woo_state(workspace.product.id, woo_live) }} <button type="button" class="btn btn-sm btn-outline-primary" data-woo-refresh>Refresh Woo</button></div></section>
+{% include 'includes/shopify_product_state.html' %}
 {% set product = workspace.product %}
 <nav class="workspace-breadcrumb" aria-label="Breadcrumb">
   <a href="{{ url_for('main.products') }}">Catalogue</a><span aria-hidden="true">/</span><span>Products</span><span aria-hidden="true">/</span><span aria-current="page">{{ product.title }}</span>
@@ -50,8 +49,7 @@
         <div><dt>Publishing intent source</dt><dd>{{ workspace.publishing_intent.source }}</dd></div>
         <div><dt>Inheritance</dt><dd>{{ workspace.publishing_intent.inheritance }}</dd></div>
       </dl>
-      <p class="publishing-intent-note">Authored WooCommerce publishing intent. Controlled publishing uses this reviewed status; verified remote identity is reported separately from local catalogue lifecycle.</p>
-      <dl class="product-key-facts" aria-label="WooCommerce sync identity"><div><dt>Woo sync state</dt><dd>{{ workspace.woo_sync.label }}</dd></div><div><dt>Woo ID</dt><dd>{{ workspace.woo_sync.woo_id or 'Not assigned' }}</dd></div><div><dt>Current store</dt><dd>{{ workspace.woo_sync.store_host or 'Not linked' }}</dd></div><div><dt>Last successful sync</dt><dd>{{ workspace.woo_sync.last_successful_sync_at.strftime('%d %b %Y, %H:%M') if workspace.woo_sync.last_successful_sync_at else 'Never' }}</dd></div></dl>
+      <p class="publishing-intent-note">Authored intent is separate from actual Shopify status and channel publication. Live transitions require a later reviewed Online Store publication workflow.</p>
     </div>
   </article>
 
@@ -73,7 +71,7 @@
 
 <section class="workspace-card" aria-labelledby="local-taxonomy-title">
   <header class="workspace-card-header"><h2 id="local-taxonomy-title">Local taxonomy assignments</h2></header><div class="workspace-card-body">
-  <p>{{ 'Explicit variation designation — Woo publishing requires verified controlled taxonomy identities. Check Publish Preview.' if workspace.taxonomy.explicit else 'Legacy attribute interpretation preserved.' }}</p>
+  <p>{{ 'Explicit variation designation preserved. Shopify variable publishing is deferred.' if workspace.taxonomy.explicit else 'Legacy attribute interpretation preserved.' }}</p>
   {% set missing_drivers = namespace(found=false) %}
   {% for attribute in workspace.taxonomy.attributes %}{% if attribute.variation %}
     {% if not attribute.definition %}{% set missing_drivers.found = true %}{% endif %}
@@ -154,7 +152,7 @@
   data-mutual-confirm-url="{{ url_for('main.api_mutual_cross_sell_confirm') }}"
   data-csrf-token="{{ csrf_token() }}">
   <header class="workspace-card-header">
-    <div><p class="eyebrow">Local merchandising source of truth</p><h2 id="relationships-title">Product Relationships</h2><p>Choose local products now. The reviewed second publishing pass translates these stable SKUs into verified WooCommerce IDs.</p><span class="catalogue-pill is-neutral">{{ workspace.relationships.source_label }}</span>{% if workspace.relationships.source == 'legacy' %}<p class="text-muted">These values come from resolved legacy metadata. The first intentional save writes the ordered product-specific relationship contract.</p>{% endif %}</div>
+    <div><p class="eyebrow">Local merchandising source of truth</p><h2 id="relationships-title">Product Relationships</h2><p>Stable local SKU relationships are retained. Shopify relationship publication is deferred.</p><span class="catalogue-pill is-neutral">{{ workspace.relationships.source_label }}</span>{% if workspace.relationships.source == 'legacy' %}<p class="text-muted">These values come from resolved legacy metadata. The first intentional save writes the ordered product-specific relationship contract.</p>{% endif %}</div>
     <button class="btn btn-dark" type="button" data-open-relationship-picker>Add related products</button>
   </header>
   <div class="relationship-columns">

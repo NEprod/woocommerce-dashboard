@@ -1,5 +1,19 @@
 # Roadmap
 
+## Shopify-first Products — implementation complete, awaiting Unraid acceptance
+
+Normal Products/Detail now expose single-product Create/Update/No Change and retained
+Shopify evidence directly. Woo navigation/normal product controls are retired without
+mass deletion. Explicit Draft intent only; actual Live/channel transitions deferred.
+Selection queues single reviews, not batch writes. Next bounded milestone after
+LCBC-0001 acceptance: durable bounded bulk review/execution with per-product evidence,
+successful-item preservation and uncertain-item reconciliation (not blind resume).
+Then reference-safe taxonomy category impact review, Shopify collections/membership
+and separately reviewed menus using verified storefront eligibility. Empty-category
+filtering must not use local live intent alone. Variable products/modifiers/media,
+personalisation, orders/proofs/production/labels follow; final Woo cleanup and naming
+migration remain controlled later milestones, not permanent platform switching.
+
 ## M3A.5 Simple completeness — implemented, awaiting live update acceptance
 
 Reviewed create/update/No Change and complete managed Simple readback are implemented

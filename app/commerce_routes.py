@@ -118,8 +118,9 @@ def discovery():
 
 
 @commerce.route("/shopify/drafts", methods=["GET", "POST"])
+@commerce.route("/products/<int:product_id>/shopify/review", methods=["GET", "POST"])
 @login_required
-def drafts():
+def drafts(product_id=None):
     from app import db
     from app.models import Product, ShopifyProductIdentity
     from app import shopify_drafts as service
@@ -127,28 +128,34 @@ def drafts():
     if not current_user.is_admin:
         abort(403)
     form = FlaskForm()
+    scoped_product = db.session.get(Product, product_id) if product_id else None
+    if product_id and not scoped_product:
+        abort(404)
     plan, token, error = None, None, None
     if request.method == "POST":
         if not form.validate_on_submit():
             abort(400)
         try:
             if request.form.get("action") == "preview":
-                product = db.session.get(Product, request.form.get("product_id", type=int))
+                product = scoped_product or db.session.get(Product, request.form.get("product_id", type=int))
                 if not product:
                     abort(404)
                 plan, token = service.preview(product)
             elif request.form.get("action") == "confirm":
-                row = service.confirm(request.form.get("review", ""), request.form.get("acknowledge") == "yes")
+                row = service.confirm(request.form.get("review", ""), request.form.get("acknowledge") == "yes", expected_product_id=product_id)
                 return redirect(url_for("commerce.draft_identity", identity_id=row.id))
             else:
                 abort(400)
         except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
             error = str(exc)
     products = Product.query.filter_by(product_type="simple", catalogue_status="active").order_by(Product.title).limit(500).all()
-    identities = ShopifyProductIdentity.query.order_by(ShopifyProductIdentity.updated_at.desc()).limit(30).all()
+    identities_query = ShopifyProductIdentity.query
+    if scoped_product:
+        identities_query = identities_query.filter_by(product_id=product_id)
+    identities = identities_query.order_by(ShopifyProductIdentity.updated_at.desc()).limit(30).all()
     return render_template("shopify_drafts.html", form=form, plan=plan, token=token, error=error,
-        products=products, identities=identities,
-        selected_id=request.form.get("product_id", type=int) or request.args.get("product_id", type=int)), 400 if error else 200, {"Cache-Control": "no-store"}
+        products=products, identities=identities, scoped_product=scoped_product,
+        selected_id=product_id or request.form.get("product_id", type=int) or request.args.get("product_id", type=int)), 400 if error else 200, {"Cache-Control": "no-store"}
 
 
 @commerce.route("/shopify/drafts/identity/<int:identity_id>", methods=["GET", "POST"])

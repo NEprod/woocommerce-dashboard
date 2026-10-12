@@ -60,13 +60,14 @@ SIMPLE_QUERY = """query SimpleRead($id: ID!, $namespace: String!) {
  measurement { weight { value unit } } } } pageInfo { hasNextPage endCursor } }
  } }"""
 COUNTRIES_QUERY = 'query SupportedCountries { __type(name: "CountryCode") { enumValues { name } } }'
+SKU_QUERY = 'query ExistingSku($query: String!) { productVariants(first: 2, query: $query) { nodes { id sku product { id } } pageInfo { hasNextPage endCursor } } }'
 UPDATE_QUERY = """mutation SimpleUpdate($product: ProductUpdateInput!) {
  productUpdate(product: $product) { product { id handle } userErrors { field message } } }"""
 FILES_QUERY = """mutation SimpleAlt($files: [FileUpdateInput!]!) {
  fileUpdate(files: $files) { files { id alt } userErrors { field message } } }"""
 ORDER_QUERY = """mutation SimpleOrder($id: ID!, $moves: [MoveInput!]!) {
  productReorderMedia(id: $id, moves: $moves) { job { id } mediaUserErrors { field message } } }"""
-READ_QUERIES = READ_QUERIES | frozenset((SIMPLE_QUERY, COUNTRIES_QUERY))
+READ_QUERIES = READ_QUERIES | frozenset((SIMPLE_QUERY, COUNTRIES_QUERY, SKU_QUERY))
 WRITE_QUERIES = WRITE_QUERIES | frozenset((UPDATE_QUERY, FILES_QUERY, ORDER_QUERY))
 
 
@@ -357,6 +358,11 @@ class ShopifyAdapter:
         if not isinstance(handle, str) or len(handle) > 255 or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", handle):
             raise ShopifyError("Invalid draft recovery handle.")
         return _connection(self._read(configuration, FIND_DRAFT_QUERY, {"query": "handle:" + handle}).get("products"))
+
+    def find_sku(self, configuration, sku):
+        if not isinstance(sku, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", sku):
+            raise ShopifyError("SKU is not safe for exact duplicate discovery. Review the local identity.")
+        return _connection(self._read(configuration, SKU_QUERY, {"query": 'sku:"' + sku + '"'}).get("productVariants"))
 
     def upload_image(self, configuration, target, image, content):
         """Upload only to a validated staged target, without the Admin API token."""

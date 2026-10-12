@@ -247,6 +247,8 @@ def test_token_rotation_during_review_preserves_full_draft_safety(world, monkeyp
             elif query == connection.STAGE_QUERY:
                 images = [dict(filename=i["filename"], mime=i["mimeType"], size=int(i["fileSize"])) for i in variables["input"]]
                 data = fake.stage_images(settings, images)
+            elif query == connection.SKU_QUERY:
+                data = {"productVariants": fake.find_sku(settings, product.sku)}
             elif query == connection.CREATE_QUERY:
                 data = fake.create_draft(settings, variables["product"], variables["media"])
             elif query == connection.PRICE_QUERY:

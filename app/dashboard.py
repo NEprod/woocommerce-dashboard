@@ -217,6 +217,7 @@ def build_dashboard_data():
             joinedload(Product.collection),
             selectinload(Product.assets),
             selectinload(Product.images),
+            selectinload(Product.tags),
             selectinload(Product.variations).selectinload(Variation.assets),
             selectinload(Product.variations).selectinload(Variation.images),
             selectinload(Product.variations).selectinload(Variation.attributes),
@@ -269,12 +270,13 @@ def build_dashboard_data():
         ),
     }
 
-    from app.woo_sync_workspace import overview, product_status
-    woo = overview()
+    from app.shopify_products import states_for
+    recent_shopify = states_for([row[0] for row in product_rows])
     for product in recent_products:
-        product["woo_label"] = product_status(product["id"])
+        product["shopify"] = recent_shopify[product["id"]]
+        product["publishing_intent"] = projected_publishing_intent(product["shopify"]["intent_value"])
+        product["publishing_intent"]["compact_label"] = product["shopify"]["intent"]
     return {
-        "woo": woo,
         "generated_at": datetime.now(UTC),
         "summary": summary,
         "health": {

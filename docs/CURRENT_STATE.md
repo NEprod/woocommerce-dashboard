@@ -1,5 +1,36 @@
 # Current State
 
+## Shopify-first Products workspace — implemented, live acceptance pending
+
+Accepted Shopify checkpoints were fast-forward integrated onto `develop`; no main
+merge or data migration. Normal Products, Product Detail, Dashboard and shared
+desktop/mobile navigation now surface Shopify rather than Woo operational controls.
+Products retains grouping, thumbnails, metadata/override editors and targeted scan
+handoffs. `/products/<id>/shopify/review` reuses the existing signed Simple
+Create/Update/No Change flow; verified identities enter Update, uncertain attempts
+remain blocked until explicit read-only reconciliation. No second publisher.
+
+Initial pages make no commerce requests: retained state is timestamped last-known
+evidence. New verified plans include a bounded local metadata/image-stat fingerprint;
+local changes yield Update Available. Legacy evidence without this baseline remains
+Verification Unavailable, never backfilled as No Change. Preview still hashes original
+bytes and verifies current remote identity/fields; list evidence is not authorization.
+No retained identity means remote existence is unknown. Create now also performs
+bounded SKU-candidate discovery at review and confirmation, blocking candidates or
+incomplete results rather than auto-linking.
+
+Authored/resolved `live` must be an explicit boolean. Draft (`false`) is supported;
+Live (`true`) transitions are blocked pending exact Online Store publication review,
+scopes and independent verification. Actual channel publication is not inferred from
+Active, Draft or local intent. Selection queues individual reviews only; durable bulk
+execution, Variable publishing, taxonomy/menu writes and destructive media changes
+remain deferred. Mobile cards wrap actions and reserve fixed-navigation clearance.
+
+Scanner/SKU/JSON/marker/customisation/Discord contracts and original images remain
+unchanged. Woo-only code/history/settings are retained for controlled later cleanup,
+not permanent platform switching. The user-owned Unraid XML edit stays uncommitted.
+Manual LCBC-0001 update acceptance remains required; no live writes were automated.
+
 ## M3A.5 — managed Simple drafts/updates, live acceptance pending
 
 The existing Shopify Preview/Confirm now supports reviewed updates by retained

@@ -1,5 +1,59 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## Shopify-first Products workspace
+
+Open **Products**, find LCBC-0001, then **Review Shopify Changes** (also on Product
+Detail). The product-scoped workspace uses the existing publisher, not another
+catalogue: build its read-only Preview, review Update/No Change, and confirm once only
+when changes are supported. Retained verified identities never enter Create. Identity
+/ Refresh opens the existing read-only reconciliation and retained operation evidence;
+uncertain writes stay blocked. First creation checks remote SKU candidates through
+bounded [Shopify productVariants discovery](https://shopify.dev/docs/api/admin-graphql/2026-10/queries/productVariants)
+at review and confirmation; candidates are not silently adopted.
+
+List/Detail/Dashboard GETs do not contact Shopify. No Change there is explicitly the
+last verified managed state with matching local metadata/image stats, not a claim
+that remote state was just checked. Preview still hashes bytes and reads current
+remote fields. Source fingerprints live only in existing versioned bounded operation
+evidence; legacy records without that baseline display Verification Unavailable with
+their retained identity and timestamp. No migration/backfill or authored rewrite.
+
+`live: false` is required for draft writes. `live: true` is displayed as Live intended,
+but blocked until reviewed Online Store channel publication is implemented; missing
+or invalid intent must be resolved in the existing collection/override editor. Do not
+change a genuinely intended Live product to Draft merely to bypass this limitation.
+Shopify status and channel publication are separate; publication remains Not verified.
+
+Selection (individual, collection's visible products or eligible page products)
+prepares individual review links only. It does not authorize or execute a batch.
+Variable publishing, collections/navigation, actual Live transitions and storefront
+customisation remain deferred. Existing M3A.5 fields/media limitations below apply.
+
+### Unraid acceptance from normal Products
+
+1. Back up persistent appdata/database and use the new commit-specific test image,
+   preserving every existing volume/environment value. No migration is added here.
+2. Test Shopify connection with the installed app's existing `read_products` and
+   `write_products` scopes; add `write_files` only for reviewed alt-text changes.
+3. Open Products → LCBC-0001 → View Product. Confirm retained Product ID
+   `gid://shopify/Product/16009365160319`; legacy evidence may require Review for
+   current comparison. Inspect authored/inherited live intent, shipping and metadata.
+4. If intended Draft, ensure the resolved authored `live` is explicitly false through
+   the established editor. Save only intentional edits; let targeted rescan complete.
+5. Review Shopify Changes → Build read-only Preview. Expect Update or No Change,
+   never Create for the retained verified product. Resolve recovery via Identity first.
+6. Review changed/matching/unsupported fields and media actions; explicitly confirm
+   a supported Update once. No Change needs no write. Do not retry uncertain writes.
+7. Verify the same product ID in Shopify Admin, shipping/SEO/pricing/dimensions and
+   original media IDs/URLs. Use Identity / Refresh for processing or recovery.
+8. Return to Products and build fresh Review: expect No Change after successful
+   complete readback. Check mobile action visibility and selection-only review queue.
+   Report discrepancies before bulk or collection publishing proceeds.
+
+The operational fingerprint reuses the Simple publisher's supported field mapping;
+changes only to deferred customisation/category metadata do not falsely imply a
+publishable Update. Such definitions remain visible locally and unsupported in Review.
+
 ## M3A.5 — complete managed Simple drafts and reviewed updates
 
 Implemented, mocked-test verified; **live update acceptance pending**. The original

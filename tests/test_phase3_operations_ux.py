@@ -98,10 +98,11 @@ def test_taxonomy_load_is_automatic_readonly_preview_and_manual_refresh_remains(
 
 
 def test_navigation_uses_same_groups_and_nested_active_state(preview_app):
-    page = _client(preview_app).get("/woo-sync")
-    for name in [b'Catalogue', b'WooCommerce', b'Operations', b'System']:
+    page = _client(preview_app).get("/products")
+    for name in [b'Catalogue', b'Shopify', b'Operations', b'System']:
         assert page.data.count(b'data-navigation-group="' + name + b'"') == 2
-    assert page.data.count(b'href="/woo-sync" aria-current="page"') == 2
+    assert page.data.count(b'href="/products" aria-current="page"') >= 2
+    assert b'href="/woo-sync"' not in page.data
 
 
 def test_unavailable_taxonomy_does_not_loop_automatic_preview(preview_app, monkeypatch):

@@ -994,12 +994,14 @@ def product_detail(product_id):
         .filter_by(id=product_id)
         .first_or_404()
     )
-    from app.woo_live_state import product_state
-    from app.commerce_config import active_platform
-    from app.woo_live_state import _view
-    woo_live = product_state(product) if active_platform() == "woocommerce" else _view(
-        "unknown", message="Shopify product sync is not implemented.", refresh=False)
-    return render_template("product_detail.html", workspace=product_workspace(product), woo_live=woo_live)
+    from app.shopify_products import states_for
+    shopify = states_for([product])[product.id]
+    workspace = product_workspace(product)
+    from app.publishing import projected_publishing_intent
+    workspace["publishing_intent"].update(projected_publishing_intent(shopify["intent_value"]))
+    if shopify["intent_value"] is None:
+        workspace["publishing_intent"].update(source="Not authored or invalid", inheritance="Resolution required")
+    return render_template("product_detail.html", workspace=workspace, shopify=shopify)
 
 
 def _relationship_payload():

@@ -20,6 +20,9 @@ from test_shopify_foundation import TOKEN, Session, Response, isolated_transport
 
 
 class FakeDraftAdapter:
+    def find_sku(self, config, sku):
+        return {"nodes": [], "pageInfo": {"hasNextPage": False}}
+
     def __init__(self, failure=None, processing=False):
         self.failure, self.processing, self.calls, self.remote = failure, processing, [], None
 
@@ -107,7 +110,7 @@ def world(preview_app, monkeypatch):
         folder = root / product.source_relpath
         folder.mkdir(parents=True)
         shared = folder.parent / "product_info.json"
-        shared.write_text(json.dumps({"collection_type": "Simple", "price": "3.50", "description": "Reviewed description", "variation_attributes": []}))
+        shared.write_text(json.dumps({"collection_type": "Simple", "price": "3.50", "description": "Reviewed description", "variation_attributes": [], "live": False}))
         product.images.clear()
         for i, (name, fmt) in enumerate([("original.png", "PNG"), ("second.jpg", "JPEG")]):
             Image.new("RGB", (5, 5), "red").save(folder / name, format=fmt)
@@ -144,7 +147,7 @@ def test_complete_draft_and_media_verified_without_local_changes(world):
     assert db.session.get(CatalogueOperation, row.operation_id).status == "succeeded"
     assert before == (shared.read_bytes(), [(p.name, p.read_bytes()) for p in folder.iterdir()])
     assert product.sku == "CREATE-1" and product.woo_id is None
-    with pytest.raises(ShopifyError, match="reserved"):
+    with pytest.raises(ShopifyError, match="no duplicate creation"):
         drafts.confirm(token, True, adapter)
     assert adapter.calls.count("product_create") == 1
 
@@ -186,7 +189,7 @@ def test_stale_source_or_image_refuses_writes(world, change):
     product, folder, shared = world
     adapter = FakeDraftAdapter()
     _, token = drafts.preview(product, adapter)
-    if change == "metadata": shared.write_text(json.dumps({"collection_type": "Simple", "price": "4.00"}))
+    if change == "metadata": shared.write_text(json.dumps({"collection_type": "Simple", "price": "4.00", "live": False}))
     else: Image.new("RGB", (6, 6), "blue").save(folder / "original.png")
     with pytest.raises(ShopifyError, match="changed"):
         drafts.confirm(token, True, adapter)

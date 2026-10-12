@@ -495,7 +495,7 @@ code { color: var(--color-lime-ink); font-family: var(--font-mono); }
   .app-utility-header { min-height: 60px; justify-content: space-between; padding: 0 var(--space-5); }
   .app-mobile-brand { display: flex; }
   .app-account-summary > span { display: none; }
-  .app-main { padding: var(--space-7) var(--space-5); }
+  .app-main { padding: var(--space-7) var(--space-5); padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
   .page-header, .app-footer-content { align-items: flex-start; flex-direction: column; }
   .mobile-bottom-nav { position: fixed; right: var(--space-3); bottom: calc(var(--space-3) + env(safe-area-inset-bottom)); left: var(--space-3); z-index: 1035; display: grid; grid-template-columns: repeat(5, 1fr); padding: var(--space-3); border: var(--border-dark); border-radius: var(--radius-mobile-nav); background: var(--color-surface-dark); box-shadow: var(--shadow-modal); }
   .mobile-primary-link { display: flex; min-width: 0; min-height: 54px; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); padding: 0 var(--space-2); border: 0; border-radius: var(--radius-card-small); background: transparent; color: rgba(248,250,248,.72); font: inherit; font-size: 10px; font-weight: 650; text-decoration: none; }
@@ -561,6 +561,9 @@ code { color: var(--color-lime-ink); font-family: var(--font-mono); }
   .product-mobile-facts > div { min-width: 0; }
   .product-mobile-facts dt { margin-bottom: var(--space-2); color: var(--color-text-muted); font-size: 10px; }
   .product-mobile-facts dd { min-width: 0; margin: 0; }
+  .product-mobile-facts dd, .product-mobile-card .product-actions { overflow-wrap: anywhere; }
+  .product-mobile-card .product-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .product-mobile-card .product-actions .btn { white-space: normal; max-width: 100%; }
   .variation-toggle.is-mobile { width: 100%; min-height: 44px; margin-bottom: var(--space-4); }
   .product-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); justify-content: stretch; }
   .product-actions .btn { min-height: 44px; white-space: normal; }

@@ -1,0 +1,7 @@
+<section class="workspace-card" aria-label="Shopify product state"><div class="workspace-card-body">
+<h2>Shopify</h2><span class="catalogue-pill is-neutral">{{ shopify.label }}</span>
+<dl class="product-key-facts"><div><dt>Intended state</dt><dd>{{ shopify.intent }}</dd></div><div><dt>Actual status</dt><dd>{{ shopify.remote_status }}</dd></div><div><dt>Online Store publication</dt><dd>{{ shopify.publication }}</dd></div><div><dt>Retained product ID</dt><dd class="text-break">{{ shopify.remote_id or 'Not retained — remote existence unknown' }}</dd></div><div><dt>Last successful verification (UTC)</dt><dd>{{ shopify.verified_at or 'Never' }}</dd></div></dl>
+<p>{{ shopify.message }}</p><div class="page-actions">
+{% if shopify.review_url %}<a class="btn btn-primary" href="{{ shopify.review_url }}">Review Shopify Changes</a>{% endif %}
+{% if shopify.identity_url %}<a class="btn btn-outline-primary" href="{{ shopify.identity_url }}">Identity, history &amp; read-only refresh</a>{% endif %}
+</div></div></section>

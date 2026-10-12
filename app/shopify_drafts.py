@@ -93,6 +93,10 @@ def local_plan(product):
     if not product.source_relpath or not snapshot.sku:
         raise ShopifyError("Stable scanned source identity and SKU are required.")
     authored = snapshot.data["authored"]
+    if not isinstance(authored.get("live"), bool):
+        raise ShopifyError("Resolve the authored live field to true or false through collection metadata or product override before publishing.")
+    if authored["live"]:
+        raise ShopifyError("Live intent requires verified Online Store channel publication, which is deferred. This workflow supports explicit live: false drafts only; no publication change was made.")
     title = authored.get("title") or snapshot.data["title"]
     body = authored.get("description", snapshot.data["description"]) or ""
     if not isinstance(title, str) or not title.strip() or len(title) > 255 or not isinstance(body, str) or len(body) > 8000:
@@ -122,6 +126,8 @@ def local_plan(product):
     plan["price"] = plan["managed"]["variant"]["price"]
     plan["unsupported"] = ["Standard categories and collections", "Customer-facing customisation",
         "Inventory quantities/tracking/locations", "Media replacement, addition or removal on existing drafts"]
+    from app.shopify_products import source_fingerprint
+    plan["workspace_source_fingerprint"] = source_fingerprint(product, images)
     # Include resolved source/projection, not just the emitted subset, in freshness.
     plan["digest"] = digest({"plan": plan, "snapshot": dict(snapshot.data)})
     return plan
@@ -146,6 +152,12 @@ def matching_identity(store_id, product):
     return rows[0] if rows else None
 
 
+def require_absent_sku(adapter, config, sku):
+    matches = adapter.find_sku(config, sku)
+    if matches["nodes"] or matches["pageInfo"].get("hasNextPage"):
+        raise ShopifyError("A Shopify SKU candidate already exists or discovery is incomplete. Another create is blocked; inspect and reconcile identities, never auto-adopt.")
+
+
 def preview(product, adapter=None):
     plan = local_plan(product)
     config = configuration()
@@ -162,6 +174,7 @@ def preview(product, adapter=None):
         if row.state != "verified" or row.verification_state != "verified":
             raise ShopifyError(f"Recovery required for Shopify identity {row.id} ({row.state}). Reconcile its retained operation before any write; another create is blocked.")
         return update_preview(product, row, plan, config, shop, adapter)
+    require_absent_sku(adapter, config, plan["sku"])
     plan.update(store_key=store_key, store_id=shop["shop_id"], domain=config.domain,
                 config_digest=config.fingerprint(),
                 nonce=uuid.uuid4().hex)
@@ -197,13 +210,15 @@ def payload_result(data, name):
     return payload
 
 
-def confirm(token, acknowledged, adapter=None):
+def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
     if not acknowledged:
         raise ShopifyError("Explicit draft creation acknowledgement is required.")
     try:
         reviewed = serializer().loads(token, max_age=900)
     except BadSignature:
         raise ShopifyError("Draft Preview expired or is invalid. Generate a fresh Preview.") from None
+    if expected_product_id is not None and reviewed.get("product_id") != expected_product_id:
+        raise ShopifyError("Reviewed product does not match this Products workspace. Open its own review; no write occurred.")
     if reviewed.get("mode") == "update":
         return confirm_update(reviewed, adapter)
     product = db.session.get(Product, reviewed["product_id"])
@@ -230,6 +245,7 @@ def confirm(token, acknowledged, adapter=None):
         row = matching_identity(plan["store_id"], product)
         if row and row.state != "failed_before_create":
             raise ShopifyError("A prior Shopify attempt exists. Reconcile its identity; no duplicate creation is allowed.")
+        require_absent_sku(adapter, config, plan["sku"])
         data = {"version": 1, "plan": plan, "stage": "pending", "create_attempted": False, "media": []}
         if row is None:
             row = ShopifyProductIdentity(product_id=product.id, source_identity=plan["source_identity"], sku=plan["sku"],
@@ -240,10 +256,11 @@ def confirm(token, acknowledged, adapter=None):
         else:
             row.operation_id, row.reviewed_digest, row.verification_state = lease.id, plan["digest"], "unverified"
         save(row, data, "pending")  # Durable uniqueness reservation BEFORE any mutation.
-    except Exception:
+    except Exception as exc:
         db.session.rollback()
-        finish_catalogue_operation(lease.id, status="failed", error="Shopify identity is reserved by a prior attempt.")
-        raise ShopifyError("Shopify identity is reserved. Review its retained attempt before creating another draft.") from None
+        message = str(exc) if isinstance(exc, ShopifyError) else "Shopify identity is reserved. Review its retained attempt before creating another draft."
+        finish_catalogue_operation(lease.id, status="failed", error=message)
+        raise ShopifyError(message) from None
     try:
         data["stage"] = "staged_uploads"
         save(row, data)

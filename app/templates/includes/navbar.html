@@ -1,14 +1,11 @@
 {% from 'includes/icons.html' import icon %}
 {% from 'includes/brand.html' import brand %}
 {% set groups = [
- ('Catalogue', [('Products','main.products','box',['main.products','main.edit_products','main.product_edit','main.product_detail']),('Collections','main.collections','collection',['main.collections','main.collection_detail','main.collection_metadata_edit']),('Relationships','main.relationships','link',['main.relationships']),('Catalogue Intake','main.image_preparation','folder',['main.image_preparation'])]),
- ('WooCommerce', [('Product Sync','main.woo_sync','box',['main.woo_sync','main.woocommerce_preview','main.woocommerce_link_candidate','main.woocommerce_unlink','main.woocommerce_publish']),('Taxonomy','taxonomy.index','book',['taxonomy.']),('Integration Health','main.woocommerce','plug',['main.woocommerce','main.woocommerce_test'])]),
+ ('Catalogue', [('Products','main.products','box',['main.products','main.edit_products','main.product_edit','main.product_detail','commerce.drafts','commerce.draft_identity']),('Collections','main.collections','collection',['main.collections','main.collection_detail','main.collection_metadata_edit']),('Relationships','main.relationships','link',['main.relationships']),('Catalogue Intake','main.image_preparation','folder',['main.image_preparation'])]),
+ ('Shopify', [('Connection','commerce.settings','plug',['commerce.settings']),('Discovery','commerce.discovery','search',['commerce.discovery']),('Local Taxonomy','taxonomy.index','book',['taxonomy.'])]),
  ('Operations', [('Scanner','main.scanner','scanner',['main.scanner','main.initial_scan_page']),('Operations','main.operations','history',['main.operations','main.operation_detail'])]),
  ('System', [('Metadata Reference','main.metadata_reference','book',['main.metadata_reference']),('Settings','main.settings','settings',['main.settings'])])
 ] %}
-{% if commerce_platform == 'shopify' %}
-{% set groups = [groups[0], ('Shopify', [('Connection','commerce.settings','plug',['commerce.settings']),('Discovery','commerce.discovery','search',['commerce.discovery']),('Local Taxonomy','taxonomy.index','book',['taxonomy.'])]), groups[2], groups[3]] %}
-{% endif %}
 {% macro destination(item) %}
 {% set active = namespace(value=false) %}{% for prefix in item[3] %}{% if request.endpoint == prefix or (prefix in ['taxonomy.','main.relationships','main.image_preparation','main.woocommerce_preview','main.woocommerce_link_candidate','main.woocommerce_unlink','main.woocommerce_publish'] and (request.endpoint or '').startswith(prefix)) %}{% set active.value = true %}{% endif %}{% endfor %}
 <a class="sidebar-link sidebar-child {{ 'is-active' if active.value }}" href="{{ url_for(item[1]) }}"{% if active.value %} aria-current="page"{% endif %} title="{{ item[0] }}">{{ icon(item[2]) }}<span class="sidebar-label">{{ item[0] }}</span></a>
@@ -25,7 +22,7 @@
  <button class="sidebar-collapse" type="button" data-sidebar-toggle aria-expanded="true" aria-label="Collapse navigation">{{ icon('chevron') }}<span class="sidebar-label">Collapse</span></button>
 </aside>
 <nav class="mobile-bottom-nav" aria-label="Mobile primary navigation">
-{% for label, endpoint, glyph, prefixes in [('Dashboard','main.dashboard','dashboard',['main.dashboard']),('Products','main.products','box',['main.products','main.product_detail','main.edit_products','main.product_edit']),('Scanner','main.scanner','scanner',['main.scanner','main.initial_scan_page']),('Operations','main.operations','history',['main.operations','main.operation_detail'])] %}
+{% for label, endpoint, glyph, prefixes in [('Dashboard','main.dashboard','dashboard',['main.dashboard']),('Products','main.products','box',['main.products','main.product_detail','main.edit_products','main.product_edit','commerce.drafts','commerce.draft_identity']),('Scanner','main.scanner','scanner',['main.scanner','main.initial_scan_page']),('Operations','main.operations','history',['main.operations','main.operation_detail'])] %}
 <a class="mobile-primary-link {{ 'is-active' if request.endpoint in prefixes }}" href="{{ url_for(endpoint) }}"{% if request.endpoint in prefixes %} aria-current="page"{% endif %}>{{ icon(glyph) }}<span>{{ label }}</span></a>{% endfor %}
 <button class="mobile-primary-link" type="button" data-bs-toggle="offcanvas" data-bs-target="#appNavigation" aria-controls="appNavigation" aria-expanded="false" aria-label="Open more navigation">{{ icon('menu') }}<span>More</span></button>
 </nav>

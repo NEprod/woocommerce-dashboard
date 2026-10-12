@@ -155,8 +155,7 @@ def _asset_presence(assets, label):
     return any(asset.kind == "info" and asset.label == label for asset in assets)
 
 
-def _product_view(product, variation_count, minimum_price, maximum_price):
-    from app.woo_sync_workspace import product_status, overview
+def _product_view(product, variation_count, minimum_price, maximum_price, shopify):
     assets = list(product.assets)
     shared_present = _asset_presence(assets, "shared")
     override_present = _asset_presence(assets, "override")
@@ -168,11 +167,11 @@ def _product_view(product, variation_count, minimum_price, maximum_price):
 
     edit_label = "override" if override_present else "shared" if shared_present else None
     thumbnail = product_thumbnail_url(product)
-    publishing_intent = projected_publishing_intent(product.published)
+    publishing_intent = projected_publishing_intent(shopify["intent_value"])
+    publishing_intent["compact_label"] = shopify["intent"]
 
     row = {
-        "woo_state_label": product_status(product.id),
-        "woo_live": overview()["by_id"].get(product.id, {}).get("live"),
+        "shopify": shopify,
         "id": product.id,
         "sku": product.sku or "",
         "title": product.title or "Untitled product",
@@ -278,6 +277,7 @@ def build_products_data(filters):
             joinedload(Product.collection),
             selectinload(Product.assets),
             selectinload(Product.images),
+            selectinload(Product.tags),
             selectinload(Product.variations).selectinload(Variation.assets),
             selectinload(Product.variations).selectinload(Variation.images),
             selectinload(Product.variations).selectinload(Variation.attributes),
@@ -353,8 +353,10 @@ def build_products_data(filters):
     groups = []
     group_lookup = {}
     flat_items = []
+    from app.shopify_products import states_for
+    shopify = states_for([row[0] for row in rows])
     for product, count, minimum, maximum in rows:
-        item = _product_view(product, count, minimum, maximum)
+        item = _product_view(product, count, minimum, maximum, shopify[product.id])
         flat_items.append(item)
         key = product.collection_id
         if key not in group_lookup:

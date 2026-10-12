@@ -6,9 +6,10 @@
   <div>
     <p class="eyebrow">Catalogue</p>
     <h1 class="page-title">Products</h1>
-    <p class="page-lede">Browse the local scanner projection by collection, then review product identity and metadata.</p>
+    <p class="page-lede">Edit local metadata by collection, then review Shopify changes. Retained Shopify status is last-known evidence; Review or Identity / Refresh performs bounded remote checks.</p>
   </div>
 </header>
+<p class="panel-note">One Simple product per confirmed operation. Variable and bulk publishing are deferred; no batch write is available.</p>
 
 <section class="products-summary" aria-label="Catalogue summary" data-products-summary>
   {% for key, icon_name, label in [
@@ -94,6 +95,13 @@
     <a class="btn btn-outline-primary" href="{{ url_for('main.products') }}">Clear filters</a>
   </div>
   <div class="products-groups" data-products-groups></div>
+  <section class="workspace-card workspace-card-body" aria-label="Shopify review selection">
+    <h2>Selected Shopify reviews <span data-shopify-selection-count>0</span></h2>
+    <p>Selection prepares individual reviews only. Each product requires its own Preview and confirmation; bulk execution is not implemented.</p>
+    <button class="btn btn-outline-primary" type="button" data-shopify-select-visible>Select eligible products on this page</button>
+    <button class="btn btn-ghost" type="button" data-shopify-clear-selection>Clear selection</button>
+    <div class="page-actions" data-shopify-review-queue aria-live="polite"></div>
+  </section>
   <nav class="products-pagination" data-products-pagination aria-label="Product catalogue pages" hidden></nav>
 </section>
 

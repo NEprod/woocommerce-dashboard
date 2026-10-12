@@ -1,5 +1,31 @@
 # Existing Architecture
 
+## Shopify-first normal Products presentation
+
+`shopify_products.py` adapts local Shopify identity/evidence for the existing paged
+Products browser and detail/dashboard views. Identity reads are batched; page GETs
+never perform remote discovery. A local metadata/authorized image-stat fingerprint
+is carried in existing versioned, bounded reviewed-plan evidence, not source JSON.
+It detects local changes without rehashing every image during list rendering.
+Signed Preview still hashes bytes and independently reads Shopify; operational
+badges are timestamped last-known evidence, not a reviewed write authorization.
+
+Scoped `/products/<id>/shopify/review` calls the existing Simple publisher and uses
+the same CSRF/administrator/signed expiry, SQLite reservations, operation lock and
+readback/reconciliation protections. Missing identity is not proof of remote absence;
+bounded SKU-candidate reads block new creates when remote candidates exist.
+Live transitions and bulk execution remain unsupported, not implicitly authorized.
+
+Woo-only publishing/live-state/identity/taxonomy-sync/client services, their legacy
+routes/templates/tests, environment settings and historical SQLite evidence remain
+temporarily for rollback. Normal navigation and Products no longer expose them.
+Do not delete shared metadata_workspace, catalogue_images, taxonomy_assignments,
+taxonomy registry/writer, catalogue snapshots, publishing-intent helpers, operation
+control/history, scanner/SKU/import utilities, atomic writers or Discord delivery
+merely because they currently import or coexist with Woo-named code. Retire those
+dependencies through a separate reviewed cleanup after the Shopify replacement
+workflows are live accepted. Historical records must not be silently deleted.
+
 ## TLC-only transition policy — 2026-10-12
 
 TLCDashboard targets Shopify permanently for Tender Loving Creations. The small

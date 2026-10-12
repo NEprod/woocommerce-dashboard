@@ -14,6 +14,28 @@
   const paginationTarget = browser.querySelector("[data-products-pagination]");
   const currentParams = new URLSearchParams(window.location.search);
   let pickerState = { selectedRel: "" };
+  const selectedReviews = new Map();
+  let visibleProducts = [];
+
+  function renderSelection() {
+    browser.querySelector("[data-shopify-selection-count]").textContent = selectedReviews.size;
+    const queue = browser.querySelector("[data-shopify-review-queue]");
+    queue.replaceChildren();
+    selectedReviews.forEach(function (product) {
+      const link = text("a", "btn btn-sm btn-outline-primary", `Review ${product.sku}`);
+      link.href = product.shopify.review_url;
+      queue.appendChild(link);
+    });
+    browser.querySelectorAll("[data-shopify-select]").forEach(function (input) {
+      input.checked = selectedReviews.has(Number(input.dataset.shopifySelect));
+    });
+  }
+
+  function selectReview(product, selected) {
+    if (selected) selectedReviews.set(product.id, product);
+    else selectedReviews.delete(product.id);
+    renderSelection();
+  }
 
   function text(tag, className, value) {
     const node = document.createElement(tag);
@@ -22,21 +44,14 @@
     return node;
   }
 
-  function wooState(product) {
+  function shopifyState(product) {
     const node = document.createElement("span");
-    const label = pill(product.woo_state_label || "Unknown / not checked", "neutral");
-    label.setAttribute("data-woo-label", "");
+    const state = product.shopify || {};
+    const label = pill(state.label || "Not yet verified", "neutral");
     node.appendChild(label);
-    if (product.woo_live) {
-      const note = text("small", "", product.woo_live.message || "");
-      note.setAttribute("data-woo-note", "");
-      node.appendChild(note);
-    }
-    if (product.catalogue_status === "active") {
-      node.setAttribute("data-woo-product", String(product.id));
-      node.setAttribute("data-woo-state", product.woo_live ? product.woo_live.state : "unknown");
-      node.setAttribute("data-woo-needs-refresh", product.woo_live && !product.woo_live.needs_refresh ? "0" : "1");
-    }
+    node.appendChild(text("small", "", state.intent || "Unresolved intent"));
+    node.appendChild(text("small", "", state.remote_status || "Remote status unknown"));
+    node.appendChild(text("small", "", state.verified_at ? `Last verified ${formatDate(state.verified_at)}` : "No verification retained"));
     return node;
   }
 
@@ -106,6 +121,25 @@
   function metadataActions(product) {
     const actions = document.createElement("div");
     actions.className = "product-actions";
+    if (product.shopify && product.shopify.review_url) {
+      visibleProducts.push(product);
+      const selection = text("label", "check-row", "Select for review ");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.shopifySelect = product.id;
+      input.checked = selectedReviews.has(product.id);
+      input.addEventListener("change", function () { selectReview(product, input.checked); });
+      selection.appendChild(input);
+      actions.appendChild(selection);
+      const review = text("a", "btn btn-sm btn-primary", "Review Shopify Changes");
+      review.href = product.shopify.review_url;
+      actions.appendChild(review);
+    }
+    if (product.shopify && product.shopify.identity_url) {
+      const identity = text("a", "btn btn-sm btn-outline-primary", "Shopify Identity / Refresh");
+      identity.href = product.shopify.identity_url;
+      actions.appendChild(identity);
+    }
     if (product.view_url) {
       const view = text("a", "btn btn-sm btn-outline-primary", "View Product");
       view.href = product.view_url;
@@ -181,7 +215,7 @@
     stateCell.className = "product-state-stack";
     stateCell.appendChild(pill(product.catalogue_status === "missing" ? "Missing" : "Active", product.catalogue_status));
     stateCell.appendChild(pill(product.publishing_intent_label, `intent-${product.publishing_intent}`));
-    stateCell.appendChild(wooState(product));
+    stateCell.appendChild(shopifyState(product));
     row.appendChild(stateCell);
     const variationCell = document.createElement("div");
     variationCell.appendChild(variationToggle(product, false));
@@ -222,7 +256,7 @@
     facts.appendChild(labelledFact("Type", pill(product.type === "variable" ? "Variable" : "Simple", "neutral")));
     facts.appendChild(labelledFact("Price", text("span", "product-price", formatPrice(product.price))));
     facts.appendChild(labelledFact("Publishing intent", pill(product.publishing_intent_label, `intent-${product.publishing_intent}`)));
-    facts.appendChild(labelledFact("Woo state", wooState(product)));
+    facts.appendChild(labelledFact("Shopify sync / publication", shopifyState(product)));
     facts.appendChild(labelledFact("Metadata", pill(sourceLabel(product.metadata_source), product.metadata_source)));
     facts.appendChild(labelledFact("Updated", text("time", "product-updated", formatDate(product.updated_at))));
     card.appendChild(facts);
@@ -249,6 +283,12 @@
     heading.appendChild(text("small", "", `${group.product_count} parent product${group.product_count === 1 ? "" : "s"} · ${group.variation_count} variation${group.variation_count === 1 ? "" : "s"}`));
     trigger.appendChild(heading);
     header.appendChild(trigger);
+    const selectCollection = button("Select for Shopify review", "btn btn-sm btn-outline-light");
+    selectCollection.addEventListener("click", function () {
+      group.products.filter(p => p.shopify && p.shopify.review_url).forEach(p => selectedReviews.set(p.id, p));
+      renderSelection();
+    });
+    header.appendChild(selectCollection);
     const facts = document.createElement("div");
     facts.className = "collection-facts";
     facts.appendChild(text("span", "collection-active-count", `${group.active_count} Active in catalogue`));
@@ -359,10 +399,12 @@
   function render(payload) {
     document.querySelectorAll("[data-summary-value]").forEach(function (target) { target.textContent = Number(payload.summary[target.dataset.summaryValue] || 0).toLocaleString(); });
     groupsTarget.replaceChildren();
+    visibleProducts = [];
     errorState.hidden = true;
     emptyState.hidden = payload.empty_reason !== "catalogue";
     filteredEmptyState.hidden = payload.empty_reason !== "filtered";
     payload.groups.forEach(function (group, index) { groupsTarget.appendChild(collectionGroup(group, index)); });
+    renderSelection();
     renderPagination(payload.pagination);
   }
 
@@ -537,4 +579,12 @@
   });
 
   loadProducts();
+  browser.querySelector("[data-shopify-select-visible]").addEventListener("click", function () {
+    visibleProducts.forEach(function (product) { selectedReviews.set(product.id, product); });
+    renderSelection();
+  });
+  browser.querySelector("[data-shopify-clear-selection]").addEventListener("click", function () {
+    selectedReviews.clear();
+    renderSelection();
+  });
 })();

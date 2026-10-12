@@ -298,7 +298,7 @@ def test_product_detail_separates_catalogue_state_from_override_publishing_inten
     assert "Product override" in html
     assert "Overridden" in html
     assert "currently published in WooCommerce" not in html
-    assert "Authored WooCommerce publishing intent" in html
+    assert "Authored intent is separate from actual Shopify status" in html
 
 
 def test_product_detail_identifies_inherited_collection_publishing_intent(
@@ -383,9 +383,9 @@ def test_collection_editor_identifies_shared_scope_and_affected_products(milesto
     assert "Aurora - Fictional Print" in html
     assert "Advanced JSON" in html
     assert "Publishing intent" in html
-    assert "Sets Published or Draft intent for reviewed Woo publication" in html
+    assert "Sets Live or Draft intent for reviewed Shopify publishing" in html
     assert "Saving metadata does not publish" in html
-    assert "Draft — on reviewed Woo publication" in html
+    assert "Draft — reviewed Shopify publishing" in html
     assert "all products that inherit this collection value" in html
     assert str(catalogue) not in html
 
@@ -579,10 +579,10 @@ def test_products_api_keeps_catalogue_state_separate_from_publishing_intent(
 
     assert values["PRINT-001"]["catalogue_status"] == "active"
     assert values["PRINT-001"]["publishing_intent"] == "draft"
-    assert values["PRINT-001"]["publishing_intent_label"] == "Draft intent"
+    assert values["PRINT-001"]["publishing_intent_label"] == "Draft intended"
     assert values["PRINT-002"]["catalogue_status"] == "active"
     assert values["PRINT-002"]["publishing_intent"] == "published"
-    assert values["PRINT-002"]["publishing_intent_label"] == "Published intent"
+    assert values["PRINT-002"]["publishing_intent_label"] == "Live intended · channel publication deferred"
 
 
 def test_dashboard_active_metric_remains_local_and_does_not_claim_remote_publication(
@@ -592,7 +592,7 @@ def test_dashboard_active_metric_remains_local_and_does_not_claim_remote_publica
 
     assert "Active in Catalogue" in html
     assert "local scanned catalogue lifecycle state" in html
-    assert "does not indicate current WooCommerce publication" in html
+    assert "not verified Shopify storefront publication" in html
     assert "currently published in WooCommerce" not in html
 
 

@@ -1,12 +1,11 @@
 {% extends 'layouts/base.html' %}
-{% block title %}Commerce connection{% endblock %}
+{% block title %}Shopify connection{% endblock %}
 {% block content %}
 <section class="page-heading"><p class="eyebrow">Settings · Commerce</p><h1>Commerce connection</h1><p>Read-only connection and discovery. Simple draft creation is a separate reviewed workflow; no automatic migration.</p><a class="btn btn-outline-primary" href="{{ url_for('commerce.discovery') }}">Inspect Shopify catalogue</a></section>
 <section class="workspace-panel">
   <a class="btn btn-outline-primary" href="{{ url_for('commerce.drafts') }}">Review one Simple Shopify draft</a>
-  <div class="panel-heading"><h2>Installation platform</h2><span class="catalogue-pill">{{ active|title }}</span></div>
-  <p>The platform is chosen when creating the first administrator. Existing installations default to WooCommerce. Changing it requires a future explicit migration workflow.</p>
-  {% if active == 'woocommerce' %}<p>You can prepare Shopify credentials here without changing your active WooCommerce integration. <a href="{{ url_for('main.woocommerce') }}">WooCommerce Integration Health</a></p>{% endif %}
+  <div class="panel-heading"><h2>TLCDashboard · Shopify</h2></div>
+  <p>Shopify is the intended commerce integration. Existing legacy settings and mappings are retained for rollback; no automatic platform migration occurs.</p>
 </section>
 <section class="workspace-panel">
   <div class="panel-heading"><h2>Shopify Admin API</h2></div>
