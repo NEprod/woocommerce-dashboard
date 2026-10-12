@@ -26,6 +26,23 @@ def token_response(expiry=86399):
     return Response({"access_token": ACCESS, "expires_in": expiry, "scope": "read_products,write_products"})
 
 
+def test_client_credentials_accept_authenticated_primary_alias(monkeypatch):
+    class AliasSession(Session):
+        def post(self, url, **kwargs):
+            self.calls.append((url, kwargs))
+            if url.endswith("/oauth/access_token"):
+                return token_response()
+            assert kwargs["headers"]["X-Shopify-Access-Token"] == ACCESS
+            return Response({"data": {"shop": {"id": "gid://shopify/Shop/42",
+                "myshopifyDomain": "original.myshopify.com",
+                "primaryDomain": {"host": "fictional.myshopify.com"}, "domains": []},
+                "currentAppInstallation": {"accessScopes": [{"handle": "read_products"}]}}})
+    session = AliasSession()
+    monkeypatch.setattr(connection.requests, "Session", lambda: session)
+    result = connection.ShopifyAdapter().test_connection(config())
+    assert result["shop_id"] == "gid://shopify/Shop/42" and len(session.calls) == 2
+
+
 @pytest.fixture(autouse=True)
 def clean_cache():
     connection._tokens.clear()

@@ -22,6 +22,27 @@ Client Credentials acquisition/renewal through Docker/Unraid (below).
 Request `read_products` for discovery and `write_products` for M3A.
 Connection success reports granted scopes, not readiness for future publishing.
 
+### M3A.2 store domain verification
+
+Connection validation requests the authenticated Shop GID, `myshopifyDomain`,
+`primaryDomain.host` and connected `domains.host`. The configured myshopify host
+must exactly match one of those authoritative hosts; successful authentication
+alone is insufficient. Shopify can retain an original myshopify domain while
+another is the storefront primary. The connected-domain list is currently a
+deprecated but available GraphQL field in the pinned supported versions; review
+its replacement when updating the API allowlist.
+
+New draft mappings use the stable Shop GID to derive their store key. Existing
+domain-keyed mappings are found by their persisted Shop GID without rewriting
+them, preserving duplicate prevention and recovery across verified aliases.
+Reconciliation still rejects a different Shop GID. Changing the configured host
+after Preview requires a fresh Preview; signed confirmation remains strict.
+No migration or live store mutation is needed for this correction. Live connection
+acceptance against the user's two domains remains to be performed in Unraid.
+
+References: [Shop GraphQL contract](https://shopify.dev/docs/api/admin-graphql/latest/objects/Shop)
+and [Shopify domain changes](https://help.shopify.com/en/manual/domains/domain-type/change-primary-domain).
+
 **Test connection** never saves. **Test and save** retests before atomic persistence
 and leaves the active platform unchanged. A blank token retains the saved token
 only for the same domain. Changed settings revisions require reload/review.

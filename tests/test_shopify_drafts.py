@@ -124,6 +124,38 @@ def test_complete_draft_and_media_verified_without_local_changes(world):
     assert adapter.calls.count("product_create") == 1
 
 
+def test_store_key_stable_across_verified_alias_changes(world, monkeypatch):
+    product, _, _ = world
+    adapter = FakeDraftAdapter()
+    first, token = drafts.preview(product, adapter)
+    monkeypatch.setenv("SHOPIFY_STORE_DOMAIN", "alias.myshopify.com")
+    second, _ = drafts.preview(product, adapter)
+    assert first["store_key"] == second["store_key"]
+    with pytest.raises(ShopifyError, match="changed"):
+        drafts.confirm(token, True, adapter)
+    assert "product_create" not in adapter.calls
+
+
+def test_alias_preserves_legacy_identity_and_duplicate_recovery_guards(world, monkeypatch):
+    product, _, _ = world
+    adapter = FakeDraftAdapter()
+    _, token = drafts.preview(product, adapter)
+    row = drafts.confirm(token, True, adapter)
+    # Simulate an existing M3A domain-keyed record. Never migrate/rewrite it.
+    row.store_key = drafts.digest({"id": row.store_id, "domain": row.store_domain})
+    db.session.commit()
+    before = row.store_key, row.store_domain, row.shopify_product_id
+    monkeypatch.setenv("SHOPIFY_STORE_DOMAIN", "alias.myshopify.com")
+    with pytest.raises(ShopifyError, match="already has"):
+        drafts.preview(product, adapter)
+    drafts.reconcile(row, adapter=adapter)
+    assert before == (row.store_key, row.store_domain, row.shopify_product_id)
+    assert row.state == "verified" and adapter.calls.count("product_create") == 1
+    adapter.test_connection = lambda config: {"shop_id": "gid://shopify/Shop/99", "scopes": ["write_products"]}
+    with pytest.raises(ShopifyError, match="does not match"):
+        drafts.reconcile(row, adapter=adapter)
+
+
 @pytest.mark.parametrize("change", ["metadata", "image"])
 def test_stale_source_or_image_refuses_writes(world, change):
     product, folder, shared = world

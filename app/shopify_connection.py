@@ -10,7 +10,7 @@ from urllib.parse import urlsplit, unquote
 
 import requests
 
-QUERY = "query Connection { shop { id myshopifyDomain } currentAppInstallation { accessScopes { handle } } }"
+QUERY = "query Connection { shop { id myshopifyDomain primaryDomain { host } domains { host } } currentAppInstallation { accessScopes { handle } } }"
 VERSIONS = ("2026-10", "2026-07", "2026-04", "2026-01")
 
 PAGE = "pageInfo { hasNextPage endCursor }"
@@ -347,9 +347,20 @@ class ShopifyAdapter:
         try:
             shop = data["shop"]
             scopes = data["currentAppInstallation"]["accessScopes"]
-            if (shop["myshopifyDomain"].lower() != config.domain
+            # Shopify's original API domain and storefront primary domain may
+            # differ. Accept only hosts returned for this authenticated Shop,
+            # never redirects, DNS guesses or authentication alone.
+            hosts = [shop["myshopifyDomain"]]
+            if shop.get("primaryDomain") is not None:
+                hosts.append(shop["primaryDomain"]["host"])
+            domains = shop.get("domains", [])
+            if not isinstance(domains, list) or len(domains) > 100:
+                raise ShopifyError("Shopify returned invalid domain evidence. Nothing was saved.")
+            hosts.extend(domain["host"] for domain in domains)
+            if (any(not isinstance(host, str) for host in hosts)
+                    or config.domain not in {host.lower() for host in hosts}
                     or not re.fullmatch(r"gid://shopify/Shop/\d+", shop["id"])):
-                raise ShopifyError("Shop identity did not match the configured domain. Nothing was saved.")
+                raise ShopifyError("Configured domain is not an authoritative domain of the authenticated Shopify store. Check Shopify Settings → Domains. Nothing was saved.")
             handles = sorted({s["handle"] for s in scopes if re.fullmatch(r"[a-z_]{1,80}", s["handle"])})
             return {"shop_id": shop["id"], "domain": config.domain, "api_version": config.api_version,
                     "scopes": handles, "products_readable": bool({"read_products", "write_products"} & set(handles))}

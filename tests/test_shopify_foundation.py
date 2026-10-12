@@ -163,6 +163,31 @@ def test_version_and_identity_mismatch():
         ShopifyAdapter().test_connection(ShopifyConfiguration("fictional.myshopify.com", TOKEN), session=Session(response))
 
 
+@pytest.mark.parametrize("host", ["original.myshopify.com", "primary.myshopify.com", "alias.myshopify.com"])
+def test_authoritative_shop_domains_share_identity(host):
+    response = Response()
+    response.payload["data"]["shop"].update(myshopifyDomain="original.myshopify.com",
+        primaryDomain={"host": "primary.myshopify.com"},
+        domains=[{"host": "alias.myshopify.com"}])
+    session = Session(response)
+    result = ShopifyAdapter().test_connection(ShopifyConfiguration(host, TOKEN), session=session)
+    assert result["shop_id"] == "gid://shopify/Shop/42" and result["domain"] == host
+    assert "primaryDomain { host }" in session.calls[0][1]["json"]["query"]
+    assert "domains { host }" in session.calls[0][1]["json"]["query"]
+
+
+@pytest.mark.parametrize("change", ["unrelated", "invalid_shop_id", "malformed_domains"])
+def test_domain_evidence_does_not_bypass_store_verification(change):
+    response = Response()
+    shop = response.payload["data"]["shop"]
+    shop.update(primaryDomain={"host": "primary.myshopify.com"}, domains=[])
+    if change == "invalid_shop_id": shop["id"] = "not-a-shop-id"
+    if change == "malformed_domains": shop["domains"] = [{"host": None}]
+    domain = "unrelated.myshopify.com" if change == "unrelated" else "primary.myshopify.com"
+    with pytest.raises(ShopifyError):
+        ShopifyAdapter().test_connection(ShopifyConfiguration(domain, TOKEN), session=Session(response))
+
+
 def test_ui_test_save_secret_protection_and_no_activation(setup_app, monkeypatch):
     app, _ = setup_app
     client = admin_client(app)

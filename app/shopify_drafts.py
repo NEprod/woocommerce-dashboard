@@ -126,10 +126,15 @@ def serializer():
     return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt="shopify-draft-preview-v1")
 
 
-def matching_identity(store_key, product):
-    return ShopifyProductIdentity.query.filter_by(store_key=store_key).filter(or_(
+def matching_identity(store_id, product):
+    # Read legacy domain-keyed rows without rewriting them. The verified Shop
+    # GID, not a changeable endpoint, owns the duplicate-prevention boundary.
+    rows = ShopifyProductIdentity.query.filter_by(store_id=store_id).filter(or_(
         ShopifyProductIdentity.product_id == product.id,
-        ShopifyProductIdentity.source_identity == product.source_relpath)).first()
+        ShopifyProductIdentity.source_identity == product.source_relpath)).limit(2).all()
+    if len(rows) > 1:
+        raise ShopifyError("Multiple retained Shopify identities require administrator review; another create is blocked.")
+    return rows[0] if rows else None
 
 
 def preview(product, adapter=None):
@@ -138,8 +143,8 @@ def preview(product, adapter=None):
     shop = (adapter or ShopifyAdapter()).test_connection(config)
     if "write_products" not in shop["scopes"]:
         raise ShopifyError("Grant write_products to create a reviewed draft; connection/discovery alone need only read_products.")
-    store_key = digest({"id": shop["shop_id"], "domain": config.domain})
-    row = matching_identity(store_key, product)
+    store_key = digest({"id": shop["shop_id"]})
+    row = matching_identity(shop["shop_id"], product)
     if row and row.state != "failed_before_create":
         raise ShopifyError(f"This product already has Shopify attempt {row.id} ({row.state}). Open its identity and reconcile; another create is blocked.")
     plan.update(store_key=store_key, store_id=shop["shop_id"], domain=config.domain,
@@ -193,7 +198,7 @@ def confirm(token, acknowledged, adapter=None):
     lease = acquire_catalogue_operation("shopify_draft_publish", {"product_id": product.id, "sku": product.sku, "store_id": shop["shop_id"]})
     row = None
     try:
-        row = matching_identity(plan["store_key"], product)
+        row = matching_identity(plan["store_id"], product)
         if row and row.state != "failed_before_create":
             raise ShopifyError("A prior Shopify attempt exists. Reconcile its identity; no duplicate creation is allowed.")
         data = {"version": 1, "plan": plan, "stage": "pending", "create_attempted": False, "media": []}
@@ -340,7 +345,7 @@ def reconcile(row, candidate_id=None, adapter=None, approval=None):
     config = configuration()
     adapter = adapter or ShopifyAdapter()
     shop = adapter.test_connection(config)
-    if shop["shop_id"] != row.store_id or config.domain != row.store_domain:
+    if shop["shop_id"] != row.store_id:
         raise ShopifyError("Configured Shopify store does not match this identity. Restore its store configuration.")
     data = evidence(row)
     if not data["create_attempted"]:
