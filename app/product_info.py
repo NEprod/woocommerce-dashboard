@@ -43,7 +43,10 @@ def _load_json(path: Path):
 def load_schema(name):
     if name not in SCHEMA_NAMES:
         raise KeyError(name)
-    return _load_json(SCHEMA_ROOT / f"{name}.schema.json")
+    from app.catalogue_fields import CUSTOMISATION_SCHEMA
+    schema = _load_json(SCHEMA_ROOT / f"{name}.schema.json")
+    schema["properties"]["customisation"] = CUSTOMISATION_SCHEMA
+    return schema
 
 
 def load_example(name):
@@ -240,6 +243,12 @@ def validate_product_info(data, kind):
             (),
         )
     errors = tuple(_schema_errors(data, kind))
+    if not errors:
+        from app.catalogue_fields import validate_extensions
+        try:
+            validate_extensions(data, partial=kind == "override")
+        except ValueError as error:
+            errors += (ValidationIssue("$.customisation", "invalid_catalogue_extension", str(error)),)
     if "variation_attributes" in data and not errors and (kind == "collection" or "attributes" in data):
         from app.taxonomy_assignments import variation_drivers
         try:

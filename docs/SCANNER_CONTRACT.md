@@ -37,6 +37,20 @@ Each collection has collection-level `product_info.json` containing shared/defau
 
 ## Metadata resolution
 
+M3A.4 validates optional origin, shipping and customisation keys only.
+Customisation is the explicit object-merge exception: stable field identifiers
+are patched individually; unrelated inherited fields survive. The snapshot consumes
+the same authored resolver, not duplicated row fields or new DB columns. Other
+merge rules and variation/modifier calculations remain unchanged.
+
+`.scanned` retains existing SKU/title/image/variation/scan-date evidence, not
+Shopify/customisation state. `.update` still selects affected folders; transactional
+ingestion finalizes after commit. SKU index remains allocation state, not metadata.
+Editor saves retain scope-aware update orchestration. Tests compare all layouts
+before/after adding fields, excluding scan timestamps; a selected product update
+preserves its SKU/index and a sibling marker. Detailed logging and Discord are
+unchanged. No traversal/cache optimisation is included.
+
 Product metadata starts with the shared collection object. Override scalar/object values replace shared values. When both shared and override values are lists, the current implementation combines and deduplicates them. Title has one authoritative shared/override/folder resolver. Missing, `null`, empty, and whitespace-only title values are absent. A valid product title plus a valid shared product title resolves to `Product title - Shared title`; shared title alone resolves to `Product folder name - Shared title`; neither resolves to the product folder name. The collection folder basename remains the separate collection display name.
 
 Append ingestion assigns every parent through its portable catalogue-relative

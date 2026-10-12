@@ -98,7 +98,10 @@ def merge_product_json(shared, override, path=None):
     result = dict(shared)
 
     for key, value in override.items():
-        if key in {"variation_attributes", "storefront_collections"}:
+        if key == "customisation":
+            from app.catalogue_fields import merge_customisation
+            result[key] = merge_customisation(shared.get(key, {}), value)
+        elif key in {"variation_attributes", "storefront_collections"}:
             result[key] = value  # explicit replacement, including []
         elif isinstance(value, list) and isinstance(shared.get(key), list):
             result[key] = list(set(shared[key] + value))
@@ -145,6 +148,9 @@ def validate_json(data, is_collection=False):
 
     if not isinstance(data, dict):
         raise ValueError("Invalid product_info.json: not a JSON object")
+
+    from app.catalogue_fields import validate_extensions
+    validate_extensions(data)
 
     if is_collection and "collection_type" not in data:
         raise ValueError("Missing required field: collection_type")

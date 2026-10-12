@@ -1,5 +1,31 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.4 catalogue snapshot readiness
+
+The existing resolver supports optional `country_of_origin`, `requires_shipping`
+and `customisation`; see [schema and inheritance](PRODUCT_INFO.md). Advanced JSON
+uses existing validation/rescan controls. No user catalogue is automatically
+rewritten. Optional `DEFAULT_COUNTRY_OF_ORIGIN` can be supplied through Docker
+`.env` or a manually added Unraid variable; leave blank unless reviewed and accurate.
+Product/collection origin overrides it; no shipping intent is invented.
+
+The immutable snapshot exposes `shipping` (grams/mm, origin/provenance, shipping
+intent), `seo`, optional authored `vendor`/`handle`, `storefront_collections`,
+resolved `taxonomy`, `customisation`, and each variant's projected weight/dimensions.
+Existing descriptions/prices/images/identities remain available. Vendor/handle
+are retained forward-compatible metadata, not newly formalised editor fields.
+No new DB columns/migration. These fields are ready for a future publisher,
+**not silently added to M3A's remote write contract**. M3A still creates/verifies
+one Simple draft's existing title/description/SKU/price/media contract. Shipping,
+SEO, sale policy, standard categories and collections require reviewed managed
+updates. Retained identities still block duplicate creates. Customisation does not
+create variants, forms, proofs or customer uploads.
+
+Existing Taxonomy editing remains available. Reference-impact review for category
+path changes and customer-navigation eligibility are deferred; drafts or unknown
+Shopify publication cannot make customer menus visible. Registry hierarchy/order
+remains the future authority, never an independent navigation file.
+
 Connection/discovery remain read-only. M3A adds separately reviewed creation of
 one Simple draft with original images; the user has now accepted that core live
 path (details below). Complete publishing remains unfinished. Woo remains a
@@ -138,8 +164,8 @@ product; read actual Shop resource limits before planning writes. The known 2×7
 current workflow limit. Never silently truncate larger local products. Preserve
 exact/most-specific modifier price, weight and dimensions; the characterised
 modifier sale-price emission discrepancy needs its own approved decision before
-claiming sale-modifier parity. Existing immutable snapshot omits projected variant
-weight/dimensions, so extend that read boundary rather than re-running the scanner.
+claiming sale-modifier parity. M3A.4 extends the immutable snapshot with projected
+variant weight/dimensions without re-running the scanner.
 
 Names/age/messages/dropdowns/checkboxes should normally be storefront form inputs
 and line-item properties, not variants. Photo uploads need a verified private file

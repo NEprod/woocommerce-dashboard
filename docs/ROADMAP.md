@@ -1,5 +1,19 @@
 # Roadmap
 
+## M3A.4 catalogue readiness — implemented, local acceptance pending
+
+Optional origin/shipping/customisation and immutable snapshot field propagation
+are implemented without source rewrites, new DB columns or SKU changes. Scanner
+cache optimisation is not bundled into this contract change. Category rename/move
+reference-impact confirmation and publication-evidence-based navigation remain
+separate bounded work; existing reviewed registry editing is retained.
+
+Next: complete one Simple Shopify draft through a reviewed update by retained
+identity, approved shipping/merchandising fields and managed readback, without
+duplicate creation. Then reference-safe local categories, explicit Shopify standard
+category mapping and reviewed collection/menu publication. Variable publishing
+and customer-facing customisation remain later milestones.
+
 ## TLCDashboard direction — 2026-10-12
 
 Shopify is the intended permanent platform for Tender Loving Creations.

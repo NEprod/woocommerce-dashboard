@@ -1,5 +1,33 @@
 [
   {
+    "key": "country_of_origin", "aliases": [], "type": "uppercase two-letter country code", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Scalar override; missing inherits, then optional reviewed deployment default.", "merge": "Replacement.",
+    "parent_effect": "Read-only shipping origin.", "variation_effect": "Inherited product origin.",
+    "woo_field": null, "sqlite_destination": "Resolved authored metadata; no new column.",
+    "classification": "canonical and active", "implementation_status": "Validated local snapshot; Shopify writes deferred.",
+    "example": "GB", "warning_error": "Invalid country-code format blocks editing/scanning."
+  },
+  {
+    "key": "requires_shipping", "aliases": [], "type": "boolean", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Scalar override; missing inherits, no implicit physical default.", "merge": "Replacement.",
+    "parent_effect": "Read-only shipping requirement.", "variation_effect": "Inherited product setting.",
+    "woo_field": null, "sqlite_destination": "Resolved authored metadata; no new column.",
+    "classification": "canonical and active", "implementation_status": "Validated local snapshot; Shopify writes deferred.",
+    "example": true, "warning_error": "Non-booleans block editing/scanning."
+  },
+  {
+    "key": "customisation", "aliases": [], "type": "object with stable-ID fields and proof_policy", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Field-ID patch merge; enabled false disables, remove true removes only that inherited field.", "merge": "Per field ID; proof_policy replaces.",
+    "parent_effect": "Future customer input definitions only.", "variation_effect": "None; not variation drivers or price modifiers.",
+    "woo_field": null, "sqlite_destination": "Resolved authored metadata; no new column.",
+    "classification": "canonical and active", "implementation_status": "Validated definitions and immutable snapshot only; no customer forms/uploads.",
+    "example": {"proof_policy": "optional", "fields": {"name": {"type": "text", "label": "Name", "required": true}}},
+    "warning_error": "Invalid field shape or incomplete resolved definitions block."
+  },
+  {
     "key": "storefront_collections", "aliases": [], "type": "array of readable range names", "units": null,
     "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
     "inheritance": "Missing inherits; an explicit array replaces, including [].", "merge": "Replacement.",

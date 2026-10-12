@@ -1,4 +1,7 @@
 {
+  "country_of_origin": "GB",
+  "requires_shipping": true,
+  "customisation": {"proof_policy": "optional", "fields": {"name": {"type": "text", "label": "Customer name", "required": true}}},
   "collection_type": "Variable Collection",
   "title": "Fictional Complete Reference",
   "sku_prefix": "FIC-ALL-",

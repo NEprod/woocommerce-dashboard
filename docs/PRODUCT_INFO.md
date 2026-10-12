@@ -31,9 +31,56 @@ types therefore retain their protected scanner behaviour.
 
 ## Inheritance and merge behaviour
 
+### M3A.4 optional shipping and customisation
+
+Existing JSON remains valid. Optional `country_of_origin` is an uppercase
+two-letter code (for example `GB` or `CN`); `requires_shipping` is a boolean.
+Both inherit from collection metadata with scalar product overrides. Code
+validation checks format, not the full ISO country catalogue; the future publisher
+must also validate Shopify's supported country enumeration. Optional deployment
+setting `DEFAULT_COUNTRY_OF_ORIGIN` supplies a snapshot fallback only when authored
+origin is absent. It defaults to unset, never GB automatically. Review manufacturing
+origin before setting GB; imported finished products must override it accurately.
+Missing shipping intent remains unknown.
+
+`customisation` is a definition, not customer data or a variation driver:
+
+```json
+{
+  "customisation": {
+    "proof_policy": "optional",
+    "fields": {
+      "name": {"type": "text", "label": "Name", "required": true},
+      "photo": {"type": "photo", "label": "Photograph"}
+    }
+  }
+}
+```
+
+Proof policy is `none`, `required` or `optional`; absence makes no proof promise.
+Field identifiers start with a lowercase letter and contain lowercase letters,
+digits and underscores, at most 64 characters. At most 30 fields are allowed.
+Types are `text`, `number`, `multiline`, `photo`, `choice`, `checkbox`. Enabled
+resolved fields require a type and label; choice fields require unique `choices`.
+Optional constraints are `max_length`, `minimum`, `maximum`; `required` and
+`enabled` are booleans. No customer forms, uploads, proofs, conditional fields or
+price adjustments are implemented.
+
+Unlike other objects, customisation merges by stable field identifier: adding one
+product field preserves inherited fields; a partial existing-field patch preserves
+unspecified properties. `{"enabled": false}` disables an inherited field;
+`{"remove": true}` (the only property) removes it from that product's resolved
+definition. Empty objects do not clear inheritance. Explicit product proof policy
+replaces inheritance. Variation-specific overrides are deferred; modifiers are
+untouched. Edit through existing Advanced JSON, not a second definition file.
+Runtime schemas compose the shared definition in `app/catalogue_fields.py`; editor
+and resolved scanner validation reuse it. Existing affected-folder rescan controls
+remain. Snapshots do not write sources or require new SQLite columns.
+
 The scanner starts from the collection object and applies the product override:
 
-- scalar values and objects are replaced by the override;
+- scalar values and objects are replaced by the override, except the explicit
+  customisation stable-field merge above;
 - lists are combined and deduplicated through a set, so membership is preserved
   but output ordering is not deterministic;
 - title uses one combination/fallback rule: nonblank product override and shared

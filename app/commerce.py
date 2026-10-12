@@ -45,10 +45,20 @@ def catalogue_snapshot(product):
     from app import db
     with db.session.no_autoflush:
         authored = product_document(product)
+        from app.catalogue_fields import shipping_details
+        from app.taxonomy_assignments import resolve
         data = {
             "title": product.title, "description": product.description,
             "short_description": product.short_description,
             "price": product.regular_price, "sale_price": product.sale_price,
+            "shipping": shipping_details(authored, product),
+            "seo": {"title": authored.get("meta_title", product.meta_title),
+                    "description": authored.get("meta_description", product.meta_description),
+                    "handle": authored.get("handle")},
+            "vendor": authored.get("vendor"),
+            "storefront_collections": authored.get("storefront_collections", []),
+            "customisation": authored.get("customisation", {}),
+            "taxonomy": resolve(authored),
             "attributes": [{"name": a.name, "values": a.values} for a in product.attributes],
             "images": [{"url": i.url, "position": i.position, "alt": i.alt_text} for i in product.images],
             "categories": [c.name for c in product.categories], "tags": [t.name for t in product.tags],
@@ -56,6 +66,8 @@ def catalogue_snapshot(product):
             "variations": [{"local_id": v.id, "stable_identity": v.source_identity,
                 "sku": v.sku, "status": v.catalogue_status, "price": v.regular_price,
                 "sale_price": v.sale_price,
+                "weight_g": v.weight,
+                "dimensions_mm": {"length": v.length, "width": v.width, "height": v.height},
                 "attributes": [{"name": a.name, "value": a.value} for a in v.attributes],
                 "images": [{"url": i.url, "position": i.position} for i in v.images]}
                 for v in sorted(product.variations, key=lambda v: v.id)],

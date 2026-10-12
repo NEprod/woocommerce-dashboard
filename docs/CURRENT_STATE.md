@@ -1,5 +1,28 @@
 # Current State
 
+## M3A.4 — catalogue information readiness, Unraid acceptance pending
+
+The cohesive catalogue slice adds optional origin/shipping intent and stable-ID
+customisation definitions to existing JSON/editor/resolver contracts. The immutable
+Shopify snapshot exposes shipping, SEO, storefront collections, taxonomy,
+customisation and projected variation weight/dimensions. Existing descriptions,
+prices/modifiers/images remain authoritative. No migration, new DB columns,
+scanner optimisation, SKU/marker change, Woo publisher change or Shopify payload
+expansion. GB is an opt-in reviewed fallback. See [field contract](PRODUCT_INFO.md).
+
+Focused tests establish three-layout scan/SKU/image parity, targeted updates,
+customisation inheritance and immutability, with existing taxonomy, Discord and
+Simple/Variable Woo compatibility. This is automated verification, not live
+acceptance of the new fields or complete Shopify publishing.
+
+Taxonomy already has reviewed name/parent/order editing. Authored-path impact
+review for moves/renames remains a separate bounded task; no mass reference rewrite.
+Customer-navigation projection is deferred until Shopify publication evidence
+can exclude drafts/unknown products. Local `live` intent or Woo state is not enough.
+No collections/menus are written. Next: reviewed complete Simple draft updates by
+retained identity, then reference-safe taxonomy/navigation work. The pre-existing
+Unraid XML change remains excluded from this milestone.
+
 ## TLCDashboard — Shopify-first transition and M3A live acceptance (2026-10-12)
 
 TLCDashboard is for Tender Loving Creations, with Shopify the intended permanent

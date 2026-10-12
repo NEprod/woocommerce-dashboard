@@ -1,5 +1,23 @@
 # Local taxonomy registry contract — version 1
 
+## M3A.4 local integration boundary
+
+Existing reviewed workspace supports stable definition keys, names, parent keys
+and ordering, with registry validation and atomic/versioned saves. Product
+assignments keep their existing resolver/editor. The enriched immutable catalogue
+snapshot includes current registry resolution; it does not create remote IDs.
+No second registry/editor or Shopify collection/menu writes are introduced.
+
+Authored-readable-path impact review before category renames/moves remains a
+separate bounded implementation, not claimed complete here. Avoid such edits on
+referenced categories until affected products have been explicitly reviewed; no
+silent JSON rewrite. Read-only customer navigation is deferred pending authoritative
+Shopify publication eligibility: local intent alone cannot distinguish unpublished
+drafts. Future plans must omit empty categories/collections, retain parents with
+eligible descendants, preserve registry order and leave empty local definitions
+available. New In/sale/seasonal policy is not invented. Shopify standard categories
+remain distinct from local hierarchy and flat Shopify collections.
+
 ## Current acceptance — 2026-09-11
 
 M5.6 is live accepted: two Simple products verified category/Brand/informational
