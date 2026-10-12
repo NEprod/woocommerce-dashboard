@@ -54,6 +54,14 @@ when missing. Fresh folder import must therefore use the pre-scan Intake/editor
 path, not assume this projected-product action can create shared requirements.
 This is not automatic generation of unknown product details.
 
+Important fresh-install gap: `_eligible_operation` in the Prepared metadata builder
+requires a successful image-renaming or previous metadata operation; structured
+import alone is not eligible. A pure no-renaming authoring path for every existing
+missing-shared-JSON tree is therefore not established by this assessment. Preserve
+original names and source folders; separately verify/approve a review-only folder
+classification and missing-JSON authoring entry rather than forcing renaming or
+inventing metadata. This does not block publishing already valid/scanned products.
+
 `scan_runner.py` plans scope/locks/history; `scanner.py` resolves shared metadata,
 children, modifiers and images; `sku_manager.py` retains marker-based identity and
 atomic indexes. `ingest.py` projects complete parent units transactionally into
