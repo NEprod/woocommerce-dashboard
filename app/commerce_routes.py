@@ -43,7 +43,7 @@ def settings():
             if owned:
                 if action == "save":
                     raise config.CommerceConfigError("Shopify settings are deployment-owned. Update your environment instead.")
-                candidate = ShopifyConfiguration(stored.get("domain", ""), stored.get("token", ""), stored.get("api_version", "2026-10"))
+                candidate = ShopifyConfiguration.from_settings(stored)
             else:
                 token = form.token.data or ""
                 domain = (form.domain.data or "").strip().lower()
@@ -72,7 +72,9 @@ def settings():
             pass
     form.token.data = None  # No password redisplay, including rejected submissions.
     response = render_template("commerce_settings.html", form=form, active=active,
-        owned=owned, has_token=bool(stored.get("token")), result=result, error=error, saved=saved)
+        owned=owned, has_token=bool(stored.get("token")),
+        has_client=bool(stored.get("client_id") and stored.get("client_secret")),
+        result=result, error=error, saved=saved)
     return response, 400 if error else 200, {"Cache-Control": "no-store"}
 
 
@@ -92,8 +94,7 @@ def discovery():
             abort(400)
         try:
             stored = config.shopify_settings()
-            configuration = ShopifyConfiguration(stored.get("domain", ""), stored.get("token", ""),
-                                                  stored.get("api_version", "2026-10"))
+            configuration = ShopifyConfiguration.from_settings(stored)
             adapter = ShopifyAdapter()
             after, resource_id = request.form.get("after"), request.form.get("resource_id")
             if action == "test":

@@ -270,6 +270,8 @@ def test_docker_examples_expose_optional_shopify_configuration():
         assert f'{key}: "${{{key}:-}}"' in compose and f"{key}=" in env
         assert key in entries and entries[key].get("Default") == ""
     assert entries["SHOPIFY_ADMIN_ACCESS_TOKEN"].get("Mask") == "true"
+    assert entries["SHOPIFY_CLIENT_SECRET"].get("Mask") == "true"
+    assert entries["SHOPIFY_CLIENT_ID"].get("Mask") == "true"
 
 
 def test_storage_failure_is_actionable_and_does_not_change_selection(setup_app, monkeypatch):

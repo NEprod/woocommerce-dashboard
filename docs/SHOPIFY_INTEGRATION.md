@@ -17,8 +17,9 @@ a pinned API version. Version choices currently cover 2026-01 through 2026-10;
 the default is 2026-10. This allowlist needs maintenance as versions retire.
 Client secrets and Storefront API tokens are not Admin API credentials. Obtain an
 appropriate installed-app token using Shopify's supported authentication flow;
-automatic OAuth exchange and renewal are not implemented. Replace expiring tokens
-manually. Request `read_products` for discovery and `write_products` for M3A.
+Manual Admin tokens remain operator-managed. M3A.1 additionally supports automatic
+Client Credentials acquisition/renewal through Docker/Unraid (below).
+Request `read_products` for discovery and `write_products` for M3A.
 Connection success reports granted scopes, not readiness for future publishing.
 
 **Test connection** never saves. **Test and save** retests before atomic persistence
@@ -39,6 +40,76 @@ never borrows saved credentials. Deployment values are not redisplayed on the
 connection page; testing is read-only and saving/overwriting them is refused.
 Environment configuration does not activate Shopify or change the installation
 platform. Credentials remain separate from all product identity records.
+
+## M3A.1 — Client Credentials authentication
+
+Shopify supports this server-side grant for a **Dev Dashboard app installed on a
+store in the same Shopify organization as the app**. This fits the intended
+TLC-owned app/store deployment only if that organization condition is true;
+installation alone is not proof. Live connection acceptance must confirm it.
+Apps serving other organizations require a separately scoped authentication flow;
+the application does not invent a fallback or OAuth redirect workaround.
+
+In Dev Dashboard create/select the app, configure its version with `read_products`
+and `write_products`, release/install the version on your own store, then open
+**Settings** for the **Client ID** and **Client Secret**. The Client ID identifies
+the app; it is not an access token. An already installed compatible app does not
+need reinstalling merely to change TLCDashboard authentication. Scope changes
+may require the normal Shopify version/permission approval process.
+
+For Docker/Unraid, set:
+
+```dotenv
+SHOPIFY_STORE_DOMAIN=your-shop.myshopify.com
+SHOPIFY_CLIENT_ID=<Dev Dashboard Client ID>
+SHOPIFY_CLIENT_SECRET=<Dev Dashboard Client Secret>
+SHOPIFY_ADMIN_ACCESS_TOKEN=
+SHOPIFY_API_VERSION=2026-10
+```
+
+Both client fields are masked in the Unraid template. Compose passes them through;
+no actual credentials belong in repository files. To switch from manual tokens,
+remove/blank the deployment Admin API token, add both client fields and restart
+the container. Keep appdata and the selected platform unchanged. For manual-token
+mode, blank both client fields and provide domain/token. Both modes present,
+partial client pairs, invalid domains or missing deployment credentials are
+rejected; no values are combined with saved Dashboard configuration. With all
+Shopify environment variables absent/blank, protected manual Dashboard settings
+continue to work. Deployment-owned settings can be tested but never overwritten
+or redisplayed by the Dashboard.
+
+The existing Shopify transport posts form-encoded `grant_type=client_credentials`,
+Client ID and Client Secret to the validated store's `/admin/oauth/access_token`.
+It validates `access_token`, `expires_in` and `scope` from Shopify. Tokens live only
+in a process-private bounded cache (16 credential/store keys) and are renewed on
+demand up to 60 seconds before returned expiry. Short lifetimes use a proportionate
+margin. No refresh token is required: renewal repeats the documented grant.
+A lock coalesces simultaneous acquisition; failed authentication is held for
+30 seconds to avoid storms. Restart discards cached tokens and reacquires on the
+next Shopify request; no background scheduler or token persistence is introduced.
+
+The token is attached only to Admin GraphQL requests. Staged binary uploads still
+use Shopify's signed upload parameters without Admin tokens/client secrets.
+Preview fingerprints use stable credentials, not acquired tokens: normal renewal
+does not invalidate a review, but changed credentials still require fresh Preview.
+No short-lived tokens are stored in authored JSON, identities, operation evidence
+or configuration files. Errors are generic/redacted, responses bounded to 64 KiB
+for authentication, connect/read timeouts 5/15 seconds, redirects/proxy inheritance
+disabled. Authentication requests are never automatically retried. A GraphQL 401
+invalidates the cached token and starts the cooldown; it does **not** replay the
+failed read/write. An uncertain draft remains subject to existing reconciliation.
+
+Open **Settings → Commerce connection → Test connection**. This obtains/caches a
+token and reads shop identity/scopes; it does not publish. On failure check app
+installation, same-organization ownership, credentials, granted scopes and
+connectivity. Correct the environment/restart or wait out the cooldown before
+another explicit test. Client Credentials are not universal merchant OAuth;
+multi-worker deployments have separate caches, while the supported container
+continues to use one worker with four threads. Docker administrators can inspect
+environment values, so secure container access and backups.
+
+Official contracts: [Client Credentials Grant](https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant),
+[access tokens](https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens).
 
 ## M2 discovery — implementation awaiting live acceptance
 
@@ -231,8 +302,10 @@ Next: live acceptance of M3A's single Simple draft, then a separately scoped
 reviewed update/variant publishing milestone; do not reuse Woo IDs or reconstruct
 image URLs. Deferred:
 inventory, orders, navigation editing/sync,
-customisation fields, variant-media mapping, webhooks, OAuth/renewal and reviewed
-platform switching. Only the approved M3A identity migration is introduced.
+customisation fields, variant-media mapping, webhooks, merchant OAuth and reviewed
+platform switching. Client Credentials renewal is implemented in M3A.1; other
+merchant OAuth/token lifecycle flows remain deferred. Only the approved M3A
+identity migration is introduced; M3A.1 adds no migration.
 
 Official contracts: [GraphQL Admin API](https://shopify.dev/docs/api/admin-graphql),
 [API versioning](https://shopify.dev/docs/api/usage/versioning),

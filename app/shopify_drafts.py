@@ -37,8 +37,7 @@ def digest(data):
 
 def configuration():
     settings = shopify_settings()
-    return ShopifyConfiguration(settings.get("domain", ""), settings.get("token", ""),
-                                settings.get("api_version", "2026-10")).validated()
+    return ShopifyConfiguration.from_settings(settings).validated()
 
 
 def encode(evidence):
@@ -144,7 +143,7 @@ def preview(product, adapter=None):
     if row and row.state != "failed_before_create":
         raise ShopifyError(f"This product already has Shopify attempt {row.id} ({row.state}). Open its identity and reconcile; another create is blocked.")
     plan.update(store_key=store_key, store_id=shop["shop_id"], domain=config.domain,
-                config_digest=digest({"domain": config.domain, "token": config.token, "version": config.api_version}),
+                config_digest=config.fingerprint(),
                 nonce=uuid.uuid4().hex)
     plan["handle"] = "tlc-draft-" + plan["nonce"]
     encode({"version": 1, "plan": plan})
@@ -187,7 +186,7 @@ def confirm(token, acknowledged, adapter=None):
     shop = adapter.test_connection(config)
     if (plan["digest"] != reviewed["digest"] or shop["shop_id"] != reviewed["store_id"]
             or config.domain != reviewed["domain"] or "write_products" not in shop["scopes"]
-            or digest({"domain": config.domain, "token": config.token, "version": config.api_version}) != reviewed["config_digest"]):
+            or config.fingerprint() != reviewed["config_digest"]):
         raise ShopifyError("Source, image bytes, credentials or store changed. Generate a fresh Preview.")
     plan.update({k: reviewed[k] for k in ("store_key", "store_id", "domain", "nonce")})
     plan["handle"] = "tlc-draft-" + plan["nonce"]

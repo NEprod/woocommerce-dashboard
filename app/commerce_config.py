@@ -80,7 +80,8 @@ def initialize_platform(platform):
     _save(select)
 
 
-ENV_KEYS = ("SHOPIFY_STORE_DOMAIN", "SHOPIFY_ADMIN_ACCESS_TOKEN", "SHOPIFY_API_VERSION")
+ENV_KEYS = ("SHOPIFY_STORE_DOMAIN", "SHOPIFY_ADMIN_ACCESS_TOKEN", "SHOPIFY_API_VERSION",
+            "SHOPIFY_CLIENT_ID", "SHOPIFY_CLIENT_SECRET")
 
 
 def deployment_owned():
@@ -89,8 +90,13 @@ def deployment_owned():
 
 def shopify_settings():
     if deployment_owned():
-        return dict(domain=os.environ.get(ENV_KEYS[0], ""), token=os.environ.get(ENV_KEYS[1], ""),
-                    api_version=os.environ.get(ENV_KEYS[2]) or "2026-10")
+        settings = dict(domain=os.environ.get(ENV_KEYS[0], ""), token=os.environ.get(ENV_KEYS[1], ""),
+                        api_version=os.environ.get(ENV_KEYS[2]) or "2026-10")
+        # Preserve the original manual settings shape for existing consumers.
+        if os.environ.get("SHOPIFY_CLIENT_ID") or os.environ.get("SHOPIFY_CLIENT_SECRET"):
+            settings.update(client_id=os.environ.get("SHOPIFY_CLIENT_ID", ""),
+                            client_secret=os.environ.get("SHOPIFY_CLIENT_SECRET", ""))
+        return settings
     return document().get("shopify", {})
 
 

@@ -1,5 +1,12 @@
 # Roadmap
 
+### Phase 4 M3A.1 — Client Credentials authentication, live acceptance pending
+
+Focused extension of the existing adapter: optional Docker client pair, automatic
+memory-only acquisition/renewal and retained manual-token compatibility. Same-org
+Dev Dashboard installation is required; live Test connection must confirm it.
+Signed review/recovery/identity contracts are preserved; no migration or M3B work.
+
 ### Phase 4 M3A — reviewed single Simple draft, implementation awaiting live acceptance
 
 M2 checkpoint `9b01d63ca4bdbc3aa175e2112983c9031486da5a`, local only. Approved

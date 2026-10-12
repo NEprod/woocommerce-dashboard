@@ -1,5 +1,18 @@
 # Unraid Installation and Persistence
 
+## Shopify Client Credentials (M3A.1)
+
+Add `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` and
+`SHOPIFY_API_VERSION` (e.g. `2026-10`) to the container; leave
+`SHOPIFY_ADMIN_ACCESS_TOKEN` blank in client mode. The tracked template masks
+both client values. Obtain them from the installed Dev Dashboard app's Settings;
+the app/store must be in the same organization. Client ID is not an access token.
+Restart after environment changes, then use Commerce connection → Test connection.
+Do not change the installation platform or instance mapping. Existing manual
+tokens still work with both client fields blank. Conflicting/partial configurations
+are refused, not mixed with saved settings. See [Shopify integration](SHOPIFY_INTEGRATION.md)
+for scope, automatic renewal, failure handling and limitations.
+
 ## M5.2 first-run ownership
 
 The existing **Catalogue Intake** `/intake` XML path entry is preserved unchanged.

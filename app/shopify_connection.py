@@ -2,6 +2,9 @@
 from dataclasses import dataclass, field
 import json
 import re
+import hashlib
+import threading
+from collections import OrderedDict
 from time import monotonic
 from urllib.parse import urlsplit, unquote
 
@@ -104,8 +107,24 @@ class ShopifyError(ValueError):
 @dataclass(frozen=True)
 class ShopifyConfiguration:
     domain: str
-    token: str = field(repr=False)
+    token: str = field(default="", repr=False)
     api_version: str = "2026-10"
+    client_id: str = field(default="", repr=False)
+    client_secret: str = field(default="", repr=False)
+
+    @classmethod
+    def from_settings(cls, settings):
+        return cls(settings.get("domain", ""), settings.get("token", ""),
+                   settings.get("api_version", "2026-10"), settings.get("client_id", ""),
+                   settings.get("client_secret", ""))
+
+    def fingerprint(self):
+        # Stable credentials, never the acquired/rotating token. Preserve M3A's
+        # exact manual-token fingerprint and signed Preview freshness semantics.
+        data = {"domain": self.domain, "token": self.token, "version": self.api_version}
+        if self.client_id or self.client_secret:
+            data.update(client_id=self.client_id, client_secret=self.client_secret)
+        return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
     def validated(self):
         if not isinstance(self.domain, str):
@@ -113,11 +132,90 @@ class ShopifyConfiguration:
         domain = self.domain.strip().lower()
         if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.myshopify\.com", domain):
             raise ShopifyError("Enter only your shop-name.myshopify.com domain, without a URL, path or port.")
-        if not isinstance(self.token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{16,512}", self.token):
+        if bool(self.client_id) != bool(self.client_secret):
+            raise ShopifyError("Incomplete Shopify client credentials. Supply both Client ID and Client Secret; do not mix deployment and saved settings.")
+        if self.client_id and self.token:
+            raise ShopifyError("Conflicting Shopify authentication. Remove the Admin API token when using Client ID and Client Secret.")
+        if self.client_id:
+            if (not isinstance(self.client_id, str) or not isinstance(self.client_secret, str)
+                    or not re.fullmatch(r"[A-Za-z0-9_-]{16,512}", self.client_id)
+                    or not re.fullmatch(r"[A-Za-z0-9_-]{16,512}", self.client_secret)):
+                raise ShopifyError("Invalid Shopify Client ID or Client Secret. Check Dev Dashboard Settings; values must not contain whitespace.")
+        elif not isinstance(self.token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{16,512}", self.token):
             raise ShopifyError("Enter a valid Admin API access token, not a storefront token or client secret.")
         if self.api_version not in VERSIONS:
             raise ShopifyError("Select a supported pinned Shopify API version.")
-        return ShopifyConfiguration(domain, self.token, self.api_version)
+        return ShopifyConfiguration(domain, self.token, self.api_version, self.client_id, self.client_secret)
+
+
+# Process-private and bounded; the supported Docker runtime uses one worker.
+# The lock coalesces concurrent acquisitions, including failure cooldowns.
+_token_lock = threading.Lock()
+_tokens = OrderedDict()
+
+
+def _token_key(config):
+    return hashlib.sha256(json.dumps([config.domain, config.client_id, config.client_secret]).encode()).hexdigest()
+
+
+def _authentication_failed(config):
+    if config.client_id:
+        with _token_lock:
+            _tokens[_token_key(config)] = {"failed_until": monotonic() + 30}
+            while len(_tokens) > 16:
+                _tokens.popitem(last=False)
+
+
+def _access_token(config):
+    if not config.client_id:
+        return config.token
+    key = _token_key(config)
+    with _token_lock:
+        entry = _tokens.get(key, {})
+        if monotonic() < entry.get("failed_until", 0):
+            raise ShopifyError("Shopify authentication is temporarily paused after a failure. Check credentials, installed app and same-organization eligibility; retry after 30 seconds.")
+        if monotonic() < entry.get("refresh_at", 0):
+            _tokens.move_to_end(key)
+            return entry["token"]
+        session = requests.Session()
+        session.trust_env = False
+        try:
+            started = monotonic()
+            with session.post(f"https://{config.domain}/admin/oauth/access_token",
+                    data={"grant_type": "client_credentials", "client_id": config.client_id,
+                          "client_secret": config.client_secret},
+                    headers={"Accept": "application/json"}, timeout=(5, 15),
+                    allow_redirects=False, stream=True) as response:
+                if response.status_code != 200:
+                    raise ShopifyError("Shopify Client Credentials authentication failed. Check Dev Dashboard credentials, app installation and that app/store belong to the same organization.")
+                raw = bytearray()
+                for chunk in response.iter_content(8192):
+                    raw.extend(chunk)
+                    if len(raw) > 65536 or monotonic() - started > 20:
+                        raise ShopifyError("Shopify authentication returned oversized or incomplete evidence. Retry later.")
+                data = json.loads(raw)
+                token, expiry = data.get("access_token"), data.get("expires_in")
+                if (not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{16,512}", token)
+                        or type(expiry) is not int or not 0 < expiry <= 2592000
+                        or not isinstance(data.get("scope"), str)):
+                    raise ShopifyError("Shopify authentication returned invalid token/expiry evidence. No token was retained.")
+                refresh_at = started + expiry - min(60, expiry / 10)
+                if refresh_at <= monotonic():
+                    raise ShopifyError("Shopify token expired during acquisition. Retry later.")
+                _tokens[key] = {"token": token, "refresh_at": refresh_at}
+                _tokens.move_to_end(key)
+                while len(_tokens) > 16:
+                    _tokens.popitem(last=False)
+                return token
+        except (ShopifyError, requests.RequestException, ValueError, TypeError, AttributeError) as exc:
+            _tokens[key] = {"failed_until": monotonic() + 30}
+            while len(_tokens) > 16:
+                _tokens.popitem(last=False)
+            if isinstance(exc, ShopifyError):
+                raise
+            raise ShopifyError("Unable to authenticate with Shopify securely. Check connectivity and credentials; no automatic retry was attempted.") from None
+        finally:
+            session.close()
 
 
 class ShopifyAdapter:
@@ -139,6 +237,7 @@ class ShopifyAdapter:
             raise ShopifyError("Unsupported Shopify operation.")
         writing = query in WRITE_QUERIES
         config = configuration.validated()
+        token = _access_token(config)
         own = session is None
         session = session or requests.Session()
         if own:
@@ -146,11 +245,13 @@ class ShopifyAdapter:
         try:
             with session.post(
                 f"https://{config.domain}/admin/api/{config.api_version}/graphql.json",
-                headers={"X-Shopify-Access-Token": config.token, "Accept": "application/json"},
+                headers={"X-Shopify-Access-Token": token, "Accept": "application/json"},
                 json={"query": query, **({"variables": variables} if variables is not None else {})},
                 timeout=(5, 15), allow_redirects=False, stream=True,
             ) as response:
                 if response.status_code in (401, 403):
+                    if response.status_code == 401:
+                        _authentication_failed(config)
                     raise ShopifyError("Shopify rejected authentication or access. Check the installed app, token expiry and scopes.")
                 if response.status_code == 429:
                     if writing:

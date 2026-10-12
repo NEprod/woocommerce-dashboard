@@ -15,8 +15,9 @@
   {% if result %}<div class="alert alert-info" role="status">Read-only connection verified for {{ 'deployment-configured store' if owned else result.domain }} ({{ result.shop_id }}). API {{ result.api_version }}.
     {% if result.products_readable %}Product read scope granted.{% else %}Product read scope is missing; request read_products before the next milestone.{% endif %}
     <p>Granted scopes: {{ result.scopes|join(', ') or 'None reported' }}. Scopes are reported, not proof of future publishing support.</p></div>{% endif %}
-  <p>Use the installed app's <strong>Admin API access token</strong>, not its client secret or a Storefront API token. Expiring tokens must be replaced when expired; automatic OAuth/token renewal is deferred. Tokens are never displayed after saving.</p>
+  <p>Docker/Unraid can use the installed Dev Dashboard app's <strong>Client ID + Client Secret</strong> for automatic token acquisition/renewal on stores in the same Shopify organization. Leave the Admin API token variable blank in that mode. Otherwise use a manual <strong>Admin API access token</strong> here, not a Client ID, Client Secret or Storefront API token. Manual tokens are replaced by the operator; credentials and acquired tokens are never redisplayed.</p>
   <p>{{ 'Deployment-owned configuration; only testing is available here.' if owned else 'Saved in private (0600) instance storage. Protect the instance volume and its backups; this is not encrypted-at-rest storage.' }}</p>
+  {% if has_client %}<p>Client Credentials configured. Access tokens are acquired and renewed server-side; no manual token is needed.</p>{% endif %}
   <form method="post" autocomplete="off">
     {{ form.hidden_tag() }}
     <div class="form-group mb-3">{{ form.domain.label }}{{ form.domain(class="form-control", placeholder="your-shop.myshopify.com", readonly=owned, maxlength=100) }}</div>

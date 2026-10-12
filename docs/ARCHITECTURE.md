@@ -20,7 +20,13 @@ never combining a saved token with an environment domain. No database migration.
 `CatalogueSnapshot` recursively freezes resolved authored metadata, local identity,
 SKU/type, projected attributes/variations and image references. It uses existing
 metadata inheritance and suppresses ORM autoflush, without writing source or
-remote identities. Platform switching and OAuth token lifecycle remain deferred.
+remote identities. Platform switching and merchant OAuth remain deferred.
+M3A.1 adds optional same-organization Shopify Client Credentials to this same
+adapter: process-private bounded tokens, expiry-aware renewal, serialized
+acquisition and failure cooldown, with manual-token compatibility. Tokens never
+enter settings, authored files or operation evidence. Preview fingerprints remain
+credential-based rather than acquired-token-based. No migration or publishing
+contract changes are needed.
 
 M3A's separate `shopify_drafts.py` implements a signed, 15-minute single Simple
 Preview/Confirm using this snapshot and the existing CatalogueOperation lock.

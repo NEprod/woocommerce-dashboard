@@ -1,5 +1,25 @@
 # Current State
 
+## Phase 4 M3A.1 — Shopify Client Credentials, live authentication acceptance pending
+
+The existing adapter now acquires expiring tokens server-side for an installed
+Dev Dashboard app/store in the same Shopify organization. Docker/Unraid client
+pair configuration is optional; manual Admin tokens and protected Dashboard
+fallback remain supported. Conflicting/partial deployment credentials are refused.
+Memory-only bounded token caching, pre-expiry renewal, acquisition coalescing,
+30-second failure cooldown and redacted errors are implemented. The same transport
+serves connection/discovery/draft/readback/reconciliation; staged binary uploads
+remain free of Admin credentials. Signed Preview uses stable credential hashes,
+not rotating tokens. No migration, platform switch, publisher semantics, Woo or
+scanner changes. Source/unique test-image publication is separate from deployment
+or live grant acceptance. See [Shopify integration](SHOPIFY_INTEGRATION.md).
+
+Mocked verification: **132 passed**, including 27 Client Credentials cases,
+existing foundation/discovery/M3A and Woo Simple/Variable compatibility. Six
+changed Python files compile; one template parses; XML and diff checks pass.
+No full suite or live Shopify operation was run. Same-organization eligibility
+and real token exchange remain the user's read-only connection acceptance gate.
+
 ## Phase 4 M3A — single Simple Shopify draft, live acceptance pending
 
 M2 is checkpointed locally at `9b01d63ca4bdbc3aa175e2112983c9031486da5a`

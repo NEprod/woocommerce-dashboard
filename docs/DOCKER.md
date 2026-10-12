@@ -1,5 +1,17 @@
 # Docker
 
+## Shopify authentication (M3A.1)
+
+Compose passes optional `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_API_VERSION`,
+`SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` and `SHOPIFY_ADMIN_ACCESS_TOKEN`.
+Use domain plus **one** authentication mode: a complete client pair (same Shopify
+organization, installed Dev Dashboard app) with Admin token blank, or a manual
+Admin token with both client fields blank. Nonempty deployment settings override
+protected Dashboard settings as one complete unit; incomplete/conflicting modes
+are rejected. Blank all five variables to retain Dashboard configuration.
+Acquired tokens are memory-only and renewed before returned expiry. Never bake
+credentials into an image or commit `.env`. See [Shopify integration](SHOPIFY_INTEGRATION.md).
+
 ## M5.2 deployment-owned configuration and first run
 
 Compose keeps `PRODUCT_FOLDER_HOST` and `OUTPUT_FOLDER_HOST` as host-side mount
