@@ -1,5 +1,30 @@
 # Current State
 
+## Phase 4 M2 — Shopify discovery, implementation awaiting live acceptance
+
+M1 is checkpointed locally at `e2b454bb2a3eef85475fb635a3d85e03576a36dc`
+(`feat(shopify): establish platform foundation and connection settings`), without
+push/tag/release. M2 remains uncommitted on `feature/shopify-foundation`.
+The same Shopify adapter now exposes explicit administrator-only read queries
+through `/shopify/discovery`: paged products, product variants/options, product
+and variant media, collections and membership. Each action is bounded; no remote
+read occurs merely on page load. Errors/throttling remain redacted and retryable
+manually, with no automatic request loop or import.
+
+Actual Shopify image/media IDs and URLs are displayed unchanged. Local filenames
+are unmapped; URL basenames are hints only, original-source URLs may expire, and
+processing media may have no image URL. Collection membership is not treated as
+category hierarchy. Legacy rule presence is exposed; modern source classification
+and menu discovery remain deferred. See [Shopify integration](SHOPIFY_INTEGRATION.md).
+No migration, scanner/SKU/publisher change, image operation or platform switch.
+
+Focused M2 checkpoint verification: **75 cases passed**, zero failures/skips
+(30 discovery, 42 foundation, two Simple/Variable publishing smoke cases and one
+shared-navigation compatibility case). Changed-file compilation passed for three
+Python files; three templates parsed; `git diff --check` passed. No JavaScript
+changed. All store transport was mocked; no live Shopify/Woo call or full-suite
+run, build, push or M2 commit occurred.
+
 ## Phase 4 M1 — Shopify foundation, implementation awaiting acceptance
 
 Phase 3 source was preserved at `3856cf32dc1eeb3be10850ed092b434bbc959285`

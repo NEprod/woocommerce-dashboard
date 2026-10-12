@@ -1,0 +1,76 @@
+{% extends 'layouts/base.html' %}
+{% block title %}Shopify discovery{% endblock %}
+{% macro read_button(label, action, resource_id='', after='', variants='', media='') %}
+<form method="post" class="d-inline">
+  {{ form.hidden_tag() }}
+  <input type="hidden" name="action" value="{{ action }}">
+  <input type="hidden" name="resource_id" value="{{ resource_id }}">
+  <input type="hidden" name="after" value="{{ after or '' }}">
+  <input type="hidden" name="variants" value="{{ variants or '' }}">
+  <input type="hidden" name="media" value="{{ media or '' }}">
+  <button class="btn btn-outline-primary btn-sm my-1">{{ label }}</button>
+</form>
+{% endmacro %}
+{% macro remote_link(url) %}
+  {% if url and url.startswith('https://') %}<a href="{{ url }}" target="_blank" rel="noopener noreferrer" class="text-break">{{ url }}</a>{% else %}Not available{% endif %}
+{% endmacro %}
+{% macro media_rows(connection) %}
+<p class="text-muted">Order is within this returned page, with its Shopify cursor. No local image mapping is inferred. URLs are returned by Shopify, never extension-rewritten. Original-source links may expire.</p>
+{% for edge in connection.edges %}{% set m = edge.node %}
+<article class="workspace-panel">
+  <div class="panel-heading"><h3>{{ m.mediaContentType }}</h3><span class="catalogue-pill">{{ m.status }}</span></div>
+  <dl class="row text-break">
+    <dt class="col-sm-3">Shopify media ID</dt><dd class="col-sm-9">{{ m.id }}</dd>
+    <dt class="col-sm-3">Returned order</dt><dd class="col-sm-9">{{ m.page_order }} · Cursor {{ m.order_cursor }}</dd>
+    <dt class="col-sm-3">Alt text</dt><dd class="col-sm-9">{{ m.alt or 'None' }}</dd>
+    <dt class="col-sm-3">Local path / filename</dt><dd class="col-sm-9">Not mapped; local files are untouched.</dd>
+    <dt class="col-sm-3">Original filename</dt><dd class="col-sm-9">Not independently exposed by this API. URL basename hint: {{ m.filename_hint or 'Unavailable' }} (not proof of local name/extension).</dd>
+    {% if m.mediaContentType == 'IMAGE' %}
+    <dt class="col-sm-3">File status / MIME</dt><dd class="col-sm-9">{{ m.fileStatus }} · {{ m.mimeType or 'Unknown' }}</dd>
+    <dt class="col-sm-3">Image ID</dt><dd class="col-sm-9">{{ m.image.id if m.image else 'Not ready / unavailable' }}</dd>
+    <dt class="col-sm-3">CDN URL</dt><dd class="col-sm-9">{{ remote_link(m.image.url if m.image else none) }}</dd>
+    <dt class="col-sm-3">Dimensions</dt><dd class="col-sm-9">{{ m.image.width if m.image else '—' }} × {{ m.image.height if m.image else '—' }}</dd>
+    <dt class="col-sm-3">Image alt text</dt><dd class="col-sm-9">{{ m.image.altText if m.image else 'Not available' }}</dd>
+    <dt class="col-sm-3">Original-source URL</dt><dd class="col-sm-9">{{ remote_link(m.originalSource.url if m.originalSource else none) }}</dd>
+    {% endif %}
+  </dl>
+</article>
+{% else %}<p>No media returned on this page.</p>{% endfor %}
+{% endmacro %}
+{% block content %}
+<section class="page-heading"><p class="eyebrow">Shopify · Read-only</p><h1>Catalogue discovery</h1><p>Inspect remote products, variants, media and collections. Nothing is imported, linked, downloaded or published.</p><a href="{{ url_for('commerce.settings') }}">Connection settings</a></section>
+<section class="workspace-panel">
+  <div class="panel-heading"><h2>Retrieve deliberately</h2><span class="catalogue-pill">Read only</span></div>
+  <p>Each action reads one page of at most 20 records. Continue explicitly; no whole-store scan or automatic retries. Products and collections require read_products.</p>
+  <div class="panel-actions">{{ read_button('Test connection', 'test') }} {{ read_button('Retrieve products', 'products') }} {{ read_button('Retrieve collections', 'collections') }}</div>
+</section>
+{% if error %}<div class="alert alert-danger" role="alert">{{ error }} Use the retrieve controls to retry when ready.</div>{% endif %}
+{% if result %}
+{% if action == 'test' %}
+<section class="workspace-panel"><h2>Connection verified</h2><p>{{ result.domain }} · {{ result.shop_id }} · API {{ result.api_version }}</p><p>Scopes: {{ result.scopes|join(', ') or 'None' }}. {{ 'Product reads available.' if result.products_readable else 'Request read_products before discovery.' }}</p></section>
+{% elif action in ['products', 'collections'] %}
+<section class="workspace-panel"><div class="panel-heading"><h2>{{ action|title }}</h2><span class="catalogue-pill">{{ result.nodes|length }} on this page</span></div>
+{% for item in result.nodes %}
+<article class="py-3 border-bottom text-break"><h3>{{ item.title }}</h3><p>{{ item.id }} · {{ item.handle }} {% if action == 'products' %}· {{ item.status }}{% endif %}</p>
+{% if action == 'collections' %}<p>Type: {{ 'Automated legacy rules present' if item.ruleSet else 'No legacy rules exposed; manual/modern source type not inferred' }}</p>{% endif %}
+{{ read_button('Inspect product' if action == 'products' else 'Inspect membership', 'product' if action == 'products' else 'collection', item.id) }}</article>
+{% else %}<p>No {{ action }} found in this Shopify store.</p>{% endfor %}
+{% if result.pageInfo.hasNextPage %}{{ read_button('Next page', action, after=result.pageInfo.endCursor) }}{% endif %}
+</section>
+{% elif action == 'product' %}
+<section class="workspace-panel text-break"><div class="panel-heading"><h2>{{ result.title }}</h2><span class="catalogue-pill">{{ result.status }}</span></div><p>{{ result.id }} · {{ result.handle }}</p><p>{{ result.description }}</p><details><summary>Description HTML (escaped source)</summary><pre class="text-break text-wrap">{{ result.descriptionHtml }}</pre></details>
+<h3>Options</h3>{% for option in result.options %}<p>{{ option.position }} · {{ option.name }}: {{ option['values']|join(', ') }}</p>{% endfor %}</section>
+<section class="workspace-panel"><div class="panel-heading"><h2>Variants</h2></div><div class="table-responsive"><table class="table"><thead><tr><th>Variant / ID</th><th>SKU</th><th>Price</th><th>Options</th><th>Media associations</th></tr></thead><tbody>
+{% for v in result.variants.nodes %}<tr><td>{{ v.title }}<br>{{ v.id }}<br>Position {{ v.position }}</td><td>{{ v.sku or 'No SKU' }}</td><td>{{ v.price }}{% if v.compareAtPrice %}<br>Compare at {{ v.compareAtPrice }}{% endif %}</td><td>{% for o in v.selectedOptions %}{{ o.name }}: {{ o.value }}<br>{% endfor %}</td><td>{% for m in v.media.nodes %}{{ m.id }} · {{ m.status }}<br>{% endfor %}{% if v.media.pageInfo.hasNextPage %}<span class="catalogue-pill">More associations available</span>{% endif %}{{ read_button('Inspect variant media', 'variant', v.id) }}</td></tr>{% else %}<tr><td colspan="5">No variants on this page.</td></tr>{% endfor %}
+</tbody></table></div>
+{% if result.variants.pageInfo.hasNextPage %}{{ read_button('Next variants', 'product', result.id, variants=result.variants.pageInfo.endCursor, media=request.form.get('media')) }}{% endif %}</section>
+<section class="workspace-panel"><div class="panel-heading"><h2>Product media</h2></div>{{ media_rows(result.media) }}{% if result.media.pageInfo.hasNextPage %}{{ read_button('Next product media', 'product', result.id, variants=request.form.get('variants'), media=result.media.pageInfo.endCursor) }}{% endif %}</section>
+{% elif action == 'variant' %}
+<section class="workspace-panel text-break"><div class="panel-heading"><h2>Variant media · {{ result.title }}</h2></div><p>{{ result.id }} · SKU {{ result.sku or 'None' }}</p>{{ media_rows(result.media) }}{% if result.media.pageInfo.hasNextPage %}{{ read_button('Next variant media', 'variant', result.id, after=result.media.pageInfo.endCursor) }}{% endif %}</section>
+{% elif action == 'collection' %}
+<section class="workspace-panel text-break"><div class="panel-heading"><h2>{{ result.title }}</h2></div><p>{{ result.id }} · {{ result.handle }} · Sort: {{ result.sortOrder }}</p><p>{{ result.description }}</p><p>Type: {{ 'Automated legacy rules present' if result.ruleSet else 'No legacy rules exposed; manual/modern source type not inferred' }}.</p><p>No category hierarchy is inferred from membership. Local taxonomy remains the authority for intended storefront navigation; menu discovery/publishing is deferred.</p>
+<h3>Members on this page</h3>{% for p in result.products.nodes %}<article class="py-2 border-bottom"><h4>{{ p.title }}</h4><p>{{ p.id }} · {{ p.handle }} · {{ p.status }}</p>{{ read_button('Inspect product', 'product', p.id) }}</article>{% else %}<p>This collection has no products on this page.</p>{% endfor %}
+{% if result.products.pageInfo.hasNextPage %}{{ read_button('Next members', 'collection', result.id, after=result.products.pageInfo.endCursor) }}{% endif %}</section>
+{% endif %}
+{% endif %}
+{% endblock %}

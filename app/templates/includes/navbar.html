@@ -7,7 +7,7 @@
  ('System', [('Metadata Reference','main.metadata_reference','book',['main.metadata_reference']),('Settings','main.settings','settings',['main.settings'])])
 ] %}
 {% if commerce_platform == 'shopify' %}
-{% set groups = [groups[0], ('Shopify', [('Connection','commerce.settings','plug',['commerce.settings']),('Local Taxonomy','taxonomy.index','book',['taxonomy.'])]), groups[2], groups[3]] %}
+{% set groups = [groups[0], ('Shopify', [('Connection','commerce.settings','plug',['commerce.settings']),('Discovery','commerce.discovery','search',['commerce.discovery']),('Local Taxonomy','taxonomy.index','book',['taxonomy.'])]), groups[2], groups[3]] %}
 {% endif %}
 {% macro destination(item) %}
 {% set active = namespace(value=false) %}{% for prefix in item[3] %}{% if request.endpoint == prefix or (prefix in ['taxonomy.','main.relationships','main.image_preparation','main.woocommerce_preview','main.woocommerce_link_candidate','main.woocommerce_unlink','main.woocommerce_publish'] and (request.endpoint or '').startswith(prefix)) %}{% set active.value = true %}{% endif %}{% endfor %}

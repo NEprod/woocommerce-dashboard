@@ -1,5 +1,16 @@
 # Roadmap
 
+### Phase 4 M2 — Shopify read-only discovery, implementation awaiting acceptance
+
+M1 source checkpoint: `e2b454bb2a3eef85475fb635a3d85e03576a36dc`, local only.
+M2 extends its existing adapter with bounded administrator-initiated product,
+variant, media, collection and membership pages. No imports, remote writes, image
+conversion/download, catalogue changes or platform activation. Actual CDN URLs
+and separate media IDs are inspection evidence, not authored metadata.
+Next proposed M3: reviewed product publishing/identity boundary, then safe staged
+image upload/processing and variant associations. Requires separate approval;
+M2 live Shopify/browser acceptance remains pending.
+
 ### Phase 4 M1 — Shopify foundation, implementation awaiting acceptance
 
 Source checkpoint `3856cf32dc1eeb3be10850ed092b434bbc959285` preserves Phase 3;

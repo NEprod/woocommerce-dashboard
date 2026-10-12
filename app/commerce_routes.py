@@ -74,6 +74,44 @@ def settings():
     return response, 400 if error else 200, {"Cache-Control": "no-store"}
 
 
+@commerce.route("/shopify/discovery", methods=["GET", "POST"])
+@login_required
+def discovery():
+    """Explicit administrator reads only; no stored catalogue/identity mutation."""
+    if not current_user.is_admin:
+        abort(403)
+    form = FlaskForm()
+    result, error, action = None, None, None
+    if request.method == "POST":
+        if not form.validate_on_submit():
+            abort(400)
+        action = request.form.get("action")
+        if action not in {"test", "products", "product", "variant", "collections", "collection"}:
+            abort(400)
+        try:
+            stored = config.shopify_settings()
+            configuration = ShopifyConfiguration(stored.get("domain", ""), stored.get("token", ""),
+                                                  stored.get("api_version", "2026-10"))
+            adapter = ShopifyAdapter()
+            after, resource_id = request.form.get("after"), request.form.get("resource_id")
+            if action == "test":
+                result = adapter.test_connection(configuration)
+            elif action == "products":
+                result = adapter.discover_products(configuration, after)
+            elif action == "product":
+                result = adapter.inspect_product(configuration, resource_id, request.form.get("variants"), request.form.get("media"))
+            elif action == "variant":
+                result = adapter.inspect_variant(configuration, resource_id, after)
+            elif action == "collections":
+                result = adapter.discover_collections(configuration, after)
+            else:
+                result = adapter.inspect_collection(configuration, resource_id, after)
+        except (config.CommerceConfigError, ShopifyError) as exc:
+            error = str(exc)
+    return render_template("shopify_discovery.html", form=form, result=result, error=error,
+                           action=action), 400 if error else 200, {"Cache-Control": "no-store"}
+
+
 def guard_platform():
     """Do not execute Woo workflows on a Shopify installation. Woo path is untouched."""
     endpoint = request.endpoint or ""
