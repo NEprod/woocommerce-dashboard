@@ -1,5 +1,37 @@
 # Existing Architecture
 
+## M3A.8 operational comparisons and Shopify collection mappings
+
+`shopify_comparison.py` stores a bounded version-1 summary in
+`shopify_product_comparison`, unique by verified Shop GID + stable source path.
+It records read comparison time separately from `ShopifyProductIdentity.verified_at`.
+Products loads identity/comparison/mapping rows in batches, makes no Shopify requests,
+and revalidates effective managed source, authorized image stats, relevant taxonomy
+definitions, mapping evidence, identity evidence and configuration fingerprints.
+Ten-minute freshness is informational, never write authorization. Source changes
+during reads cannot inherit equality from the older reviewed plan. Signed Preview
+still hashes bytes, rereads remote state and binds collection actions to confirmation.
+
+`shopify_taxonomy.py` projects the existing registry's active category and storefront
+collection keys, plus catalogue Collection.source_relpath. Its operational
+`shopify_collection_identity` mappings are store/source and store/remote unique;
+neither the registry nor authored JSON acquires remote IDs. Optional validated
+standard taxonomy IDs belong to these mappings, not a replacement TLC category tree.
+Mapping Review is read-only; signed/CSRF Confirm is serialized by the existing
+CatalogueOperation lock. Create reserves a durable pending row, stamps a correlation
+metafield and retains returned IDs before independent readback. Uncertain Create
+requires explicit candidate + matching attempt marker. Link never adopts a title
+match and failed read-only Link leaves no create reservation. Operation history remains.
+
+Simple product Preview reads each desired mapped manual collection and verifies
+membership. Sequential Join writes are durably staged; existing/remote-only
+memberships are preserved. Verification checks all intended memberships before
+claiming complete success. An interrupted join can resolve through independent
+read-only reconciliation; genuinely missing membership remains recovery-required,
+not blindly resumed. Rules/shared/variant/subcollection sources are unsupported.
+Migration 0011 adds only these operational tables, with bounded JSON and no backfill;
+scanner/JSON/SKU/marker/Discord and existing product mappings are unchanged.
+
 ## Shopify-first normal Products presentation
 
 `shopify_products.py` adapts local Shopify identity/evidence for the existing paged

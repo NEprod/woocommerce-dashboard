@@ -1,5 +1,22 @@
 # Roadmap
 
+## M3A.8 — implementation complete, awaiting Unraid acceptance
+
+Ten-minute durable comparison summaries, compact normal Products evidence, grouped
+mobile reviews, reviewed manual collection create/link/reconcile and additive Simple
+memberships now use the existing TLC registry/catalogue identities. Explicit standard
+category mappings and safe absent/explicit tag handling are included. No navigation,
+bulk, Variable or Online Store publication. Live intent can be compared but cannot yet
+be written safely. Accept LCBC-0001 comparison/update where intended Draft, NBNOC-0004
+Create review, and mapped category/collection memberships before extending publishing.
+
+Next bounded milestone is the complete Create JSON/Edit JSON forms: supported fields,
+inheritance/overrides, customisation/proofs, shipping, taxonomy and publishing intent.
+Then reviewed channel publication, reference-safe taxonomy editing/menu eligibility,
+bounded bulk and Variable publishing in separate accepted stages. Older next-step
+recommendations below are historical and superseded by this order; no infrastructure
+rename or Woo cleanup is bundled into M3A.8.
+
 ## Shopify-first Products — implementation complete, awaiting Unraid acceptance
 
 Normal Products/Detail now expose single-product Create/Update/No Change and retained

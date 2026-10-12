@@ -45,13 +45,13 @@
   }
 
   function shopifyState(product) {
-    const node = document.createElement("span");
+    const node = text("span", "shopify-list-status", "");
     const state = product.shopify || {};
     const label = pill(state.label || "Not yet verified", "neutral");
     node.appendChild(label);
     node.appendChild(text("small", "", state.intent || "Unresolved intent"));
     node.appendChild(text("small", "", state.remote_status || "Remote status unknown"));
-    node.appendChild(text("small", "", state.verified_at ? `Last verified ${formatDate(state.verified_at)}` : "No verification retained"));
+    node.appendChild(text("small", "", state.compared_at ? `Compared ${formatDate(state.compared_at)} · ${state.change_count} changes` : state.verified_at ? `Verified ${formatDate(state.verified_at)}` : "Not compared"));
     return node;
   }
 
@@ -135,41 +135,48 @@
       review.href = product.shopify.review_url;
       actions.appendChild(review);
     }
+    const secondary = document.createElement("details");
+    secondary.className = "product-secondary-actions";
+    secondary.appendChild(text("summary", "", "Product tools & history"));
+    const tools = document.createElement("div");
+    tools.className = "product-actions";
+    secondary.appendChild(tools);
+    actions.appendChild(secondary);
     if (product.shopify && product.shopify.identity_url) {
-      const identity = text("a", "btn btn-sm btn-outline-primary", "Shopify Identity / Refresh");
+      const identity = text("a", "btn btn-sm btn-outline-primary", "Identity & History");
       identity.href = product.shopify.identity_url;
-      actions.appendChild(identity);
+      tools.appendChild(identity);
     }
     if (product.view_url) {
       const view = text("a", "btn btn-sm btn-outline-primary", "View Product");
       view.href = product.view_url;
-      actions.appendChild(view);
+      tools.appendChild(view);
     } else {
       const view = button("View", "btn btn-sm btn-outline-secondary");
       view.disabled = true;
-      actions.appendChild(view);
+      tools.appendChild(view);
     }
     if (product.collection_edit_url) {
       const collectionEdit = text("a", "btn btn-sm btn-primary", "Edit Collection Metadata");
       collectionEdit.href = product.collection_edit_url;
-      actions.appendChild(collectionEdit);
+      tools.appendChild(collectionEdit);
     }
     if (product.override_present && product.edit_url) {
       const overrideEdit = text("a", "btn btn-sm btn-outline-primary", "Edit Product Override");
       overrideEdit.href = product.edit_url;
-      actions.appendChild(overrideEdit);
+      tools.appendChild(overrideEdit);
     }
     if (!product.override_present) {
       const create = button("Create override", "btn btn-sm btn-ghost");
       create.dataset.action = "create-override";
       create.dataset.productId = product.id;
-      actions.appendChild(create);
+      tools.appendChild(create);
     } else {
       const remove = button("Delete override", "btn btn-sm btn-ghost product-delete-action");
       remove.dataset.action = "delete-override";
       remove.dataset.productId = product.id;
       remove.dataset.sku = product.sku;
-      actions.appendChild(remove);
+      tools.appendChild(remove);
     }
     return actions;
   }

@@ -357,7 +357,8 @@ def test_alt_scope_is_required_only_for_alt_changes(world):
     assert drafts.preview(product, adapter)[0]["classification"] == "no_change"
     product.images[0].alt_text = "Changed"
     db.session.commit()
-    with pytest.raises(ShopifyError, match="write_files"): drafts.preview(product, adapter)
+    plan, token = drafts.preview(product, adapter)
+    assert token is None and any("write_files" in b for b in plan["blockers"])
 
 
 @pytest.mark.parametrize("kind", ["bytes", "removed", "extra_remote"])

@@ -1,5 +1,46 @@
 # Current State
 
+## M3A.8 — Shopify comparison, review UX and local taxonomy synchronisation
+
+Implemented; mocked verification and Unraid acceptance are separate gates. Fresh
+read-only Preview stores a bounded, versioned comparison independently of completed
+publish evidence. Products/Detail render locally, reuse comparisons for ten minutes,
+and show Update Available for detected managed changes. Effective JSON/inheritance,
+image stats, relevant registry definitions, mappings, credentials/configuration and
+identity evidence invalidate cached equality. Expired comparisons downgrade rather
+than claiming current No Change. Recovery/Processing retain precedence.
+
+Migration `0011_shopify_taxonomy` adds store-scoped collection identities and product
+comparison summaries; existing product/Woo mappings are unchanged, with no equality
+backfill. Taxonomy → Shopify collection mappings reviews one existing local stable
+source at a time: create an unpublished manual collection, explicitly link a verified
+GID, or read-only reconcile an uncertain Create using its retained attempt marker.
+SQLite uniqueness and pending-before-create prevent blind duplicate retries. Simple
+product Review then shows additive Join/Already assigned memberships and verifies
+them independently after writes. No automatic rename, removal, deletion or menu write.
+
+Resolved authored tags are managed only when supplied, with exact remote-only
+removals disclosed before full replacement. Missing tags do not clear remote tags;
+registry tags are vocabulary, not automatic product assignments. Optional explicit
+standard Shopify category GIDs on operational mappings are validated/read back;
+conflicting mappings block writes. Local hierarchy remains authoritative and separate.
+
+Compact cards separate actual/intent/sync/time; secondary product tools are grouped.
+Changes expand by default; Matching, Images, notices and API diagnostics collapse.
+Live-intended LCBC-0001 can compare metadata and retain Update Available, but no Live
+publication or metadata-only Live write contract is implemented. Draft intent must
+not be falsified to bypass this gate. Original creation acceptance remains valid;
+new collection/membership and complete update behaviour still require user acceptance.
+No bulk, Variable, storefront menu or channel publishing. Next bounded milestone:
+complete Create/Edit JSON forms after M3A.8 acceptance. User-owned Unraid XML stays
+outside the milestone commit.
+
+Verification: 137 distinct focused Python cases and 11 JavaScript cases passed;
+changed-Python compilation, affected-template parsing, JavaScript syntax and diff
+checks passed. Coverage includes signed/CSRF boundaries, legacy readback, failed
+refresh, mapping uniqueness/uncertainty, additive memberships, standard categories,
+tag semantics and three-layout scanner/SKU/marker parity. No full suite or live writes.
+
 ## Shopify product UX and metadata completion — implemented, live acceptance pending
 
 Compact Product Detail evidence/actions and responsive readable review rows replace

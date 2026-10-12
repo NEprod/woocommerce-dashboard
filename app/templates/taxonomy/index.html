@@ -1,5 +1,6 @@
 {% extends "taxonomy/base.html" %}
 {% block registry_content %}
+<p><a class="btn btn-primary" href="{{ url_for('commerce.taxonomy_mappings') }}">Review Shopify collection mappings</a></p>
 <section class="workspace-panel" aria-labelledby="readiness"><h2 id="readiness">Registry readiness</h2>
 <dl class="detail-definition-grid"><div><dt>Configured source</dt><dd>TAXONOMY_ROOT / registry.json (configured host path is private)</dd></div><div><dt>Status</dt><dd>{{ status.status|replace('_', ' ')|title }}</dd></div><div><dt>Validation</dt><dd>{{ 'Valid registry' if status.available else 'Not available' }}</dd></div>{% if status.available %}<div><dt>Schema version</dt><dd>{{ status.snapshot.schema_version }}</dd></div><div><dt>Content digest</dt><dd><code>{{ status.snapshot.digest }}</code></dd></div>{% endif %}</dl>
 {% for issue in status.issues %}<p role="status">{{ issue.message }}</p>{% endfor %}

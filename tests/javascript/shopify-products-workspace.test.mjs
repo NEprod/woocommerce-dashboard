@@ -29,7 +29,7 @@ async function render() {
     createElement: tag => new Node(tag), createDocumentFragment: () => new Node("fragment")};
   const product = {id: 1, sku: "TLC-1", title: "Local product", type: "simple", catalogue_status: "active", price: {minimum: "3.50"}, variation_count: 0,
     view_url: "/products/1", metadata_source: "shared", publishing_intent_label: "Draft intended",
-    shopify: {label: "No Change", intent: "Draft intended", remote_status: "Draft (last verified)", review_url: "/products/1/shopify/review", identity_url: "/shopify/drafts/identity/1"}};
+    shopify: {label: "Update Available", intent: "Draft intended", remote_status: "Draft (last compared)", compared_at: "2026-10-12T09:00:00Z", change_count: 2, review_url: "/products/1/shopify/review", identity_url: "/shopify/drafts/identity/1"}};
   const calls = [];
   const fetch = async (...args) => { calls.push(args); return {ok: true, json: async () => ({summary: {}, groups: [{name: "Cards", product_count: 1, variation_count: 0, products: [product]}], pagination: {total: 1, from: 1, to: 1, page: 1, pages: 1}})}; };
   const window = {location: {search: "", pathname: "/products", href: "https://local.test/products"}, fetch, ProductsOverrideClient: {}};
@@ -43,7 +43,10 @@ test("desktop and mobile render Shopify actions without Woo or remote discovery"
   const {browser, calls} = await render();
   const nodes = all(browser);
   assert.equal(nodes.filter(n => n.textContent === "Review Shopify Changes").length, 2);
-  assert.equal(nodes.filter(n => n.textContent === "No Change").length, 2);
+  assert.equal(nodes.filter(n => n.textContent === "Update Available").length, 2);
+  assert.equal(nodes.filter(n => n.className === "shopify-list-status").length, 2);
+  assert.equal(nodes.filter(n => String(n.textContent).includes("2 changes")).length, 2);
+  assert.equal(nodes.filter(n => n.textContent === "Product tools & history").length, 2);
   assert.equal(nodes.filter(n => n.className === "product-mobile-card").length, 1);
   assert.equal(nodes.some(n => String(n.textContent).includes("Woo state")), false);
   assert.equal(calls.length, 1);

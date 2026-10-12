@@ -29,11 +29,11 @@ def test_unknown_is_not_proof_of_remote_absence(world):
 
 def test_verified_local_evidence_and_restart(world):
     product, row, adapter = created(world)
-    assert status(product)["label"] == "No Change"
-    assert status(product)["remote_status"] == "Draft (last verified)"
+    assert status(product)["label"] == "Up to Date"
+    assert status(product)["remote_status"] == "Draft (last compared)"
     assert status(product)["publication"] == "Not verified"
     db.session.expire_all()
-    assert status(product)["verified_at"] and status(product)["label"] == "No Change"
+    assert status(product)["verified_at"] and status(product)["label"] == "Up to Date"
     assert adapter.calls == []
 
 
@@ -52,7 +52,7 @@ def test_image_edit_invalidates_without_reading_image_bytes(world, monkeypatch):
     assert status(product)["label"] == "Update Available"
 
 
-@pytest.mark.parametrize("value", [None, "false", 0, True])
+@pytest.mark.parametrize("value", [None, "false", 0])
 def test_intent_is_explicit_and_live_transition_deferred(world, value):
     product, _, _ = world
     change(world, live=value)
@@ -95,7 +95,7 @@ def test_normal_pages_render_offline_and_hide_woo(world, monkeypatch):
         assert b'data-woo-refresh' not in page.data
     data = client.get("/api/edit_products").get_json()
     item = next(p for p in data["items"] if p["id"] == product.id)
-    assert item["shopify"]["label"] == "No Change" and "woo_live" not in item
+    assert item["shopify"]["label"] == "Up to Date" and "woo_live" not in item
     assert item["view_url"] == "/products/1"
     assert "collection_edit_url" in item and "edit_url" in item
     assert adapter.calls == []
@@ -173,9 +173,11 @@ def test_bad_retained_plan_never_breaks_product_list(world):
     assert status(product)["label"] == "Verification Unavailable"
 
 
-def test_unsupported_metadata_does_not_invent_publishable_changes(world):
+def test_unresolved_taxonomy_invalidates_equality_without_inventing_writes(world):
     product, _, adapter = created(world)
     change(world, customisation={"proof_policy": "required"}, categories=["Future category"])
-    assert status(product)["label"] == "No Change"
+    assert status(product)["label"] == "Update Available"
     plan, token = drafts.preview(product, adapter)
     assert plan["classification"] == "no_change" and token is None
+    assert any("Unresolved" in b for b in plan["blockers"])
+    assert status(product)["label"] == "Needs Attention"

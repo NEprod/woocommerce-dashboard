@@ -83,7 +83,7 @@ def test_compact_card_cached_evidence_and_responsive_review(world, monkeypatch):
     client = _client(current_app._get_current_object())
     html = client.get(f"/products/{product.id}").get_data(as_text=True)
     assert "Review &amp; Sync" in html and "Cached verification" in html and "Up to Date" in html
-    assert "Refresh / History" in html and "View on Shopify" in html
+    assert "Identity &amp; History" in html and ">Shopify</a>" in html
     assert "WooCommerce Dashboard" not in html
     plan, token = drafts.preview(product, adapter)
     from flask import render_template
@@ -99,11 +99,9 @@ def test_live_intent_remains_blocked_without_mutating_source(world):
     product, row, adapter = created(world)
     change(world, live=True)
     before = world[2].read_bytes()
-    import pytest
-    from app.shopify_connection import ShopifyError
-    with pytest.raises(ShopifyError, match="Live intent"):
-        drafts.preview(product, adapter)
-    assert world[2].read_bytes() == before and adapter.calls == []
+    plan, token = drafts.preview(product, adapter)
+    assert token is None and any("Live intent" in b for b in plan["blockers"])
+    assert world[2].read_bytes() == before and "product_update" not in adapter.calls
     from flask import current_app
     with current_app.test_request_context():
         state = states_for([product])[product.id]

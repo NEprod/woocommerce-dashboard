@@ -35,7 +35,7 @@ def contract(snapshot, base):
     warnings = ["DRAFT only. No inventory quantities, tracking, locations or fulfilment configuration will change."]
     if not base["description"]:
         warnings.append("Main product description is empty; confirming a reviewed description change may clear existing main copy. SEO description is separate and will not be substituted.")
-    if "tags" not in authored and not snapshot.data["tags"]:
+    if "tags" not in authored:
         warnings.append("Tags are unspecified; existing remote tags are not managed.")
     sale = authored.get("sale_price", snapshot.data["sale_price"])
     if sale not in (None, ""):
@@ -66,8 +66,8 @@ def contract(snapshot, base):
             if local == "handle" and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value):
                 raise ShopifyError("Handle must be an explicit lowercase URL slug.")
             product[remote] = value
-    if "tags" in authored or snapshot.data["tags"]:
-        tags = list(authored.get("tags", snapshot.data["tags"]))
+    if "tags" in authored:
+        tags = list(authored["tags"])
         if len(tags) > 250 or any(not isinstance(t, str) or not t.strip() or len(t) > 255 for t in tags):
             raise ShopifyError("Tags must be bounded nonempty strings.")
         product["tags"] = sorted(set(tags))
@@ -81,6 +81,11 @@ def contract(snapshot, base):
             seo[key] = value
     if seo:
         product["seo"] = seo
+    if authored.get("shopify_product_type"):
+        value = authored["shopify_product_type"]
+        if not isinstance(value, str) or len(value) > 255:
+            raise ShopifyError("Shopify product type must be an explicit bounded label.")
+        product["productType"] = value
     dimensions = []
     if not isinstance(shipping["dimensions_mm"], Mapping):
         raise ShopifyError("Product dimensions must be a length/width/height object.")
@@ -116,7 +121,7 @@ def review_rows(plan):
         "seo.description": "SEO description", "price": "Customer price",
         "compareAtPrice": "Compare-at price", "variant.sku": "SKU", "sku": "SKU",
         "requiresShipping": "Requires shipping", "countryCodeOfOrigin": "Country of origin",
-        "weight": "Weight", "media.order": "Gallery order"}
+        "weight": "Weight", "media.order": "Gallery order", "category": "Standard Shopify category", "productType": "Shopify product type"}
     def value(item):
         if item is None or item == "":
             return "Not set"
@@ -128,7 +133,8 @@ def review_rows(plan):
             if "weight" in item:
                 return value(item["weight"])
             if "value" in item and "unit" in item:
-                return f'{item["value"]} {item["unit"].lower()}'
+                unit = {"GRAMS": "g", "KILOGRAMS": "kg", "POUNDS": "lb", "OUNCES": "oz"}.get(item["unit"], item["unit"].lower())
+                return f'{item["value"]} {unit}'
             if item.get("type") == "dimension":
                 try:
                     return value(json.loads(item["value"]))
@@ -161,16 +167,19 @@ def field_rows(managed, remote):
         rows.append({"field": name, "before": before, "after": after,
             "changed": before != after if equal is None else not equal})
     product = managed["product"]
-    for key in ("title", "descriptionHtml", "vendor", "handle", "tags"):
+    for key in ("title", "descriptionHtml", "vendor", "handle", "tags", "productType", "category"):
         if key in product:
             if key not in remote:
                 raise ShopifyError(f"Remote {key} evidence is incomplete.")
             if key == "tags":
                 if not isinstance(remote[key], list) or any(not isinstance(t, str) for t in remote[key]):
                     raise ShopifyError("Remote tag evidence is incomplete.")
+            elif key == "category":
+                if remote[key] is not None and not isinstance(remote[key], dict):
+                    raise ShopifyError("Remote standard category evidence is incomplete.")
             elif not isinstance(remote[key], str):
                 raise ShopifyError(f"Remote {key} evidence is incomplete.")
-            before = sorted(remote[key]) if key == "tags" else remote[key]
+            before = sorted(remote[key]) if key == "tags" else (remote[key] or {}).get("id") if key == "category" else remote[key]
             add(key, before, product[key])
     for key, value in product.get("seo", {}).items():
         if not isinstance(remote.get("seo"), dict) or key not in remote["seo"]:

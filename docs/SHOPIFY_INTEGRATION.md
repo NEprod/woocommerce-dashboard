@@ -1,5 +1,139 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.8 — comparison evidence and reviewed taxonomy synchronisation
+
+### Products status and review
+
+Products/Detail use local evidence only. Fresh read-only Review stores Create/Update/
+No Change, changed fields/count, actual status, blockers and collection differences
+in a bounded version-1 summary. It survives restart, is reusable for ten minutes,
+and is distinct from completed-publish verification. Equality requires unchanged
+managed JSON/inheritance, image stats, relevant registry definitions, collection
+mappings, product identity and configuration. Expired evidence requires Review;
+changed local sources show an available update, not an old change count. A source
+edit during reads cannot receive equality from the earlier plan. Recovery and
+Processing override cached comparison. Confirm still rereads and validates signed
+source/remote/taxonomy evidence before any write.
+Failed refresh preserves historical comparison/verification but downgrades current
+equality to Verification Unavailable; a successful explicit Review can recover it.
+Legacy readback remains valid for its original contract without backfilling equality
+for newly managed taxonomy.
+
+LCBC-0001's old Verification Unavailable was caused by reading only completed-publish
+evidence while Preview's current comparison was temporary; older operations lacked
+the later local-source baseline. Fresh comparisons now have their own durable record.
+No legacy identity is backfilled or rewritten. Live intent can now be compared, with
+the unsupported Online Store transition clearly blocking Confirm. Matching metadata
+plus outstanding publication is Needs Attention, never unqualified Up to Date.
+
+### Existing TLC organisation → Shopify
+
+The schema-1 registry contains stable category keys, parent keys, slugs, aliases,
+state/order, storefront collections, attributes/terms and tag vocabulary. Product
+assignments resolve from existing shared JSON + sparse overrides, not a new file.
+Active assigned categories and storefront collections map by their stable keys;
+the enclosing catalogue Collection maps by its stable source-relative folder path,
+not a transient SQLite ID. Hierarchy/order stay local. Ancestors are not automatically
+joined; later menus may keep parents visible through eligible descendants.
+
+Open **Taxonomy → Shopify collection mappings** (`/taxonomy/shopify`). Review one
+source, then explicitly Confirm Create or Link. Create checks retained identities and
+bounded title/handle candidates; any candidate blocks Create and must be explicitly
+linked by GID after authoritative store/collection checks. Inspect candidates displays
+real IDs without saving or authorizing any mapping/write; use a separate signed Link
+review for explicit adoption. Only manual product collections are supported: rule-based,
+shared, variant and subcollection sources are blocked.
+New collections remain unpublished. Renames do not create new identities or rename
+remote collections; update the retained mapping explicitly, not the remote title.
+
+Return to the product Review for **Join / Already assigned** memberships, including
+multiple collections. Up to 12 groups are supported sequentially per Simple product.
+Missing/ambiguous/unverified mappings block Confirm but keep read-only Review useful.
+No existing membership is removed and no automatic collection deletion occurs.
+Every intended membership is independently read back before complete verification.
+Collection mapping/creation is a separate signed operation from product publishing,
+so partial completion and its retained operation history remain visible.
+
+Collection Create reserves identity before the request, retains an attempt-marker
+metafield and commits a returned GID before readback. Timeout never means absent.
+Choose read-only Reconcile with an explicit candidate GID; its marker must match the
+retained attempt. Missing marker/ambiguous evidence remains blocked for administrator
+investigation. A membership timeout similarly preserves the product's earlier writes;
+read-only product reconciliation can verify a join that succeeded. If membership did
+not succeed, resolve the missing membership explicitly in Shopify and reconcile;
+automatic partial-write resume is not implemented. Do not retry the whole product.
+
+Optional **standard Shopify category** GIDs on mapping Review are validated against
+the configured API (including archived-state rejection), shown by full name, applied
+only after product Confirm and independently verified. Conflicting assigned mappings
+block writes. No name inference. Blank leaves product category unmanaged, not cleared.
+Optional authored `shopify_product_type` maps to `productType` independently; no TLC
+hierarchical path is silently used as a product type.
+
+### Tags and metadata
+
+Registry tags are an allowed vocabulary, not implicit assignments to every product.
+Existing authored tags follow established additive shared/product inheritance and
+scanner projection; the publisher rereads that effective authored definition.
+Missing `tags` means unmanaged and preserves Shopify tags. Explicit nonempty or
+resolved empty `tags` uses reviewed full replacement, with exact remote-only removals
+disclosed in Warnings. A sparse product `tags: []` does not erase inherited tags under
+the existing merge contract. No automatic tag clearing or generated merchandising.
+No demonstrated live NBNOC-0004 source-loss defect is claimed: actual source JSON was
+not supplied. Main description remains independent of SEO; absent shipping/origin/
+tags remain explicit warnings rather than invented fields. Original WebP media and
+IDs/CDN URLs remain untouched on metadata/collection updates.
+
+### Permissions, persistence and acceptance
+
+`read_products` supports collection/standard-category reads; `write_products` supports
+manual collection creation and product joins. `write_files` remains required only for
+reviewed existing-file alt changes. Missing scopes block affected Confirm, not useful
+read-only comparison. No menu/publication permissions are requested here. Basic is
+compatible; Shopify excludes Starter/Retail for collection creation. The existing
+supported collectionCreate(input)/collectionAddProducts APIs are deprecated but remain
+available in 2026-10; authoritative source checks cover the newer collection model.
+See [collectionCreate](https://shopify.dev/docs/api/admin-graphql/latest/mutations/collectionCreate),
+[collectionAddProducts](https://shopify.dev/docs/api/admin-graphql/latest/mutations/collectionAddProducts)
+and [collection sources](https://shopify.dev/docs/api/admin-graphql/latest/interfaces/CollectionSource).
+
+Migration `0011_shopify_taxonomy` adds store-scoped unique collection identities and
+comparison summaries, each JSON record versioned and capped at 32 KiB. Existing Woo/
+Shopify product identities are untouched; no No Change backfill. Back up stopped
+persistent appdata before upgrading (same mounts/database). Startup migrates using
+existing deployment flow; verify the database's `alembic_version` is
+`0011_shopify_taxonomy`. Do not downgrade/drop operational tables after remote writes
+without preserving their identities/history. Previous image remains a rollback option,
+but preserve the upgraded database and mappings rather than restore an old backup and
+lose new Shopify identities. No credentials are stored in either new table.
+
+Unraid acceptance:
+
+1. Back up stopped appdata; deploy the milestone's immutable test tag or matching
+   `develop`, preserving all mounts/credentials. Confirm migration and Test connection.
+2. Products → LCBC-0001 → Review & Sync: confirm retained Product GID
+   `gid://shopify/Product/16009365160319`, build Preview and inspect dimensions/weight
+   Update. Return to Products: Update Available and comparison time/count should show.
+   If actual authored intent is Live, Confirm must remain blocked; do not falsify it.
+3. If genuinely intended Draft, resolve displayed mappings and Confirm its Update once.
+   Check the same Shopify product, original media IDs and complete readback. Build a
+   new Review: No Change, then Products Up to Date only without remaining blockers.
+4. NBNOC-0004: build Create Preview only; inspect reviewed main copy versus SEO, missing
+   shipping/origin warnings, original WebP ordering and assigned category/collection/tag
+   values. No write occurs until explicit Confirm and all blockers resolve.
+5. Choose a Simple product with actual TLC assignments. Review missing mapping Create
+   or explicit Link in Taxonomy, verify the new unpublished collection/retained GID,
+   then rebuild product Review. Inspect multiple memberships, tags (including removals)
+   and optional explicit standard category; Confirm one supported Draft operation.
+6. Check memberships/tags/category in Shopify Admin; reconcile processing/uncertainty
+   read-only. Restart and ensure identities/comparisons survive. Check mobile primary
+   action clearance and collapsed Matching/Images/Advanced sections.
+
+No automated live writes; new taxonomy/member/update acceptance is still pending.
+Online Store publication, menus/empty-menu filtering, Variables, bulk and broader
+reference-safe taxonomy editing remain deferred. Next: complete existing Create/Edit
+JSON forms after acceptance, not a second metadata system.
+
 ## Product UX and metadata completion
 
 Product Detail now uses a compact shared-token Shopify card: **Review & Sync**,

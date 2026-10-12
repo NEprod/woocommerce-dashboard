@@ -91,6 +91,10 @@ a:hover { color: var(--color-lime-hover); }
 .brand-wordmark { font-size: 21px; font-weight: 750; letter-spacing: -.035em; color: var(--color-text-primary); white-space: nowrap; }
 .brand-monogram { color: var(--color-lime-ink); background: var(--color-lime-soft); border-radius: var(--radius-input); font-size: 13px; font-weight: 750; text-align: center; line-height: 40px; }
 .shopify-status-card { padding: var(--space-5); }
+.shopify-list-status { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+.product-secondary-actions { width: 100%; font-size: 12px; }
+.product-secondary-actions > .product-actions { margin-top: var(--space-3); }
+.shopify-membership-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: var(--border-subtle); }
 .shopify-status-heading, .shopify-status-summary, .shopify-status-actions, .shopify-status-secondary { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .shopify-status-heading { justify-content: space-between; }
 .shopify-status-heading h2 { font-size: 16px; margin: 0; }

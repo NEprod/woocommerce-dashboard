@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from sqlalchemy import or_
 
-from app.models import ShopifyProductIdentity
+from app.models import ShopifyProductIdentity, ShopifyProductComparison, ShopifyCollectionIdentity
 from app.taxonomy_assignments import product_document
 
 
@@ -50,11 +50,14 @@ def states_for(products):
     rows = ShopifyProductIdentity.query.filter(or_(
         ShopifyProductIdentity.product_id.in_([p.id for p in products]),
         ShopifyProductIdentity.source_identity.in_([p.source_relpath for p in products if p.source_relpath]))).all()
-    return {p.id: product_state(p, [r for r in rows if r.product_id == p.id or r.source_identity == p.source_relpath])
+    comparisons = ShopifyProductComparison.query.filter(ShopifyProductComparison.source_identity.in_([p.source_relpath for p in products if p.source_relpath])).all()
+    mappings = {(r.store_id, r.source_key): r for r in ShopifyCollectionIdentity.query.all()}
+    return {p.id: product_state(p, [r for r in rows if r.product_id == p.id or r.source_identity == p.source_relpath],
+                [r for r in comparisons if r.source_identity == p.source_relpath], mappings)
             for p in products}
 
 
-def product_state(product, rows):
+def product_state(product, rows, comparisons=(), mappings=None):
     from flask import url_for
     from app.shopify_drafts import evidence
     state = {"state": "unknown", "label": "Not yet verified", "remote_id": None,
@@ -62,7 +65,8 @@ def product_state(product, rows):
              "identity_url": None, "store_id": None, "shopify_url": None,
              "review_url": url_for("commerce.drafts", product_id=product.id) if product.product_type == "simple" and product.catalogue_status == "active" else None,
              "message": "No retained identity. Remote duplicate checks are still required before Create.",
-             "intent": "Unresolved", "intent_value": None}
+             "intent": "Unresolved", "intent_value": None, "compared_at": None,
+             "change_count": None, "change_summary": [], "blockers": []}
     try:
         live = product_document(product).get("live")
         state["intent_value"] = live if isinstance(live, bool) else None
@@ -104,6 +108,42 @@ def product_state(product, rows):
             if state["state"] == "no_change":
                 state.update(state="attention", label="Needs Attention",
                     message="Managed metadata matches cached verification, but intended publication is unresolved. " + state["message"])
+        if state["state"] not in {"recovery_required", "processing"}:
+            from app.shopify_comparison import current
+            identity = rows[0] if rows else None
+            for comparison in sorted(comparisons, key=lambda r: r.compared_at, reverse=True):
+                if identity and comparison.store_id != identity.store_id:
+                    continue
+                data = current(product, comparison, identity, mappings or {})
+                if data:
+                    classification = data["classification"]
+                    state.update(state="create" if classification == "create" else "update" if classification == "update" else "no_change",
+                        label="Create Available" if classification == "create" else "Update Available" if classification == "update" else "Up to Date",
+                        compared_at=comparison.compared_at.isoformat() + "Z", change_count=data["change_count"],
+                        change_summary=data.get("display_changes", []), blockers=data["blockers"],
+                        remote_status=data["actual_status"].title() + " (last compared)",
+                        message="Cached read-only comparison; this is not post-write verification.")
+                    if classification == "no_change" and (data["blockers"] or live is not False):
+                        state.update(state="attention", label="Needs Attention", message="Metadata matches, but publication or taxonomy blockers remain.")
+                    if data.get("refresh_failure"):
+                        state.update(state="unavailable", label="Verification Unavailable", change_count=None,
+                            change_summary=[], blockers=[data["refresh_failure"]["message"]],
+                            message="Last refresh failed; retained publication verification and last comparison are historical. Review again before writing.")
+                    break
+            else:
+                if identity:
+                    from app.shopify_comparison import fingerprint
+                    from app.shopify_drafts import digest, configuration
+                    for comparison in comparisons:
+                        known = json.loads(comparison.summary_json)
+                        if (comparison.store_id == identity.store_id and known.get("identity") == digest(identity.media_evidence_json)
+                                and known.get("config") == configuration().fingerprint()
+                                and known.get("local") != fingerprint(product, known["images"])):
+                            state.update(state="update", label="Update Available", message="Local metadata or taxonomy changed since the last comparison. Review verifies current remote differences; the previous change count is invalid.")
+                            break
+                if state["state"] == "no_change":
+                    # Last publish fingerprints predate managed taxonomy and cannot prove it.
+                    state.update(state="unavailable", label="Verification Unavailable", message="Fresh managed comparison required; retained publishing evidence remains available.")
     except (ValueError, OSError, KeyError, TypeError, AttributeError, RuntimeError):
         state.update(state="unavailable", label="Verification Unavailable", message="Local source or retained evidence needs review; no current equality is claimed.")
     return state

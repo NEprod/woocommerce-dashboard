@@ -193,6 +193,34 @@ def draft_identity(identity_id):
         approval=service.recovery_token(row), error=error), 400 if error else 200, {"Cache-Control": "no-store"}
 
 
+@commerce.route("/taxonomy/shopify", methods=["GET", "POST"])
+@login_required
+def taxonomy_mappings():
+    from app import shopify_taxonomy as service
+    from app.models import ShopifyCollectionIdentity
+    from app.utils.operation_control import CatalogueOperationActive
+    if not current_user.is_admin:
+        abort(403)
+    form, plan, token, error, saved = FlaskForm(), None, None, None, False
+    if request.method == "POST":
+        if not form.validate_on_submit():
+            abort(400)
+        try:
+            if request.form.get("action") == "review":
+                plan, token = service.review_mapping(request.form.get("source", ""), request.form.get("mode", ""),
+                    request.form.get("remote_id") or None, request.form.get("standard") or None)
+            elif request.form.get("action") == "confirm":
+                service.confirm_mapping(request.form.get("review", ""), request.form.get("acknowledge") == "yes")
+                saved = True
+            else:
+                abort(400)
+        except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
+            error = str(exc)
+    return render_template("taxonomy/shopify.html", form=form, sources=service.sources(),
+        mappings=ShopifyCollectionIdentity.query.order_by(ShopifyCollectionIdentity.updated_at.desc()).limit(200).all(),
+        plan=plan, token=token, error=error, saved=saved), 400 if error else 200, {"Cache-Control": "no-store"}
+
+
 def guard_platform():
     """Do not execute Woo workflows on a Shopify installation. Woo path is untouched."""
     endpoint = request.endpoint or ""

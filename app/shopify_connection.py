@@ -51,7 +51,7 @@ WRITE_QUERIES = frozenset((STAGE_QUERY, CREATE_QUERY, PRICE_QUERY))
 # Full Simple managed readback, separate from the legacy M3A recovery contract.
 SIMPLE_QUERY = """query SimpleRead($id: ID!, $namespace: String!) {
  product(id: $id) { """ + DRAFT_FIELDS + """
- vendor tags seo { title description }
+ vendor tags productType category { id fullName } seo { title description }
  length: metafield(namespace: $namespace, key: "product_length") { id type value }
  width: metafield(namespace: $namespace, key: "product_width") { id type value }
  height: metafield(namespace: $namespace, key: "product_height") { id type value }
@@ -68,7 +68,13 @@ FILES_QUERY = """mutation SimpleAlt($files: [FileUpdateInput!]!) {
 ORDER_QUERY = """mutation SimpleOrder($id: ID!, $moves: [MoveInput!]!) {
  productReorderMedia(id: $id, moves: $moves) { job { id } mediaUserErrors { field message } } }"""
 READ_QUERIES = READ_QUERIES | frozenset((SIMPLE_QUERY, COUNTRIES_QUERY, SKU_QUERY))
-WRITE_QUERIES = WRITE_QUERIES | frozenset((UPDATE_QUERY, FILES_QUERY, ORDER_QUERY))
+COLLECTION_LOOKUP = '''query CollectionCandidates($query: String!) { collections(first: 20, query: $query) { nodes { id title handle ruleSet { appliedDisjunctively } metafield(namespace: "tlc_dashboard", key: "collection_attempt") { value } } pageInfo { hasNextPage endCursor } } }'''
+COLLECTION_STATE = '''query CollectionState($id: ID!, $product: ID!, $check: Boolean!) { collection(id: $id) { id title handle ruleSet { appliedDisjunctively } sources { __typename ... on CollectionConditionsSource { targetType shareable inclusion { conditions { __typename } } exclusion { conditions { __typename } selections(first: 1) { nodes { product { id } } } } } } hasProduct(id: $product) @include(if: $check) metafield(namespace: "tlc_dashboard", key: "collection_attempt") { value } } }'''
+COLLECTION_CREATE = '''mutation TLCCollection($input: CollectionInput!) { collectionCreate(input: $input) { collection { id } userErrors { field message } } }'''
+COLLECTION_JOIN = '''mutation TLCMembership($id: ID!, $products: [ID!]!) { collectionAddProducts(id: $id, productIds: $products) { collection { id } userErrors { field message } } }'''
+STANDARD_CATEGORY = '''query StandardCategory($id: ID!) { node(id: $id) { ... on TaxonomyCategory { id fullName isArchived } } }'''
+READ_QUERIES = READ_QUERIES | frozenset((COLLECTION_LOOKUP, COLLECTION_STATE, STANDARD_CATEGORY))
+WRITE_QUERIES = WRITE_QUERIES | frozenset((UPDATE_QUERY, FILES_QUERY, ORDER_QUERY, COLLECTION_CREATE, COLLECTION_JOIN))
 
 
 def _cursor(value):
@@ -321,6 +327,33 @@ class ShopifyAdapter:
 
     def create_draft(self, configuration, product, media):
         return self._write(configuration, CREATE_QUERY, {"product": product, "media": media})
+
+    def collection_candidates(self, config, title, handle):
+        if not isinstance(title, str) or len(title) > 191 or not re.fullmatch(r"[a-z0-9-]{1,96}", handle):
+            raise ShopifyError("Invalid local collection definition.")
+        quoted = json.dumps(title)
+        return _connection(self._read(config, COLLECTION_LOOKUP, {"query": f"title:{quoted} OR handle:{handle}"}).get("collections"))
+
+    def collection_state(self, config, remote_id, product_id="gid://shopify/Product/0"):
+        check = product_id != "gid://shopify/Product/0"
+        row = self._read(config, COLLECTION_STATE, {"id": _gid(remote_id, "Collection"), "product": _gid(product_id, "Product"), "check": check}).get("collection")
+        if isinstance(row, dict) and not check:
+            row["hasProduct"] = False  # no remote product yet; do not query a fictitious identity
+        return row
+
+    def create_collection(self, config, data):
+        return self._write(config, COLLECTION_CREATE, {"input": data})
+
+    def join_collection(self, config, collection_id, product_id):
+        return self._write(config, COLLECTION_JOIN, {"id": _gid(collection_id, "Collection"), "products": [_gid(product_id, "Product")]})
+
+    def standard_category(self, config, value):
+        if not isinstance(value, str) or not re.fullmatch(r"gid://shopify/TaxonomyCategory/[a-zA-Z0-9-]{1,100}", value):
+            raise ShopifyError("Use a Shopify TaxonomyCategory GID, not a guessed name.")
+        row = self._read(config, STANDARD_CATEGORY, {"id": value}).get("node")
+        if not row or row.get("id") != value or row.get("isArchived") is not False or not row.get("fullName"):
+            raise ShopifyError("Standard category is unavailable or archived in this API version.")
+        return row
 
     def set_simple_variant(self, configuration, product_id, variant_id, sku, price):
         return self._write(configuration, PRICE_QUERY, {"id": product_id,

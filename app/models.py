@@ -384,6 +384,37 @@ class ShopifyProductIdentity(db.Model):
     verified_at = db.Column(db.DateTime)
 
 
+class ShopifyCollectionIdentity(db.Model):
+    __tablename__ = "shopify_collection_identity"
+    __table_args__ = (
+        db.UniqueConstraint("store_id", "source_key", name="uq_shopify_collection_source"),
+        db.UniqueConstraint("store_id", "remote_id", name="uq_shopify_collection_remote"),
+        db.CheckConstraint("length(evidence_json) <= 32768", name="ck_shopify_collection_evidence"),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    store_id = db.Column(db.String(100), nullable=False)
+    source_key = db.Column(db.String(1100), nullable=False)
+    remote_id = db.Column(db.String(100))
+    state = db.Column(db.String(32), nullable=False)
+    standard_category_id = db.Column(db.String(150))
+    operation_id = db.Column(db.String(32), db.ForeignKey("catalogue_operation.id", ondelete="SET NULL"))
+    evidence_json = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False, server_default=func.now())
+
+
+class ShopifyProductComparison(db.Model):
+    __tablename__ = "shopify_product_comparison"
+    __table_args__ = (
+        db.UniqueConstraint("store_id", "source_identity", name="uq_shopify_comparison_source"),
+        db.CheckConstraint("length(summary_json) <= 32768", name="ck_shopify_comparison_bound"),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    store_id = db.Column(db.String(100), nullable=False)
+    source_identity = db.Column(db.String(1024), nullable=False)
+    summary_json = db.Column(db.Text, nullable=False)
+    compared_at = db.Column(db.DateTime, nullable=False)
+
+
 class WooProductIdentity(db.Model):
     """Store-scoped Woo identity and sync state; never authored catalogue data."""
 

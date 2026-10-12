@@ -1,11 +1,13 @@
-{% set labels = {'no_change':'Up to Date', 'update':'Update Available', 'processing':'Processing', 'unknown':'Not Verified', 'unavailable':'Not Verified', 'attention':'Needs Attention', 'recovery_required':'Needs Attention'} %}
+{% set labels = {'create':'Create Available', 'no_change':'Up to Date', 'update':'Update Available', 'processing':'Processing', 'unknown':'Not Yet Verified', 'unavailable':'Verification Unavailable', 'attention':'Needs Attention', 'recovery_required':'Recovery Required'} %}
 <section class="workspace-card shopify-status-card" aria-label="Shopify product state">
   <div class="shopify-status-heading"><h2>Shopify</h2><span class="catalogue-pill {{ 'is-active' if shopify.state == 'no_change' else 'is-neutral' }}"><span class="shopify-status-dot" aria-hidden="true"></span>{{ labels.get(shopify.state, 'Needs Attention') }}</span></div>
   <div class="shopify-status-summary"><span>{{ 'Identity retained' if shopify.remote_id else 'Remote existence not verified' }}</span><span>{{ shopify.remote_status }}</span></div>
   <p class="shopify-status-intent">Intended: {{ shopify.intent }} · Online Store: {{ shopify.publication }}</p>
-  <p class="shopify-status-time">{{ 'Cached verification (UTC): ' ~ shopify.verified_at if shopify.verified_at else 'No successful verification yet' }}. Fresh comparison requires Review or Refresh.</p>
-  <details class="shopify-status-evidence"><summary>Evidence &amp; blockers</summary><p>{{ shopify.message }}</p>{% if shopify.remote_id %}<p class="text-break">{{ shopify.remote_id }}</p>{% endif %}</details>
+  <p class="shopify-status-time">{% if shopify.compared_at %}Compared (cached, UTC): {{ shopify.compared_at }} · {{ shopify.change_count }} changes{% else %}{{ 'Cached verification (UTC): ' ~ shopify.verified_at if shopify.verified_at else 'No successful verification yet' }}{% endif %}</p>
+  {% if shopify.change_summary %}<p>{{ shopify.change_summary|join(' · ') }}</p>{% endif %}
+  {% for blocker in shopify.blockers %}<p class="field-helper">{{ blocker }}</p>{% endfor %}
+  <details class="shopify-status-evidence"><summary>Evidence &amp; blockers</summary><p>{{ shopify.message }}</p>{% if shopify.verified_at %}<p>Cached verification (UTC): {{ shopify.verified_at }}</p>{% endif %}{% if shopify.remote_id %}<p class="text-break">{{ shopify.remote_id }}</p>{% endif %}</details>
   <div class="shopify-status-actions">{% if shopify.review_url %}<a class="btn btn-primary" href="{{ shopify.review_url }}">Review &amp; Sync</a>{% endif %}
-    <div class="shopify-status-secondary">{% if shopify.shopify_url %}<a class="btn btn-outline-primary btn-sm" href="{{ shopify.shopify_url }}" target="_blank" rel="noopener noreferrer">View on Shopify</a>{% endif %}{% if shopify.identity_url %}<a class="btn btn-outline-primary btn-sm" href="{{ shopify.identity_url }}">Refresh / History</a>{% endif %}</div>
+    <div class="shopify-status-secondary">{% if shopify.shopify_url %}<a class="btn btn-outline-primary btn-sm" href="{{ shopify.shopify_url }}" target="_blank" rel="noopener noreferrer">Shopify</a>{% endif %}{% if shopify.review_url %}<a class="btn btn-outline-primary btn-sm" href="{{ shopify.review_url }}">Refresh/Compare</a>{% endif %}{% if shopify.identity_url %}<a class="btn btn-outline-primary btn-sm" href="{{ shopify.identity_url }}">Identity &amp; History</a>{% endif %}</div>
   </div>
 </section>

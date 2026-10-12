@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app import db
 from app import shopify_drafts as drafts
-from app.models import Product, ProductImage, Settings, ShopifyProductIdentity, CatalogueOperation
+from app.models import Product, ProductImage, Settings, ShopifyProductIdentity, CatalogueOperation, ShopifyCollectionIdentity
 from app.database import _alembic_config, ensure_database, migration_head
 from app.shopify_connection import ShopifyError, ShopifyAdapter
 from test_phase3_woo_publish_preview import preview_app, _client
@@ -20,6 +20,10 @@ from test_shopify_foundation import TOKEN, Session, Response, isolated_transport
 
 
 class FakeDraftAdapter:
+    def collection_state(self, config, remote_id, product_id="gid://shopify/Product/0"):
+        return {"id": remote_id, "title": "Preview Cards", "ruleSet": None,
+            "hasProduct": bool(self.remote), "metafield": None, "sources": []}
+
     def find_sku(self, config, sku):
         return {"nodes": [], "pageInfo": {"hasNextPage": False}}
 
@@ -111,6 +115,10 @@ def world(preview_app, monkeypatch):
         folder.mkdir(parents=True)
         shared = folder.parent / "product_info.json"
         shared.write_text(json.dumps({"collection_type": "Simple", "price": "3.50", "description": "Reviewed description", "variation_attributes": [], "live": False}))
+        if product.collection and product.collection.source_relpath:
+            db.session.add(ShopifyCollectionIdentity(store_id="gid://shopify/Shop/42",
+                source_key="collection:" + product.collection.source_relpath, remote_id="gid://shopify/Collection/800",
+                state="verified", evidence_json='{"version":1}'))
         product.images.clear()
         for i, (name, fmt) in enumerate([("original.png", "PNG"), ("second.jpg", "JPEG")]):
             Image.new("RGB", (5, 5), "red").save(folder / name, format=fmt)
@@ -305,7 +313,7 @@ def test_original_upload_bytes_without_token_or_redirect(monkeypatch):
 
 def test_fresh_and_upgrade_preserve_woo(tmp_path):
     fresh = tmp_path / "fresh.db"
-    assert ensure_database(f"sqlite:///{fresh}").revision == "0010_shopify_product_identity"
+    assert ensure_database(f"sqlite:///{fresh}").revision == migration_head()
     with sqlite3.connect(fresh) as con:
         assert con.execute("select count(*) from shopify_product_identity").fetchone()[0] == 0
     old = tmp_path / "old.db"
