@@ -1,4 +1,4 @@
-"""Administrator-only configuration. GET never contacts either store."""
+"""Administrator configuration/discovery/drafts. GET never contacts either store."""
 from flask import Blueprint, abort, render_template, request, redirect, url_for
 from flask_login import login_required, current_user
 from flask_wtf import FlaskForm
@@ -29,7 +29,7 @@ def settings():
         stored = config.shopify_settings()
         owned = config.deployment_owned()
         if request.method == "GET":
-            form.domain.data = stored.get("domain", "")
+            form.domain.data = "" if owned else stored.get("domain", "")
             form.api_version.data = stored.get("api_version", "2026-10")
             form.revision.data = config.revision()
         elif form.validate_on_submit():
@@ -58,6 +58,8 @@ def settings():
                 saved = True
                 form.revision.data = config.revision()
             form.domain.data, form.api_version.data = candidate.domain, candidate.api_version
+            if owned:
+                form.domain.data = ""
         elif request.method == "POST":
             error = "Invalid form or API version. Reload and try again."
     except (config.CommerceConfigError, ShopifyError) as exc:
@@ -96,6 +98,8 @@ def discovery():
             after, resource_id = request.form.get("after"), request.form.get("resource_id")
             if action == "test":
                 result = adapter.test_connection(configuration)
+                if config.deployment_owned():
+                    result = dict(result, domain="deployment-configured store")
             elif action == "products":
                 result = adapter.discover_products(configuration, after)
             elif action == "product":
@@ -112,6 +116,71 @@ def discovery():
                            action=action), 400 if error else 200, {"Cache-Control": "no-store"}
 
 
+@commerce.route("/shopify/drafts", methods=["GET", "POST"])
+@login_required
+def drafts():
+    from app import db
+    from app.models import Product, ShopifyProductIdentity
+    from app import shopify_drafts as service
+    from app.utils.operation_control import CatalogueOperationActive
+    if not current_user.is_admin:
+        abort(403)
+    form = FlaskForm()
+    plan, token, error = None, None, None
+    if request.method == "POST":
+        if not form.validate_on_submit():
+            abort(400)
+        try:
+            if request.form.get("action") == "preview":
+                product = db.session.get(Product, request.form.get("product_id", type=int))
+                if not product:
+                    abort(404)
+                plan, token = service.preview(product)
+            elif request.form.get("action") == "confirm":
+                row = service.confirm(request.form.get("review", ""), request.form.get("acknowledge") == "yes")
+                return redirect(url_for("commerce.draft_identity", identity_id=row.id))
+            else:
+                abort(400)
+        except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
+            error = str(exc)
+    products = Product.query.filter_by(product_type="simple", catalogue_status="active").order_by(Product.title).limit(500).all()
+    identities = ShopifyProductIdentity.query.order_by(ShopifyProductIdentity.updated_at.desc()).limit(30).all()
+    return render_template("shopify_drafts.html", form=form, plan=plan, token=token, error=error,
+        products=products, identities=identities), 400 if error else 200, {"Cache-Control": "no-store"}
+
+
+@commerce.route("/shopify/drafts/identity/<int:identity_id>", methods=["GET", "POST"])
+@login_required
+def draft_identity(identity_id):
+    from app import db
+    from app.models import ShopifyProductIdentity
+    from app import shopify_drafts as service
+    from sqlalchemy.exc import IntegrityError
+    if not current_user.is_admin:
+        abort(403)
+    row = db.session.get(ShopifyProductIdentity, identity_id)
+    if not row:
+        abort(404)
+    form = FlaskForm()
+    error = None
+    if request.method == "POST":
+        if not form.validate_on_submit():
+            abort(400)
+        try:
+            approval = request.form.get("approval")
+            if approval and request.form.get("acknowledge_mapping") != "yes":
+                raise ShopifyError("Explicit approval of the displayed media mapping is required.")
+            service.reconcile(row, request.form.get("candidate_id") or None, approval=approval)
+        except (ShopifyError, config.CommerceConfigError) as exc:
+            error = str(exc)
+        except IntegrityError:
+            db.session.rollback()
+            error = "Remote ID is already reserved by another local mapping. Review both identities; no duplicate mapping was saved."
+    data = service.evidence(row)
+    return render_template("shopify_draft_identity.html", form=form, row=row, data=data,
+        approval=service.recovery_token(row), error=error), 400 if error else 200, {"Cache-Control": "no-store"}
+
+
 def guard_platform():
     """Do not execute Woo workflows on a Shopify installation. Woo path is untouched."""
     endpoint = request.endpoint or ""
@@ -123,4 +192,4 @@ def guard_platform():
         if selected == "shopify":
             if request.method == "GET":
                 return redirect(url_for("commerce.settings"))
-            abort(409, "Woo workflows are disabled for this Shopify installation; Shopify publishing is not implemented.")
+            abort(409, "Woo workflows are disabled for this Shopify installation. Use the separate reviewed Shopify Simple draft workflow.")

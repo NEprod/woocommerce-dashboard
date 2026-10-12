@@ -1,0 +1,19 @@
+{% extends 'layouts/base.html' %}
+{% block title %}Shopify draft Preview{% endblock %}
+{% block content %}
+<section class="page-heading"><p class="eyebrow">Shopify · M3A</p><h1>Review one Simple draft</h1><p>One product, original catalogue images, DRAFT only. No sales-channel publication, local changes or automatic retry.</p><a href="{{ url_for('commerce.settings') }}">Connection settings</a></section>
+{% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
+<form method="post" class="workspace-panel">
+{{ form.hidden_tag() }}<input type="hidden" name="action" value="preview">
+<label for="product_id">Local Simple product</label><select id="product_id" name="product_id" class="form-select" required>{% for p in products %}<option value="{{ p.id }}">{{ p.sku }} · {{ p.title }}</option>{% endfor %}</select>
+<button class="btn btn-outline-primary mt-3">Build read-only Preview</button><p>First 500 active Simple parents shown. Preview reads local sources and checks Shopify identity/scopes; it makes no writes.</p></form>
+{% if plan %}<section class="workspace-panel"><div class="panel-heading"><h2>{{ plan.title }}</h2><span class="catalogue-pill">DRAFT · Unpublished</span></div>
+<p>Local ID {{ plan.product_id }} · {{ plan.source_identity }} · SKU {{ plan.sku }}</p><p>Price {{ plan.price }} in the configured Shopify store's currency.</p><p>New remote handle: {{ plan.handle }}</p>
+<details open><summary>Description HTML (escaped source)</summary><pre class="text-wrap text-break">{{ plan.description }}</pre></details>
+<p>Categories, collections, attributes, tags, relationships and inventory quantities are not published by this proof of concept.</p>
+<div class="table-responsive"><table class="table"><thead><tr><th>Order</th><th>Original file</th><th>Local reference</th><th>Type / size</th><th>Alt</th></tr></thead><tbody>{% for i in plan.images %}<tr><td>{{ loop.index }}</td><td>{{ i.filename }} · {{ i.extension }}</td><td>{{ i.source }}</td><td>{{ i.mime }} · {{ i.size }} bytes</td><td>{{ i.alt }}</td></tr>{% endfor %}</tbody></table></div>
+<form method="post">{{ form.hidden_tag() }}<input type="hidden" name="action" value="confirm"><input type="hidden" name="review" value="{{ token }}">
+<label class="check-row"><input type="checkbox" name="acknowledge" value="yes" required> I approve creating exactly this one unpublished Shopify draft and uploading these original images, at this price in the store currency. Partial/uncertain writes require reconciliation, not another create.</label>
+<button class="btn btn-primary mt-3">Confirm draft creation</button></form></section>{% endif %}
+<section class="workspace-panel"><div class="panel-heading"><h2>Retained Shopify identities / attempts</h2></div>{% for i in identities %}<p><a href="{{ url_for('commerce.draft_identity', identity_id=i.id) }}">{{ i.sku }} · {{ i.state }} · Identity {{ i.id }}</a> · {{ i.store_id }}</p>{% else %}<p>No Shopify draft attempts.</p>{% endfor %}</section>
+{% endblock %}

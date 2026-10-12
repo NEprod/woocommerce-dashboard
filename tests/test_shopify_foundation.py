@@ -221,6 +221,57 @@ def test_environment_settings_are_not_overwritten(setup_app, monkeypatch):
     assert not (Path(app.instance_path) / "commerce.json").exists()
 
 
+def test_docker_configuration_precedence_redaction_and_fallback(setup_app, monkeypatch):
+    app, _ = setup_app
+    client = admin_client(app)
+    saved = {"domain": "saved.myshopify.com", "token": "fictional_saved_token", "api_version": "2026-07"}
+    with app.app_context():
+        config.save_shopify(saved, config.revision())
+        revision = config.revision()
+    path = Path(app.instance_path) / "commerce.json"
+    original = path.read_bytes()
+    monkeypatch.setenv("SHOPIFY_STORE_DOMAIN", "fictional.myshopify.com")
+    monkeypatch.setenv("SHOPIFY_ADMIN_ACCESS_TOKEN", TOKEN)
+    monkeypatch.setenv("SHOPIFY_API_VERSION", "2026-10")
+    session = Session()
+    monkeypatch.setattr("app.shopify_connection.requests.Session", lambda: session)
+    with app.app_context():
+        assert config.shopify_settings() == {"domain": "fictional.myshopify.com", "token": TOKEN, "api_version": "2026-10"}
+        assert config.active_platform() == "woocommerce"
+    page = client.get("/settings/commerce")
+    assert page.status_code == 200
+    for value in (TOKEN, "fictional.myshopify.com", saved["token"]): assert value.encode() not in page.data
+    response = client.post("/settings/commerce", data={"action": "test", "revision": revision, "api_version": "2026-10"})
+    assert response.status_code == 200 and b"deployment-configured store" in response.data
+    assert TOKEN.encode() not in response.data and b"fictional.myshopify.com" not in response.data
+    assert session.calls[0][1]["headers"]["X-Shopify-Access-Token"] == TOKEN
+    discovery = client.post("/shopify/discovery", data={"action": "test"})
+    assert discovery.status_code == 200
+    assert TOKEN.encode() not in discovery.data and b"fictional.myshopify.com" not in discovery.data
+    response = client.post("/settings/commerce", data={"action": "save", "revision": revision, "api_version": "2026-10"})
+    assert response.status_code == 400 and path.read_bytes() == original and len(session.calls) == 2
+    # Partial deployment configuration must never mix with saved credentials.
+    monkeypatch.delenv("SHOPIFY_ADMIN_ACCESS_TOKEN")
+    with app.app_context(): assert config.shopify_settings()["token"] == ""
+    for key in config.ENV_KEYS: monkeypatch.setenv(key, "")
+    with app.app_context():
+        assert config.shopify_settings() == saved and config.active_platform() == "woocommerce"
+    assert path.read_bytes() == original
+
+
+def test_docker_examples_expose_optional_shopify_configuration():
+    import xml.etree.ElementTree as ET
+    root = Path(__file__).resolve().parents[1]
+    compose = (root / "compose.yaml").read_text()
+    env = (root / ".env.example").read_text()
+    template = ET.parse(root / "unraid/my-woocommerce-dashboard.xml").getroot()
+    entries = {entry.get("Target"): entry for entry in template.findall("Config")}
+    for key in config.ENV_KEYS:
+        assert f'{key}: "${{{key}:-}}"' in compose and f"{key}=" in env
+        assert key in entries and entries[key].get("Default") == ""
+    assert entries["SHOPIFY_ADMIN_ACCESS_TOKEN"].get("Mask") == "true"
+
+
 def test_storage_failure_is_actionable_and_does_not_change_selection(setup_app, monkeypatch):
     app, _ = setup_app
     with app.app_context():

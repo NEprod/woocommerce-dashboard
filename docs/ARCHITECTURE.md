@@ -3,8 +3,8 @@
 ## Phase 4 M1 platform boundary
 
 `commerce.py` selects a small WooCommerce/Shopify adapter. Existing Woo publishing
-continues through its proven services, not a new generic publisher. Shopify only
-exposes a fixed connection query through `shopify_connection.py`; authenticated
+continues through its proven services, not a new generic publisher. Shopify
+connection/discovery queries use `shopify_connection.py`; authenticated
 settings routes live in `commerce_routes.py`. Shopify installations cannot execute
 Woo workflow routes. Catalogue/scanner/SKU/taxonomy authority is unchanged.
 
@@ -20,8 +20,24 @@ never combining a saved token with an environment domain. No database migration.
 `CatalogueSnapshot` recursively freezes resolved authored metadata, local identity,
 SKU/type, projected attributes/variations and image references. It uses existing
 metadata inheritance and suppresses ORM autoflush, without writing source or
-remote identities. Shopify product mapping, writes, platform switching and OAuth
-token lifecycle are deferred; see [Shopify integration](SHOPIFY_INTEGRATION.md).
+remote identities. Platform switching and OAuth token lifecycle remain deferred.
+
+M3A's separate `shopify_drafts.py` implements a signed, 15-minute single Simple
+Preview/Confirm using this snapshot and the existing CatalogueOperation lock.
+Only explicit confirmation can use the adapter's allowlisted staged-upload,
+productCreate and sole-variant SKU/price mutations. Original authorized bytes
+are uploaded without source conversion; discovery/reconciliation remain read-only.
+
+Approved migration 0010 adds only ShopifyProductIdentity, independent of Woo:
+verified store GID/key/domain, local/source identity, nullable remote GID,
+operation, reviewed digest, state/timestamps and bounded version-1 media evidence.
+Database store-scoped product/source/remote uniqueness plus committed pending and
+create-attempt records prevent duplicate creates after uncertain outcomes/restart.
+Independent draft/variant/media readback verifies the result; missing creation
+media receipts need fresh explicit mapping review. No authored IDs, automatic
+retry, deletion or historical-operation rewriting. Credentials remain in existing
+environment/private configuration, never this table. See
+[Shopify integration](SHOPIFY_INTEGRATION.md) for limits and manual acceptance.
 
 ## Shared Woo operational evidence
 

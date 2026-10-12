@@ -1,10 +1,46 @@
 # Current State
 
+## Phase 4 M3A — single Simple Shopify draft, live acceptance pending
+
+M2 is checkpointed locally at `9b01d63ca4bdbc3aa175e2112983c9031486da5a`
+(`feat(shopify): add read-only catalogue and media discovery`). M3A is source
+checkpointed locally on `feature/shopify-foundation`; no push/tag/release or
+live store writes. A commit-tagged temporary AMD64 image is the acceptance artifact,
+not a production promotion; the user must initiate the real draft operation.
+
+Administrator Preview/Confirm at `/shopify/drafts` reuses the immutable local
+snapshot and existing CatalogueOperation lock/history. Approved migration
+`0010_shopify_product_identity` adds one independent, store-unique durable identity
+table with bounded version-1 media evidence; no Woo mappings/backfill/credentials.
+Pending reservation and create-attempt evidence precede remote mutations.
+Original PNG/JPEG/WebP staged uploads, one unpublished DRAFT, SKU/price and full
+independent product/media readback are supported. Processing/partial/uncertain
+outcomes remain visible and block duplicate creates after restart. Explicit
+reconciliation is read-only; missing media receipts require a fresh operator
+mapping approval. No automatic write retry/deletion or source/SKU rewrite.
+
+Compose/Unraid expose optional Shopify environment settings, taking precedence
+as a complete credential configuration; blank values retain protected Dashboard
+settings. Deployment values are not redisplayed/overwritten by connection UI.
+Active platform, Woo publisher, scanner and authored JSON/images are unchanged.
+See [Shopify integration](SHOPIFY_INTEGRATION.md) for bounds, permissions/recovery
+and the required one-product manual acceptance. Variable products, updates,
+collections/navigation and full synchronization remain deferred.
+
+Focused mocked verification: **109 distinct cases passed** (107-case compatibility
+checkpoint, then 30 targeted cases including two new safety cases). Fresh/upgrade
+migration, unchanged Woo records, SQLite uniqueness, pending-before-write,
+staged originals, processing/uncertain recovery, restart/duplicate protection,
+credential precedence/redaction and existing Woo Simple/Variable publication are
+covered. Ten changed Python files compile; three affected templates parse;
+Unraid XML validation and `git diff --check` pass. No JavaScript changed or full
+suite run. These results do not substitute for live Shopify draft/media acceptance.
+
 ## Phase 4 M2 — Shopify discovery, implementation awaiting live acceptance
 
 M1 is checkpointed locally at `e2b454bb2a3eef85475fb635a3d85e03576a36dc`
 (`feat(shopify): establish platform foundation and connection settings`), without
-push/tag/release. M2 remains uncommitted on `feature/shopify-foundation`.
+push/tag/release. M2 is now locally checkpointed (see M3A above).
 The same Shopify adapter now exposes explicit administrator-only read queries
 through `/shopify/discovery`: paged products, product variants/options, product
 and variant media, collections and membership. Each action is bounded; no remote
@@ -29,7 +65,7 @@ run, build, push or M2 commit occurred.
 
 Phase 3 source was preserved at `3856cf32dc1eeb3be10850ed092b434bbc959285`
 (`feat(woo): checkpoint verified live-state and operations UX`). Development is
-on `feature/shopify-foundation`; the foundation remains uncommitted. Further
+on `feature/shopify-foundation`; M1 was subsequently checkpointed at `e2b454b`. Further
 Phase 3 page-by-page polish is paused, not implicitly accepted or released.
 Historical acceptance notes below remain evidence, including fresh-build
 non-reproduction of 3DCO-0001; no fingerprint change is included.

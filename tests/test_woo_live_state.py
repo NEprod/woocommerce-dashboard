@@ -198,7 +198,8 @@ def test_nullable_migration_without_backfill(preview_app):
     with preview_app.app_context():
         columns = {c["name"]: c for c in inspect(db.engine).get_columns("woo_product_identity")}
         assert columns["live_state_json"]["nullable"] and columns["live_state_json"]["default"] is None
-        assert db.session.execute(text("select version_num from alembic_version")).scalar() == "0009_woo_live_state"
+        from app.database import migration_head
+        assert db.session.execute(text("select version_num from alembic_version")).scalar() == migration_head()
 
 
 def test_migration_upgrade_retains_old_unknown_identity(tmp_path):

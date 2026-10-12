@@ -1,4 +1,4 @@
-"""Read-only Shopify transport and bounded discovery; no mutation entry point."""
+"""Bounded discovery transport and separately allowlisted Simple draft mutations."""
 from dataclasses import dataclass, field
 import json
 import re
@@ -27,6 +27,23 @@ VARIANT_QUERY = "query Variant($id: ID!, $after: String) { productVariant(id: $i
 COLLECTIONS_QUERY = "query Collections($after: String) { collections(first: 20, after: $after, sortKey: ID) { nodes { " + COLLECTION_FIELDS + " } " + PAGE + " } }"
 COLLECTION_QUERY = "query Collection($id: ID!, $after: String) { collection(id: $id) { " + COLLECTION_FIELDS + " products(first: 20, after: $after, sortKey: ID) { nodes { id title handle status } " + PAGE + " } } }"
 READ_QUERIES = frozenset((QUERY, PRODUCTS_QUERY, PRODUCT_QUERY, VARIANT_QUERY, COLLECTIONS_QUERY, COLLECTION_QUERY))
+STAGE_QUERY = "mutation Stage($input: [StagedUploadInput!]!) { stagedUploadsCreate(input: $input) { stagedTargets { url resourceUrl parameters { name value } } userErrors { field message } } }"
+CREATE_QUERY = """mutation Draft($product: ProductCreateInput!, $media: [CreateMediaInput!]) {
+ productCreate(product: $product, media: $media) { product { id variants(first: 2) { nodes { id } }
+ media(first: 10) { nodes { id alt } pageInfo { hasNextPage endCursor } } }
+ userErrors { field message } } }"""
+PRICE_QUERY = """mutation Price($id: ID!, $variants: [ProductVariantsBulkInput!]!) {
+ productVariantsBulkUpdate(productId: $id, variants: $variants) { productVariants { id sku price }
+ userErrors { field message } } }"""
+DRAFT_FIELDS = """id handle title descriptionHtml status
+ metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
+ variants(first: 2) { nodes { id sku price } pageInfo { hasNextPage endCursor } }
+ media(first: 10) { nodes { id alt status mediaContentType ... on MediaImage { image { url } } }
+ pageInfo { hasNextPage endCursor } }"""
+DRAFT_QUERY = "query DraftRead($id: ID!) { product(id: $id) { " + DRAFT_FIELDS + " } }"
+FIND_DRAFT_QUERY = "query DraftFind($query: String!) { products(first: 2, query: $query) { nodes { " + DRAFT_FIELDS + " } pageInfo { hasNextPage endCursor } } }"
+READ_QUERIES = READ_QUERIES | frozenset((DRAFT_QUERY, FIND_DRAFT_QUERY))
+WRITE_QUERIES = frozenset((STAGE_QUERY, CREATE_QUERY, PRICE_QUERY))
 
 
 def _cursor(value):
@@ -110,6 +127,17 @@ class ShopifyAdapter:
     def _read(self, configuration, query, variables=None, *, session=None):
         if query not in READ_QUERIES:
             raise ShopifyError("Only fixed read-only Shopify queries are supported.")
+        return self._transport(configuration, query, variables, session=session)
+
+    def _write(self, configuration, query, variables):
+        if query not in WRITE_QUERIES:
+            raise ShopifyError("Unsupported Shopify draft mutation.")
+        return self._transport(configuration, query, variables)
+
+    def _transport(self, configuration, query, variables=None, *, session=None):
+        if query not in READ_QUERIES | WRITE_QUERIES:
+            raise ShopifyError("Unsupported Shopify operation.")
+        writing = query in WRITE_QUERIES
         config = configuration.validated()
         own = session is None
         session = session or requests.Session()
@@ -125,8 +153,12 @@ class ShopifyAdapter:
                 if response.status_code in (401, 403):
                     raise ShopifyError("Shopify rejected authentication or access. Check the installed app, token expiry and scopes.")
                 if response.status_code == 429:
+                    if writing:
+                        raise ShopifyError("Shopify throttled this mutation. Review retained operation evidence before any retry.")
                     raise ShopifyError("Shopify is rate limiting reads. Wait before retrying; no automatic retry or store write occurred.")
                 if response.status_code != 200:
+                    if writing:
+                        raise ShopifyError("Shopify mutation failed with uncertain evidence. Reconcile the retained operation; do not blindly retry.")
                     raise ShopifyError("Shopify connection failed. Check the domain and service availability; no store data was changed.")
                 if response.headers.get("X-Shopify-API-Version", config.api_version) != config.api_version:
                     raise ShopifyError("Shopify served a different API version. Select a supported version and test again.")
@@ -135,26 +167,78 @@ class ShopifyAdapter:
                 for chunk in response.iter_content(8192):
                     raw.extend(chunk)
                     if len(raw) > (65536 if query == QUERY else 1048576) or monotonic() - started > 20:
-                        raise ShopifyError("Shopify returned an oversized or incomplete response. Try again later.")
+                        raise ShopifyError("Shopify returned incomplete mutation evidence. Reconcile before retrying." if writing else "Shopify returned an oversized or incomplete response. Try again later.")
                 data = json.loads(raw)
                 if data.get("errors"):
                     errors = data["errors"]
                     if isinstance(errors, list) and any(isinstance(e, dict) and
                             (e.get("extensions") or {}).get("code") == "THROTTLED" for e in errors):
-                        raise ShopifyError("Shopify query budget is exhausted. Wait before retrying this read-only page.")
-                    raise ShopifyError("Shopify could not complete the read query. Check token permissions or rate limits.")
+                        raise ShopifyError("Shopify query budget is exhausted. Review retained operation evidence before retrying." if writing else "Shopify query budget is exhausted. Wait before retrying this read-only page.")
+                    raise ShopifyError("Shopify returned mutation errors. Reconcile retained evidence; no automatic retry." if writing else "Shopify could not complete the read query. Check token permissions or rate limits.")
                 if not isinstance(data["data"], dict):
-                    raise ShopifyError("Shopify returned incomplete read evidence. Retry later.")
+                    raise ShopifyError("Shopify returned incomplete mutation evidence. Reconcile before retrying." if writing else "Shopify returned incomplete read evidence. Retry later.")
                 return data["data"]
         except requests.Timeout:
-            raise ShopifyError("Shopify timed out. Retry the read-only connection test later.") from None
+            raise ShopifyError("Shopify mutation timed out. Reconcile retained evidence; do not blindly retry." if writing else "Shopify timed out. Retry the read-only connection test later.") from None
         except requests.RequestException:
-            raise ShopifyError("Unable to reach Shopify securely. Check connectivity and the store domain.") from None
+            raise ShopifyError("Shopify mutation outcome is uncertain. Reconcile retained evidence; do not blindly retry." if writing else "Unable to reach Shopify securely. Check connectivity and the store domain.") from None
         except (KeyError, TypeError, AttributeError, json.JSONDecodeError, UnicodeError):
-            raise ShopifyError("Shopify returned incomplete or invalid connection evidence. Nothing was saved.") from None
+            raise ShopifyError("Shopify returned invalid mutation evidence. Reconcile retained evidence; do not blindly retry." if writing else "Shopify returned incomplete or invalid connection evidence. Nothing was saved.") from None
         finally:
             if own:
                 session.close()
+
+    def stage_images(self, configuration, images):
+        return self._write(configuration, STAGE_QUERY, {"input": [
+            {"filename": image["filename"], "mimeType": image["mime"], "resource": "PRODUCT_IMAGE",
+             "httpMethod": "POST", "fileSize": str(image["size"])} for image in images]})
+
+    def create_draft(self, configuration, product, media):
+        return self._write(configuration, CREATE_QUERY, {"product": product, "media": media})
+
+    def set_simple_variant(self, configuration, product_id, variant_id, sku, price):
+        return self._write(configuration, PRICE_QUERY, {"id": product_id,
+            "variants": [{"id": variant_id, "price": price, "inventoryItem": {"sku": sku}}]})
+
+    def read_draft(self, configuration, product_id):
+        return self._read(configuration, DRAFT_QUERY, {"id": _gid(product_id, "Product")}).get("product")
+
+    def find_draft(self, configuration, handle):
+        if not re.fullmatch(r"tlc-draft-[a-f0-9]{32}", handle):
+            raise ShopifyError("Invalid draft recovery handle.")
+        return _connection(self._read(configuration, FIND_DRAFT_QUERY, {"query": "handle:" + handle}).get("products"))
+
+    def upload_image(self, configuration, target, image, content):
+        """Upload only to a validated staged target, without the Admin API token."""
+        config = configuration.validated()
+        def safe_url(value):
+            try:
+                parsed = urlsplit(value)
+                host = parsed.hostname or ""
+                return (parsed.scheme == "https" and not parsed.username and not parsed.password
+                    and parsed.port in (None, 443) and (host == config.domain or host == "cdn.shopify.com" or host == "storage.googleapis.com"
+                    or host.endswith(".storage.googleapis.com") or host.endswith(".s3.amazonaws.com")))
+            except (TypeError, ValueError):
+                return False
+        if not safe_url(target.get("url")) or not safe_url(target.get("resourceUrl")):
+            raise ShopifyError("Shopify staged target is not an approved HTTPS upload destination.")
+        parameters = target.get("parameters")
+        if (not isinstance(parameters, list) or len(parameters) > 30
+                or any(not isinstance(p, dict) or not isinstance(p.get("name"), str)
+                       or not isinstance(p.get("value"), str) for p in parameters)):
+            raise ShopifyError("Shopify staged upload parameters are incomplete.")
+        session = requests.Session()
+        session.trust_env = False
+        try:
+            with session.post(target["url"], data=[(p["name"], p["value"]) for p in parameters],
+                    files={"file": (image["filename"], content, image["mime"])},
+                    timeout=(5, 30), allow_redirects=False, stream=True) as response:
+                if response.status_code not in (200, 201, 204):
+                    raise ShopifyError("Staged image upload failed. No automatic retry was attempted.")
+        except requests.RequestException:
+            raise ShopifyError("Staged image upload outcome is uncertain. Review the operation; do not blindly retry.") from None
+        finally:
+            session.close()
 
     def test_connection(self, configuration, *, session=None):
         config = configuration.validated()

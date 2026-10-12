@@ -25,6 +25,7 @@ STATUS_LABELS = {
     "failed": "Failed", "interrupted": "Interrupted", "pending": "Queued",
 }
 TYPE_LABELS = {
+    "shopify_draft_publish": "Shopify Draft Publish",
     "append": "Append", "product_update": "Update", "shared_collection_update": "Shared collection update",
     "full": "Full", "reconstruction": "Reconstruction", "intake_group": "Catalogue Intake — Group Images",
     "intake_folder_edit": "Catalogue Intake — Edit Folder Structure",

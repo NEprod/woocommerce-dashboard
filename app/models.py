@@ -357,6 +357,33 @@ class WooTaxonomyIdentity(db.Model):
     verified_at = db.Column(db.DateTime)
 
 
+class ShopifyProductIdentity(db.Model):
+    """Independent Shopify mapping and bounded attempt/media evidence."""
+    __tablename__ = "shopify_product_identity"
+    __table_args__ = (
+        db.UniqueConstraint("store_key", "product_id", name="uq_shopify_store_product"),
+        db.UniqueConstraint("store_key", "source_identity", name="uq_shopify_store_source"),
+        db.UniqueConstraint("store_key", "shopify_product_id", name="uq_shopify_store_remote"),
+        db.CheckConstraint("length(media_evidence_json) <= 65536", name="ck_shopify_evidence_bound"),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id", ondelete="SET NULL"), index=True)
+    source_identity = db.Column(db.String(1024), nullable=False)
+    sku = db.Column(db.String(64), nullable=False)
+    store_key = db.Column(db.String(64), nullable=False, index=True)
+    store_id = db.Column(db.String(100), nullable=False)
+    store_domain = db.Column(db.String(253), nullable=False)
+    shopify_product_id = db.Column(db.String(100))
+    state = db.Column(db.String(32), nullable=False, default="pending")
+    verification_state = db.Column(db.String(32), nullable=False, default="unverified")
+    operation_id = db.Column(db.String(32), db.ForeignKey("catalogue_operation.id", ondelete="SET NULL"))
+    reviewed_digest = db.Column(db.String(64), nullable=False)
+    media_evidence_json = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, server_default=func.now())
+    updated_at = db.Column(db.DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    verified_at = db.Column(db.DateTime)
+
+
 class WooProductIdentity(db.Model):
     """Store-scoped Woo identity and sync state; never authored catalogue data."""
 

@@ -1,5 +1,18 @@
 # Roadmap
 
+### Phase 4 M3A — reviewed single Simple draft, implementation awaiting live acceptance
+
+M2 checkpoint `9b01d63ca4bdbc3aa175e2112983c9031486da5a`, local only. Approved
+identity migration 0010, pending-before-write reservation, signed Preview/CSRF
+confirmation, original staged image uploads, DRAFT/SKU/price and independent
+readback are implemented. Uncertain/processing outcomes use explicit read-only
+reconciliation and durable duplicate prevention, not automatic retries/deletion.
+Optional Docker/Unraid Shopify credentials override protected settings without
+platform switching. Existing Woo/scanner/source contracts remain untouched.
+M3A is source checkpointed locally; next gate is one real Simple draft/image
+acceptance using a temporary commit-tagged image, not a release/promotion.
+Variable publishing, collections/navigation and broader sync remain deferred.
+
 ### Phase 4 M2 — Shopify read-only discovery, implementation awaiting acceptance
 
 M1 source checkpoint: `e2b454bb2a3eef85475fb635a3d85e03576a36dc`, local only.
@@ -14,7 +27,7 @@ M2 live Shopify/browser acceptance remains pending.
 ### Phase 4 M1 — Shopify foundation, implementation awaiting acceptance
 
 Source checkpoint `3856cf32dc1eeb3be10850ed092b434bbc959285` preserves Phase 3;
-`feature/shopify-foundation` contains the uncommitted foundation. Phase 3 final
+`feature/shopify-foundation` contains M1 checkpoint `e2b454b`. Phase 3 final
 page-by-page polish is paused; earlier live acceptance gaps are not erased.
 Implemented: persistent first-install platform selection, protected Shopify
 connection settings, fixed read-only GraphQL identity/scope test, a small adapter
