@@ -1,7 +1,11 @@
-<section class="workspace-card" aria-label="Shopify product state"><div class="workspace-card-body">
-<h2>Shopify</h2><span class="catalogue-pill is-neutral">{{ shopify.label }}</span>
-<dl class="product-key-facts"><div><dt>Intended state</dt><dd>{{ shopify.intent }}</dd></div><div><dt>Actual status</dt><dd>{{ shopify.remote_status }}</dd></div><div><dt>Online Store publication</dt><dd>{{ shopify.publication }}</dd></div><div><dt>Retained product ID</dt><dd class="text-break">{{ shopify.remote_id or 'Not retained — remote existence unknown' }}</dd></div><div><dt>Last successful verification (UTC)</dt><dd>{{ shopify.verified_at or 'Never' }}</dd></div></dl>
-<p>{{ shopify.message }}</p><div class="page-actions">
-{% if shopify.review_url %}<a class="btn btn-primary" href="{{ shopify.review_url }}">Review Shopify Changes</a>{% endif %}
-{% if shopify.identity_url %}<a class="btn btn-outline-primary" href="{{ shopify.identity_url }}">Identity, history &amp; read-only refresh</a>{% endif %}
-</div></div></section>
+{% set labels = {'no_change':'Up to Date', 'update':'Update Available', 'processing':'Processing', 'unknown':'Not Verified', 'unavailable':'Not Verified', 'attention':'Needs Attention', 'recovery_required':'Needs Attention'} %}
+<section class="workspace-card shopify-status-card" aria-label="Shopify product state">
+  <div class="shopify-status-heading"><h2>Shopify</h2><span class="catalogue-pill {{ 'is-active' if shopify.state == 'no_change' else 'is-neutral' }}"><span class="shopify-status-dot" aria-hidden="true"></span>{{ labels.get(shopify.state, 'Needs Attention') }}</span></div>
+  <div class="shopify-status-summary"><span>{{ 'Identity retained' if shopify.remote_id else 'Remote existence not verified' }}</span><span>{{ shopify.remote_status }}</span></div>
+  <p class="shopify-status-intent">Intended: {{ shopify.intent }} · Online Store: {{ shopify.publication }}</p>
+  <p class="shopify-status-time">{{ 'Cached verification (UTC): ' ~ shopify.verified_at if shopify.verified_at else 'No successful verification yet' }}. Fresh comparison requires Review or Refresh.</p>
+  <details class="shopify-status-evidence"><summary>Evidence &amp; blockers</summary><p>{{ shopify.message }}</p>{% if shopify.remote_id %}<p class="text-break">{{ shopify.remote_id }}</p>{% endif %}</details>
+  <div class="shopify-status-actions">{% if shopify.review_url %}<a class="btn btn-primary" href="{{ shopify.review_url }}">Review &amp; Sync</a>{% endif %}
+    <div class="shopify-status-secondary">{% if shopify.shopify_url %}<a class="btn btn-outline-primary btn-sm" href="{{ shopify.shopify_url }}" target="_blank" rel="noopener noreferrer">View on Shopify</a>{% endif %}{% if shopify.identity_url %}<a class="btn btn-outline-primary btn-sm" href="{{ shopify.identity_url }}">Refresh / History</a>{% endif %}</div>
+  </div>
+</section>

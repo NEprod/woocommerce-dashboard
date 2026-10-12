@@ -1,6 +1,6 @@
 {% extends 'layouts/base.html' %}
 {% from 'image_preparation/_shared.html' import readiness_panel, preview_banner, issue_list %}
-{% block title %}Rename Images | WooCommerce Dashboard{% endblock %}
+{% block title %}Rename Images | TLCDashboard{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ url_for('main.image_preparation') }}">Catalogue Intake</a><span aria-hidden="true">/</span><span aria-current="page">Rename images</span></nav>
 <header class="page-header intake-page-header"><div><p class="eyebrow">Prepared working result</p><h1>Rename Images</h1><p>Preview deterministic filenames and safely update one folder-confirmed Prepared result using hidden staging and rollback.</p></div><a class="btn btn-ghost" href="{{ url_for('main.image_preparation_folders') }}">Folder review</a></header>

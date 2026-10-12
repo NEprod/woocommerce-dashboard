@@ -1,6 +1,6 @@
 {% extends 'layouts/base.html' %}
 {% from 'image_preparation/_shared.html' import readiness_panel, preview_banner, issue_list %}
-{% block title %}Edit Prepared Folders | WooCommerce Dashboard{% endblock %}
+{% block title %}Edit Prepared Folders | TLCDashboard{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ url_for('main.image_preparation') }}">Catalogue Intake</a><span aria-hidden="true">/</span><a href="{{ url_for('main.image_preparation_folders') }}">Folder review</a><span aria-hidden="true">/</span><span aria-current="page">Edit structure</span></nav>
 <header class="page-header intake-page-header"><div><p class="eyebrow">Folder-only preparation</p><h1>Edit Folder Structure</h1><p>Rename collection, product, variation, and Parent folders through verified hidden staging while keeping the same visible Prepared-result identity.</p></div><a class="btn btn-ghost" href="{{ url_for('main.image_preparation_folders') }}">Choose another result</a></header>

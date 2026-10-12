@@ -1,5 +1,47 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## Product UX and metadata completion
+
+Product Detail now uses a compact shared-token Shopify card: **Review & Sync**,
+View on Shopify and Refresh / History. Up to Date denotes matching local source
+against retained independently verified managed evidence; its timestamp is explicitly
+**cached**, never a fresh GET on page render. Draft status and Online Store publication
+remain separate from authored intent. Recovery blockers remain visible under Evidence
+& blockers. Review shows readable field values and matching/change actions; raw API
+plans and source references are collapsed under Advanced Details. Mobile change rows
+become cards and primary actions span the available width above bottom navigation.
+
+Metadata trace: collection/product `product_info.json` is merged by
+`merge_product_json` (scalar overrides, additive tags), then scanner CSV carries
+Description/Tags to ingestion's Product/Tag projection. `product_document` resolves
+the same sources again for the immutable Shopify snapshot. The publisher prefers
+resolved authored description/price/shipping over an older projection, maps main
+`description` to `descriptionHtml`, and maps `meta_description` independently to SEO.
+There is no SEO-to-main-description substitution. Unspecified shipping/origin and
+absent tags remain unmanaged; empty main description now carries an explicit warning.
+Explicitly authored empty description remains a reviewed empty value, not generated copy.
+
+The reported NBNOC-0004 Preview is not its source JSON. In a Create review, the
+**before** value is absent because no remote target exists. This cannot establish
+that an authored description was lost. The genuine display defect was nullable
+compare-at `None → None` being labelled Change; it is now Already matching. Regression
+fixtures verify inherited main copy, sparse overrides, SEO independence, 50 g weight,
+110 × 100 × 6 mm dimensions, tags, and explicitly authored shipping/origin. Check the
+actual resolved **reviewed** value for NBNOC-0004 during Unraid acceptance; no unprovided
+live JSON values or missing descriptions/tags/origin have been inferred.
+
+Original WebP bytes, filenames, alt text and projected gallery order are retained.
+Shopify media IDs/CDN URLs still come only from returned API evidence, never extension
+substitution. No image conversion or source writes were introduced.
+
+LCBC-0001 with `live: true` still blocks writes to its retained Draft. A metadata-only
+mode that deliberately leaves publication intent unsatisfied is deferred to a separate
+reviewed operation contract, alongside verified Online Store publication. Never change
+authored intent to bypass the blocker. No ACTIVE → Live inference or channel writes.
+Shared visible branding is TLCDashboard; legacy assets and persistent/repository/image
+names remain intact. Unraid testing can now use Docker `develop`; each tested build
+also has an immutable commit-specific rollback tag with the same image digest.
+
 ## Shopify-first Products workspace
 
 Open **Products**, find LCBC-0001, then **Review Shopify Changes** (also on Product

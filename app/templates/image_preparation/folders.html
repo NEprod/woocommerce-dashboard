@@ -1,7 +1,7 @@
 {% extends 'layouts/base.html' %}
 {% from 'image_preparation/_shared.html' import readiness_panel, warning_card %}
 {% from 'includes/icons.html' import icon %}
-{% block title %}Prepared Folder Review | WooCommerce Dashboard{% endblock %}
+{% block title %}Prepared Folder Review | TLCDashboard{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ url_for('main.image_preparation') }}">Catalogue Intake</a><span aria-hidden="true">/</span><span aria-current="page">Folder review</span></nav>
 <header class="page-header intake-page-header"><div><p class="eyebrow">Prepared hierarchy</p><h1>Folder Naming and Structure</h1><p>Select a completed grouped result and propose final folder names before image filenames are generated.</p></div><a class="btn btn-ghost" href="{{ url_for('main.image_preparation') }}">Back to Catalogue Intake</a></header>

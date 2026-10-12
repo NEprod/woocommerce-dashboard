@@ -182,9 +182,9 @@ def preview(product, adapter=None):
     if "handle" in plan["managed"]["product"] and adapter.find_draft(config, plan["handle"])["nodes"]:
         raise ShopifyError("The authored handle already belongs to a Shopify product. Another create is refused.")
     plan["classification"] = "create"
-    plan["fields"] = [{"field": key, "before": None, "after": value, "changed": True}
+    plan["fields"] = [{"field": key, "before": None, "after": value, "changed": value is not None}
         for key, value in plan["managed"]["product"].items()]
-    plan["fields"] += [{"field": key, "before": None, "after": value, "changed": True}
+    plan["fields"] += [{"field": key, "before": None, "after": value, "changed": value is not None}
         for key, value in plan["managed"]["variant"].items()]
     encode({"version": 1, "plan": plan})
     token = serializer().dumps({k: plan[k] for k in ("product_id", "digest", "store_id", "store_key", "domain", "config_digest", "nonce")})

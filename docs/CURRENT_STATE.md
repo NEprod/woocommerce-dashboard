@@ -1,5 +1,23 @@
 # Current State
 
+## Shopify product UX and metadata completion — implemented, live acceptance pending
+
+Compact Product Detail evidence/actions and responsive readable review rows replace
+the oversized identity/API panel. Raw managed plans are collapsed under Advanced
+Details; nullable Create compare-at values no longer falsely show Change. Main-copy
+and absent-tag warnings are explicit. Focused schema-path fixtures cover inherited
+descriptions, sparse overrides, independent SEO, shipping/dimensions and original
+WebP order without source changes. NBNOC-0004's actual live JSON was not available;
+its Create-before null values alone do not prove a resolution defect. Confirm the
+reviewed values on Unraid rather than inventing missing metadata.
+
+Live-intended LCBC-0001 remains safely blocked pending reviewed channel publication
+or a separate metadata-only contract. Cached equality cannot claim full Live sync.
+Shared visible wordmark/setup titles now say TLCDashboard; legacy assets/paths remain.
+No scanner/SKU/taxonomy/Discord semantics, migrations, bulk or Variable publishing
+changes. Docker `develop` and an immutable rollback tag publish the same tested image;
+latest/stable are untouched. User-owned Unraid XML remains outside the commit.
+
 ## Shopify-first Products workspace — implemented, live acceptance pending
 
 Accepted Shopify checkpoints were fast-forward integrated onto `develop`; no main

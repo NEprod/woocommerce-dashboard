@@ -33,6 +33,10 @@ def contract(snapshot, base):
     product = {"title": base["title"], "descriptionHtml": base["description"]}
     variant = {"price": base["price"], "compareAtPrice": None, "inventoryItem": {"sku": base["sku"]}}
     warnings = ["DRAFT only. No inventory quantities, tracking, locations or fulfilment configuration will change."]
+    if not base["description"]:
+        warnings.append("Main product description is empty; confirming a reviewed description change may clear existing main copy. SEO description is separate and will not be substituted.")
+    if "tags" not in authored and not snapshot.data["tags"]:
+        warnings.append("Tags are unspecified; existing remote tags are not managed.")
     sale = authored.get("sale_price", snapshot.data["sale_price"])
     if sale not in (None, ""):
         if authored.get("sale_start_date") or authored.get("sale_end_date"):
@@ -103,6 +107,51 @@ def weight_grams(weight):
         return result
     except (KeyError, TypeError, ValueError, InvalidOperation):
         raise ShopifyError("Remote weight evidence is incomplete.") from None
+
+
+def review_rows(plan):
+    """Readable view only; canonical comparison and signed evidence are unchanged."""
+    labels = {"title": "Title", "descriptionHtml": "Main description", "vendor": "Vendor",
+        "handle": "URL handle", "tags": "Tags", "seo.title": "SEO title",
+        "seo.description": "SEO description", "price": "Customer price",
+        "compareAtPrice": "Compare-at price", "variant.sku": "SKU", "sku": "SKU",
+        "requiresShipping": "Requires shipping", "countryCodeOfOrigin": "Country of origin",
+        "weight": "Weight", "media.order": "Gallery order"}
+    def value(item):
+        if item is None or item == "":
+            return "Not set"
+        if isinstance(item, bool):
+            return "Yes" if item else "No"
+        if isinstance(item, (list, tuple)):
+            return ", ".join(value(v) for v in item) or "None"
+        if isinstance(item, Mapping):
+            if "weight" in item:
+                return value(item["weight"])
+            if "value" in item and "unit" in item:
+                return f'{item["value"]} {item["unit"].lower()}'
+            if item.get("type") == "dimension":
+                try:
+                    return value(json.loads(item["value"]))
+                except (ValueError, TypeError, KeyError):
+                    pass
+            return "; ".join(f"{labels.get(k, k)}: {value(v)}" for k, v in item.items())
+        return str(item)
+    rows = []
+    for row in plan["fields"]:
+        expanded = [(row["field"], row["before"], row["after"])]
+        # Create plans contain nested objects; show the same useful leaf fields as updates.
+        if row["field"] in {"inventoryItem", "seo"} and isinstance(row["after"], Mapping):
+            expanded = [(f"seo.{key}" if row["field"] == "seo" else "weight" if key == "measurement" else key,
+                None, item) for key, item in row["after"].items()]
+        elif row["field"] == "metafields":
+            expanded = [("dimensions." + item["key"].removeprefix("product_"), None, item)
+                for item in row["after"]]
+        for key, before, after in expanded:
+            rows.append({"label": labels.get(key, key.replace("dimensions.", "Product ").replace("media.alt.", "Image alt ")),
+                "before": "Not created" if plan["classification"] == "create" and after is not None else value(before),
+                "after": value(after), "action": "Set on create" if plan["classification"] == "create" and after is not None
+                    else "Change" if row["changed"] else "Already matching"})
+    return rows
 
 
 def field_rows(managed, remote):

@@ -34,10 +34,10 @@ def test_shared_brand_has_reserved_dimensions_and_accessible_variants():
         from flask import render_template_string
         html = render_template_string(
             "{% from 'includes/brand.html' import brand %}{{ brand(responsive=true) }}")
-    assert html.count('alt="WooCommerce Dashboard"') == 2
-    assert 'width="420" height="82"' in html
-    assert 'width="40" height="40"' in html
-    assert "woocommerce-dashboard-icon.svg" in html
+    assert 'brand-wordmark">TLCDashboard' in html
+    assert 'aria-label="TLCDashboard">TLC' in html
+    assert "WooCommerce Dashboard" not in html
+    assert "brand-monogram" in html
 
 
 def test_collapsed_and_tablet_brand_keep_wordmark_out_of_rail():

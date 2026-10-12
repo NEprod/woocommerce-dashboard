@@ -153,7 +153,9 @@ def drafts(product_id=None):
     if scoped_product:
         identities_query = identities_query.filter_by(product_id=product_id)
     identities = identities_query.order_by(ShopifyProductIdentity.updated_at.desc()).limit(30).all()
+    from app.shopify_simple_fields import review_rows
     return render_template("shopify_drafts.html", form=form, plan=plan, token=token, error=error,
+        review_rows=review_rows(plan) if plan else [],
         products=products, identities=identities, scoped_product=scoped_product,
         selected_id=product_id or request.form.get("product_id", type=int) or request.args.get("product_id", type=int)), 400 if error else 200, {"Cache-Control": "no-store"}
 

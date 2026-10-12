@@ -1,6 +1,7 @@
 """Local-only Shopify workspace evidence. Never authorizes a remote write."""
 import hashlib
 import json
+import re
 from types import SimpleNamespace
 
 from sqlalchemy import or_
@@ -58,7 +59,7 @@ def product_state(product, rows):
     from app.shopify_drafts import evidence
     state = {"state": "unknown", "label": "Not yet verified", "remote_id": None,
              "remote_status": "Unknown", "publication": "Not verified", "verified_at": None,
-             "identity_url": None, "store_id": None,
+             "identity_url": None, "store_id": None, "shopify_url": None,
              "review_url": url_for("commerce.drafts", product_id=product.id) if product.product_type == "simple" and product.catalogue_status == "active" else None,
              "message": "No retained identity. Remote duplicate checks are still required before Create.",
              "intent": "Unresolved", "intent_value": None}
@@ -73,6 +74,10 @@ def product_state(product, rows):
         if rows:
             row = rows[0]
             data = evidence(row)
+            domain = data.get("plan", {}).get("domain", "")
+            if (re.fullmatch(r"[a-z0-9][a-z0-9-]*\.myshopify\.com", domain)
+                    and re.fullmatch(r"gid://shopify/Product/[0-9]+", row.shopify_product_id or "")):
+                state["shopify_url"] = f"https://{domain}/admin/products/{row.shopify_product_id.rsplit('/', 1)[-1]}"
             state.update(remote_id=row.shopify_product_id, store_id=row.store_id, identity_url=url_for("commerce.draft_identity", identity_id=row.id),
                          verified_at=row.verified_at.isoformat() + "Z" if row.verified_at else None,
                          remote_status="Draft (last verified)" if row.verification_state == "verified" else "Not currently verified")
@@ -96,6 +101,9 @@ def product_state(product, rows):
             state["message"] += " Only active Simple products can be reviewed in this milestone."
         if live is not False:
             state["message"] += " Publishing requires explicit Draft intent; Live transitions are deferred."
+            if state["state"] == "no_change":
+                state.update(state="attention", label="Needs Attention",
+                    message="Managed metadata matches cached verification, but intended publication is unresolved. " + state["message"])
     except (ValueError, OSError, KeyError, TypeError, AttributeError, RuntimeError):
         state.update(state="unavailable", label="Verification Unavailable", message="Local source or retained evidence needs review; no current equality is claimed.")
     return state

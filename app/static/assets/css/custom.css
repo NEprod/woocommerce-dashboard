@@ -88,6 +88,29 @@ a:hover { color: var(--color-lime-hover); }
 .app-account-summary { display: flex; align-items: center; gap: var(--space-4); color: var(--color-text-muted); font-size: 12px; }
 .app-mobile-brand { display: none; align-items: center; gap: var(--space-3); color: var(--color-text-primary); font-weight: 700; text-decoration: none; }
 .brand-full { display: block; width: 100%; height: auto; }
+.brand-wordmark { font-size: 21px; font-weight: 750; letter-spacing: -.035em; color: var(--color-text-primary); white-space: nowrap; }
+.brand-monogram { color: var(--color-lime-ink); background: var(--color-lime-soft); border-radius: var(--radius-input); font-size: 13px; font-weight: 750; text-align: center; line-height: 40px; }
+.shopify-status-card { padding: var(--space-5); }
+.shopify-status-heading, .shopify-status-summary, .shopify-status-actions, .shopify-status-secondary { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.shopify-status-heading { justify-content: space-between; }
+.shopify-status-heading h2 { font-size: 16px; margin: 0; }
+.shopify-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; }
+.shopify-status-summary { margin-top: var(--space-4); font-weight: 650; }
+.shopify-status-card p { margin: var(--space-3) 0; }
+.shopify-status-intent, .shopify-status-time, .shopify-status-evidence { font-size: 12px; color: var(--color-text-secondary); }
+.shopify-status-actions { margin-top: var(--space-4); }
+.shopify-review-table { width: 100%; table-layout: fixed; }
+.shopify-review-table th, .shopify-review-table td { overflow-wrap: anywhere; white-space: pre-wrap; vertical-align: top; }
+@media (max-width: 767px) {
+  .shopify-status-actions { display: block; }
+  .shopify-status-actions > .btn-primary { width: 100%; min-height: 44px; }
+  .shopify-status-secondary { margin-top: var(--space-3); }
+  .shopify-status-secondary .btn { flex: 1 1 auto; min-height: 44px; }
+  .shopify-review-table, .shopify-review-table tbody, .shopify-review-table tr, .shopify-review-table th, .shopify-review-table td { display: block; width: 100%; }
+  .shopify-review-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .shopify-review-table tr { margin-bottom: var(--space-4); border: var(--border-default); border-radius: var(--radius-card-small); padding: var(--space-3); }
+  .shopify-review-table td::before { content: attr(data-label) ': '; font-weight: 650; color: var(--color-text-secondary); }
+}
 .brand-icon { display: none; width: 40px; height: 40px; flex: 0 0 40px; }
 .onboarding-brand { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); min-width: 0; }
 .onboarding-brand .brand-full { width: min(180px, 100%); }
