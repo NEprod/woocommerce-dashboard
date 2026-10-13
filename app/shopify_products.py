@@ -108,10 +108,13 @@ def product_state(product, rows, comparisons=(), mappings=None):
             state.update(remote_id=row.shopify_product_id, store_id=row.store_id, identity_url=url_for("commerce.draft_identity", identity_id=row.id),
                          verified_at=row.verified_at.isoformat() + "Z" if row.verified_at else None,
                          remote_status="Draft (last verified)" if row.verification_state == "verified" else "Not currently verified")
+            state["can_delete"] = row.state == "verified" and row.verification_state == "verified" and not any(p.get("state") in {"pending","uncertain"} for p in data.get("variant_native",{}).values()) and data.get("native_dimensions",{}).get("state") not in {"pending","uncertain"}
             if row.state == "processing":
                 state.update(state="processing", label="Processing", message="Read-only reconciliation is required to check media processing.")
             elif row.state=="attribute_review_required":
                 state.update(state="attention",label="Needs Attention",message="Base metadata/media/memberships are verified; remaining informational stages need a fresh signed Review. No automatic write replay.")
+            elif row.state == "scoped_verified":
+                state.update(state="attention",label="Needs Attention",message="Inventory-only correction verified. Full metadata, attributes and publication comparison remains outstanding.")
             elif row.state == "verified" and row.verification_state == "verified":
                 plan = data["plan"]
                 baseline = plan.get("workspace_source_fingerprint")

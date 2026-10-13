@@ -60,13 +60,20 @@ def record(product, plan, identity=None):
     row = ShopifyProductComparison.query.filter_by(store_id=plan["store_id"], source_identity=product.source_relpath).first()
     if row is None:
         row = ShopifyProductComparison(store_id=plan["store_id"], source_identity=product.source_relpath)
-    changes = [{"field": r["field"], "after": r["after"]} for r in plan["fields"] if r["changed"]]
+    def summary_value(value):
+        raw = json.dumps(value,sort_keys=True,ensure_ascii=False)
+        # Comparison is an index, not write authority. Full values remain in the
+        # signed/hash-bound plan and lossless durable publishing evidence.
+        return {"sha256":digest(value),"bytes":len(raw.encode()),"detail":"See full reviewed value"} if len(raw.encode()) > 512 else value
+    scoped = plan.get("scope") == "inventory"
+    changes = [{"field": r["field"], "after": summary_value(r["after"])} for r in plan["fields"] if r["changed"] and not r.get("deferred")]
     changes += [{"field": "collections." + r["key"], "after": r["name"]} for r in plan.get("collections", []) if r["action"] in {"Join","Create & Join"}]
     summary = {"version": 1, "product_id": product.id, "source": product.source_relpath,
         "store_id": plan["store_id"], "remote_id": plan.get("remote_id"),
         "local": expected_local, "images": [{"source": i["source"]} for i in plan["images"]],
         "remote_digest": plan.get("remote_digest"), "classification": plan["classification"],
-        "changes": changes[:100], "change_count": len(changes), "blockers": plan.get("blockers", []),
+        "changes": changes[:100], "change_count": len(changes), "scope":plan.get("scope","full"),
+        "blockers": plan.get("blockers", []) + (["Inventory-only comparison: metadata, attributes, collections and publication are not fully compared."] if scoped else []),
         "identity": digest(identity.media_evidence_json) if identity else None,
         "mappings": {r["key"]: r.get("mapping_fingerprint") for r in plan.get("collections", [])},
         "actual_status": plan.get("actual_status", "Not yet created")}
@@ -84,15 +91,15 @@ def record(product, plan, identity=None):
         metadata_changes=[r for r in changes if not r["field"].startswith("collections.")],
         metadata_display=[], verified_at=identity.verified_at.isoformat() if identity and identity.verified_at else None,
         absence_checked_at=stamp if plan["classification"] == "create" else None,
-        equality_at=stamp if plan["classification"] == "no_change" and not plan.get("blockers") else (json.loads(row.summary_json).get("equality_at") if row.summary_json else None))
+        equality_at=stamp if plan["classification"] == "no_change" and not plan.get("blockers") and not scoped else (json.loads(row.summary_json).get("equality_at") if row.summary_json else None))
     prior = json.loads(row.summary_json) if row.summary_json else {}
-    equality = plan["classification"] == "no_change" and not plan.get("blockers")
+    equality = plan["classification"] == "no_change" and not plan.get("blockers") and not scoped
     summary.update(equality_local=expected_local if equality else prior.get("equality_local"),
         equality_remote_updated_at=plan.get("remote_updated_at") if equality else prior.get("equality_remote_updated_at"),
         equality_mappings=summary["mappings"] if equality else prior.get("equality_mappings"))
     from app.shopify_simple_fields import review_rows
     summary["display_changes"] = [r["label"] + ": " + r["after"][:120]
-        for r in review_rows(plan) if r["action"] != "Already matching"][:10]
+        for r in review_rows(plan) if r["action"] not in {"Already matching","Deferred (inventory-only scope)"}][:10]
     summary["display_changes"] += ["Collection: " + r["name"] for r in plan.get("collections", []) if r["action"] == "Join"]
     summary["metadata_display"] = summary["display_changes"][:len(summary["display_changes"]) - sum(r["action"] == "Join" for r in plan.get("collections", []))]
     encoded = json.dumps(summary, sort_keys=True)

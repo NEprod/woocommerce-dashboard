@@ -1,5 +1,91 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.8.5.1 — live acceptance corrections
+
+The previous 64 KiB SQLite product evidence boundary also served as Preview preflight.
+Current/before/previous plans duplicated long descriptions and manifests, so a valid
+retained product could be blocked without a Shopify request failure. Signed tokens
+already contain hashes, not those payloads. Evidence now keeps the same database bound
+and supports lossless zlib-json-v1 envelopes with a SHA-256, exact decoded size and
+bounded 1 MiB decompression. Legacy v1 JSON still reads unchanged; no migration or
+catalogue rewrite. Descriptions have a 256 KiB UTF-8 transport budget; Simple galleries
+share the existing twenty-image Variable budget, with twenty-one-node reads detecting
+overflow. Existing 10 MiB/file and 30 MiB/upload budgets remain. Nothing is truncated.
+Large comparison values use hashes/size references, never a second copy of HTML;
+the full before/after remains reviewable and complete recovery evidence is retained.
+Older images cannot read a new compressed evidence envelope: do not roll back blindly
+after remote operations. Use this image or reconcile with a compatible version.
+
+Attribute capability checks use actual token scopes and required actions. No assigned
+information means no attribute reads/scopes. Assignment-only updates to existing terms
+need product write permission, not term/definition creation permissions. Required
+attribute reads remain protected. Operators may explicitly select **Inventory-only
+correction** on Review for a trusted retained Simple/Variable product. Its signed plan
+binds source/remote identities and applies only tracked/inventoryPolicy. Attributes,
+metadata, collections, media and publication are deferred. Independent readback yields
+scoped_verified/inventory_verified, not full verified/Up to Date, and does not renew the
+full verification timestamp. Uncertain outcomes use read-only reconciliation, no replay.
+Full Review remains available afterward. Native uncertainty still blocks new writes.
+
+App-owned definitions intentionally remain in Shopify Admin → Custom data → Products
+→ More actions → View read only definitions. An empty editable list or “No metafields
+pinned” does not prove missing values. Inspect the selected product's metafield section
+and the referenced entries (Admin Content → Metaobjects), or use the diagnostic below.
+Definition creation, term registration and actual product list references are verified
+separately. No duplicate merchant-owned definitions are introduced.
+
+Explicit registry browse_role filter/destination/both makes the attribute public;
+internal keeps it restricted. There is no Production Method name exception. The user
+now explicitly wants Production Method public too: set its browse_role to filter (or
+another intended public role) in the existing registry editor, then review a product
+using it. The signed plan can update only access on existing exact owned definitions,
+with independent readback and uncertainty recovery; terms/GIDs are retained. Definition
+access affects every referencing product and is disclosed before confirmation. Internal
+attributes elsewhere remain NONE. PUBLIC_READ on both definition layers is necessary;
+it does not configure Search & Discovery or a theme. Unexpected publishable DRAFT term
+status is reported by the diagnostic rather than assumed storefront-ready.
+
+Fresh read-only diagnostics from the Unraid container console:
+
+```sh
+python -m app.shopify_attribute_diagnostic --sku 16bit-0001
+```
+
+Repeat with the actual SKUs carrying Recipient/Material/Occasion/Personalisation/
+Production Method. The command uses the existing credentials, fresh shop/correlation
+checks and actual product metafields/metaobject GIDs, definition access and publishable
+status. It opens the existing SQLite database read-only, starts no migrations/workers,
+performs no Shopify mutations/reconciliation and saves no evidence. Review the redacted
+output before sharing. Development has no live Shopify credentials; these store findings
+remain an acceptance gate, not a claimed verified fix.
+
+Product Detail now exposes **Shopify Actions → Delete from Shopify** directly for
+administrators with full verified identity and no native uncertainty. Incomplete or
+scoped-only identities explain why Delete is unavailable. Separate typed SKU/signature/
+CSRF, exact identity and two-absence-read safeguards are unchanged.
+
+Confirm opens a responsive progress dialog. One synchronous confirmed POST remains the
+existing writer; CSRF/admin-protected polling reads persisted operation/identity stages.
+It does not fabricate percentages or complete before final proof. Session reconnection
+polls the same signed receipt, never submits a new write. Repeat submissions of a retained
+receipt return its outcome. Successful verification or known processing returns to
+Products, preserving a supplied local Products query/context. Partial/recovery/failed
+outcomes remain visible with Identity & Recovery / Back to Products. Progress polling
+is bounded and depends on the existing runtime serving concurrent read requests; it
+does not introduce a background execution engine. Non-JavaScript confirmation remains.
+
+Legacy tlc_dashboard.product_length/product_width/product_height are **still required**
+managed individual product/variant measurements and verification evidence. They are
+not native packed dimensions or parcel presets. No destructive cleanup; publish_attempt
+remains the independent ownership/correlation marker.
+
+Acceptance: back up appdata; deploy this immutable image; test HERO-0001 Review/Update
+without editing legitimate source data; test 16bit-0001 inventory-only versus full
+attribute permissions; inspect fresh term/value diagnostics; set the explicitly desired
+public registry roles and review access changes; verify retained Variable IDs/prices/
+weight/media/native proof; locate Delete on a disposable verified Draft; confirm progress,
+reconnect and Products return. No live Shopify operation was performed in development.
+
 ## M3A.8.5 — inventory, on-demand organisation and lifecycle
 
 ### Reviewed inventory correction

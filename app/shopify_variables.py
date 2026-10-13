@@ -322,28 +322,33 @@ def native_review(plan, row, data, config, shop, adapter):
         plan["warnings"].append(str(exc))
 
 
-def preview(product, adapter=None, *, context=None, seed=None):
+def preview(product, adapter=None, *, context=None, seed=None, scope="full"):
     adapter = adapter or ShopifyAdapter()
     plan = local_plan(product)
     config = drafts.configuration()
     shop = context["shop"] if context and context["config"] == config.fingerprint() else adapter.test_connection(config)
     row = drafts.matching_identity(shop["shop_id"],product)
+    if row and any(p.get("state") in {"pending","uncertain"} for p in drafts.evidence(row).get("variant_native",{}).values()):
+        raise ShopifyError("Recovery required for retained native measurements; reconcile before another write.")
+    if scope == "inventory" and (not row or row.state not in {"verified","scoped_verified"}):
+        raise ShopifyError("Inventory-only Review requires a trusted retained variable parent.")
+    plan["scope"] = scope
     if row and row.state == "processing":
         drafts.finalize_processing(row,adapter)
         if row.state == "processing":
             raise ShopifyError("Variable media is still processing. Refresh shortly; no retry/upload is needed.")
-    if row and row.state not in {"verified","failed_before_create","remote_deleted","attribute_review_required"}:
+    if row and row.state not in {"verified","failed_before_create","remote_deleted","attribute_review_required","scoped_verified"}:
         raise ShopifyError("Recovery required for this variable identity. Reconcile the retained stage; no duplicate product/variant create.")
-    if row and row.state in {"verified","attribute_review_required"} and drafts.evidence(row).get("kind") != "variable":
+    if row and row.state in {"verified","attribute_review_required","scoped_verified"} and drafts.evidence(row).get("kind") != "variable":
         raise ShopifyError("Existing Simple-to-variable conversion requires a separately reviewed identity migration; another Create is blocked.")
     if row and (row.source_identity != product.source_relpath or row.sku != product.sku):
         raise ShopifyError("Retained parent source/SKU identity changed; restore it before any variable write.")
     plan.update(store_id=shop["shop_id"], store_key=drafts.digest({"id":shop["shop_id"]}), domain=config.domain,
-        config_digest=config.fingerprint(), nonce=seed or (drafts.evidence(row)["plan"]["nonce"] if row and row.state in {"verified","attribute_review_required"} else uuid.uuid4().hex))
+        config_digest=config.fingerprint(), nonce=seed or (drafts.evidence(row)["plan"]["nonce"] if row and row.state in {"verified","attribute_review_required","scoped_verified"} else uuid.uuid4().hex))
     plan["handle"] = plan["managed"]["product"].get("handle") or "tlc-draft-"+plan["nonce"]
-    remote_id = row.shopify_product_id if row and row.state in {"verified","attribute_review_required"} else None
+    remote_id = row.shopify_product_id if row and row.state in {"verified","attribute_review_required","scoped_verified"} else None
     from app.shopify_taxonomy import membership_plan
-    plan["collections"], blockers, standard = membership_plan(product,shop["shop_id"],remote_id,config,adapter)
+    plan["collections"], blockers, standard = ([],[],None) if scope == "inventory" else membership_plan(product,shop["shop_id"],remote_id,config,adapter)
     plan["blockers"] += blockers
     plan["standard_category"] = adapter.standard_category(config,standard) if standard else None
     if standard:
@@ -377,9 +382,19 @@ def preview(product, adapter=None, *, context=None, seed=None):
     # The attribute digest is folded into the final signed taxonomy contract below.
     plan["taxonomy_review_digest"] = drafts.digest({"collections":plan["collections"],"standard":standard})
     from app.shopify_attributes import attach
-    attach(product,plan,config,shop,adapter,remote_id)
-    native_review(plan,row if remote_id else None,data,config,shop,adapter)
+    if scope == "inventory":
+        from app.taxonomy_assignments import product_document, resolve
+        plan["attributes"] = []
+        plan["attribute_review_digest"] = drafts.digest([])
+        plan["attribute_diagnostics"] = [{"name":a["name"],"action":"Explicitly deferred; not compared or synchronised"} for a in resolve(product_document(product))["attributes"] if not a["variation"]]
+        plan["native"] = {"enabled":False,"classification":"deferred","reason":"Not part of this inventory-only review","variants":{}}
+    else:
+        attach(product,plan,config,shop,adapter,remote_id)
+        native_review(plan,row if remote_id else None,data,config,shop,adapter)
     plan["classification"] = "create" if not remote_id else "update" if any(f["changed"] for f in plan["fields"]) or any(c["action"] in {"Join","Create & Join"} for c in plan["collections"]) else "no_change"
+    if scope == "inventory":
+        from app.shopify_inventory_review import restrict
+        restrict(plan)
     if row and row.state=="attribute_review_required" and plan["classification"]=="no_change":
         plan["blockers"].append("Attributes now match; complete read-only identity reconciliation for final verification.")
     if "write_products" not in shop["scopes"] and plan["classification"] != "no_change":
@@ -406,7 +421,7 @@ def preview(product, adapter=None, *, context=None, seed=None):
     from app.shopify_comparison import record
     record(product,plan,row if remote_id else None)
     reviewed = {"mode":"variable", **{key:plan.get(key) for key in
-        ("product_id","digest","store_id","config_digest","nonce","remote_id","remote_digest","identity_digest","taxonomy_review_digest","classification")}}
+        ("product_id","digest","store_id","config_digest","nonce","remote_id","remote_digest","identity_digest","taxonomy_review_digest","classification","identity_id","scope")}}
     token = drafts.serializer().dumps(reviewed) if plan["classification"] != "no_change" and not plan["blockers"] else None
     return plan,token
 

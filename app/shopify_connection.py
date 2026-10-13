@@ -33,7 +33,7 @@ READ_QUERIES = frozenset((QUERY, PRODUCTS_QUERY, PRODUCT_QUERY, VARIANT_QUERY, C
 STAGE_QUERY = "mutation Stage($input: [StagedUploadInput!]!) { stagedUploadsCreate(input: $input) { stagedTargets { url resourceUrl parameters { name value } } userErrors { field message } } }"
 CREATE_QUERY = """mutation Draft($product: ProductCreateInput!, $media: [CreateMediaInput!]) {
  productCreate(product: $product, media: $media) { product { id variants(first: 2) { nodes { id } }
- media(first: 10) { nodes { id alt } pageInfo { hasNextPage endCursor } } }
+ media(first: 21) { nodes { id alt } pageInfo { hasNextPage endCursor } } }
  userErrors { field message } } }"""
 PRICE_QUERY = """mutation Price($id: ID!, $variants: [ProductVariantsBulkInput!]!) {
  productVariantsBulkUpdate(productId: $id, variants: $variants) { productVariants { id sku price }
@@ -41,7 +41,7 @@ PRICE_QUERY = """mutation Price($id: ID!, $variants: [ProductVariantsBulkInput!]
 DRAFT_FIELDS = """id handle title descriptionHtml status updatedAt
  metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
  variants(first: 2) { nodes { id sku price } pageInfo { hasNextPage endCursor } }
- media(first: 10) { nodes { id alt status mediaContentType ... on MediaImage { image { url } } }
+ media(first: 21) { nodes { id alt status mediaContentType ... on MediaImage { image { url } } }
  pageInfo { hasNextPage endCursor } }"""
 DRAFT_QUERY = "query DraftRead($id: ID!) { product(id: $id) { " + DRAFT_FIELDS + " } }"
 FIND_DRAFT_QUERY = "query DraftFind($query: String!) { products(first: 2, query: $query) { nodes { " + DRAFT_FIELDS + " } pageInfo { hasNextPage endCursor } } }"
@@ -156,6 +156,9 @@ ATTRIBUTE_FIELD = '''query AttributeField($namespace: String!, $key: String!) {
  nodes { id namespace key type { name } validations { name value } access { storefront } } pageInfo { hasNextPage } } }'''
 ATTRIBUTE_VALUES = '''query AttributeValues($id: ID!, $namespace: String!) { product(id: $id) {
  id metafields(first: 129, namespace: $namespace) { nodes { id key type value compareDigest } pageInfo { hasNextPage } } } }'''
+ATTRIBUTE_ENTRIES = '''query AttributeEntries($ids: [ID!]!) { nodes(ids: $ids) { ... on Metaobject {
+ id type handle fields { key value } capabilities { publishable { status } }
+ definition { id type access { storefront } } } } }'''
 ATTRIBUTE_DEF_CREATE = '''mutation AttributeDefinitionCreate($definition: MetaobjectDefinitionCreateInput!) {
  metaobjectDefinitionCreate(definition: $definition) { metaobjectDefinition { id } userErrors { field message } } }'''
 ATTRIBUTE_TERM_CREATE = '''mutation AttributeTermCreate($metaobject: MetaobjectCreateInput!) {
@@ -164,8 +167,12 @@ ATTRIBUTE_FIELD_CREATE = '''mutation AttributeFieldCreate($definition: Metafield
  metafieldDefinitionCreate(definition: $definition) { createdDefinition { id } userErrors { field message } } }'''
 ATTRIBUTE_SET = '''mutation AttributeAssignment($metafields: [MetafieldsSetInput!]!) {
  metafieldsSet(metafields: $metafields) { metafields { id key value } userErrors { field message } } }'''
-READ_QUERIES |= frozenset((ATTRIBUTE_SCHEMA,ATTRIBUTE_DEFINITION,ATTRIBUTE_TERM,ATTRIBUTE_FIELD,ATTRIBUTE_VALUES))
-WRITE_QUERIES |= frozenset((ATTRIBUTE_DEF_CREATE,ATTRIBUTE_TERM_CREATE,ATTRIBUTE_FIELD_CREATE,ATTRIBUTE_SET))
+ATTRIBUTE_DEF_ACCESS = '''mutation AttributeDefinitionAccess($id: ID!, $definition: MetaobjectDefinitionUpdateInput!) {
+ metaobjectDefinitionUpdate(id: $id, definition: $definition) { metaobjectDefinition { id } userErrors { field message } } }'''
+ATTRIBUTE_FIELD_ACCESS = '''mutation AttributeFieldAccess($definition: MetafieldDefinitionUpdateInput!) {
+ metafieldDefinitionUpdate(definition: $definition) { updatedDefinition { id } userErrors { field message } } }'''
+READ_QUERIES |= frozenset((ATTRIBUTE_SCHEMA,ATTRIBUTE_DEFINITION,ATTRIBUTE_TERM,ATTRIBUTE_FIELD,ATTRIBUTE_VALUES,ATTRIBUTE_ENTRIES))
+WRITE_QUERIES |= frozenset((ATTRIBUTE_DEF_CREATE,ATTRIBUTE_TERM_CREATE,ATTRIBUTE_FIELD_CREATE,ATTRIBUTE_SET,ATTRIBUTE_DEF_ACCESS,ATTRIBUTE_FIELD_ACCESS))
 NAVIGATION_READ = '''query NavigationEligibility($ids: [ID!]!, $publication: ID!) {
  publication(id: $publication) { id name app { title } }
  nodes(ids: $ids) { ... on Product { id status metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
@@ -524,6 +531,13 @@ class ShopifyAdapter:
         query = {"definition":ATTRIBUTE_DEF_CREATE,"term":ATTRIBUTE_TERM_CREATE,"field":ATTRIBUTE_FIELD_CREATE}[kind]
         return self._write(config,query,{"metaobject" if kind=="term" else "definition":spec})
 
+    def update_attribute_access(self, config, kind, remote_id, spec):
+        if kind == "definition":
+            return self._write(config,ATTRIBUTE_DEF_ACCESS,{"id":_gid(remote_id,"MetaobjectDefinition"),"definition":{"access":spec["access"]}})
+        if kind == "field":
+            return self._write(config,ATTRIBUTE_FIELD_ACCESS,{"definition":{"namespace":spec["namespace"],"key":spec["key"],"ownerType":"PRODUCT","access":spec["access"]}})
+        raise ShopifyError("Only existing controlled definitions permit reviewed access updates.")
+
     def attribute_values(self, config, product_id, namespace):
         product=self._read(config,ATTRIBUTE_VALUES,{"id":_gid(product_id,"Product"),"namespace":namespace}).get("product")
         if not product or product["id"]!=product_id or product["metafields"]["pageInfo"]["hasNextPage"]:
@@ -532,6 +546,11 @@ class ShopifyAdapter:
 
     def set_attributes(self, config, values):
         return self._write(config,ATTRIBUTE_SET,{"metafields":values})
+
+    def attribute_entries(self, config, ids):
+        if not ids or len(ids)>40 or len(set(ids))!=len(ids):
+            raise ShopifyError("Inspect one bounded set of up to forty unique term references.")
+        return self._read(config,ATTRIBUTE_ENTRIES,{"ids":[_gid(i,"Metaobject") for i in ids]})["nodes"]
 
     def navigation_eligibility(self, config, ids, publication):
         if not 1<=len(ids)<=25:

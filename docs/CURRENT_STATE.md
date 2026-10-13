@@ -1,5 +1,42 @@
 # Current State
 
+## M3A.8.5.1 — live corrections and publishing feedback
+
+Implemented: lossless hash-checked large review evidence within existing 64 KiB SQLite
+storage (bounded 1 MiB decode; legacy JSON supported), compact comparison indexes,
+256 KiB description budget and complete twenty-image Simple gallery reads. No truncation,
+source rewrite, schema migration or unchanged media upload.
+
+Actual token/action-specific attribute permissions remain required. Explicit signed
+inventory-only correction supports trusted retained Simple/Variable parents without
+unrelated attribute reads; full synchronisation is deferred, displayed as Needs Attention
+and never reuses a partial result as Up to Date. Scoped uncertainty reconciles read-only.
+Full Update preserves existing parent/variant/inventory/media/options/SKU identities.
+
+Existing app-owned definition access can be repaired under signed review and independent
+readback, without duplicate merchant definitions/terms. Registry public/internal roles
+control access, not names. The user's latest direction is that Production Method should
+also be publicly readable: explicitly configure its public role and review access.
+Shopify read-only definition listing/pinning is separate from assignments. A read-only
+Unraid CLI inspects actual product references/metaobjects/access/status without app startup,
+database mutations or Shopify writes. No live credentials exist in development; actual
+store values, storefront access and filter eligibility remain manual acceptance gates.
+
+Delete is discoverable in normal Product Detail Shopify Actions for verified administrators;
+existing destructive safety unchanged. Confirm feedback polls durable stages only; duplicate
+receipt POSTs/reconnection do not repeat writes. Verified/Processing results return to Products;
+partial, recovery and failures remain explicit. No percentage simulation/background writer.
+Legacy product dimension metafields remain required and separate from native packed values.
+No M3A.9, menu/theme/bulk work, Unraid deployment or unrelated Unraid edits included.
+
+Focused verification: existing Simple/Variable/lifecycle regression 111 passed; affected
+draft/Products compatibility 78 passed; status/UX/live-correction set 45 passed (overlapping
+sets). JavaScript progress/Products/override checks 26 passed. New mocked regressions cover
+lossless large values/manifests, stale signatures, scoped inventory and recovery, exact
+term/access repair, read-only SQLite diagnostics, Admin-only Delete and durable progress/
+reconnect/Products return. Compilation/template/syntax/diff/secret checks passed. No live
+Shopify reads/writes were possible or performed from development.
+
 ## M3A.8.5 — inventory policy, first-use taxonomy and remote lifecycle
 
 Implemented; controlled Unraid acceptance remains required. The proven inventory

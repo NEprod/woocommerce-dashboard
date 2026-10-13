@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from flask import current_app, has_app_context
+from flask import current_app, has_app_context, has_request_context, g
 from app import db
 from app.models import CatalogueOperation, Settings
 from app.utils.redaction import redact_diagnostic, runtime_redaction_paths
@@ -221,6 +221,8 @@ def acquire_catalogue_operation(operation_type: str, scope=None) -> OperationLea
                 "operation_type": existing.operation_type,
                 "started_at": existing.started_at.isoformat() if existing.started_at else None,
             })
+        if operation_type == "shopify_draft_publish" and has_request_context() and g.get("shopify_review_ticket"):
+            scope = {**(scope or {}), "review_ticket":g.shopify_review_ticket}
         row = CatalogueOperation(
             id=operation_id,
             operation_type=operation_type,

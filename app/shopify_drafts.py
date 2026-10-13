@@ -1,10 +1,12 @@
 """Single Simple draft proof of concept, independent of Woo publishing."""
 import hashlib
+import base64
 import io
 import json
 import os
 import stat
 import uuid
+import zlib
 from datetime import datetime, UTC
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -25,7 +27,8 @@ from app import shopify_simple_fields as fields
 
 MAX_IMAGE = 10 * 1024 * 1024
 MAX_TOTAL = 30 * 1024 * 1024
-MAX_IMAGES = 6
+MAX_IMAGES = 20  # Same complete-gallery budget already used by Variable products.
+MAX_EVIDENCE_BYTES = 1024 * 1024
 
 
 def now():
@@ -42,19 +45,42 @@ def configuration():
 
 
 def encode(evidence):
-    value = json.dumps(evidence, sort_keys=True)
-    if len(value.encode()) > 65536 or evidence.get("version") != 1:
-        raise ShopifyError("Draft evidence exceeds the supported bound. Reduce description/images before reviewing.")
-    return value
+    # Keep the existing SQLite bound. Large, repeated reviewed plans are stored
+    # losslessly, not truncated; hashes still bind the fully expanded evidence.
+    value = json.dumps(evidence, sort_keys=True, ensure_ascii=False)
+    raw = value.encode()
+    if len(raw) > MAX_EVIDENCE_BYTES or evidence.get("version") != 1:
+        raise ShopifyError("Review evidence exceeds the 1 MiB decoded safety bound; no write attempted. Administrator evidence review is required.")
+    if len(raw) <= 65536:
+        return value
+    packed = json.dumps({"version":1,"encoding":"zlib-json-v1","sha256":hashlib.sha256(raw).hexdigest(),
+        "bytes":len(raw),"content":base64.b64encode(zlib.compress(raw)).decode()}, sort_keys=True)
+    if len(packed.encode()) > 65536:
+        raise ShopifyError("Lossless review evidence exceeds the database storage bound; no write attempted. Administrator evidence review is required.")
+    return packed
 
 
 def evidence(row):
     try:
         result = json.loads(row.media_evidence_json)
+        if not isinstance(result,dict):
+            raise ValueError()
+        if result.get("encoding") == "zlib-json-v1":
+            size = result.get("bytes")
+            if type(size) is not int or not 0 < size <= MAX_EVIDENCE_BYTES:
+                raise ValueError()
+            stream = zlib.decompressobj()
+            raw = stream.decompress(base64.b64decode(result["content"], validate=True), size + 1)
+            if (len(raw) != size or not stream.eof or stream.unused_data or stream.unconsumed_tail
+                    or hashlib.sha256(raw).hexdigest() != result["sha256"]):
+                raise ValueError()
+            result = json.loads(raw)
+            if not isinstance(result,dict):
+                raise ValueError()
         if result["version"] != 1:
             raise ValueError()
         return result
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, zlib.error):
         raise ShopifyError("Draft identity evidence is invalid. Administrator recovery review is required.") from None
 
 
@@ -104,8 +130,8 @@ def common_plan(product, *, variable=False):
         raise ShopifyError("Resolve the authored live field to true or false through collection metadata or product override before publishing.")
     title = authored.get("title") or snapshot.data["title"]
     body = authored.get("description", snapshot.data["description"]) or ""
-    if not isinstance(title, str) or not title.strip() or len(title) > 255 or not isinstance(body, str) or len(body) > 8000:
-        raise ShopifyError("Review the title/description; this proof of concept supports titles up to 255 and descriptions up to 8,000 characters.")
+    if not isinstance(title, str) or not title.strip() or len(title) > 255 or not isinstance(body, str) or len(body.encode()) > 262144:
+        raise ShopifyError("Review the title/description; titles must fit 255 characters and description HTML the 256 KiB transport safety budget.")
     try:
         price = Decimal(str(authored.get("price", snapshot.data["price"])))
         if not price.is_finite() or price < 0 or price != price.quantize(Decimal("0.01")):
@@ -117,7 +143,7 @@ def common_plan(product, *, variable=False):
         from app.shopify_variables import gallery_diagnostics
         diagnostics = gallery_diagnostics(product, diagnostics)
     if len(diagnostics) > (20 if variable else MAX_IMAGES) or not diagnostics:
-        raise ShopifyError("Select a variable parent with 1–20 resolvable original gallery/variant images." if variable else "Select a product with one to six resolvable original catalogue images.")
+        raise ShopifyError("Select a product with 1–20 resolvable original catalogue/gallery images. No images are truncated or removed.")
     images = []
     for row in diagnostics:
         if not row["source_exists"] or not row["source_reference"]:
@@ -176,19 +202,21 @@ def require_absent_sku(adapter, config, sku):
         raise ShopifyError("A Shopify SKU candidate already exists or discovery is incomplete. Another create is blocked; inspect and reconcile identities, never auto-adopt.")
 
 
-def preview(product, adapter=None, *, context=None):
+def preview(product, adapter=None, *, context=None, scope="full"):
     try:
-        return _preview(product, adapter, context=context)
+        return _preview(product, adapter, context=context, scope=scope)
     except ShopifyError as exc:
         from app.shopify_comparison import failed
         failed(product, str(exc))
         raise
 
 
-def _preview(product, adapter=None, *, context=None):
+def _preview(product, adapter=None, *, context=None, scope="full"):
+    if scope not in {"full","inventory"}:
+        raise ShopifyError("Choose a supported review scope.")
     if product.product_type == "variable":
         from app.shopify_variables import preview as variable_preview
-        return variable_preview(product, adapter, context=context)
+        return variable_preview(product, adapter, context=context, scope=scope)
     plan = local_plan(product)
     config = configuration()
     adapter = adapter or ShopifyAdapter()
@@ -196,6 +224,9 @@ def _preview(product, adapter=None, *, context=None):
     can_write = "write_products" in shop["scopes"]
     store_key = digest({"id": shop["shop_id"]})
     row = matching_identity(shop["shop_id"], product)
+    if scope == "inventory" and (not row or row.state not in {"verified","scoped_verified"}):
+        raise ShopifyError("Inventory-only Review requires a trusted retained product; reconcile unresolved operations first.")
+    plan["scope"] = scope
     if row and (row.source_identity!=product.source_relpath or row.sku!=product.sku):
         raise ShopifyError("Stable local source/SKU does not match its retained Shopify identity.")
     if row and row.state == "processing":
@@ -212,7 +243,7 @@ def _preview(product, adapter=None, *, context=None):
         plan["warnings"].append("Both local and Shopify data changed since the checkpoint. Inspect before/after values before replacing remote data.")
         plan["conflicting_changes"] = True
     from app.shopify_taxonomy import membership_plan
-    plan["collections"], blockers, standard = membership_plan(product, shop["shop_id"], row.shopify_product_id if row else None, config, adapter)
+    plan["collections"], blockers, standard = ([],[],None) if scope == "inventory" else membership_plan(product, shop["shop_id"], row.shopify_product_id if row else None, config, adapter)
     plan["blockers"] += blockers
     if standard:
         plan["standard_category"] = adapter.standard_category(config, standard)
@@ -224,13 +255,18 @@ def _preview(product, adapter=None, *, context=None):
     if origin and origin not in adapter.country_codes(config):
         raise ShopifyError("Country of origin is not supported by Shopify's current CountryCode contract.")
     if row and row.state not in {"failed_before_create", "remote_deleted"}:
-        if row.state not in {"verified","attribute_review_required"} or row.verification_state not in {"verified","base_verified"}:
+        if row.state not in {"verified","attribute_review_required","scoped_verified"} or row.verification_state not in {"verified","base_verified","inventory_verified"}:
             raise ShopifyError(f"Recovery required for Shopify identity {row.id} ({row.state}). Reconcile its retained operation before any write; another create is blocked.")
         result, token = update_preview(product, row, plan, config, shop, adapter)
         from app.shopify_native_dimensions import attach_review
-        attach_review(product, result, row, config, shop, adapter)
+        if scope == "inventory":
+            from app.shopify_inventory_review import restrict
+            restrict(result)
+            result["native"] = {"enabled":False,"classification":"deferred","reason":"Native measurements are outside inventory-only policy correction."}
+        else:
+            attach_review(product, result, row, config, shop, adapter)
         if result["classification"] == "update":
-            token = serializer().dumps({"mode": "update", **{key: result[key] for key in (
+            token = serializer().dumps({"mode": "update", "scope":scope, **{key: result[key] for key in (
                 "product_id", "digest", "identity_id", "remote_id", "store_id", "domain", "config_digest",
                 "remote_digest", "identity_digest", "taxonomy_review_digest")}})
         if result["classification"] == "update" and not can_write:
@@ -293,6 +329,9 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         raise ShopifyError("Draft Preview expired or is invalid. Generate a fresh Preview.") from None
     if expected_product_id is not None and reviewed.get("product_id") != expected_product_id:
         raise ShopifyError("Reviewed product does not match this Products workspace. Open its own review; no write occurred.")
+    if reviewed.get("scope") == "inventory":
+        from app.shopify_inventory_review import confirm as inventory_confirm
+        return inventory_confirm(reviewed,adapter)
     if reviewed.get("mode") == "variable":
         from app.shopify_variables import confirm as variable_confirm
         return variable_confirm(reviewed, adapter)
@@ -588,7 +627,12 @@ def update_preview(product, row, plan, config, shop, adapter):
     rows = fields.field_rows(plan["managed"], remote) + media_rows
     plan["fields"] = rows
     from app.shopify_attributes import attach
-    attach(product, plan, config, shop, adapter, row.shopify_product_id)
+    if plan.get("scope") == "inventory":
+        plan["attributes"] = []
+        from app.taxonomy_assignments import product_document, resolve
+        plan["attribute_diagnostics"] = [{"name":a["name"],"action":"Explicitly deferred; not compared or synchronised"} for a in resolve(product_document(product))["attributes"] if not a["variation"]]
+    else:
+        attach(product, plan, config, shop, adapter, row.shopify_product_id)
     if "tags" in plan["managed"]["product"]:
         removed = sorted(set(remote.get("tags", [])) - set(plan["managed"]["product"]["tags"]))
         if removed:
@@ -650,7 +694,7 @@ def confirm_update(reviewed, adapter=None):
     adapter = adapter or ShopifyAdapter()
     product = db.session.get(Product, reviewed["product_id"])
     row = db.session.get(ShopifyProductIdentity, reviewed["identity_id"])
-    if not product or not row or row.state not in {"verified","attribute_review_required"} or row.verification_state not in {"verified","base_verified"}:
+    if not product or not row or row.state not in {"verified","attribute_review_required","scoped_verified"} or row.verification_state not in {"verified","base_verified","inventory_verified"}:
         raise ShopifyError("Identity is not verified or another attempt requires recovery. Generate a fresh Preview.")
     # Acquire before revalidation; reviewed update cannot overlap another write.
     lease = acquire_catalogue_operation("shopify_draft_publish", {"product_id": product.id, "sku": product.sku, "mode": "update"})
@@ -862,6 +906,9 @@ def _reconcile(row, candidate_id=None, adapter=None, approval=None, *, allow_att
     if shop["shop_id"] != row.store_id:
         raise ShopifyError("Configured Shopify store does not match this identity. Restore its store configuration.")
     data = evidence(row)
+    if data.get("inventory_update",{}).get("state") in {"pending","uncertain"}:
+        from app.shopify_inventory_review import verify
+        return verify(row,data,adapter)
     if data.get("kind") == "variable":
         from app.shopify_variables import reconcile as variable_reconcile
         return variable_reconcile(row, adapter, candidate_id=candidate_id, approval=approval, allow_attribute_review=allow_attribute_review)

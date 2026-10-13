@@ -200,7 +200,7 @@ def review_rows(plan):
                 label="Packed dimensions · " + key.removeprefix("native.")
             rows.append({"label": label,
                 "before": "Not created" if plan["classification"] == "create" and after is not None else value(before),
-                "after": value(after), "action": "Set on create" if plan["classification"] == "create" and after is not None
+                "after": value(after), "action": "Deferred (inventory-only scope)" if row.get("deferred") else "Set on create" if plan["classification"] == "create" and after is not None
                     else "Change" if row["changed"] else "Already matching"})
     return rows
 

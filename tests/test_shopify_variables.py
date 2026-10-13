@@ -89,7 +89,7 @@ class VariableAdapter(UpdateAdapter):
     def update_variants(self,config,pid,variants):
         self.calls.append("variants_update")
         self.inputs.append(copy.deepcopy(variants))
-        assert drafts.evidence(ShopifyProductIdentity.query.one())["stage"]=="variant_update"
+        assert drafts.evidence(ShopifyProductIdentity.query.one())["stage"] in {"variant_update","inventory_update"}
         for payload in variants:
             self._apply(next(v for v in self.remote["variants"]["nodes"] if v["id"]==payload["id"]),payload)
         if self.failure_stage=="variants_update": raise ShopifyError("Variant update response lost")

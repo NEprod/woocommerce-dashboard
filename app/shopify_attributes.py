@@ -52,7 +52,7 @@ def resource(store,key):
     return ShopifyAttributeIdentity.query.filter_by(store_id=store,source_key=key).first()
 
 
-def valid(kind, remote, spec, source, expected=None):
+def valid(kind, remote, spec, source, expected=None, *, allow_access=False):
     if remote is None:
         return None
     keys={"definition":{"id","type","fieldDefinitions","access"},"term":{"id","type","handle","fields"},"field":{"id","key","type","validations","access"}}[kind]
@@ -64,7 +64,7 @@ def valid(kind, remote, spec, source, expected=None):
     if kind=="definition":
         if remote.get("name")!=spec["name"]:
             raise ShopifyError("Registered attribute label differs; review a mapping rename separately, never replace its identity implicitly.")
-        if not remote.get("type","").endswith(spec["type"].removeprefix("$app:")) or {f["key"]:f["type"]["name"] for f in remote["fieldDefinitions"]}!={"name":"single_line_text_field","tlc_key":"single_line_text_field"} or remote["access"]["storefront"]!=spec["access"]["storefront"]:
+        if not remote.get("type","").endswith(spec["type"].removeprefix("$app:")) or {f["key"]:f["type"]["name"] for f in remote["fieldDefinitions"]}!={"name":"single_line_text_field","tlc_key":"single_line_text_field"} or (not allow_access and remote["access"]["storefront"]!=spec["access"]["storefront"]):
             raise ShopifyError("Attribute definition schema/access is incompatible; inspect its retained mapping.")
     elif kind=="term":
         fields={f["key"]:f["value"] for f in remote["fields"]}
@@ -74,7 +74,7 @@ def valid(kind, remote, spec, source, expected=None):
             raise ShopifyError("Controlled term lacks its exact TLC/type/handle identity.")
     else:
         validations={v["name"]:v["value"] for v in remote["validations"]}
-        if remote["key"]!=spec["key"] or remote["type"]["name"]!="list.metaobject_reference" or validations.get("metaobject_definition_id")!=spec["validations"][0]["value"] or remote["access"]["storefront"]!=spec["access"]["storefront"]:
+        if remote["key"]!=spec["key"] or remote["type"]["name"]!="list.metaobject_reference" or validations.get("metaobject_definition_id")!=spec["validations"][0]["value"] or (not allow_access and remote["access"]["storefront"]!=spec["access"]["storefront"]):
             raise ShopifyError("Attribute metafield definition/reference/access is incompatible.")
     return remote
 
@@ -83,11 +83,12 @@ def inspect_resource(kind, key, spec, store, config, adapter):
     kept=resource(store,key)
     if kept and kept.state not in {"verified","absent_verified"}:
         raise ShopifyError("Attribute registration recovery required: "+key+". Inspect/reconcile before any new Create.")
-    remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,kept.remote_id if kept else None)
+    remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,kept.remote_id if kept else None,allow_access=kind in {"definition","field"})
     if kept and kept.state=="verified" and remote is None:
         raise ShopifyError("Retained attribute resource missing; no automatic recreation.")
     return {"kind":kind,"source":key,"spec":spec,"remote_id":remote["id"] if remote else None,
-        "action":"Reuse" if kept and kept.state=="verified" else "Link owned resource" if remote else "Create",
+        "action":"Update storefront access" if remote and kind in {"definition","field"} and remote["access"]["storefront"]!=spec["access"]["storefront"] else "Reuse" if kept and kept.state=="verified" else "Link owned resource" if remote else "Create",
+        "before_access":remote["access"]["storefront"] if remote and kind in {"definition","field"} else None,
         "remote_digest":drafts.digest(remote),"mapping_digest":drafts.digest(kept.evidence_json) if kept else None}
 
 
@@ -132,18 +133,33 @@ def preview(product, store, remote_id, config, shop, adapter):
         except ValueError:
             raise ShopifyError("Informational reference evidence is malformed.") from None
         changed=any(r["action"]!="Reuse" for r in resources) or None in desired or current!=desired
-        if changed and WRITE_SCOPES-set(shop["scopes"]):
-            raise ShopifyError("Missing informational-attribute write scopes: "+", ".join(sorted(WRITE_SCOPES-set(shop["scopes"]))))
+        required=set()
+        for item in resources:
+            if item["action"] in {"Create","Update storefront access"}:
+                required.add({"definition":"write_metaobject_definitions","term":"write_metaobjects","field":"write_products"}[item["kind"]])
+        if changed: required.add("write_products")
+        missing_writes=sorted(required-set(shop["scopes"]))
+        if any(r["action"]=="Update storefront access" for r in resources):
+            # Access belongs to the attribute definition, not one assignment;
+            # disclosure is required because other products share this definition.
+            access_notice="Reviewed access change affects all products referencing this app-owned attribute."
+        else:
+            access_notice=""
         rows.append({**attr,"field_key":suffix,"resources":resources,"before":before,"changed":changed,
-            "desired_ids":desired,"action":"Clear owned references" if not attr["terms"] else "Update" if changed else "Already matching"})
+            "desired_ids":desired,"missing_scopes":missing_writes,"access_notice":access_notice,"action":"Clear owned references" if not attr["terms"] else "Update" if changed else "Already matching"})
     return rows
 
 
 def attach(product, plan, config, shop, adapter, remote_id=None):
+    plan["attribute_diagnostics"]=[]
     try:
         plan["attributes"]=preview(product,shop["shop_id"],remote_id,config,shop,adapter)
     except ShopifyError as exc:
         plan["attributes"]=[]; plan["blockers"].append(str(exc))
+        plan["attribute_diagnostics"]=[{"name":a["name"],"action":"Required assignment / verification blocked: "+str(exc)} for a in assigned(product)]
+    for attr in plan["attributes"]:
+        if attr.get("missing_scopes"):
+            plan["blockers"].append("Required informational operation for "+attr["name"]+" is blocked. Missing token scopes: "+", ".join(attr["missing_scopes"]))
     plan["attribute_review_digest"]=drafts.digest(plan["attributes"])
     plan["taxonomy_review_digest"]=drafts.digest({"base":plan["taxonomy_review_digest"],"attributes":plan["attribute_review_digest"]})
     plan["fields"] += [{"field":"attributes."+a["name"],"before":(a["before"] or {}).get("value"),
@@ -161,21 +177,31 @@ def save_resource(row,data,state):
 def ensure(item,store,config,adapter,operation):
     kind,key,spec=item["kind"],item["source"],item["spec"]
     row=resource(store,key)
-    remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id if row else None)
+    changing_access=item["action"]=="Update storefront access"
+    remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id if row else None,allow_access=changing_access)
     if row:
         if row.state=="absent_verified" and remote is None and item["mapping_digest"]==drafts.digest(row.evidence_json):
             pass  # explicit read-confirmed noncreation + a NEW signed product review
         elif row.state!="verified" or remote is None:
             raise ShopifyError("Retained attribute needs explicit read-only reconciliation; no create retry.")
-        else:
+        elif not changing_access:
             return remote["id"]
     if drafts.digest(remote)!=item["remote_digest"]:
         raise ShopifyError("Attribute candidate changed since signed review; rebuild before registration.")
     if row is None:
         row=ShopifyAttributeIdentity(store_id=store,source_key=key,state="pending",operation_id=operation,evidence_json='{"version":1}')
+    if changing_access:
+        row.remote_id=remote["id"]  # exact retained target durable BEFORE access mutation
     row.operation_id=operation
-    save_resource(row,{"version":1,"kind":kind,"spec":spec,"source":key},"pending")
+    save_resource(row,{"version":1,"kind":kind,"spec":spec,"source":key,"before_access":item.get("before_access")},"pending")
     try:
+        if changing_access:
+            save_resource(row,json.loads(row.evidence_json),"updating_access")
+            payload=drafts.payload_result(adapter.update_attribute_access(config,kind,remote["id"],spec),"metaobjectDefinitionUpdate" if kind=="definition" else "metafieldDefinitionUpdate")
+            returned=(payload.get("metaobjectDefinition" if kind=="definition" else "updatedDefinition") or {}).get("id")
+            if returned!=remote["id"]:
+                raise ShopifyError("Access update receipt identity differs; reconcile retained resource.")
+            remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id)
         if remote is None:
             save_resource(row,json.loads(row.evidence_json),"creating")
             name,receipt,model=PAYLOADS[kind]
@@ -239,7 +265,12 @@ def verify(plan,config,adapter,product_id):
 
 def reconcile(identity,adapter,config):
     data=json.loads(identity.evidence_json)
-    observed=valid(data["kind"],adapter.attribute_resource(config,data["kind"],data["spec"]),data["spec"],identity.source_key,identity.remote_id)
+    observed=valid(data["kind"],adapter.attribute_resource(config,data["kind"],data["spec"]),data["spec"],identity.source_key,identity.remote_id,allow_access=bool(data.get("before_access")))
+    if observed and data.get("before_access"):
+        actual=observed["access"]["storefront"]
+        if actual not in {data["before_access"],data["spec"]["access"]["storefront"]}:
+            raise ShopifyError("Storefront access differs from both reviewed states; explicit conflict review required.")
+        data["spec"]["access"]["storefront"]=actual  # read-only outcome, not automatic retry
     if observed is None:
         if identity.remote_id or adapter.attribute_resource(config,data["kind"],data["spec"]) is not None:
             raise ShopifyError("Attribute outcome unresolved or conflicting; no duplicate Create.")

@@ -1,6 +1,6 @@
 """Administrator configuration/discovery/drafts. GET never contacts either store."""
 import json
-from flask import Blueprint, abort, render_template, request, redirect, url_for, jsonify, current_app
+from flask import Blueprint, abort, render_template, request, redirect, url_for, jsonify, current_app, g, flash
 from flask_login import login_required, current_user
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SelectField, HiddenField
@@ -9,6 +9,28 @@ from app import commerce_config as config
 from app.shopify_connection import ShopifyAdapter, ShopifyConfiguration, ShopifyError, VERSIONS
 
 commerce = Blueprint("commerce", __name__)
+
+
+def products_return(product_id=None):
+    from urllib.parse import urlsplit
+    candidate = request.form.get("return_to") or request.args.get("return_to") or request.referrer or ""
+    parsed = urlsplit(candidate[:2048])
+    if (not parsed.netloc or parsed.netloc == request.host) and parsed.path == url_for("main.products") and "\r" not in candidate and "\n" not in candidate:
+        return parsed.path + ("?"+parsed.query if parsed.query else "") + ("#"+parsed.fragment if parsed.fragment else "")
+    return url_for("main.products") + ("#product-"+str(product_id) if product_id else "")
+
+
+@commerce.route("/products/<int:product_id>/shopify/progress", methods=["POST"])
+@login_required
+def shopify_progress(product_id):
+    if not current_user.is_admin: abort(403)
+    form = FlaskForm()
+    if not form.validate_on_submit(): abort(400)
+    from app.shopify_progress import receipt
+    try:
+        return jsonify(receipt(product_id,request.form.get("review",""))), 200, {"Cache-Control":"no-store"}
+    except ShopifyError as exc:
+        return jsonify(error=str(exc)),400,{"Cache-Control":"no-store"}
 
 
 @commerce.route("/api/shopify/status", methods=["POST"])
@@ -172,14 +194,33 @@ def drafts(product_id=None):
                 product = scoped_product or db.session.get(Product, request.form.get("product_id", type=int))
                 if not product:
                     abort(404)
-                plan, token = service.preview(product)
+                plan, token = service.preview(product, scope="inventory" if request.form.get("inventory_only") == "yes" else "full")
             elif request.form.get("action") == "confirm":
-                row = service.confirm(request.form.get("review", ""), request.form.get("acknowledge") == "yes", expected_product_id=product_id)
+                review = request.form.get("review", "")
+                from app.shopify_progress import receipt
+                target = product_id or request.form.get("product_id",type=int)
+                if not target: abort(400)
+                prior = receipt(target,review)
+                if prior["state"] != "waiting":
+                    if request.headers.get("Accept") == "application/json":
+                        return jsonify({**prior,"return_url":products_return(target)}), 200, {"Cache-Control":"no-store"}
+                    return redirect(prior.get("history_url") or products_return(target))
+                g.shopify_review_ticket = service.digest(review)
+                row = service.confirm(review, request.form.get("acknowledge") == "yes", expected_product_id=product_id)
+                result = receipt(target,review)
+                if result["state"] in {"completed","processing"}:
+                    flash("Shopify product verified." if result["state"] == "completed" else "Shopify media is processing; check its product status.","success" if result["state"] == "completed" else "info")
+                if request.headers.get("Accept") == "application/json":
+                    return jsonify({**result,"return_url":products_return(target)}), 200, {"Cache-Control":"no-store"}
+                if result["state"] in {"completed","processing"}:
+                    return redirect(products_return(target))
                 return redirect(url_for("commerce.draft_identity", identity_id=row.id))
             else:
                 abort(400)
         except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
             error = str(exc)
+            if request.headers.get("Accept") == "application/json":
+                return jsonify(state="failed",message=error,return_url=products_return(product_id)),400,{"Cache-Control":"no-store"}
     products = Product.query.filter(Product.product_type.in_(["simple","variable"]),Product.catalogue_status=="active").order_by(Product.title).limit(500).all()
     identities_query = ShopifyProductIdentity.query
     if scoped_product:
@@ -188,6 +229,7 @@ def drafts(product_id=None):
     from app.shopify_simple_fields import review_rows
     return render_template("shopify_drafts.html", form=form, plan=plan, token=token, error=error,
         review_rows=review_rows(plan) if plan else [],
+        return_to=products_return(product_id),
         products=products, identities=identities, scoped_product=scoped_product,
         selected_id=product_id or request.form.get("product_id", type=int) or request.args.get("product_id", type=int)), 400 if error else 200, {"Cache-Control": "no-store"}
 

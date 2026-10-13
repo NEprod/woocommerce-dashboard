@@ -1,5 +1,19 @@
 # Existing Architecture
 
+## M3A.8.5.1 — complete evidence and scoped publishing feedback
+
+Large complete publishing evidence uses a lossless versioned zlib/hash/size envelope
+under the existing 64 KiB identity column bound and bounded 1 MiB expansion; legacy
+JSON remains supported. Comparison indexes hash oversized values without becoming
+write authority. Explicit inventory-only review retains the full old plan and separate
+scoped receipt, never advances full verification. Confirm's local receipt ticket is
+stored in CatalogueOperation scope; progress/reconnection reads durable stages, and
+repeated receipt submissions cannot launch a second writer. Synchronous publishing,
+signed source/remote checks and recovery leases remain authoritative. No new migration.
+Existing owned attribute access updates are narrow signed writes, not term/definition
+replacement; independent identity/schema/access readback is required. The diagnostic
+CLI deliberately opens SQLite read-only and avoids normal application startup.
+
 ## M3A.8.5 — first-use resources and exact remote lifecycle
 
 The existing ShopifyAdapter transports new fixed 2026-10 resource, CAS assignment,

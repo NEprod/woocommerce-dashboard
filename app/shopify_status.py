@@ -109,7 +109,7 @@ def refresh(products, *, force=False, adapter=None):
                     observed.update(observed_status=revision["status"], observed_updated_at=revision["updatedAt"], observed_revision_at=drafts.now().isoformat())
                     comparison.store_summary(saved, observed)
                 native_due = product.product_type == "variable" and ((valid or {}).get("native") or {}).get("enabled") and not comparison.recent(((valid or {}).get("native") or {}).get("checked_at") or (valid or {}).get("full_compared_at"),comparison.MAX_AGE)
-                needs_full = force or native_due or not valid or not identity or not revision or not comparison.recent(valid.get("full_compared_at"), comparison.FULL_AGE)
+                needs_full = force or native_due or not valid or valid.get("scope","full") != "full" or not identity or not revision or not comparison.recent(valid.get("full_compared_at"), comparison.FULL_AGE)
                 if revision and valid and (revision["updatedAt"] != valid.get("remote_updated_at") or revision["status"] != valid.get("actual_status")):
                     needs_full = True
                 if identity and identity.shopify_product_id in revisions and revision is None:
