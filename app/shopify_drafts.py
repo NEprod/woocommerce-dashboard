@@ -87,8 +87,15 @@ def source_bytes(product, reference):
 
 
 def local_plan(product):
+    if product.product_type == "variable":
+        from app.shopify_variables import local_plan as variable_plan
+        return variable_plan(product)
+    return common_plan(product)
+
+
+def common_plan(product, *, variable=False):
     snapshot = catalogue_snapshot(product)
-    if snapshot.product_type != "simple" or snapshot.data["variations"] or product.catalogue_status != "active":
+    if (not variable and (snapshot.product_type != "simple" or snapshot.data["variations"])) or product.catalogue_status != "active":
         raise ShopifyError("M3A supports one active Simple product with no child variations only.")
     if not product.source_relpath or not snapshot.sku:
         raise ShopifyError("Stable scanned source identity and SKU are required.")
@@ -106,8 +113,11 @@ def local_plan(product):
     except (InvalidOperation, ValueError):
         raise ShopifyError("A finite, nonnegative price with at most two decimal places is required.") from None
     diagnostics = product_image_diagnostics(product)
-    if len(diagnostics) > MAX_IMAGES or not diagnostics:
-        raise ShopifyError("Select a product with one to six resolvable original catalogue images.")
+    if variable:
+        from app.shopify_variables import gallery_diagnostics
+        diagnostics = gallery_diagnostics(product, diagnostics)
+    if len(diagnostics) > (20 if variable else MAX_IMAGES) or not diagnostics:
+        raise ShopifyError("Select a variable parent with 1–20 resolvable original gallery/variant images." if variable else "Select a product with one to six resolvable original catalogue images.")
     images = []
     for row in diagnostics:
         if not row["source_exists"] or not row["source_reference"]:
@@ -176,6 +186,9 @@ def preview(product, adapter=None, *, context=None):
 
 
 def _preview(product, adapter=None, *, context=None):
+    if product.product_type == "variable":
+        from app.shopify_variables import preview as variable_preview
+        return variable_preview(product, adapter, context=context)
     plan = local_plan(product)
     config = configuration()
     adapter = adapter or ShopifyAdapter()
@@ -274,6 +287,9 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         raise ShopifyError("Draft Preview expired or is invalid. Generate a fresh Preview.") from None
     if expected_product_id is not None and reviewed.get("product_id") != expected_product_id:
         raise ShopifyError("Reviewed product does not match this Products workspace. Open its own review; no write occurred.")
+    if reviewed.get("mode") == "variable":
+        from app.shopify_variables import confirm as variable_confirm
+        return variable_confirm(reviewed, adapter)
     if reviewed.get("mode") == "update":
         return confirm_update(reviewed, adapter)
     product = db.session.get(Product, reviewed["product_id"])
@@ -809,6 +825,9 @@ def _reconcile(row, candidate_id=None, adapter=None, approval=None):
     if shop["shop_id"] != row.store_id:
         raise ShopifyError("Configured Shopify store does not match this identity. Restore its store configuration.")
     data = evidence(row)
+    if data.get("kind") == "variable":
+        from app.shopify_variables import reconcile as variable_reconcile
+        return variable_reconcile(row, adapter, candidate_id=candidate_id, approval=approval)
     if not data["create_attempted"]:
         save(row, data, "failed_before_create")
         raise ShopifyError("No product creation was attempted. Generate a new Preview; staged-upload leftovers are not products and are never automatically deleted.")

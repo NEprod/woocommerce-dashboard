@@ -1,5 +1,62 @@
 # Current State
 
+## M3A.8.4 — reviewed Variable publishing and compact Products
+
+Implemented for one existing active catalogue parent per signed, expiring administrator
+confirmation. A Variable Collection publishes each independently identified child
+product parent separately; a Single Variable publishes its existing root parent.
+Scanned child SKUs, combinations, modifier-derived prices/weight/dimensions, source
+images and inheritance remain authoritative. No scanner, SKU, marker, JSON or Discord
+contract is changed. Simple publishing stays on its existing path.
+
+Create preserves Shopify's initial variant, assigns its reviewed SKU/fields, then adds
+the remaining reviewed combinations. Update uses retained parent/variant/InventoryItem
+and option/value GIDs; No Change makes no writes. Non-destructive variant additions
+are supported, while remote-only variants remain untouched. Original PNG/JPEG/WebP
+gallery uploads, actual media/CDN receipts, explicit variant associations, retained
+gallery order/alt updates, inherited taxonomy memberships/tags and shipping metadata
+receive independent readback. Uncertain outcomes block replay; known media processing
+can finish through read-only refresh. No automatic rollback/deletion or hidden retry.
+
+Bounds: 1–3 option drivers, up to 32 total reviewed/remote variants and 20 unique
+original images, additionally constrained by existing 64 KiB identity evidence.
+Over-complex plans are rejected before remote writes. Durable v1 evidence reuses
+ShopifyProductIdentity and CatalogueOperation; migration head remains 0011.
+
+Normal operations remain on 2026-10. Existing default-off packed-dimension flags opt
+into narrow 2027-01 inventory capability/read/write queries per actual InventoryItem.
+Per-variant native evidence has its own ten-minute freshness; Product.updatedAt alone
+never renews it. Missing native scope/policy does not discard successful base metadata,
+but outstanding or uncertain native work prevents unqualified Up to Date.
+
+Products now shows one semantic sync badge, compact actual/intended publication,
+collapsed evidence/secondary tools and seven desktop columns; mobile retains cards,
+full-width review actions and bottom-navigation clearance. Reviews show per-SKU price
+ranges, options, effective shipping/dimensions/media and separate packed stages.
+
+User-reported M3A.8.3 acceptance includes Simple Create/Update, retained media, category/
+ancestor/storefront memberships, weight/origin and native packed measurements. The
+16bit-0001 diagnostic's fresh correlated API evidence matched stored proof; the user
+confirmed they had inspected a different product in Shopify Admin. No speculative
+identity/dimension correction was made. Variable publishing still requires controlled
+Unraid live acceptance; mocked verification is not live acceptance.
+
+Verification: 287 focused Python regression cases passed, including 42 variable cases,
+Simple/native/taxonomy compatibility, scanner ingestion, bounded queries and operational
+Discord coverage. A three-case focused template follow-up passed after final copy/layout
+changes. Final affected JavaScript selection passed 29 cases; nine Python files compiled,
+three templates parsed, changed-JS syntax and diff checks passed. Desktop/mobile Products
+fixture checks showed no horizontal overflow and 110 px mobile main-content bottom
+clearance. A follow-up isolated review browser navigation timed out; review rendering is
+automatically covered but this is not a claim of complete visual/live acceptance.
+
+Deferred: option restructuring/deletion, existing gallery replacement/addition/removal,
+existing variant media replacement/removal, scheduled sales, inventory policy, channel/
+menu publishing, customer personalisation, bulk products and comprehensive JSON editors.
+The existing scanner's unsupported modifier sale_price remains unchanged and disclosed.
+An interrupted early create may need manual Shopify completion of the original reviewed
+stages before read-only reconciliation; it never authorises another Create.
+
 ## M3A.8.3 — workflow stabilisation and opt-in native packed dimensions
 
 The user reports M3A.8.2 live acceptance of product creation/update/reconciliation,

@@ -180,7 +180,7 @@ def drafts(product_id=None):
                 abort(400)
         except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
             error = str(exc)
-    products = Product.query.filter_by(product_type="simple", catalogue_status="active").order_by(Product.title).limit(500).all()
+    products = Product.query.filter(Product.product_type.in_(["simple","variable"]),Product.catalogue_status=="active").order_by(Product.title).limit(500).all()
     identities_query = ShopifyProductIdentity.query
     if scoped_product:
         identities_query = identities_query.filter_by(product_id=product_id)

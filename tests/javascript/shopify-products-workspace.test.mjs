@@ -20,7 +20,7 @@ class Node {
   }
 }
 const source = fs.readFileSync(new URL("../../app/static/assets/js/products-browser.js", import.meta.url), "utf8");
-async function render(automatic = false) {
+async function render(automatic = false, syncState = "update", productType = "simple") {
   const browser = new Node();
   browser.dataset.apiUrl = "/api/edit_products";
   browser.dataset.overrideEditorUrl = "/edit_products/0/edit/override";
@@ -31,11 +31,11 @@ async function render(automatic = false) {
   const choose = new Node();
   const document = {querySelector: () => browser, querySelectorAll: () => [], getElementById: () => choose,
     createElement: tag => new Node(tag), createDocumentFragment: () => new Node("fragment")};
-  const product = {id: 1, sku: "TLC-1", title: "Local product", type: "simple", catalogue_status: "active", price: {minimum: "3.50"}, variation_count: 0,
+  const product = {id: 1, sku: "TLC-1", title: "Local product", type: productType, catalogue_status: "active", price: {minimum: "3.50"}, variation_count: productType === "variable" ? 4 : 0,
     view_url: "/products/1", metadata_source: "shared", publishing_intent_label: "Draft intended",
-    shopify: {label: "Update Available", intent: "Draft intended", remote_status: "Draft (last compared)", compared_at: "2026-10-12T09:00:00Z", change_count: 2, review_url: "/products/1/shopify/review", identity_url: "/shopify/drafts/identity/1"}};
+    shopify: {state: syncState, label: "Update Available", intent: "Draft intended", intent_value: false, remote_status: "Draft (last compared)", compared_at: "2026-10-12T09:00:00Z", change_count: 2, review_url: "/products/1/shopify/review", identity_url: "/shopify/drafts/identity/1"}};
   const calls = [];
-  const fetch = async (...args) => { calls.push(args); return {ok: true, json: async () => args[0] === "/api/shopify/status" ? {checked: [1], pending: [], states: {1: {...product.shopify, label: "Up to Date", change_count: 0}}, errors: []} : ({summary: {}, groups: [{name: "Cards", product_count: 1, variation_count: 0, products: [product]}], pagination: {total: 1, from: 1, to: 1, page: 1, pages: 1}})}; };
+  const fetch = async (...args) => { calls.push(args); return {ok: true, json: async () => args[0] === "/api/shopify/status" ? {checked: [1], pending: [], states: {1: {...product.shopify, state: "no_change", label: "Up to Date", change_count: 0}}, errors: []} : ({summary: {}, groups: [{name: "Cards", product_count: 1, variation_count: 0, products: [product]}], pagination: {total: 1, from: 1, to: 1, page: 1, pages: 1}})}; };
   const navigations = [];
   const window = {location: {search: "", pathname: "/products", href: "https://local.test/products", assign: url => navigations.push(url)}, fetch,
     ProductsOverrideClient: {routeUrl: (template, id) => template.replace("/0/", `/${id}/`)}};
@@ -97,5 +97,33 @@ test("automatic status checking renders local rows first then updates desktop an
   assert.equal(calls[1][1].headers["X-CSRFToken"], "fictional_csrf");
   assert.deepEqual(JSON.parse(calls[1][1].body), {ids: [1], force: false});
   assert.equal(all(browser).filter(n => n.textContent === "Up to Date").length, 2);
+  assert.equal(all(browser).filter(n => n.className === "catalogue-pill is-shopify-success").length, 2);
   assert.match(browser.querySelector("[data-shopify-refresh-progress]").textContent, /No store writes/);
 });
+
+test("compact seven-column rows keep technical evidence collapsed and intent once", async () => {
+  const {browser,calls} = await render(false,"update","variable");
+  const nodes=all(browser);
+  const row=nodes.find(n=>n.className==="product-row");
+  assert.equal(row.children.length,7);
+  assert.equal(nodes.filter(n=>n.textContent==="Shopify Draft · Intended Draft").length,2);
+  assert.equal(nodes.filter(n=>(n.className || "").startsWith("catalogue-pill is-intent-")).length,0);
+  for (const status of nodes.filter(n=>n.className==="shopify-list-status")) {
+    assert.equal(status.children.length,3);
+    assert.equal(status.children[2].tag,"details");
+    assert.equal(status.children[2].attrs.open,undefined);
+  }
+  assert.equal(nodes.filter(n=>n.textContent==="4 variations").length,2);
+  assert.equal(calls.length,1);
+});
+
+for (const [state,meaning] of Object.entries({no_change:"success",update:"warning",local_changes:"warning",create:"info",processing:"info",attention:"warning",recovery_required:"danger",unknown:"neutral",unavailable:"neutral"})) {
+  test(`status ${state} uses shared ${meaning} semantics and readable text`,async()=>{
+    const {browser}=await render(false,state);
+    const nodes=all(browser);
+    const badges=nodes.filter(n=>n.className===`catalogue-pill is-shopify-${meaning}`);
+    assert.equal(badges.length,2);
+    assert.ok(badges.every(n=>n.textContent));
+    if(state==="processing") assert.equal(nodes.filter(n=>n.className==="shopify-activity" && n.attrs["aria-hidden"]==="true").length,2);
+  });
+}

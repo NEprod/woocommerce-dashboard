@@ -94,6 +94,42 @@ NATIVE_WRITE = '''mutation PackedUpdate($id: ID!, $input: InventoryItemInput!) {
 NATIVE_QUERIES = frozenset((NATIVE_CAPABILITY, NATIVE_READ, NATIVE_WRITE))
 READ_QUERIES = READ_QUERIES | frozenset((NATIVE_CAPABILITY, NATIVE_READ))
 WRITE_QUERIES = WRITE_QUERIES | frozenset((NATIVE_WRITE,))
+VARIABLE_FIELDS = '''id title handle status updatedAt descriptionHtml vendor tags productType category { id fullName } seo { title description }
+ metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
+ options { id name position optionValues { id name } }
+ length: metafield(namespace: $namespace, key: "product_length") { id type value }
+ width: metafield(namespace: $namespace, key: "product_width") { id type value }
+ height: metafield(namespace: $namespace, key: "product_height") { id type value }
+ media(first: 21) { nodes { id alt status mediaContentType ... on MediaImage { image { url } } } pageInfo { hasNextPage } }
+ variants(first: 33) { nodes { id sku price compareAtPrice selectedOptions { name value }
+ media(first: 2) { nodes { id } pageInfo { hasNextPage } }
+ length: metafield(namespace: $namespace, key: "product_length") { id type value }
+ width: metafield(namespace: $namespace, key: "product_width") { id type value }
+ height: metafield(namespace: $namespace, key: "product_height") { id type value }
+ inventoryItem { id sku countryCodeOfOrigin requiresShipping harmonizedSystemCode tracked measurement { weight { value unit } PACKED_FIELD } }
+ } pageInfo { hasNextPage } }'''
+VARIABLE_READ = 'query VariableRead($id: ID!, $namespace: String!) { product(id: $id) { ' + VARIABLE_FIELDS.replace('PACKED_FIELD', '') + ' } }'
+VARIABLE_NATIVE_READ = '''query VariablePackedRead($id: ID!) { product(id: $id) {
+ id status metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
+ variants(first: 33) { nodes { id sku selectedOptions { name value }
+ inventoryItem { id sku measurement { packedDimensions { length width height unit } } }
+ } pageInfo { hasNextPage } }
+} }'''
+NATIVE_INVENTORY_READ = '''query PackedInventory($id: ID!) { inventoryItem(id: $id) { id sku measurement { packedDimensions { length width height unit } } } }'''
+VARIABLE_CREATE = '''mutation VariableCreate($product: ProductCreateInput!, $media: [CreateMediaInput!]) {
+ productCreate(product: $product, media: $media) { product { id media(first: 21) { nodes { id alt } pageInfo { hasNextPage } } } userErrors { field message } }
+}'''
+VARIANTS_CREATE = '''mutation VariantsCreate($id: ID!, $variants: [ProductVariantsBulkInput!]!) {
+ productVariantsBulkCreate(productId: $id, variants: $variants, strategy: PRESERVE_STANDALONE_VARIANT) {
+ productVariants { id sku selectedOptions { name value } inventoryItem { id } } userErrors { field message }
+} }'''
+VARIANTS_UPDATE = '''mutation VariantsUpdate($id: ID!, $variants: [ProductVariantsBulkInput!]!) {
+ productVariantsBulkUpdate(productId: $id, variants: $variants, allowPartialUpdates: false) {
+ productVariants { id sku selectedOptions { name value } inventoryItem { id } } userErrors { field message }
+} }'''
+READ_QUERIES |= frozenset((VARIABLE_READ, VARIABLE_NATIVE_READ, NATIVE_INVENTORY_READ))
+WRITE_QUERIES |= frozenset((VARIABLE_CREATE, VARIANTS_CREATE, VARIANTS_UPDATE))
+NATIVE_QUERIES |= frozenset((VARIABLE_NATIVE_READ, NATIVE_INVENTORY_READ))
 
 
 def _cursor(value):
@@ -407,6 +443,29 @@ class ShopifyAdapter:
 
     def packed_capability(self, config):
         return self._transport(config, NATIVE_CAPABILITY, api_version="2027-01")
+
+    def read_variable(self, config, product_id, namespace, *, native=False):
+        return self._transport(config, VARIABLE_NATIVE_READ if native else VARIABLE_READ,
+            {"id": _gid(product_id, "Product"), **({} if native else {"namespace": namespace})},
+            **({"api_version": "2027-01"} if native else {})).get("product")
+
+    def create_variable(self, config, product, media):
+        return self._transport(config, VARIABLE_CREATE, {"product": product, "media": media})
+
+    def read_packed_inventory(self, config, inventory_id):
+        return self._transport(config, NATIVE_INVENTORY_READ, {"id": _gid(inventory_id, "InventoryItem")}, api_version="2027-01").get("inventoryItem")
+
+    def create_variants(self, config, product_id, variants):
+        return self._transport(config, VARIANTS_CREATE, {"id": _gid(product_id, "Product"), "variants": variants})
+
+    def find_skus(self, config, skus):
+        if not 1 <= len(skus) <= 33 or any(not isinstance(s,str) or not s.strip() or len(s)>64 for s in skus):
+            raise ShopifyError("Bounded scanned SKUs are required for duplicate discovery.")
+        query = " OR ".join("sku:" + json.dumps(s) for s in skus)
+        return self._read(config, SKU_QUERY, {"query": query}).get("productVariants")
+
+    def update_variants(self, config, product_id, variants):
+        return self._transport(config, VARIANTS_UPDATE, {"id": _gid(product_id, "Product"), "variants": variants})
 
     def read_packed(self, config, product_id):
         return self._transport(config, NATIVE_READ, {"id": _gid(product_id, "Product")}, api_version="2027-01").get("product")

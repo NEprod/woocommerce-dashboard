@@ -47,7 +47,7 @@ def refresh(products, *, force=False, adapter=None):
         mappings = {(r.store_id, r.source_key): r for r in ShopifyCollectionIdentity.query.all()}
         work, due = [], []
         for product in products:
-            if product.product_type != "simple" or product.catalogue_status != "active":
+            if product.product_type not in {"simple","variable"} or product.catalogue_status != "active":
                 continue
             rows = ShopifyProductComparison.query.filter_by(source_identity=product.source_relpath).order_by(ShopifyProductComparison.compared_at.desc()).all()
             saved = next((r for r in rows if json.loads(r.summary_json).get("config") == config_digest), None)
@@ -61,7 +61,8 @@ def refresh(products, *, force=False, adapter=None):
                 results.append(product.id)  # operation recovery is never cleared by background checks
                 continue
             valid = comparison.current(product, saved, identity, mappings, freshness=False) if saved and data.get("local") else None
-            if valid and not force and not data.get("refresh_failure") and comparison.current(product, saved, identity, mappings):
+            native_due = product.product_type == "variable" and (data.get("native") or {}).get("enabled") and not comparison.recent((data.get("native") or {}).get("checked_at") or data.get("full_compared_at"),comparison.MAX_AGE)
+            if valid and not force and not native_due and not data.get("refresh_failure") and comparison.current(product, saved, identity, mappings):
                 results.append(product.id)
                 continue
             item = (product, saved, identity, valid)
@@ -105,7 +106,8 @@ def refresh(products, *, force=False, adapter=None):
                     observed = json.loads(saved.summary_json)
                     observed.update(observed_status=revision["status"], observed_updated_at=revision["updatedAt"], observed_revision_at=drafts.now().isoformat())
                     comparison.store_summary(saved, observed)
-                needs_full = force or not valid or not identity or not revision or not comparison.recent(valid.get("full_compared_at"), comparison.FULL_AGE)
+                native_due = product.product_type == "variable" and ((valid or {}).get("native") or {}).get("enabled") and not comparison.recent(((valid or {}).get("native") or {}).get("checked_at") or (valid or {}).get("full_compared_at"),comparison.MAX_AGE)
+                needs_full = force or native_due or not valid or not identity or not revision or not comparison.recent(valid.get("full_compared_at"), comparison.FULL_AGE)
                 if revision and valid and (revision["updatedAt"] != valid.get("remote_updated_at") or revision["status"] != valid.get("actual_status")):
                     needs_full = True
                 if identity and identity.shopify_product_id in revisions and revision is None:

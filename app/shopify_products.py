@@ -41,6 +41,9 @@ def source_fingerprint(product, images):
             "source": product.source_relpath, "type": product.product_type,
             "images": [(i.url, i.position, i.alt_text) for i in product.images],
             "image_stats": stats}
+    if product.product_type == "variable":
+        from app.shopify_variables import source_parts
+        data["variable"] = source_parts(product)
     from app.shopify_native_dimensions import desired
     native_policy = desired(product)
     if native_policy["enabled"]:
@@ -52,6 +55,13 @@ def states_for(products):
     products = list(products)
     if not products:
         return {}
+    variable_ids = [p.id for p in products if p.product_type == "variable"]
+    if variable_ids:
+        from sqlalchemy.orm import selectinload
+        from app.models import Product, Variation
+        Product.query.filter(Product.id.in_(variable_ids)).options(
+            selectinload(Product.variations).selectinload(Variation.attributes),
+            selectinload(Product.variations).selectinload(Variation.images)).all()
     rows = ShopifyProductIdentity.query.filter(or_(
         ShopifyProductIdentity.product_id.in_([p.id for p in products]),
         ShopifyProductIdentity.source_identity.in_([p.source_relpath for p in products if p.source_relpath]))).all()
@@ -69,7 +79,7 @@ def product_state(product, rows, comparisons=(), mappings=None):
     state = {"product_id": product.id, "state": "unknown", "label": "Not yet verified", "remote_id": None,
              "remote_status": "Unknown", "publication": "Not verified", "verified_at": None,
              "identity_url": None, "store_id": None, "shopify_url": None,
-             "review_url": url_for("commerce.drafts", product_id=product.id) if product.product_type == "simple" and product.catalogue_status == "active" else None,
+             "review_url": url_for("commerce.drafts", product_id=product.id) if product.product_type in {"simple","variable"} and product.catalogue_status == "active" else None,
              "message": "No retained identity. Remote duplicate checks are still required before Create.",
              "intent": "Unresolved", "intent_value": None, "compared_at": None,
              "change_count": None, "change_summary": [], "blockers": [], "revision_checked_at": None}
@@ -106,9 +116,9 @@ def product_state(product, rows, comparisons=(), mappings=None):
                 state.update(state="attention", label="Needs Attention", message=data.get("error") or "Previous attempt failed before product creation. Review again; duplicate checks remain mandatory.")
             else:
                 state.update(state="recovery_required", label="Recovery Required", message=data.get("error") or "Unresolved attempt: reconcile the retained identity before another write.")
-        if product.product_type != "simple" or product.catalogue_status != "active":
+        if product.product_type not in {"simple","variable"} or product.catalogue_status != "active":
             state["review_url"] = None
-            state["message"] += " Only active Simple products can be reviewed in this milestone."
+            state["message"] += " Only active Simple/Variable parents can be reviewed."
         if live is not False:
             state["message"] += " Publishing requires explicit Draft intent; Live transitions are deferred."
             if state["state"] == "no_change":
@@ -167,6 +177,9 @@ def product_state(product, rows, comparisons=(), mappings=None):
         state.update(state="unavailable", label="Verification Unavailable", message="Local source or retained evidence needs review; no current equality is claimed.")
     from app.shopify_native_dimensions import local_status
     try:
+        if product.product_type == "variable":
+            from app.shopify_variables import native_status
+            local_status = native_status
         native = local_status(product, rows[0] if len(rows) == 1 else None, native_comparison)
         state["native"] = native
         if native["state"] == "uncertain":

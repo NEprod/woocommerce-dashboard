@@ -66,10 +66,13 @@ def catalogue_snapshot(product):
             "variations": [{"local_id": v.id, "stable_identity": v.source_identity,
                 "sku": v.sku, "status": v.catalogue_status, "price": v.regular_price,
                 "sale_price": v.sale_price,
+                "sale_start": v.sale_start.isoformat() if v.sale_start else None,
+                "sale_end": v.sale_end.isoformat() if v.sale_end else None,
+                "visible": v.visible, "menu_order": v.menu_order,
                 "weight_g": v.weight,
                 "dimensions_mm": {"length": v.length, "width": v.width, "height": v.height},
                 "attributes": [{"name": a.name, "value": a.value} for a in v.attributes],
-                "images": [{"url": i.url, "position": i.position} for i in v.images]}
+                "images": [{"url": i.url, "position": i.position, "alt": i.alt_text} for i in v.images]}
                 for v in sorted(product.variations, key=lambda v: v.id)],
         }
         return CatalogueSnapshot(product.id, product.source_relpath or f"product:{product.id}",

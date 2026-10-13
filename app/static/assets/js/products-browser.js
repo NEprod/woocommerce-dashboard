@@ -49,13 +49,25 @@
     const node = text("span", "shopify-list-status", "");
     node.dataset.shopifyState = product.id;
     const state = product.shopify || {};
-    const label = pill(state.label || "Not yet verified", "neutral");
+    const meaning = {no_change: "success", update: "warning", local_changes: "warning", create: "info", processing: "info", attention: "warning", recovery_required: "danger", unavailable: "neutral", unknown: "neutral"};
+    const label = pill(state.label || "Not yet verified", `shopify-${meaning[state.state] || "neutral"}`);
+    if (state.state === "processing") {
+      const activity = text("span", "shopify-activity", ""); activity.setAttribute("aria-hidden", "true"); label.appendChild(activity);
+    }
     node.appendChild(label);
-    node.appendChild(text("small", "", state.intent || "Unresolved intent"));
-    node.appendChild(text("small", "", state.remote_status || "Remote status unknown"));
-    node.appendChild(text("small", "", state.compared_at ? `Compared ${formatDate(state.compared_at)} · ${state.change_count} changes` : state.verified_at ? `Verified ${formatDate(state.verified_at)}` : "Not compared"));
-    if (state.revision_checked_at) node.appendChild(text("small", "", `Revision checked ${formatDate(state.revision_checked_at)}`));
-    if (state.native && state.native.state !== "disabled") node.appendChild(text("small", "", `Packed dimensions: ${state.native.state}`));
+    const actual = (state.remote_status || "Unknown").replace(/\s*\([^)]*\)/g, "");
+    const intent = state.intent_value === true ? "Live" : state.intent_value === false ? "Draft" : (state.intent || "Unresolved").split(" ")[0];
+    node.appendChild(text("small", "shopify-status-context", `Shopify ${actual} · Intended ${intent}`));
+    const details = text("details", "shopify-row-evidence", "");
+    details.appendChild(text("summary", "", "Status details"));
+    details.appendChild(text("p", "", state.compared_at ? `Compared ${formatDate(state.compared_at)} · ${state.change_count} changes` : state.verified_at ? `Verified ${formatDate(state.verified_at)}` : "Not compared"));
+    if (state.revision_checked_at) details.appendChild(text("p", "", `Revision checked ${formatDate(state.revision_checked_at)}`));
+    if (state.native) details.appendChild(text("p", "", `Packed dimensions: ${state.native.state}. ${state.native.message || ""}`));
+    details.appendChild(text("p", "", `Online Store: ${state.publication || "Not verified"}`));
+    if (state.change_summary?.length) details.appendChild(text("p", "", state.change_summary.join(" · ")));
+    if (state.message) details.appendChild(text("p", "", state.message));
+    if (state.remote_id) details.appendChild(text("code", "", state.remote_id));
+    node.appendChild(details);
     return node;
   }
 
@@ -135,7 +147,8 @@
       input.addEventListener("change", function () { selectReview(product, input.checked); });
       selection.appendChild(input);
       actions.appendChild(selection);
-      const review = text("a", "btn btn-sm btn-primary", "Review Shopify Changes");
+      const primary = product.shopify.state === "create" ? "Create on Shopify" : product.shopify.state === "recovery_required" ? "Resolve Issue" : "Review Shopify Changes";
+      const review = text("a", "btn btn-sm btn-primary product-primary-action", primary);
       review.href = product.shopify.review_url;
       actions.appendChild(review);
     }
@@ -155,6 +168,10 @@
       const identity = text("a", "btn btn-sm btn-outline-primary", "Identity & History");
       identity.href = product.shopify.identity_url;
       tools.appendChild(identity);
+    }
+    if (product.shopify && product.shopify.shopify_url) {
+      const remote = text("a", "btn btn-sm btn-outline-primary", "View on Shopify");
+      remote.href = product.shopify.shopify_url; remote.target = "_blank"; remote.rel = "noopener noreferrer"; tools.appendChild(remote);
     }
     if (product.view_url) {
       const view = text("a", "btn btn-sm btn-outline-primary", "View Product");
@@ -221,7 +238,11 @@
     identity.appendChild(thumbnail(product));
     const copy = document.createElement("span");
     const titleLink = text("a", "product-title", product.title); titleLink.href = product.view_url; copy.appendChild(titleLink);
-    copy.appendChild(text("small", "product-id", `ID ${product.id}`));
+    const facts = text("span", "product-row-local-facts", "");
+    facts.appendChild(pill(product.catalogue_status === "missing" ? "Missing" : "Active", product.catalogue_status));
+    facts.appendChild(pill(sourceLabel(product.metadata_source), product.metadata_source));
+    if (product.variation_count) facts.appendChild(variationToggle(product, false));
+    copy.appendChild(facts);
     identity.appendChild(copy);
     row.appendChild(identity);
     row.appendChild(text("code", "product-sku", product.sku || "Not set"));
@@ -229,14 +250,8 @@
     row.appendChild(text("span", "product-price", formatPrice(product.price)));
     const stateCell = document.createElement("div");
     stateCell.className = "product-state-stack";
-    stateCell.appendChild(pill(product.catalogue_status === "missing" ? "Missing" : "Active", product.catalogue_status));
-    stateCell.appendChild(pill(product.publishing_intent_label, `intent-${product.publishing_intent}`));
     stateCell.appendChild(shopifyState(product));
     row.appendChild(stateCell);
-    const variationCell = document.createElement("div");
-    variationCell.appendChild(variationToggle(product, false));
-    row.appendChild(variationCell);
-    row.appendChild(pill(sourceLabel(product.metadata_source), product.metadata_source));
     row.appendChild(text("time", "product-updated", formatDate(product.updated_at)));
     row.appendChild(metadataActions(product));
     fragment.appendChild(row);
@@ -271,7 +286,6 @@
     facts.className = "product-mobile-facts";
     facts.appendChild(labelledFact("Type", pill(product.type === "variable" ? "Variable" : "Simple", "neutral")));
     facts.appendChild(labelledFact("Price", text("span", "product-price", formatPrice(product.price))));
-    facts.appendChild(labelledFact("Publishing intent", pill(product.publishing_intent_label, `intent-${product.publishing_intent}`)));
     facts.appendChild(labelledFact("Shopify sync / publication", shopifyState(product)));
     facts.appendChild(labelledFact("Metadata", pill(sourceLabel(product.metadata_source), product.metadata_source)));
     facts.appendChild(labelledFact("Updated", text("time", "product-updated", formatDate(product.updated_at))));
@@ -327,7 +341,7 @@
     const columns = document.createElement("div");
     columns.className = "product-column-headings";
     columns.setAttribute("role", "row");
-    ["Product", "SKU", "Type", "Price", "Catalogue state", "Variations", "Metadata", "Updated", "Actions"].forEach(function (label) {
+    ["Product", "SKU", "Type", "Price", "Shopify", "Updated", "Actions"].forEach(function (label) {
       const cell = text("span", "", label);
       cell.setAttribute("role", "columnheader");
       columns.appendChild(cell);

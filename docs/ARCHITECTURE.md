@@ -1,5 +1,41 @@
 # Existing Architecture
 
+## M3A.8.4 — bounded variable stages in the existing publisher
+
+`shopify_variables.py` is a helper of existing `shopify_drafts` Preview/Confirm/
+reconcile, not another API client or catalogue. Immutable snapshots expose scanned
+children, stable source identities, effective prices/measurements and original image
+diagnostics. Pure existing scanner calculation functions detect stale ingestion before
+Review; no scan, allocation or authored write occurs. Only unordered category/tag sets
+are canonicalised in variable fingerprints; ordered option drivers remain ordered.
+
+The same signed 900-second review, CSRF/admin guards, store identity, configuration/
+source/remote/taxonomy digests and CatalogueOperation lease protect one parent operation.
+SQLite parent uniqueness reserves a pending identity before uploads/Create. Bounded
+v1 evidence adds `kind`, `variant_maps`, `option_maps`, `variant_creates_attempted` and
+`variant_native`; no table or migration is added. Maps retain actual ProductVariant,
+InventoryItem, ProductOption/Value and MediaImage GIDs, source/SKU/selected options,
+stage/operation/timestamps and original-byte hashes. Preflight reserves room within
+64 KiB for final/uncertain receipts, with 32 total variants and 20 source images maximum.
+
+ProductCreate supplies reviewed options/DRAFT/correlation and original staged media.
+The initial variant is independently checked and updated, never deleted. Subsequent
+bulk Create uses PRESERVE_STANDALONE_VARIANT; bulk Update has allowPartialUpdates false
+and only reviewed changed fields. Remote-only variants/memberships stay untouched.
+Owned variant/media/field/membership verification is independent. Partial evidence and
+historical operations survive; explicit recovery reads the original retained plan,
+never retries writes. Missing media receipts require the existing signed gallery
+adoption review. Absent unfinished variants can require manual completion of original
+reviewed stages before verification; absence is not permission to recreate the parent.
+
+Normal parent/variant/media/merchandising queries use configured 2026-10. Only fixed
+packed capability, correlated variant/inventory reads and inventory measurement writes
+use 2027-01 RC through existing auth/transport. Each actual InventoryItem has separate
+pending-before-write and independent observed packed proof. Native freshness is ten
+minutes even with unchanged Product.updatedAt. Known native restrictions preserve base
+verification; uncertainty blocks further writes. Products GET remains local-only;
+existing incremental status requests allow 25 parents/two full comparisons per step.
+
 ## M3A.8.3 — independent native dimensions and operation finalisation
 
 `finalize_processing` only accepts known asynchronous Processing identities, checks

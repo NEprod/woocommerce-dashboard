@@ -156,6 +156,9 @@ def review_rows(plan):
         if isinstance(item, (list, tuple)):
             return ", ".join(value(v) for v in item) or "None"
         if isinstance(item, Mapping):
+            if {"length","width","height","unit"}.issubset(item):
+                unit={"CENTIMETERS":"cm","MILLIMETERS":"mm","METERS":"m","INCHES":"in","FEET":"ft","YARDS":"yd"}.get(item["unit"],str(item["unit"]))
+                return f'{item["length"]} × {item["width"]} × {item["height"]} {unit}'
             if "weight" in item:
                 return value(item["weight"])
             if "value" in item and "unit" in item:
@@ -180,7 +183,13 @@ def review_rows(plan):
             expanded = [("dimensions." + item["key"].removeprefix("product_"), None, item)
                 for item in row["after"]]
         for key, before, after in expanded:
-            rows.append({"label": labels.get(key, key.replace("dimensions.", "Product ").replace("media.alt.", "Image alt ")),
+            label=labels.get(key, key.replace("dimensions.", "Product ").replace("media.alt.", "Image alt "))
+            if key.startswith("variants."):
+                _,sku,leaf=key.split(".",2)
+                label=f'Variant {sku} · {labels.get(leaf, leaf.replace("dimensions.", "Product ").replace("create", "Create"))}'
+            elif key.startswith("native.") and key != "native.packed_dimensions":
+                label="Packed dimensions · " + key.removeprefix("native.")
+            rows.append({"label": label,
                 "before": "Not created" if plan["classification"] == "create" and after is not None else value(before),
                 "after": value(after), "action": "Set on create" if plan["classification"] == "create" and after is not None
                     else "Change" if row["changed"] else "Already matching"})

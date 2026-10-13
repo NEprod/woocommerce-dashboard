@@ -1,5 +1,22 @@
 # Roadmap
 
+## M3A.8.4 — Variable workflow implemented, Unraid acceptance pending
+
+Accept one Variable Collection child-parent and one Single Variable root-parent as
+reviewed drafts. Check effective prices/modifiers, stable child SKUs, actual variant/
+InventoryItem/option/media IDs, taxonomy, per-variant shipping and optional native
+packed readback. Then accept a retained-price update, a non-destructive option-value/
+variant addition and read-only Processing/recovery without duplicate creates/uploads.
+Review the compact desktop/mobile Products workflow and preserve Simple acceptance.
+Normal API stays 2026-10; only opt-in packed operations use 2027-01 RC.
+
+Next bounded milestone after acceptance: comprehensive shared-schema Create/Edit JSON
+forms covering inherited/sparse metadata, customisation/proofs, shipping, taxonomy and
+authored publishing intent. Do not bundle bulk, Live/channel/menu publication, scanner
+modernisation or infrastructure renaming into that editor work. Broader option/media
+replacement and automatic continuation of interrupted multi-stage writes need separate
+reviewed recovery contracts. Historical deferrals below describe their original stages.
+
 ## M3A.8.3 — workflow and native packed-dimension acceptance pending
 
 Processing-only finalisation, direct unsaved override editing and no-op save detection

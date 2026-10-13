@@ -1,5 +1,143 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.8.4 — reviewed variable parents and compact Products
+
+### Existing catalogue boundaries and supported fields
+
+Use normal Products → Review & Sync for an active Variable Collection child-product
+parent or Single Variable root-parent. A filesystem collection is not automatically
+one Shopify product. Existing child source identities/SKUs, explicit ordered variation
+drivers (legacy all-attribute drivers remain supported), combinations and effective
+modifier-derived prices/grams/mm are retained. No source folder, image, JSON, marker,
+SKU index or inheritance rule is rewritten. Stale modifier ingestion blocks Review
+with targeted-rescan guidance rather than recalculating different publish prices.
+
+Supported per owned variant: price, valid unscheduled sale/compare-at, stable SKU,
+resolved weight, requiresShipping/origin when authored/configured, explicit validated
+HS code when supplied, product-dimension metafields, and an explicit first resolved
+variant-owned media association. Product dimensions are not package presets. Parent
+metadata, tags, SEO and explicit standard category reuse the existing field contract.
+TLC category ancestors/storefront collection mappings are reused for additive independently
+verified memberships; filesystem catalogue groups never become Shopify collections.
+
+One parent per confirmation, 1–3 option drivers and **32 total local/remote variants**
+maximum. Original PNG/JPEG/WebP gallery sources are deduplicated by portable source
+identity, not filename; up to 20 originals, using existing byte/type/path checks and
+staged uploads. Existing 64 KiB evidence also bounds complex plans before writes, so
+not every combination of these maxima is accepted. Actual MediaImage IDs/CDN URLs are
+retained; no extension substitution, conversion, source rewrite or unchanged upload.
+
+### Create, Update, identities and recovery
+
+Preview performs Shopify reads only and displays options/SKUs, effective per-variant
+prices/measurements, media, memberships, blockers and separate native stages. The same
+admin/CSRF acknowledgement and signed 900-second source/store/config/remote/taxonomy
+review protects execution. First Create checks parent/child SKU and handle candidates;
+pending SQLite identity is committed before remote creation. ProductCreate is DRAFT,
+with reviewed options and correlation. Its initial variant is checked and updated,
+not deleted. Remaining variants use
+[productVariantsBulkCreate](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/productVariantsBulkCreate)
+with PRESERVE_STANDALONE_VARIANT. Retained updates use
+[productVariantsBulkUpdate](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/productVariantsBulkUpdate)
+with allowPartialUpdates false and only reviewed changed fields.
+
+Non-destructive option-value/variant additions are supported without reallocating local
+SKUs. Remote-only variants are preserved. Ambiguous/unmapped SKU/option candidates,
+changed retained IDs, option restructuring/renames and variant deletion block writes.
+Existing gallery alt/order changes reuse retained media IDs; gallery replacement,
+addition/removal and existing variant-media replacement/removal are explicitly deferred.
+No automatic deletion, rollback or retry is performed. Scheduled sales, scanner modifier
+sale_price (not emitted by the established scanner), stock quantities/tracking/locations,
+channel publishing, customer personalisation and bulk products remain outside scope.
+
+No migration: existing bounded v1 ShopifyProductIdentity evidence adds `kind: variable`,
+source-identity-keyed variant/InventoryItem mappings, option/value GIDs, attempted-create
+keys and per-InventoryItem native proofs. CatalogueOperation records durable stages and
+partial outcomes. Parent/store SQLite uniqueness remains unchanged. Restarts/rescans
+do not permit another Create. Read-only Identity & History → reconciliation verifies
+the original reviewed fields, exact IDs/SKUs/options, memberships and media independently.
+Known async media/reordering remains Processing and can finish via Refresh without
+upload/write replay. Genuine uncertainty remains blocking until proven. A lost early
+Create response can leave unfinished stages: inspect/complete only the original reviewed
+draft manually in Shopify, then reconcile; the application does not automatically resume
+or invent missing variants. Missing gallery receipts use the existing signed explicit
+media-adoption review, bound to fresh remote/local evidence and original image bytes.
+
+### API, permissions and status freshness
+
+`SHOPIFY_API_VERSION=2026-10` remains the ordinary product/variant/media/taxonomy API.
+Only packed capability, narrow inventory/variant identity reads and packed measurement
+writes use 2027-01 RC, sharing existing credentials and bounded no-retry transport.
+No new environment variable, database table or credentials mechanism is introduced.
+Required normal scopes: read_products, write_products. Reviewed gallery alt edits use
+write_files. Existing file permissions/configuration are retained. Packed reads need
+the existing supported read_products/read_inventory access; **write_inventory** is
+required for dimension changes, not already-matching read-only evidence.
+
+Native dimensions remain default OFF. To test them deliberately retain:
+
+```text
+SHOPIFY_API_VERSION=2026-10
+SHOPIFY_NATIVE_DIMENSIONS_ENABLED=true
+SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS=true
+```
+
+The last flag is an explicit physical-to-packed measurement policy, valid only when
+those measurements accurately represent the packed item. Per-variant cm values derive
+from that SKU's resolved mm, target its independently verified InventoryItem and receive
+separate pending/observed/operation evidence. Known scope/capability/source restrictions
+retain successful base product/media work, but display outstanding native work. An
+uncertain native write blocks subsequent writes until read-only original-plan proof.
+Per-variant native freshness is ten minutes regardless of Product.updatedAt; bounded
+status refresh renews native reads when due, never borrows metadata verification time.
+
+Products GET uses local retained evidence only. Existing automatic/explicit status
+requests remain serialized and bounded to 25 parents/two full comparisons per step.
+Variable source fingerprints include stable children, effective prices/measurements,
+drivers/attributes/media and existing taxonomy/configuration invalidation. One semantic
+green/amber/blue/red/neutral badge shows sync, not publication. Actual Draft and intended
+Draft/Live are separate; Live intent remains visible and blocks unsupported writes.
+Technical IDs/timestamps, native evidence and secondary tools are collapsed. Mobile
+uses compact cards/full-width Review actions and fixed-navigation clearance.
+
+### Controlled Unraid acceptance
+
+Back up the existing persistent database/appdata; keep catalogue/database mounts,
+credentials and persistent paths unchanged. Use the newly published `develop` or its
+commit-specific `shopify-variables-<shortcommit>` rollback tag; do not deploy automatically.
+There is no new migration (head 0011), and the existing develop Unraid template/settings
+remain applicable. Ordinary API stays 2026-10; do not globally select the RC.
+
+1. Test Connection. Inspect granted read_products/write_products, existing file access
+   and optional write_inventory. Never place credentials in product metadata.
+2. In Products choose one representative Variable Collection child-parent, not the
+   entire filesystem collection. Separately choose one Single Variable root-parent.
+   Resolve authored Draft intent through the established editor; never silently change it.
+3. Build Preview for one parent. Check every existing child SKU/option combination,
+   effective modifier price, shipping mm/g/origin, original filenames/media associations
+   and mapped category/ancestor/storefront memberships. Reject unexplained differences.
+4. Confirm **one** reviewed draft. In Shopify Admin verify one parent, exact child SKUs,
+   actual ProductVariant/InventoryItem IDs, effective prices, original gallery/order/alt
+   and intended variant association. Processing may need later read-only Refresh.
+5. If opting into native measurements, confirm each packed measurement is physically
+   accurate, then verify fresh per-InventoryItem 2027-01 values; metafields do not prove it.
+6. Return to Products and rebuild Preview: No Change only after complete managed proof,
+   with native/publication work shown separately. Check desktop/mobile badge/details.
+7. Make one genuine modifier/price edit using the existing editor/targeted rescan.
+   Review Update; confirm once and verify retained parent, variant, InventoryItem and
+   media IDs did not change and no unchanged image was uploaded.
+8. Separately review one valid additive option-value/variant change within bounds;
+   existing SKUs/IDs and remote-only variants must survive. No option rename/deletion.
+9. For any uncertain/partial operation, stop writes and use Identity & History's
+   read-only reconciliation. Report retained stage/IDs/error; never retry parent Create.
+   Do not deliberately fault the live store merely to manufacture a recovery case.
+10. Recheck the accepted Simple draft (LCBC-0001/16bit-0001) without recreation before
+    widening live acceptance. Report mismatches before further development.
+
+M3A.8.3 Simple/native acceptance is user-reported. Fresh 16bit-0001 inventory proof
+matched retained data; the apparent Admin mismatch was inspection of the wrong product,
+as confirmed by the user. M3A.8.4 Variable live acceptance is not yet claimed.
+
 ## M3A.8.3 — stable product workflow and native packed dimensions
 
 ### Processing, Review and overrides
