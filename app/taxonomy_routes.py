@@ -168,6 +168,15 @@ def busy(error):
 @taxonomy.route("")
 @login_required
 def index():
+    return render_template("taxonomy/workspace.html", **workspace_context())
+
+
+def workspace_context(active_tab=None):
+    """One offline workspace; registry remains authoritative, mappings are last-known."""
+    from flask_wtf import FlaskForm
+    from app.shopify_taxonomy import sources
+    from app.shopify_taxonomy_batch import overview, evidence_totals
+    from app.models import ShopifyCollectionIdentity
     status = registry.load_configured_registry()
     data = None
     if status.available:
@@ -175,29 +184,25 @@ def index():
     kind = request.args.get("kind", "categories")
     if kind not in registry.KINDS:
         abort(404)
-    query = request.args.get("q", "")[:191].casefold()
     paths = service.category_paths(data) if data else {}
-    rows = data[kind] if data else []
-    if kind == "categories":
-        # Preorder keeps descendants beside their parent; search retains ancestry.
-        children = {}
-        for row in rows:
-            children.setdefault(row["parent"], []).append(row)
-        def branch(parent):
-            for row in sorted(children.get(parent, []), key=lambda r: (r.get("order", 0), r["name"].casefold())):
-                yield row
-                yield from branch(row["key"])
-        rows = list(branch(None))
-    rows = [r for r in rows if query in json.dumps(r, ensure_ascii=False).casefold() or query in paths.get(r["key"], "").casefold()]
-    try:
-        page = max(1, int(request.args.get("page", 1)))
-    except ValueError:
-        page = 1
-    page = min(page, max(1, (len(rows) + 24) // 25))
+    data = data or service.empty_registry()
+    data["storefront_collections"] = sorted(data["storefront_collections"], key=lambda r: (r.get("order", 0), r["name"].casefold()))
+    children = {}
+    for row in data["categories"]:
+        children.setdefault(row["parent"], []).append(row)
+    for rows in children.values():
+        rows.sort(key=lambda r: (r.get("order", 0), r["name"].casefold()))
+    entries = overview()
+    entry_by_key = {r["key"]: r for r in entries}
+    tab = active_tab or request.args.get("tab") or {"categories": "categories", "storefront_collections": "collections", "attributes": "attributes", "tags": "attributes"}.get(kind, "categories")
+    if tab not in {"categories", "collections", "attributes", "shopify"}:
+        tab = "categories"
     last = CatalogueOperation.query.filter_by(operation_type="taxonomy_registry_update").order_by(CatalogueOperation.started_at.desc()).first()
-    return render_template("taxonomy/index.html", status=status, counts=service.counts(data) if data else None,
-                           rows=rows[(page-1)*25:page*25], total=len(rows), page=page, kind=kind,
-                           labels=LABELS, paths=paths, query=request.args.get("q", "")[:191], last=last)
+    return dict(status=status, counts=service.counts(data), registry_data=data, category_children=children,
+        labels=LABELS, paths=paths, active_tab=tab, query=request.args.get("q", "")[:191], last=last,
+        form=FlaskForm(), sources=sources(), overview=entries, entry_by_key=entry_by_key,
+        mappings=ShopifyCollectionIdentity.query.order_by(ShopifyCollectionIdentity.updated_at.desc()).limit(200).all(),
+        evidence_totals=evidence_totals())
 
 
 @taxonomy.route("/advanced", methods=["GET", "POST"])
@@ -256,6 +261,10 @@ def edit(kind):
     if request.method == "GET" and not key and request.args.get("name"):
         # Prefill is only a proposal: the unchanged reviewed writer validates it.
         values["name"] = request.args["name"][:191]
+    if request.method == "GET" and kind == "categories" and not key and request.args.get("parent"):
+        if request.args["parent"] not in {r["key"] for r in data["categories"]}:
+            raise service.RegistryEditError("Parent category is unavailable. Reload the hierarchy.")
+        values["parent"] = request.args["parent"]
     return render_template("taxonomy/edit.html", row=row, values=values, key=key, attribute=attribute,
                            kind=kind, labels=LABELS, categories=data["categories"],
                            paths=service.category_paths(data), base=signature(revision), error=error), 422 if error else 200

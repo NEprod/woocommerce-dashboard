@@ -1,5 +1,49 @@
 # Current State
 
+## M3A.8.2 — live acceptance corrections and unified Taxonomy
+
+Implemented; corrected-build Unraid acceptance remains required. The user reports
+verified M3A.8.1 mappings for `categories:cat-cards`, `categories:cat-birthday-cards`,
+`categories:cat-anniversary-cards` and `storefront_collections:col-16-bit`. No mapping
+is discarded/recreated. Registry counts are derived, never hardcoded from live reports.
+
+The reproduced dimension defect is a unit-contract mismatch: the comparator accepted
+only short codes, while Shopify documents full names such as `millimeters`. New typed
+product metafields use canonical names; readback accepts current names and legacy
+receipts, normalises Decimal millimetres with 0.000001 mm tolerance and rejects invalid
+evidence. Authored mm/g, retained reviewed plans and the API version remain unchanged.
+Native parcel/package dimensions are not written. No migration is required.
+
+Readback durably records trusted identity/media observations before field parsing,
+then separately verifies managed fields, memberships and media. Read-only reconciliation
+clears recovery only after sufficient retained-plan evidence. Missing creation media
+receipts require explicit signed current-local/remote gallery review; no upload, Create,
+blind membership retry or historical-operation rewrite runs during reconciliation.
+
+One responsive Taxonomy workspace now exposes Categories, Storefront Collections,
+Attributes & Tags, and Shopify Sync. Existing registry, hierarchy/order/stable keys and
+reviewed editors are retained. Selection starts empty, supports filters and explicit
+parent-and-descendants selection, and counts required ancestors. Twenty-group/25-product
+batch limits remain. Registry definitions appear together within the existing bounded
+registry; local search no longer paginates hierarchy/vocabulary across separate pages.
+
+Controlled batch POST reproductions found a legacy-evidence `KeyError` (`managed`
+missing on an older verified product) which caused HTTP 500. Such products are now
+excluded with individual Review guidance. Invalid keys/cursors/execution bodies receive
+validation before writes. Normal populated checkbox POST passes. Without the original
+live traceback, this does not conclusively identify that incident's exact exception.
+
+No scanner/SKU/marker/JSON/Discord changes, source image changes, channel/menu operations,
+Variable/bulk product publishing or M3A.9 editor work. Missing description, origin,
+shipping intent/type remain warnings, not invented values. See SHOPIFY_INTEGRATION
+for permissions and LCBC-0001 / 16bit-0001 acceptance. Unraid XML stays excluded.
+
+Verification: one final focused regression passed 233 Python cases, with one optional
+external-TLC-reference case skipped; 18 JavaScript cases passed. Changed Python
+compilation, affected template parsing, JS syntax and diff checks passed. A disposable
+read-only fixture confirmed desktop/mobile presentation and child/ancestor selection
+counts without horizontal overflow. This is not live Shopify acceptance or a full suite.
+
 ## M3A.8.1 — automatic status and reviewed taxonomy stages
 
 Implemented, with live Unraid acceptance still required. Products renders saved

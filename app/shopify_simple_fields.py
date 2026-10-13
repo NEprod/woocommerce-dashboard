@@ -8,6 +8,30 @@ from decimal import Decimal, InvalidOperation
 from app.shopify_connection import ShopifyError
 
 
+# Shopify canonicalizes measurement unit names in metafield values. Read old
+# abbreviated receipts too, without rewriting their signed/reviewed provenance.
+DIMENSION_FACTORS = {"mm": Decimal(1), "cm": Decimal(10), "m": Decimal(1000),
+    "in": Decimal("25.4"), "ft": Decimal("304.8"), "yd": Decimal("914.4")}
+DIMENSION_ALIASES = {"millimeters": "mm", "centimeters": "cm", "meters": "m",
+    "inches": "in", "feet": "ft", "yards": "yd"}
+DIMENSION_TOLERANCE_MM = Decimal("0.000001")
+
+
+def dimension_mm(value):
+    try:
+        item = json.loads(value)
+        if not isinstance(item, dict) or isinstance(item["value"], bool):
+            raise ValueError()
+        unit = item["unit"].lower()
+        amount = Decimal(str(item["value"]))
+        result = amount * DIMENSION_FACTORS[DIMENSION_ALIASES.get(unit, unit)]
+        if not amount.is_finite() or result <= 0 or result > Decimal("1000000000"):
+            raise ValueError()
+        return result
+    except (KeyError, TypeError, AttributeError, ValueError, InvalidOperation):
+        raise ShopifyError("Remote dimension evidence is invalid. Inspect the retained product metafield type, value and unit; no automatic overwrite or retry.") from None
+
+
 def number(value, label, *, money=False, positive=False):
     try:
         if isinstance(value, bool):
@@ -86,6 +110,8 @@ def contract(snapshot, base):
         if not isinstance(value, str) or len(value) > 255:
             raise ShopifyError("Shopify product type must be an explicit bounded label.")
         product["productType"] = value
+    else:
+        warnings.append("Shopify product type is unspecified; no type is inferred from folder/category names.")
     dimensions = []
     if not isinstance(shipping["dimensions_mm"], Mapping):
         raise ShopifyError("Product dimensions must be a length/width/height object.")
@@ -95,10 +121,10 @@ def contract(snapshot, base):
             if Decimal(str(float(value))) != Decimal(value):
                 raise ShopifyError("Dimension precision cannot be represented safely; review millimetres before publishing.")
             dimensions.append({"namespace": namespace(), "key": f"product_{key}", "type": "dimension",
-                "value": json.dumps({"value": float(value), "unit": "mm"}, sort_keys=True)})
+                "value": json.dumps({"value": float(value), "unit": "millimeters"}, sort_keys=True)})
     if dimensions:
         product["metafields"] = dimensions
-        warnings.append("Dimensions are individual product measurements, NOT parcels or Shopify package presets.")
+        warnings.append("Dimensions use supported product dimension metafields, NOT native shipping/package measurements or Shopify parcel presets. Authored millimetres are preserved.")
     return {"product": product, "variant": variant, "namespace": namespace()}, warnings
 
 
@@ -137,8 +163,9 @@ def review_rows(plan):
                 return f'{item["value"]} {unit}'
             if item.get("type") == "dimension":
                 try:
-                    return value(json.loads(item["value"]))
-                except (ValueError, TypeError, KeyError):
+                    millimetres = dimension_mm(item["value"])
+                    return f'{format(millimetres.normalize(), "f")} mm'
+                except (ShopifyError, ValueError, TypeError, KeyError):
                     pass
             return "; ".join(f"{labels.get(k, k)}: {value(v)}" for k, v in item.items())
         return str(item)
@@ -197,12 +224,7 @@ def field_rows(managed, remote):
         if before is not None:
             if not isinstance(before, dict) or before.get("type") != "dimension":
                 raise ShopifyError("Existing product-dimension metafield has an incompatible type. Review it; no overwrite is allowed.")
-            try:
-                actual = json.loads(before["value"])
-                factor = {"mm": 1, "cm": 10, "m": 1000, "in": Decimal("25.4"), "ft": Decimal("304.8"), "yd": Decimal("914.4")}[actual["unit"]]
-                equal = Decimal(str(actual["value"])) * factor == Decimal(str(json.loads(item["value"])["value"]))
-            except (KeyError, TypeError, ValueError, InvalidOperation):
-                raise ShopifyError("Remote dimension evidence is invalid.") from None
+            equal = abs(dimension_mm(before.get("value")) - dimension_mm(item["value"])) <= DIMENSION_TOLERANCE_MM
         add(f"dimensions.{key}", before, item, equal)
     variants = remote.get("simpleVariants")
     if (not isinstance(variants, dict) or variants.get("pageInfo", {}).get("hasNextPage") is not False

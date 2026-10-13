@@ -36,7 +36,8 @@ def overview():
         return []
     paths = taxonomy.category_paths(result_registry.snapshot.data)
     rows = [{"key": kind + ":" + r["key"], "kind": kind, "label": paths[r["key"]] if kind == "categories" else r["name"],
-        "active": r["state"] == "active", "order": r.get("order", 0)} for kind in ("categories", "storefront_collections") for r in result_registry.snapshot.data[kind]]
+        "active": r["state"] == "active", "order": r.get("order", 0), "name": r["name"], "parent": r.get("parent")}
+        for kind in ("categories", "storefront_collections") for r in result_registry.snapshot.data[kind]]
     rows.sort(key=lambda r: (r["kind"], r["order"], r["label"]))
     mappings = taxonomy.ShopifyCollectionIdentity.query.all()
     result = []
@@ -72,12 +73,12 @@ def evidence_totals():
 
 
 def review(keys, adapter=None, *, after=0):
-    adapter = adapter or ShopifyAdapter()
-    config = drafts.configuration()
-    shop = adapter.test_connection(config)
     lookup = {s["key"]: s for s in taxonomy.sources()}
-    if not isinstance(keys, list) or not 1 <= len(set(keys)) <= MAX_SOURCES or any(k not in lookup for k in keys):
+    if (not isinstance(keys, list) or len(keys) > 80 or any(not isinstance(k, str) or len(k) > 200 for k in keys)
+            or not 1 <= len(set(keys)) <= MAX_SOURCES or any(k not in lookup for k in keys)):
         raise ShopifyError("Select one to 20 existing browsing categories/storefront collections.")
+    if type(after) is not int or after < 0:
+        raise ShopifyError("Invalid product scope cursor.")
     keys = list(dict.fromkeys(keys))
     for key in list(keys):
         cursor = lookup[key]
@@ -90,6 +91,9 @@ def review(keys, adapter=None, *, after=0):
             cursor = lookup[parent]
     if len(keys) > MAX_SOURCES:
         raise ShopifyError("Selected groups and required ancestors exceed 20; choose a smaller reviewed scope.")
+    adapter = adapter or ShopifyAdapter()
+    config = drafts.configuration()
+    shop = adapter.test_connection(config)
     groups, steps, blockers = [], [], []
     for key in dict.fromkeys(keys):
         source, row = lookup[key], taxonomy.mapping(shop["shop_id"], key)
@@ -134,8 +138,12 @@ def review(keys, adapter=None, *, after=0):
             if not identity or identity.state != "verified" or identity.verification_state != "verified":
                 item["blockers"].append("Product is unverified/recovery-required; publish or reconcile individually first. No product Create in taxonomy sync.")
             else:
-                remote = adapter.read_simple(config, identity.shopify_product_id, drafts.evidence(identity)["plan"]["managed"]["namespace"])
-                drafts.simple_identity(identity, drafts.evidence(identity), remote)
+                retained = drafts.evidence(identity)
+                managed = retained["plan"].get("managed")
+                if not isinstance(managed, dict) or not isinstance(managed.get("namespace"), str):
+                    raise ShopifyError("Legacy managed-field evidence is missing. Open an individual product Review before including it in taxonomy sync; the retained identity is protected.")
+                remote = adapter.read_simple(config, identity.shopify_product_id, managed["namespace"])
+                drafts.simple_identity(identity, retained, remote)
                 authored = product_document(product)
                 if "tags" in authored and (not isinstance(authored["tags"], list) or any(not isinstance(t, str) or not t.strip() or len(t) > 255 for t in authored["tags"]) or len(authored["tags"]) > 250):
                     raise ShopifyError("Authored tags are invalid; validate JSON first.")

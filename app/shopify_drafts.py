@@ -127,7 +127,8 @@ def local_plan(product):
     plan["taxonomy_fingerprint"] = taxonomy_fingerprint(product)
     plan["price"] = plan["managed"]["variant"]["price"]
     plan["unsupported"] = ["Online Store publication / navigation", "Customer-facing customisation",
-        "Inventory quantities/tracking/locations", "Media replacement, addition or removal on existing drafts"]
+        "Inventory quantities/tracking/locations", "Media replacement, addition or removal on existing drafts",
+        "Native Shopify Shipping/package dimensions (product metafields only)"]
     from app.shopify_products import source_fingerprint
     plan["workspace_source_fingerprint"] = source_fingerprint(product, images)
     # Include resolved source/projection, not just the emitted subset, in freshness.
@@ -436,7 +437,14 @@ def apply_readback(row, data, remote, adapter=None):
 def recovery_token(row):
     data = evidence(row)
     if data.get("recovery_remote_digest") and not data.get("created_media"):
-        return serializer().dumps({"identity": row.id, "remote": data["recovery_remote_digest"], "id": row.shopify_product_id})
+        local = db.session.get(Product, row.product_id) if row.product_id else None
+        try:
+            current = local_plan(local) if local else None
+        except ShopifyError:
+            return None  # fix source validation before explicitly adopting media
+        if current and current["images"] == data["plan"]["images"]:
+            return serializer().dumps({"identity": row.id, "remote": data["recovery_remote_digest"],
+                "id": row.shopify_product_id, "local": current["digest"]})
     return None
 
 
@@ -669,16 +677,28 @@ def apply_simple_readback(row, data, remote, adapter=None):
     variant = simple_identity(row, data, remote)
     managed = {"product": {**plan["managed"]["product"], "handle": plan["handle"]},
         "variant": plan["managed"]["variant"]}
-    rows = fields.field_rows(managed, remote)
     data["checked_at"] = now().isoformat()
     data["recovery_remote_digest"] = digest(remote)
     data["observed_media"] = [{"id": m["id"], "url": (m.get("image") or {}).get("url"),
         "status": m.get("status"), "alt": m.get("alt")} for m in remote["media"]["nodes"]]
+    # Retain trusted identity/media observations before optional-field parsing.
+    # A later verifier error must not obscure successful creation or its gallery.
+    data["verification"] = {"identity": "verified", "fields": "unverified",
+        "memberships": "unverified", "media": "unverified", "checked_at": data["checked_at"]}
+    data["stage"] = "managed_field_verification"
+    save(row, data)
+    rows = fields.field_rows(managed, remote)
+    data["verification"]["fields"] = "verified" if not any(r["changed"] for r in rows) else "differences"
     save(row, data)
     if any(r["changed"] for r in rows):
         raise ShopifyError("Managed Simple fields differ from the reviewed plan. Reconcile; do not repeat the update blindly.")
     from app.shopify_taxonomy import verify_memberships
+    data["stage"] = "collection_verification"
+    save(row, data)
     verify_memberships(plan, configuration(), adapter or ShopifyAdapter(), row.shopify_product_id)
+    data["verification"]["memberships"] = "verified"
+    data["stage"] = "media_verification"
+    save(row, data)
     expected = plan.get("media_actions", {}).get("ids") or [m.get("id") for m in data.get("created_media", [])]
     if not expected:
         raise ShopifyError("Creation media receipts are missing. Inspect the retained draft and explicitly approve its mapping; no duplicate create is allowed.")
@@ -694,6 +714,7 @@ def apply_simple_readback(row, data, remote, adapter=None):
     if observed != expected and not data.get("reorder_job"):
         raise ShopifyError("Gallery order differs from the reviewed plan.")
     ready = ready and observed == expected
+    data["verification"]["media"] = "verified" if ready else "processing"
     data["variant_id"], data["inventory_item_id"] = variant["id"], variant["inventoryItem"]["id"]
     mapping = {m["id"]: m for m in data["observed_media"]}
     for image, media_id in zip(plan["images"], expected):
@@ -780,8 +801,9 @@ def _reconcile(row, candidate_id=None, adapter=None, approval=None):
         except BadSignature:
             raise ShopifyError("Recovery review expired. Reconcile again before approving observed media.") from None
         local = db.session.get(Product, row.product_id) if row.product_id else None
-        if (reviewed != {"identity": row.id, "remote": digest(remote), "id": row.shopify_product_id}
-                or not local or local_plan(local)["digest"] != row.reviewed_digest):
+        current = local_plan(local) if local else None
+        if (not current or reviewed != {"identity": row.id, "remote": digest(remote), "id": row.shopify_product_id, "local": current["digest"]}
+                or current["images"] != data["plan"]["images"]):
             raise ShopifyError("Remote/local state changed since recovery review. Review again; no mapping was adopted.")
         media = remote.get("media") or {}
         nodes = media.get("nodes", [])

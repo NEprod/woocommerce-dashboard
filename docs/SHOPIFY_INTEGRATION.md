@@ -1,5 +1,111 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.8.2 — live acceptance corrections and unified workspace
+
+### Dimensions, supported fields and recovery
+
+The old reader accepted only `mm`, `cm`, `m`, `in`, `ft`, `yd`; current Shopify
+[dimension values](https://shopify.dev/docs/apps/build/metafields/list-of-data-types)
+use full unit names. Controlled canonical readback reproduced “Remote dimension
+evidence is invalid.” New writes use `millimeters`; reads also accept legacy short
+codes and uppercase names, convert to Decimal mm and use 0.000001 mm tolerance.
+Thus 15.5 centimeters = 155 mm, 0.3 centimeters = 3 mm. Authored JSON stays in mm,
+weight remains 50 GRAMS when authored as 50 g. Malformed, nonfinite, nonpositive,
+unsupported units and incompatible metafield types never establish equality.
+
+For configured **2026-10**, product dimensions are supported through
+[ProductUpdateInput.metafields](https://shopify.dev/docs/api/admin-graphql/2026-10/input-objects/ProductUpdateInput),
+not native length/width/height in
+[InventoryItemMeasurementInput](https://shopify.dev/docs/api/admin-graphql/2026-10/input-objects/InventoryItemMeasurementInput).
+The latter supports weight/shipping-package identity, not arbitrary individual product
+dimensions. Existing configured 2026-01/04/07 versions retain the metafield path and
+legacy read compatibility; no API upgrade/native shipping-dimension feature is added.
+Keys remain `product_length`, `product_width`, `product_height` in the configured
+`SHOPIFY_PRODUCT_DIMENSIONS_NAMESPACE` (default `tlc_dashboard`). They are product
+measurements, not parcel dimensions or the Shopify Shipping package editor.
+
+Origin and requiresShipping already map through the reviewed variant inventoryItem
+input; [productVariantsBulkUpdate](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/productVariantsBulkUpdate)
+requires **write_products**. No standalone inventory-item update is introduced:
+[inventoryItemUpdate](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/inventoryItemUpdate)
+would require **write_inventory**, and is not used here. Inventory reads accept
+read_products/read_inventory access; current supported connection/product reads use
+read_products. Existing alt edits require write_files. HS codes, native package
+configuration and comprehensive JSON fields remain deferred. Do not add broad scopes
+just to work around absent authored origin/shipping values.
+
+Main description comes from resolved authored `description`, independently of SEO;
+tags retain existing explicit/unspecified semantics. `shopify_product_type` must be an
+explicit authored label. Missing values produce readiness warnings; no UK origin,
+type, tags or SEO-to-body substitution is invented. M3A.9 will expose these fields
+comprehensively, not implemented here. Actual live source JSON was not provided for
+the reported missing-field products, so absent Shopify fields alone prove no loss.
+
+Successful product IDs, mutation receipts, original media IDs/URLs and memberships
+are retained before later verification. Readback now persists identity/media observations
+before dimension parsing and labels field/membership/media verification separately.
+Only complete fresh managed evidence advances the product verification timestamp.
+Read-only reconciliation reuses the **original retained plan**, including legacy unit
+codes, and never creates/reuploads/retries. Missing creation media receipts require a
+separate signed fresh local/remote gallery approval with identical original hashes,
+order and alt; old reviewed digests/history are not overwritten to manufacture success.
+Unresolved fields, missing memberships/media and genuine uncertainty remain blocked.
+
+### Unified Taxonomy and checkbox errors
+
+`/taxonomy` and `/taxonomy/shopify` now share one workspace: Categories, Storefront
+Collections, Attributes & Tags, Shopify Sync. Registry counts, hierarchy/order, stable
+keys, existing edit/review/save/backup services and retained mappings remain authoritative.
+Last-known mapping badges are labelled; individual Inspect/Reconcile provides fresh
+remote verification. No GET performs Shopify reads. Product counts are not invented
+where assignment/publication eligibility has not been verified.
+
+Search/mapping filters, expand/collapse, Select All/None/Unmapped and explicit Select
+Parent and Descendants replace auto-selected cramped checkboxes. Selection starts
+empty. Shared ancestors count toward 20 groups, not silently selected descendants;
+actual create/join/tag operation counts appear in signed Preview. Product scope remains
+25 Simple parents per explicit cursor page. Registry definitions are locally searchable
+together within the existing 2000-definition bound; no hierarchy-splitting pagination.
+Storefront assignments span folders; folders still imply no merchandising collection.
+
+A populated normal checkbox POST passed controlled reproduction. A **real failing
+legacy path** was reproduced: older verified product evidence without `plan.managed`
+raised an uncaught KeyError in batch review. It is now explicitly excluded with
+individual Review instructions; its identity/mappings are not rewritten. Invalid
+selection/cursor/execution input returns actionable validation before remote writes,
+and conflicting database reservations are shown without bypassing uniqueness.
+Safe diagnostic logs record only known action and exception class, never request
+credentials. The original live traceback was unavailable: successful HTTP 200 excerpts
+do not prove the historical incident's cause. Report any remaining failure with its
+timestamp/action and redacted server traceback, not credentials.
+
+### Unraid acceptance (operator initiated)
+
+1. Back up stopped persistent appdata/database and retain the previous immutable image.
+   Select this milestone's immutable AMD64 tag or `develop`; keep all mounts/settings.
+   Migration head stays **0011_shopify_taxonomy**; no schema/backfill change is needed.
+2. LCBC-0001: open Products → Identity & History. Confirm retained product
+   `gid://shopify/Product/16009365160319`. Run **Reconcile using Shopify reads only**.
+   Inspect separate field/membership/media checkpoints; verify no new product/image.
+   Only after recovery is supported, Review & Sync against the same ID. Check 155 ×
+   155 × 3 mm, 50 g and £3.50; native Shopify Shipping dimensions are not this metafield.
+   Preserve Live intent/Draft reality; channel publication remains deferred.
+3. 16bit-0001: use its existing retained GID, never Create. Read-only reconcile original
+   media and Cards/Anniversary Cards/16-Bit memberships through retained IDs. Missing
+   receipts require inspecting and explicitly approving the observed gallery. If a
+   field/membership is genuinely missing, keep recovery and report it; no blind retry.
+4. Taxonomy: inspect Cards, Birthday Cards, Anniversary Cards and 16-Bit saved verified
+   mappings; use individual Inspect for current remote evidence. Test local sections,
+   ordering/search/filtering and compact editing on desktop/mobile. No mapping should
+   disappear on reload; no duplicate collection is created because a local name changes.
+5. Shopify Sync → selection: choose a small scope, optionally explicit descendants.
+   Verify ancestor counts, read-only proposal and exclusions. Invalid/oversized scope
+   must show validation, not 500. Confirm only intended safe stages; inspect durable
+   partial results before any continuation. Existing identities/media/prices survive.
+
+No automatic deployment, Create retry, deletion, media conversion, membership removal,
+menu/channel publication, variable/bulk product publishing or JSON-editor rewrite.
+
 ## M3A.8.1 — automatic product checking and taxonomy sync
 
 ### Status policy

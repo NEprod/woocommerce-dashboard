@@ -1,5 +1,16 @@
 # Roadmap
 
+## M3A.8.2 — acceptance corrections implemented, Unraid verification pending
+
+Canonical dimension metafield unit support and retained-plan read-only recovery,
+independent verification checkpoints, legacy batch-evidence/invalid-input handling,
+and one responsive Taxonomy workspace now precede M3A.9. Verify LCBC-0001 and
+16bit-0001 without duplicate creation/media upload, retain the accepted Cards/child/
+16-Bit mappings, and test valid/invalid checkbox proposals on desktop/mobile.
+The live historical checkbox 500 lacks a traceback; a concrete legacy-evidence 500
+was reproduced and corrected, not assumed to be its proven cause.
+No migrations, scanner/JSON rewrite, Live/menu/Variable/bulk products or M3A.9 work.
+
 ## M3A.8.1 — implemented, awaiting Unraid acceptance
 
 Automatic Products revision/absence checking and independently fresh membership

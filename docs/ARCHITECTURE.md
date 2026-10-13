@@ -1,5 +1,22 @@
 # Existing Architecture
 
+## M3A.8.2 acceptance corrections
+
+`shopify_simple_fields.dimension_mm` normalises canonical/legacy dimension metafield
+units to Decimal millimetres (0.000001 mm tolerance); new writes emit `millimeters`.
+It is independent of gram weight mapping and writes no package dimensions. Retained
+plans are not rewritten. `apply_simple_readback` saves trusted identity/media observations
+before parsing fields, checkpoints fields/memberships/media independently, and advances
+`verified_at` only after complete evidence. Missing receipts require explicit signed
+current-local and retained-remote digests and identical original gallery before read-only
+adoption. Recovery never resumes mutations or rewrites historical operations.
+
+`taxonomy_routes.workspace_context` provides one offline registry/mapping presentation
+for `/taxonomy` and retained `/taxonomy/shopify` workflows. Shared panels/semantic CSS
+reuse reviewed writers, not another taxonomy. Legacy product plans lacking the managed
+contract are excluded from batch subset review with individual Review guidance. Keys
+and cursor are checked before connection reads; 20-group/25-product bounds remain.
+
 ## M3A.8.1 incremental reconciliation and taxonomy execution
 
 `shopify_status.py` reuses the existing adapter and canonical read-only Preview.

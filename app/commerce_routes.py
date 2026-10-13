@@ -1,6 +1,6 @@
 """Administrator configuration/discovery/drafts. GET never contacts either store."""
 import json
-from flask import Blueprint, abort, render_template, request, redirect, url_for, jsonify
+from flask import Blueprint, abort, render_template, request, redirect, url_for, jsonify, current_app
 from flask_login import login_required, current_user
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SelectField, HiddenField
@@ -233,6 +233,8 @@ def taxonomy_mappings():
     from app.models import ShopifyCollectionIdentity, CatalogueOperation
     from app import db
     from app.utils.operation_control import CatalogueOperationActive
+    from sqlalchemy.exc import IntegrityError
+    from app.taxonomy_routes import workspace_context
     if not current_user.is_admin:
         abort(403)
     form, plan, token, error, saved = FlaskForm(), None, None, None, False
@@ -242,7 +244,10 @@ def taxonomy_mappings():
             abort(400)
         try:
             if request.form.get("action") == "batch_review":
-                batch_row, batch_plan, batch_token = batch.review(request.form.getlist("sources"), after=request.form.get("after", type=int, default=0))
+                cursor = request.form.get("after", "0")
+                if not cursor.isascii() or not cursor.isdigit() or len(cursor) > 12:
+                    raise ShopifyError("Invalid product scope cursor. Reload Taxonomy Sync and review again.")
+                batch_row, batch_plan, batch_token = batch.review(request.form.getlist("sources"), after=int(cursor))
             elif request.form.get("action") == "batch_confirm":
                 batch_row = batch.approve(request.form.get("review", ""), request.form.get("acknowledge") == "yes")
             elif request.form.get("action") == "batch_recover":
@@ -260,14 +265,19 @@ def taxonomy_mappings():
                 abort(400)
         except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
             error = str(exc)
+            action = request.form.get("action")
+            action = action if action in {"batch_review", "batch_confirm", "batch_recover", "review", "confirm"} else "invalid"
+            current_app.logger.warning("Shopify taxonomy request rejected: action=%s, type=%s", action, type(exc).__name__)
+        except IntegrityError:
+            db.session.rollback()
+            error = "A Shopify identity is already reserved by another mapping. Inspect retained mappings and rebuild the review; do not retry creation."
     if request.method == "GET" and request.args.get("batch"):
         batch_row = db.session.get(CatalogueOperation, request.args["batch"])
         if not batch_row or batch_row.operation_type != "shopify_taxonomy_batch":
             abort(404)
     batch_data = json.loads(batch_row.scope) if batch_row else None
-    return render_template("taxonomy/shopify.html", form=form, sources=service.sources(),
-        mappings=ShopifyCollectionIdentity.query.order_by(ShopifyCollectionIdentity.updated_at.desc()).limit(200).all(),
-        overview=batch.overview(), evidence_totals=batch.evidence_totals(), batch_row=batch_row, batch_plan=batch_plan, batch_token=batch_token, batch_data=batch_data,
+    return render_template("taxonomy/workspace.html", **workspace_context(active_tab="shopify"),
+        batch_row=batch_row, batch_plan=batch_plan, batch_token=batch_token, batch_data=batch_data,
         execution=batch.execution_token(batch_row) if batch_row and batch_row.status == "approved" else None,
         plan=plan, token=token, error=error, saved=saved), 400 if error else 200, {"Cache-Control": "no-store"}
 
@@ -279,8 +289,11 @@ def taxonomy_step():
         abort(403)
     from app import shopify_taxonomy_batch as batch
     from app.utils.operation_control import CatalogueOperationActive
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not isinstance(body.get("execution"), str) or len(body["execution"]) > 4096:
+        return jsonify(error="Invalid taxonomy execution request. Open the retained batch review; no write was attempted."), 400
     try:
-        row = batch.execute_one((request.get_json(silent=True) or {}).get("execution", ""))
+        row = batch.execute_one(body["execution"])
         data = json.loads(row.scope)
         return jsonify(status=row.status, completed=len(data["results"]), total=len(data["plan"]["steps"]),
             excluded=data["plan"]["totals"]["excluded_products"], history=url_for("commerce.taxonomy_mappings", batch=row.id))

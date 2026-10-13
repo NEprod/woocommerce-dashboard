@@ -12,7 +12,9 @@
         const response = await fetch(panel.dataset.stepUrl, {method: "POST", headers: {
           "Content-Type": "application/json", "X-CSRFToken": panel.dataset.csrf},
           body: JSON.stringify({execution: panel.dataset.execution})});
-        const result = await response.json();
+        let result;
+        try { result = await response.json(); }
+        catch (_) { throw new Error("The stage response was unavailable. Open retained batch history and inspect/reconcile before continuing; no automatic retry was made."); }
         if (!response.ok) throw new Error(result.error || "Stage unavailable. Inspect retained batch; do not blindly retry.");
         progress.textContent = `${result.completed} / ${result.total} stages verified · ${result.excluded} products excluded.`;
         if (result.status !== "approved") { window.location.assign(result.history); return; }

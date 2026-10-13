@@ -106,7 +106,7 @@ def test_complete_update_retains_id_media_and_no_change(world):
     assert variant["inventoryItem"]["countryCodeOfOrigin"] == "GB"
     assert variant["inventoryItem"]["tracked"] is False
     assert all("tracked" not in item.get("inventoryItem", {}) for item in adapter.inputs if isinstance(item, dict))
-    assert json.loads(adapter.remote["length"]["value"]) == {"unit": "mm", "value": 155.0}
+    assert json.loads(adapter.remote["length"]["value"]) == {"unit": "millimeters", "value": 155.0}
     plan, token = drafts.preview(product, adapter)
     assert plan["classification"] == "no_change" and token is None
     assert not any(f["changed"] for f in plan["fields"])

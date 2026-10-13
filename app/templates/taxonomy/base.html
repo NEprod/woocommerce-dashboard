@@ -3,10 +3,10 @@
 {% block stylesheets %}<link rel="stylesheet" href="{{ url_for('static', filename='assets/css/taxonomy.css') }}">{% endblock %}
 {% block content %}
 <div class="taxonomy-workspace">
-<header class="page-header"><div><p class="eyebrow">Local authored source</p><h1 class="page-title">Taxonomy Registry</h1><p class="page-lede">Categories, named ranges, structured attributes and tags. Independent of dashboard catalogue groups.</p></div><div class="page-actions"><a class="btn btn-ghost" href="{{ url_for('taxonomy.index') }}">Registry overview</a><a class="btn btn-primary" href="{{ url_for('taxonomy.sync_workspace') }}">Woo Taxonomy Sync</a></div></header>
+<header class="page-header"><div><p class="eyebrow">TLCDashboard · Local authored source</p><h1 class="page-title">Taxonomy</h1><p class="page-lede">Categories, storefront collections, attributes, tags and reviewed Shopify mappings.</p></div>{% if registry_data is not defined %}<div class="page-actions"><a class="btn btn-ghost" href="{{ url_for('taxonomy.index') }}">Taxonomy workspace</a></div>{% endif %}</header>
 {% for category, message in get_flashed_messages(with_categories=true) %}<p class="alert alert-success" role="status">{{ message }}</p>{% endfor %}
 {% block registry_content %}{% endblock %}
-<p class="panel-note">Registry definitions remain separate from product assignments. Scans never add definitions. <a href="{{ url_for('taxonomy.sync_workspace') }}">Reviewed Woo taxonomy sync</a> handles definitions; explicit product publishing consumes verified identities through Publish Preview.</p>
+<p class="panel-note">Registry definitions remain separate from product assignments. Scans never add definitions. <a href="{{ url_for('commerce.taxonomy_mappings') }}">Reviewed Shopify taxonomy sync</a> retains remote identities; viewing the workspace never contacts Shopify.</p>
 </div>
 {% endblock %}
 {% block javascripts %}<script src="{{ url_for('static', filename='assets/js/taxonomy.js') }}" defer></script>{% endblock %}

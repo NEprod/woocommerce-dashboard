@@ -97,7 +97,7 @@ def test_authentication_csrf_overview_and_templates(registry_app):
     assert client.post("/taxonomy/confirm", data={}).status_code == 400
     page = client.get("/taxonomy")
     assert page.status_code == 200
-    for text in ["Registry readiness", "Ready", "Storefront Collections", "Reviewed Woo taxonomy sync", "Cards > Notelets"]:
+    for text in ["Registry readiness", "Ready", "Storefront Collections", "Reviewed Shopify taxonomy sync", "Cards > Notelets"]:
         assert text in html.unescape(page.get_data(as_text=True))
     assert str(root) not in page.get_data(as_text=True)
     with app.app_context():
@@ -291,13 +291,16 @@ def test_failed_save_preserves_old_source(registry_app, monkeypatch, failure):
     assert not list(root.glob(".registry-stage-*"))
 
 
-def test_fictional_pagination_and_responsive_semantics(registry_app):
+def test_unified_vocabulary_and_responsive_semantics(registry_app):
     _, client, root, data = registry_app
     data["tags"] = [entry(f"tag-{i}") for i in range(30)]
     (root / "registry.json").write_bytes(service.validate(data))
     page = client.get("/taxonomy?kind=tags&page=2")
-    assert page.status_code == 200 and b"page 2" in page.data
-    assert b'aria-label="Definition pages"' in page.data
+    assert page.status_code == 200 and b"Tag vocabulary" in page.data
+    # Registry-bounded definitions are together in searchable panels, not split
+    # into pages which could hide descendants/selection or vocabulary entries.
+    assert all(f'Tag-{i}'.encode() in page.data for i in range(30))
+    assert b'data-taxonomy-search' in page.data
     css = Path("app/static/assets/css/taxonomy.css").read_text()
     assert "1199px" in css and "767px" in css and "minmax(0, 1fr)" in css
     assert "var(--color-code-text)" in css
