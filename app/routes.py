@@ -1449,12 +1449,24 @@ def product_save_json(sku):
         .order_by(ProductAsset.id.desc())
         .first()
     )
-    if not asset or not asset.path:
+    if (not asset or not asset.path) and kind != "override":
         return jsonify({"error": f"{kind} JSON not present for this product"}), 400
 
     source = metadata_source(p, kind)
-    target = str(source["path"]) if source["path"] else asset.path
+    if source["path"]:
+        target = str(source["path"])
+    elif kind == "override" and p.source_relpath:
+        settings = Settings.query.first()
+        target = os.path.realpath(os.path.join(settings.product_folder, p.source_relpath, "product_info.json")) if settings else ""
+    else:
+        return jsonify({"error": "metadata source is unavailable; restore the catalogue mount"}), 400
     folder = os.path.dirname(target)
+    if kind == "override":
+        shared_source = metadata_source(p, "shared")
+        if shared_source["path"] and os.path.realpath(target) == os.path.realpath(shared_source["path"]):
+            return jsonify(error="No distinct product override file is possible in this folder. Use the shared metadata editor; shared JSON was not changed."), 409
+        if not os.path.isdir(folder):
+            return jsonify(error="Product source folder is unavailable. Restore the catalogue mount; no folder was created."), 400
 
     settings = Settings.query.first()
     catalogue_root = os.path.realpath(settings.product_folder or "") if settings else ""
@@ -1528,6 +1540,9 @@ def product_save_json(sku):
         )
         return jsonify(result), 400
 
+    if merged == existing:
+        return jsonify(ok=True, unchanged=True, run_id=None, warnings=[issue.to_dict() for issue in validation.warnings])
+
     try:
         collection_relpath = None
         operation_scope = {"sku": p.sku, "kind": kind}
@@ -1578,6 +1593,11 @@ def product_save_json(sku):
         atomic_write_text(
             target, json.dumps(merged, ensure_ascii=False, indent=4)
         )
+        if kind == "override" and not asset:
+            db.session.add(ProductAsset(product_id=p.id, variation_id=None, path=target,
+                source_relpath=os.path.relpath(target, catalogue_root).replace(os.sep, "/"),
+                kind="info", label="override", is_primary=False))
+            db.session.commit()
 
         # Product overrides retain ordinary marker selection. Shared metadata is
         # handled by an explicit exhaustive collection refresh instead.

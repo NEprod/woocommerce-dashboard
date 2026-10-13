@@ -131,6 +131,11 @@ def local_plan(product):
         "Native Shopify Shipping/package dimensions (product metafields only)"]
     from app.shopify_products import source_fingerprint
     plan["workspace_source_fingerprint"] = source_fingerprint(product, images)
+    from app.shopify_native_dimensions import desired
+    plan["native_policy"] = desired(product)
+    if plan["native_policy"]["enabled"]:
+        plan["unsupported"] = [v for v in plan["unsupported"] if not v.startswith("Native Shopify Shipping/package")]
+        plan["unsupported"].append("Shopify saved package presets / carrier labels")
     # Include resolved source/projection, not just the emitted subset, in freshness.
     plan["digest"] = digest({"plan": plan, "snapshot": dict(snapshot.data)})
     return plan
@@ -178,6 +183,14 @@ def _preview(product, adapter=None, *, context=None):
     can_write = "write_products" in shop["scopes"]
     store_key = digest({"id": shop["shop_id"]})
     row = matching_identity(shop["shop_id"], product)
+    if row and row.state == "processing":
+        # A known successful write with asynchronous media is not an uncertain
+        # write. Finalize through the same complete retained-plan readback only.
+        finalize_processing(row, adapter)
+        if row.state == "processing":
+            raise ShopifyError("Shopify media/order is still processing. Refresh status shortly; no retry or new upload is needed.")
+    if row and evidence(row).get("native_dimensions", {}).get("state") in {"pending", "uncertain"}:
+        raise ShopifyError("Recovery required for native packed dimensions. Open the native dimension review and reconcile using reads only; normal product/media verification is retained.")
     from app.models import ShopifyProductComparison
     previous_comparison = ShopifyProductComparison.query.filter_by(store_id=shop["shop_id"], source_identity=product.source_relpath).first()
     if previous_comparison and json.loads(previous_comparison.summary_json).get("conflicting_changes"):
@@ -199,6 +212,12 @@ def _preview(product, adapter=None, *, context=None):
         if row.state != "verified" or row.verification_state != "verified":
             raise ShopifyError(f"Recovery required for Shopify identity {row.id} ({row.state}). Reconcile its retained operation before any write; another create is blocked.")
         result, token = update_preview(product, row, plan, config, shop, adapter)
+        from app.shopify_native_dimensions import attach_review
+        attach_review(product, result, row, config, shop, adapter)
+        if result["classification"] == "update":
+            token = serializer().dumps({"mode": "update", **{key: result[key] for key in (
+                "product_id", "digest", "identity_id", "remote_id", "store_id", "domain", "config_digest",
+                "remote_digest", "identity_digest", "taxonomy_review_digest")}})
         if result["classification"] == "update" and not can_write:
             result["blockers"].append("Missing write_products; read-only comparison is available, writes are blocked.")
         from app.shopify_comparison import record
@@ -218,6 +237,8 @@ def _preview(product, adapter=None, *, context=None):
         for key, value in plan["managed"]["product"].items()]
     plan["fields"] += [{"field": key, "before": None, "after": value, "changed": value is not None}
         for key, value in plan["managed"]["variant"].items()]
+    from app.shopify_native_dimensions import attach_review
+    attach_review(product, plan, None, config, shop, adapter)
     encode({"version": 1, "plan": plan})
     token = serializer().dumps({k: plan[k] for k in ("product_id", "digest", "store_id", "store_key", "domain", "config_digest", "nonce", "taxonomy_review_digest")})
     from app.shopify_comparison import record
@@ -279,7 +300,10 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         raise ShopifyError("Collection mappings are unresolved. Review again after resolving mappings.")
     if standard:
         plan["managed"]["product"]["category"] = adapter.standard_category(config, standard)["id"]
-    if digest({"collections": plan["collections"], "standard": standard}) != reviewed.get("taxonomy_review_digest"):
+    plan["taxonomy_review_digest"] = digest({"collections": plan["collections"], "standard": standard})
+    from app.shopify_native_dimensions import attach_review
+    attach_review(product, plan, None, config, shop, adapter)
+    if plan["taxonomy_review_digest"] != reviewed.get("taxonomy_review_digest"):
         raise ShopifyError("Collection mapping/membership changed after review. Review again.")
     plan["handle"] = plan["managed"]["product"].get("handle") or "tlc-draft-" + plan["nonce"]
     if "handle" in plan["managed"]["product"] and adapter.find_draft(config, plan["handle"])["nodes"]:
@@ -359,9 +383,11 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         join_reviewed(row, data, config, adapter)
         apply_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]), adapter)
         state = row.state
-        finish_catalogue_operation(lease.id, status="succeeded" if state == "verified" else "partial",
-            products_attempted=1, products_succeeded=int(state == "verified"), recovery_state="none" if state == "verified" else "review_required",
-            operation_summary={"identity_id": row.id, "shopify_product_id": row.shopify_product_id, "stage": data["stage"], "state": state})
+        from app.shopify_native_dimensions import after_publish
+        native_state = after_publish(row, plan, adapter, lease.id)
+        finish_catalogue_operation(lease.id, status="succeeded" if state == "verified" and native_state in {"disabled", "verified"} else "partial",
+            products_attempted=1, products_succeeded=int(state == "verified"), recovery_state="none" if state == "verified" and native_state != "uncertain" else "review_required",
+            operation_summary={"identity_id": row.id, "shopify_product_id": row.shopify_product_id, "stage": data["stage"], "state": state, "native_dimensions": native_state})
         return row
     except Exception as exc:
         # Raw transport exceptions/payloads must never leak tokens or signed targets.
@@ -641,10 +667,12 @@ def confirm_update(reviewed, adapter=None):
             attempted = True
         join_reviewed(row, data, config, adapter)
         apply_simple_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]), adapter)
-        finish_catalogue_operation(lease.id, status="succeeded" if row.state == "verified" else "partial",
+        from app.shopify_native_dimensions import after_publish
+        native_state = after_publish(row, plan, adapter, lease.id)
+        finish_catalogue_operation(lease.id, status="succeeded" if row.state == "verified" and native_state in {"disabled", "verified"} else "partial",
             products_attempted=1, products_succeeded=int(row.state == "verified"),
-            recovery_state="none" if row.state == "verified" else "review_required",
-            operation_summary={"identity_id": row.id, "mode": "update", "stage": data["stage"], "completed_steps": data.get("completed_steps", [])})
+            recovery_state="none" if row.state == "verified" and native_state != "uncertain" else "review_required",
+            operation_summary={"identity_id": row.id, "mode": "update", "stage": data["stage"], "completed_steps": data.get("completed_steps", []), "native_dimensions": native_state})
         return row
     except Exception as exc:
         db.session.rollback()
@@ -752,6 +780,23 @@ def reconcile(row, candidate_id=None, adapter=None, approval=None):
     except Exception:
         finish_catalogue_operation(lease.id, status="failed", error="Shopify read-only reconciliation requires review; original publishing history is retained.")
         raise
+
+
+def finalize_processing(row, adapter=None, *, force=True):
+    if row.state != "processing":
+        return row  # Never supersede genuinely uncertain attempts automatically.
+    operation = db.session.get(CatalogueOperation, row.operation_id) if row.operation_id else None
+    if operation and operation.status == "running":
+        raise ShopifyError("Publishing is still active; wait for its retained operation to finish.")
+    data = evidence(row)
+    if not force:
+        from app.shopify_comparison import recent
+        from datetime import timedelta
+        if recent(data.get("processing_checked_at"), timedelta(seconds=30)):
+            return row
+    data["processing_checked_at"] = now().isoformat()
+    save(row, data)
+    return _reconcile(row, adapter=adapter)
 
 
 def _reconcile(row, candidate_id=None, adapter=None, approval=None):

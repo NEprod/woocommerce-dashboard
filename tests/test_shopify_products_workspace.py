@@ -69,7 +69,11 @@ def test_unresolved_identities_never_claim_no_change(world, state):
     row.verification_state = "unverified"
     db.session.commit()
     assert status(product)["state"] == ("processing" if state == "processing" else "recovery_required")
-    with pytest.raises(ShopifyError, match="Recovery required"):
+    # Processing may finish through read-only verification. This deliberately
+    # unrelated remote response must still fail identity protection, not be
+    # mistaken for a genuinely uncertain publishing attempt.
+    message = "Identity remains protected" if state == "processing" else "Recovery required"
+    with pytest.raises(ShopifyError, match=message):
         drafts.preview(product, FakeDraftAdapter())
 
 

@@ -1,5 +1,17 @@
 # Roadmap
 
+## M3A.8.3 — workflow and native packed-dimension acceptance pending
+
+Processing-only finalisation, direct unsaved override editing and no-op save detection
+now precede the next JSON-editor milestone. Native packed dimensions use a default-off,
+explicitly reviewed 2027-01 RC capability while normal products stay on 2026-10.
+Verify existing LCBC-0001/16bit-0001 without recreation, one new draft including media,
+override cancel/save/targeted scans, required inventory scopes, native readback and
+uncertain native reconciliation on Unraid. Product-vs-packed measurement policy must
+be consciously approved; RC opt-in is for acceptance testing, not a silent production
+upgrade. Comprehensive JSON editors, bulk/Variable publishing and channel/menu writes
+remain deferred. No migration, scanner rewrite or Unraid XML change.
+
 ## M3A.8.2 — acceptance corrections implemented, Unraid verification pending
 
 Canonical dimension metafield unit support and retained-plan read-only recovery,

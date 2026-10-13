@@ -57,7 +57,7 @@ def refresh(products, *, force=False, adapter=None):
                 continue
             # Trust the persisted Shop GID only under the same complete configuration.
             identity = drafts.matching_identity(saved.store_id, product) if saved and not saved.store_id.startswith("unverified:") else None
-            if identity and (identity.state != "verified" or identity.verification_state != "verified"):
+            if identity and identity.state != "processing" and (identity.state != "verified" or identity.verification_state != "verified"):
                 results.append(product.id)  # operation recovery is never cleared by background checks
                 continue
             valid = comparison.current(product, saved, identity, mappings, freshness=False) if saved and data.get("local") else None
@@ -83,6 +83,20 @@ def refresh(products, *, force=False, adapter=None):
         for product, saved, identity, valid in work:
             try:
                 identity = drafts.matching_identity(shop["shop_id"], product)
+                if identity and identity.state == "processing":
+                    if full >= FULL_PER_STEP:
+                        pending.append(product.id)
+                        continue
+                    full += 1
+                    drafts.finalize_processing(identity, adapter, force=force)
+                    if identity.state == "processing":
+                        results.append(product.id)
+                        continue  # no tight polling/automatic write-resume
+                    saved = ShopifyProductComparison.query.filter_by(store_id=shop["shop_id"], source_identity=product.source_relpath).first()
+                    valid = comparison.current(product, saved, identity, mappings) if saved else None
+                    if valid:
+                        results.append(product.id)
+                        continue  # complete retained-plan readback already recorded comparison
                 if identity and (identity.state != "verified" or identity.verification_state != "verified"):
                     results.append(product.id)
                     continue

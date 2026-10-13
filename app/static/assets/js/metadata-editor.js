@@ -470,7 +470,7 @@
       }
       authored = structuredClone(documentValue);
       setDirty(false);
-      showFeedback("success", "Metadata saved", "The authoritative source was replaced atomically and the established catalogue update operation has started.");
+      showFeedback("success", payload.unchanged ? "No changes to save" : "Metadata saved", payload.unchanged ? "Source and scan history are unchanged." : "The authoritative source was replaced atomically and the established catalogue update operation has started.");
       startProgress(payload.run_id);
     } catch (_error) {
       showFeedback("error", "Metadata was not saved", "A network error interrupted the request. Your draft remains available.");

@@ -375,6 +375,9 @@ def editor_workspace(product: Product, kind: str):
     shared = metadata_source(product, "shared")
     override = metadata_source(product, "override")
     authored = shared if kind == "shared" else override
+    if kind == "override" and not authored["exists"] and authored["reference"]:
+        authored["draft"] = True
+        authored["error"] = None
     override_data = override["data"] if override["exists"] else {}
     resolved = resolved_metadata(product, shared["data"], override_data)
     publishing_intent = resolved_publishing_intent(

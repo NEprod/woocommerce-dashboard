@@ -19,7 +19,7 @@
     {% if workspace.override.exists %}
     <a class="btn btn-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='override') }}">Edit Product Override</a>
     {% else %}
-    <a class="btn btn-primary" href="{{ url_for('main.products', q=product.sku) }}">Create Override</a>
+    <a class="btn btn-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='override') }}">Create Override</a>
     {% endif %}
   </div>
 </header>

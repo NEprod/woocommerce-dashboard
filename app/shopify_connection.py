@@ -77,6 +77,23 @@ COLLECTION_JOIN = '''mutation TLCMembership($id: ID!, $products: [ID!]!) { colle
 STANDARD_CATEGORY = '''query StandardCategory($id: ID!) { node(id: $id) { ... on TaxonomyCategory { id fullName isArchived } } }'''
 READ_QUERIES = READ_QUERIES | frozenset((COLLECTION_LOOKUP, COLLECTION_STATE, STANDARD_CATEGORY))
 WRITE_QUERIES = WRITE_QUERIES | frozenset((UPDATE_QUERY, FILES_QUERY, ORDER_QUERY, COLLECTION_CREATE, COLLECTION_JOIN))
+NATIVE_CAPABILITY = '''query PackedCapability {
+ measurement: __type(name: "InventoryItemMeasurement") { fields { name } }
+ measurementInput: __type(name: "InventoryItemMeasurementInput") { inputFields { name } }
+ dimensionsInput: __type(name: "ObjectDimensionsInput") { inputFields { name } }
+ units: __type(name: "LengthUnit") { enumValues { name } }
+}'''
+NATIVE_READ = '''query PackedRead($id: ID!) { product(id: $id) {
+ id status metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
+ variants(first: 2) { nodes { id sku inventoryItem { id measurement {
+ packedDimensions { length width height unit } } } } pageInfo { hasNextPage } }
+} }'''
+NATIVE_WRITE = '''mutation PackedUpdate($id: ID!, $input: InventoryItemInput!) {
+ inventoryItemUpdate(id: $id, input: $input) { inventoryItem { id } userErrors { field message } }
+}'''
+NATIVE_QUERIES = frozenset((NATIVE_CAPABILITY, NATIVE_READ, NATIVE_WRITE))
+READ_QUERIES = READ_QUERIES | frozenset((NATIVE_CAPABILITY, NATIVE_READ))
+WRITE_QUERIES = WRITE_QUERIES | frozenset((NATIVE_WRITE,))
 
 
 def _cursor(value):
@@ -135,6 +152,10 @@ def _media(connection, cursor=None):
 
 class ShopifyError(ValueError):
     pass
+
+
+class ShopifyNativeWriteRejected(ShopifyError):
+    """Authoritative HTTP authentication rejection: native mutation did not run."""
 
 
 @dataclass(frozen=True)
@@ -279,11 +300,14 @@ class ShopifyAdapter:
             raise ShopifyError("Unsupported Shopify draft mutation.")
         return self._transport(configuration, query, variables)
 
-    def _transport(self, configuration, query, variables=None, *, session=None):
+    def _transport(self, configuration, query, variables=None, *, session=None, api_version=None):
         if query not in READ_QUERIES | WRITE_QUERIES:
             raise ShopifyError("Unsupported Shopify operation.")
         writing = query in WRITE_QUERIES
         config = configuration.validated()
+        if api_version is not None and (api_version != "2027-01" or query not in NATIVE_QUERIES):
+            raise ShopifyError("Only packed-dimension operations may use the release-candidate API.")
+        version = api_version or config.api_version
         token = _access_token(config)
         own = session is None
         session = session or requests.Session()
@@ -291,7 +315,7 @@ class ShopifyAdapter:
             session.trust_env = False  # Never send the token through an inherited proxy/netrc.
         try:
             with session.post(
-                f"https://{config.domain}/admin/api/{config.api_version}/graphql.json",
+                f"https://{config.domain}/admin/api/{version}/graphql.json",
                 headers={"X-Shopify-Access-Token": token, "Accept": "application/json"},
                 json={"query": query, **({"variables": variables} if variables is not None else {})},
                 timeout=(5, 15), allow_redirects=False, stream=True,
@@ -299,6 +323,8 @@ class ShopifyAdapter:
                 if response.status_code in (401, 403):
                     if response.status_code == 401:
                         _authentication_failed(config)
+                    if query == NATIVE_WRITE:
+                        raise ShopifyNativeWriteRejected("Shopify denied the native update before execution. Check credentials and write_inventory; rebuild Review after resolving access.")
                     raise ShopifyError("Shopify rejected authentication or access. Check the installed app, token expiry and scopes.")
                 if response.status_code == 429:
                     if writing:
@@ -308,7 +334,7 @@ class ShopifyAdapter:
                     if writing:
                         raise ShopifyError("Shopify mutation failed with uncertain evidence. Reconcile the retained operation; do not blindly retry.")
                     raise ShopifyError("Shopify connection failed. Check the domain and service availability; no store data was changed.")
-                if response.headers.get("X-Shopify-API-Version", config.api_version) != config.api_version:
+                if response.headers.get("X-Shopify-API-Version", version) != version:
                     raise ShopifyError("Shopify served a different API version. Select a supported version and test again.")
                 raw = bytearray()
                 started = monotonic()
@@ -378,6 +404,16 @@ class ShopifyAdapter:
     def read_simple(self, configuration, product_id, namespace):
         return self._read(configuration, SIMPLE_QUERY,
             {"id": _gid(product_id, "Product"), "namespace": namespace}).get("product")
+
+    def packed_capability(self, config):
+        return self._transport(config, NATIVE_CAPABILITY, api_version="2027-01")
+
+    def read_packed(self, config, product_id):
+        return self._transport(config, NATIVE_READ, {"id": _gid(product_id, "Product")}, api_version="2027-01").get("product")
+
+    def write_packed(self, config, inventory_id, dimensions):
+        return self._transport(config, NATIVE_WRITE, {"id": _gid(inventory_id, "InventoryItem"),
+            "input": {"measurement": {"packedDimensions": dimensions}}}, api_version="2027-01")
 
     def country_codes(self, configuration):
         values = (self._read(configuration, COUNTRIES_QUERY).get("__type") or {}).get("enumValues")

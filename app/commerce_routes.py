@@ -192,6 +192,48 @@ def drafts(product_id=None):
         selected_id=product_id or request.form.get("product_id", type=int) or request.args.get("product_id", type=int)), 400 if error else 200, {"Cache-Control": "no-store"}
 
 
+@commerce.route("/products/<int:product_id>/shopify/native-dimensions", methods=["GET", "POST"])
+@login_required
+def native_dimensions(product_id):
+    from app import db, shopify_native_dimensions as native
+    from app.models import Product, ShopifyProductIdentity
+    from app.utils.operation_control import CatalogueOperationActive
+    from app.shopify_drafts import evidence as product_evidence
+    if not current_user.is_admin:
+        abort(403)
+    product = db.get_or_404(Product, product_id)
+    form, plan, token, error, saved = FlaskForm(), None, None, None, False
+    if request.method == "POST":
+        if not form.validate_on_submit():
+            abort(400)
+        try:
+            action = request.form.get("action")
+            if action == "preview":
+                plan, token = native.check(product)
+            elif action == "confirm":
+                native.confirm(request.form.get("review", ""), request.form.get("acknowledge") == "yes", expected_product_id=product_id)
+                saved = True
+            elif action == "reconcile":
+                from app.shopify_drafts import matching_identity, configuration
+                adapter = ShopifyAdapter()
+                shop = adapter.test_connection(configuration())
+                row = matching_identity(shop["shop_id"], product)
+                if not row:
+                    raise ShopifyError("No retained Shopify product identity; no native reconciliation is possible.")
+                native.reconcile(row, adapter)
+                saved = True
+            else:
+                raise ShopifyError("Choose a supported native dimension action.")
+        except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
+            error = str(exc)
+    rows = ShopifyProductIdentity.query.filter_by(product_id=product_id).all()
+    row = rows[0] if len(rows) == 1 else None
+    return render_template("shopify_native_dimensions.html", product=product, row=row,
+        form=form, plan=plan, token=token, error=error, saved=saved,
+        desired=native.desired(product), state=native.local_status(product, row),
+        evidence=product_evidence(row).get('native_dimensions') if row else None), 400 if error else 200, {"Cache-Control": "no-store"}
+
+
 @commerce.route("/shopify/drafts/identity/<int:identity_id>", methods=["GET", "POST"])
 @login_required
 def draft_identity(identity_id):

@@ -1,5 +1,60 @@
 # Current State
 
+## M3A.8.3 — workflow stabilisation and opt-in native packed dimensions
+
+The user reports M3A.8.2 live acceptance of product creation/update/reconciliation,
+override propagation, taxonomy batch/ancestor/storefront memberships and media retention.
+These observations do not establish native packed dimensions, which metafields cannot
+prove. Newly created asynchronous media could remain Processing because automatic
+status checks deliberately skipped every non-verified identity; Review also called it
+Recovery Required before examining readiness. Processing-only readback now reuses
+the complete retained-plan verifier, records durable verified state/comparison when
+ready, and does not clear genuinely uncertain writes. Repeated automatic media checks
+coalesce for 30 seconds; explicit Review/Refresh can recheck. Original partial operation
+history remains unchanged; new read-only status operations record current completion.
+
+Product Detail and Products Create Override now open the existing scoped editor as an
+unsaved draft, without creating a JSON/marker/operation or scanning. Actual successful
+save writes the override atomically, registers its source and uses the established
+affected-folder .update scan. Identical authored saves return unchanged with no scan
+or notification. Product/shared-file collision and missing source folders are rejected.
+The old explicitly mutating override-create API remains compatibility-only, no longer
+used for opening normal Products editors. Scanner, inheritance, SKUs and layout are intact.
+
+Native packed dimensions are an independent, default-OFF 2027-01 release-candidate
+capability. Ordinary Shopify configuration/operations remain pinned to 2026-10. Existing
+authentication, redaction, timeouts, response bounds and no-retry transport are reused.
+Capability/LengthUnit schema/scopes and retained product→variant→InventoryItem identity
+are checked read-only. Native writes require write_inventory; reads use read_products
+or read_inventory. Source product dimensions are NOT presumed packed dimensions:
+explicit deployment policy and reviewed confirmation are required before reuse.
+Authored mm/g and compatible product metafields remain unchanged. Native boundary
+writes cm, with independent Decimal-normalised readback and ten-minute freshness.
+
+Signed normal Create/Update can include the optional native stage. Known native scope/
+capability/metadata restrictions retain verified product/media and show outstanding
+native work, not ambiguous recovery. Existing identities can use the isolated native-only
+Review/Confirm (including Live-intended Drafts without changing publication); no price,
+weight, media, membership or SKU mutation is emitted. Native pending/uncertain outcomes
+are durable and block another write until explicit read-only reconciliation proves the
+original intended dimensions. Native proof does not advance metadata verification time.
+No migration; bounded v1 evidence remains in ShopifyProductIdentity/CatalogueOperation.
+
+No live store writes during development, no bulk/Variable/channel/menu/JSON-editor
+milestone, no deployment/path/repository rename. User-owned Unraid XML stays excluded.
+See SHOPIFY_INTEGRATION for explicit opt-in settings, RC limitations and acceptance.
+
+Verification: the proportionate final regression passed 222 Python cases. Native-stage
+follow-ups passed 25 cases plus one malformed-capability case (226 distinct Python
+cases across the selections). Only the old Processing-as-recovery assertion required
+updating; unrelated remote identity evidence still fails closed. No full historical
+suite or live store write was performed. Matching standalone native reads record their
+own evidence without advancing metadata proof; uncertain native stages remain visible
+in the encompassing product operation's recovery state.
+Focused JavaScript: 23 passed. Fourteen changed Python modules compiled, five
+affected templates parsed, both changed browser scripts passed syntax checks and
+git diff --check passed. Native RC live acceptance remains outstanding.
+
 ## M3A.8.2 — live acceptance corrections and unified Taxonomy
 
 Implemented; corrected-build Unraid acceptance remains required. The user reports

@@ -1,5 +1,152 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.8.3 — stable product workflow and native packed dimensions
+
+### Processing, Review and overrides
+
+M3A.8.2 live acceptance established successful product metadata/override updates,
+creation, reconciliation, taxonomy batches and retained media. Asynchronous media
+remained Processing because status reconciliation skipped non-verified identities.
+Review described Processing as recovery without reading completion. It now finalises
+only known Processing through the same complete original-plan verifier. Finished
+metadata/media/memberships persist verified identity and comparison; pending media
+remains Processing, not fabricated success/recovery. Automatic checks coalesce for
+30 seconds; explicit Review/Refresh is fresh. Genuine uncertain writes still require
+explicit reconciliation. Old partial operations remain historical, not rewritten.
+
+Create Override on Product Detail/Products opens the existing product-scoped editor
+without an empty-file creation/rescan. Unsaved drafts inherit normally; cancel writes
+nothing. Save validates, preserves sparse schema, atomically writes genuine changes,
+then uses .update and the existing targeted scan. Equal authored documents (including
+an empty new draft) do not create files, operations, markers or duplicate notifications.
+Missing folders/shared-file collisions are rejected. The legacy explicit create API
+is retained for compatibility, but normal editor-opening navigation no longer calls it.
+
+### Scope, API and permissions
+
+Shopify introduced native [packed dimensions](https://shopify.dev/changelog/posts/manage-packed-product-dimensions-with-the-admin-graphql-api)
+in [2027-01](https://shopify.dev/changelog/release-notes/2027-01), currently a **release
+candidate for development testing until January 1, 2027**, not the stable production
+API. Ordinary product/media/collection operations and SHOPIFY_API_VERSION stay on
+2026-10. Only three fixed dimension capability/read/write queries use 2027-01, sharing
+the existing validated domain, credentials/token cache and bounded/redacted HTTP client.
+Wrong served-version headers, missing schema/units, permission/network/throttle errors
+are explicit; no automatic version fallback, API upgrade or mutation retry.
+
+Native measurements use InventoryItemMeasurement.packedDimensions and
+InventoryItemMeasurementInput.packedDimensions with
+[ObjectDimensionsInput](https://shopify.dev/docs/api/admin-graphql/2027-01/input-objects/ObjectDimensionsInput).
+Length/width/height are floats, and unit is the exact
+[LengthUnit](https://shopify.dev/docs/api/admin-graphql/2027-01/enums/LengthUnit)
+enum **CENTIMETERS**. Native readback normalises all six supported units with Decimal
+and 0.000001 mm tolerance. No dimensions-only operation writes weight: existing 50 g
+is retained. Product dimension metafields remain compatible and independently managed.
+
+[inventoryItemUpdate](https://shopify.dev/docs/api/admin-graphql/2027-01/mutations/inventoryItemUpdate)
+requires **write_inventory**. Reads accept **read_products OR read_inventory**; the
+current product integration already requires read_products. Existing write_products
+and applicable write_files permissions remain necessary for normal product/media
+operations. No app permission is changed automatically and no mutation tests access.
+The actual InventoryItem GID is resolved from the retained Simple variant and verified
+against product ID, SKU, variant/inventory IDs and original correlation—not inferred
+from Product GID. Native-only updates do not change metadata, weight, prices, SKUs,
+media, collection memberships, product status or sales-channel publication.
+
+### Configuration and measurement policy
+
+Default behaviour is safe/off. Add these optional Unraid variables manually:
+
+```text
+SHOPIFY_API_VERSION=2026-10
+SHOPIFY_NATIVE_DIMENSIONS_ENABLED=true
+SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS=true
+```
+
+The second flag opts into the RC capability. The third is a separate **explicit
+measurement policy**, not an assertion that every physical product equals its packed
+size: enable only where existing authored dimensions accurately describe packed items,
+and confirm each reviewed product. Otherwise leave it false; capability checks remain
+read-only but native writes are blocked until a safe packed source exists. No packaging
+values, new authored files or parcel presets are invented. Current authored mm/g and
+JSON structure remain unchanged. Separately authored packed metadata is deferred to
+the comprehensive schema/editor milestone; do not overwrite product dimensions to
+work around a packaging difference.
+
+For the explicitly approved 155 × 155 × 3 mm example the reviewed native input is
+15.5 × 15.5 × 0.3 CENTIMETERS. Boundary rounding is 0.0000001 cm; too-small/unrepresentable,
+missing, invalid or nonpositive local measurements block native work. Returned zero
+dimensions are differences, not equality. Malformed/non-null-contract violations are
+untrusted evidence. Enabling these flags does not change authentication precedence,
+active platform, global API version, app permissions or existing source files.
+
+### Review, write, evidence and recovery
+
+Normal signed Simple Create/Update shows the optional native stage. Missing native
+permission/capability/policy leaves successful product/media intact and native work
+outstanding. A later reviewed native-only operation can complete it without recreation.
+If media is still Processing, native completion remains blocked until product/media
+verification completes. Read-only background finalisation never resumes a write.
+
+Product Detail → **Review packed dimensions**, or
+`/products/<id>/shopify/native-dimensions`, provides independent read-only capability
+inspection and signed/expiring/CSRF confirmation. This isolated measurement update can
+service an existing Live-intended Draft without changing publication; normal metadata
+publishing still obeys its existing Draft/Live safeguards. Neither Active status nor
+native verification proves Online Store availability.
+
+Existing ShopifyProductIdentity bounded version-1 evidence records the native reviewed
+plan, pending reservation **before** mutation, InventoryItem ID, state, readback and
+operation reference. CatalogueOperation retains attempts/history and shared locks.
+There is no migration. Successful subset evidence has its own ten-minute freshness;
+Product.updatedAt is not treated as proof of current inventory dimensions. Native-only
+success does not advance metadata verification/full-comparison timestamps or clear
+unrelated metadata/membership/publication differences.
+An independently matching standalone read-only Preview records native comparison
+evidence, without claiming a new metadata write verification. The operation lock
+prevents this checkpoint from overlapping publishing. Encompassing product operations
+remain partial/review-required when their native mutation is uncertain, even when
+product metadata/media have independently succeeded.
+
+Known denied permission/userErrors without mutation receipt are Blocked, not ambiguous
+recovery. Timeouts, incomplete mutation receipts and failed post-write verification
+remain Uncertain/Pending and prevent another native or normal write. Read-only native
+reconciliation must prove the original desired measurements on the exact retained
+inventory item; an absent/different read never authorizes a blind retry. Restart or
+disabling the capability does not erase unresolved native evidence. No rollback/delete,
+media upload or price/weight mutation occurs in native recovery.
+
+### Unraid acceptance
+
+1. Back up stopped persistent appdata/database; retain the previous immutable image and
+   all mounts. Deploy the new commit-specific AMD64 test tag manually and hard-refresh
+   Dashboard assets. Migration head remains 0011; no live database was modified here.
+2. With native capability still off, check LCBC-0001 and 16bit-0001 retain verified IDs
+   across Products reload, Review and Identity & History. Create one reviewed test
+   Simple Draft with original images. A fresh status read should finalise ready media;
+   unfinished media explains Processing. No duplicate Create/upload should occur.
+3. Open Create Override on a product. Cancel: no JSON/.update/scan/notification. Save
+   one genuine sparse edit: only that folder updates through the established scan;
+   comparison invalidates locally then reports real verified differences. Save the same
+   document again: no redundant scan. Shared JSON and SKU indexes must stay unchanged.
+4. For RC native testing, explicitly add write_inventory in Shopify app scopes yourself.
+   Test granted scopes; restart the test container if needed to acquire a fresh client-
+   credentials token after scope changes. Preserve existing domain/client credentials.
+   Add the two capability/policy flags above only after reviewing packed-size accuracy.
+5. LCBC-0001: use its retained Product GID 16009365160319, open Review packed dimensions,
+   check capability, correct InventoryItem ID, current/proposed measurements, and confirm
+   once only when the 155 × 155 × 3 mm source describes the packed item. Verify native
+   Shopify shipping dimensions 15.5 × 15.5 × 0.3 cm, unchanged 50 g/price/SKU/media/status.
+6. Check another new Draft's signed native stage and separate proof. Missing scopes or
+   pending media should retain the draft and explain outstanding native work, not Create
+   again. After enabling/fixing access, build a fresh reviewed completion for the same ID.
+7. For a genuine uncertain native outcome, stop writes and use **Reconcile native outcome
+   using reads only**. If equality cannot be established, inspect the inventory item and
+   report the retained evidence; never repeat the mutation blindly.
+
+No automatic deployment, stable/latest overwrite, main merge, Variable/bulk publishing,
+channel/menu operations, shipping-label/package-preset features or M3A.9 editor work.
+User-owned Unraid XML remains outside the commit; variables are added manually.
+
 ## M3A.8.2 — live acceptance corrections and unified workspace
 
 ### Dimensions, supported fields and recovery

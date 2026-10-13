@@ -23,6 +23,7 @@ const source = fs.readFileSync(new URL("../../app/static/assets/js/products-brow
 async function render(automatic = false) {
   const browser = new Node();
   browser.dataset.apiUrl = "/api/edit_products";
+  browser.dataset.overrideEditorUrl = "/edit_products/0/edit/override";
   if (automatic) { browser.dataset.statusUrl = "/api/shopify/status"; browser.dataset.csrfToken = "fictional_csrf"; }
   for (const name of ["productsGroups", "productsLoading", "productsError", "productsEmpty", "productsFilteredEmpty", "productsPagination", "productsRetry", "shopifySelectionCount", "shopifyReviewQueue", "shopifySelectVisible", "shopifyClearSelection", "productsErrorMessage", "shopifyRefreshProgress", "shopifyRefreshVisible", "shopifyRefreshAll"]) {
     const node = new Node(); node.dataset[name] = ""; browser.appendChild(node);
@@ -35,12 +36,23 @@ async function render(automatic = false) {
     shopify: {label: "Update Available", intent: "Draft intended", remote_status: "Draft (last compared)", compared_at: "2026-10-12T09:00:00Z", change_count: 2, review_url: "/products/1/shopify/review", identity_url: "/shopify/drafts/identity/1"}};
   const calls = [];
   const fetch = async (...args) => { calls.push(args); return {ok: true, json: async () => args[0] === "/api/shopify/status" ? {checked: [1], pending: [], states: {1: {...product.shopify, label: "Up to Date", change_count: 0}}, errors: []} : ({summary: {}, groups: [{name: "Cards", product_count: 1, variation_count: 0, products: [product]}], pagination: {total: 1, from: 1, to: 1, page: 1, pages: 1}})}; };
-  const window = {location: {search: "", pathname: "/products", href: "https://local.test/products"}, fetch, ProductsOverrideClient: {}};
+  const navigations = [];
+  const window = {location: {search: "", pathname: "/products", href: "https://local.test/products", assign: url => navigations.push(url)}, fetch,
+    ProductsOverrideClient: {routeUrl: (template, id) => template.replace("/0/", `/${id}/`)}};
   vm.runInNewContext(source, {document, window, fetch, URLSearchParams, Intl, Map, Number, String, Date});
   await new Promise(resolve => setImmediate(resolve));
-  return {browser, calls};
+  return {browser, calls, navigations};
 }
 function all(node) { return [node, ...node.children.flatMap(all)]; }
+
+test("Create Override navigates directly without a creation request or scan", async () => {
+  const {browser, calls, navigations} = await render();
+  const trigger = {dataset: {action: "create-override", productId: "1"}};
+  await browser.events.click({target: {closest: () => trigger}});
+  assert.deepEqual(navigations, ["/edit_products/1/edit/override"]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "/api/edit_products");
+});
 
 test("desktop and mobile render Shopify actions without Woo or remote discovery", async () => {
   const {browser, calls} = await render();

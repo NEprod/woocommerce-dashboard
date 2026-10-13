@@ -1,5 +1,36 @@
 # Existing Architecture
 
+## M3A.8.3 — independent native dimensions and operation finalisation
+
+`finalize_processing` only accepts known asynchronous Processing identities, checks
+the original operation is not still writing, and uses existing full retained-plan
+readback. Automatic refresh counts this against its bounded full-read budget and
+coalesces repeated checks for 30 seconds. Genuine uncertain/pending writes are never
+automatically recovered. Preview describes unfinished media rather than inventing recovery.
+
+Override editor GET is source-read-only. Product save supports a validated missing
+product-owned override at the established source folder, atomically writes only changes,
+then registers ProductAsset and follows existing targeted-update orchestration. Empty
+new drafts/identical documents are no-ops. No source folder creation or shared-file
+overwrite is allowed through the new product override path.
+
+`shopify_native_dimensions` owns an optional reviewed measurement sub-contract, not
+another catalogue/publisher/framework. Fixed capability/read/write queries share the
+same ShopifyAdapter transport/auth cache; only these can override the endpoint to
+2027-01. The global configured version remains stable. Schema/scopes and correlated
+product/variant/inventory IDs must be established before the single native mutation.
+The input contains measurement.packedDimensions only. Durable bounded v1 evidence
+under identity.native_dimensions records pending-before-write, blocked/verified/uncertain
+state, original reviewed dimensions, IDs, timestamps and operation reference. Native
+operations share the existing CatalogueOperation lock; restart never authorizes replay.
+Reconciliation is read-only, compares the original native plan and retains history.
+
+Native cm values are Decimal-derived from authored mm only under explicit deployment
+policy; no package values are inferred by default. Native freshness is ten minutes and
+independent of Product.updatedAt. Subset success only rebinds identity/native evidence
+and removes proven native differences in an existing comparison; it does not renew full
+metadata/media/membership timestamps. Normal publication blockers remain authoritative.
+
 ## M3A.8.2 acceptance corrections
 
 `shopify_simple_fields.dimension_mm` normalises canonical/legacy dimension metafield

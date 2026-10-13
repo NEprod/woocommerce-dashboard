@@ -147,7 +147,7 @@ def review_rows(plan):
         "seo.description": "SEO description", "price": "Customer price",
         "compareAtPrice": "Compare-at price", "variant.sku": "SKU", "sku": "SKU",
         "requiresShipping": "Requires shipping", "countryCodeOfOrigin": "Country of origin",
-        "weight": "Weight", "media.order": "Gallery order", "category": "Standard Shopify category", "productType": "Shopify product type"}
+        "weight": "Weight", "native.packed_dimensions": "Native packed dimensions", "media.order": "Gallery order", "category": "Standard Shopify category", "productType": "Shopify product type"}
     def value(item):
         if item is None or item == "":
             return "Not set"

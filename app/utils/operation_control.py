@@ -16,6 +16,7 @@ from app.utils.redaction import redact_diagnostic, runtime_redaction_paths
 
 
 ALLOWED_OPERATION_TYPES = {
+    "shopify_native_dimensions",
     "shopify_status_refresh",
     "shopify_taxonomy_batch",
     "shopify_draft_publish",

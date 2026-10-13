@@ -66,6 +66,7 @@ def record(product, plan, identity=None):
         "mappings": {r["key"]: r.get("mapping_fingerprint") for r in plan.get("collections", [])},
         "actual_status": plan.get("actual_status", "Not yet created")}
     summary["config"] = plan.get("config_digest")
+    summary["native"] = plan.get("native")
     summary["conflicting_changes"] = bool(plan.get("conflicting_changes")) and plan["classification"] == "update"
     stamp = now().isoformat()
     summary.update(sku=product.sku, remote_updated_at=plan.get("remote_updated_at"),

@@ -55,6 +55,7 @@
     node.appendChild(text("small", "", state.remote_status || "Remote status unknown"));
     node.appendChild(text("small", "", state.compared_at ? `Compared ${formatDate(state.compared_at)} · ${state.change_count} changes` : state.verified_at ? `Verified ${formatDate(state.verified_at)}` : "Not compared"));
     if (state.revision_checked_at) node.appendChild(text("small", "", `Revision checked ${formatDate(state.revision_checked_at)}`));
+    if (state.native && state.native.state !== "disabled") node.appendChild(text("small", "", `Packed dimensions: ${state.native.state}`));
     return node;
   }
 
@@ -584,11 +585,7 @@
       await loadVariations(productId, trigger.closest("[data-variation-region]"), action === "view-all-variations"); return;
     }
     if (action === "create-override") {
-      const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById("overrideModal"));
-      showOverrideFeedback("");
-      modal.show();
-      try { await openFolderPicker(productId, ""); }
-      catch (error) { showOverrideFeedback(error.message || overrideClient.messages.unexpected); }
+      window.location.assign(replaceId(browser.dataset.overrideEditorUrl, productId));
       return;
     }
     if (action === "delete-override") {

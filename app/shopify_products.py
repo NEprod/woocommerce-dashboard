@@ -8,6 +8,7 @@ from sqlalchemy import or_
 
 from app.models import ShopifyProductIdentity, ShopifyProductComparison, ShopifyCollectionIdentity
 from app.taxonomy_assignments import product_document
+from app.shopify_connection import ShopifyError
 
 
 def source_fingerprint(product, images):
@@ -40,6 +41,10 @@ def source_fingerprint(product, images):
             "source": product.source_relpath, "type": product.product_type,
             "images": [(i.url, i.position, i.alt_text) for i in product.images],
             "image_stats": stats}
+    from app.shopify_native_dimensions import desired
+    native_policy = desired(product)
+    if native_policy["enabled"]:
+        data["native_policy"] = native_policy
     return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 
 
@@ -60,6 +65,7 @@ def states_for(products):
 def product_state(product, rows, comparisons=(), mappings=None):
     from flask import url_for
     from app.shopify_drafts import evidence
+    native_comparison = None
     state = {"product_id": product.id, "state": "unknown", "label": "Not yet verified", "remote_id": None,
              "remote_status": "Unknown", "publication": "Not verified", "verified_at": None,
              "identity_url": None, "store_id": None, "shopify_url": None,
@@ -116,6 +122,7 @@ def product_state(product, rows, comparisons=(), mappings=None):
                     continue
                 data = current(product, comparison, identity, mappings or {})
                 if data:
+                    native_comparison = data.get("native")
                     classification = data["classification"]
                     state.update(state="create" if classification == "create" else "update" if classification == "update" else "no_change",
                         label="Needs Creating" if classification == "create" else "Update Available" if classification == "update" else "Up to Date",
@@ -158,4 +165,14 @@ def product_state(product, rows, comparisons=(), mappings=None):
                         break
     except (ValueError, OSError, KeyError, TypeError, AttributeError, RuntimeError):
         state.update(state="unavailable", label="Verification Unavailable", message="Local source or retained evidence needs review; no current equality is claimed.")
+    from app.shopify_native_dimensions import local_status
+    try:
+        native = local_status(product, rows[0] if len(rows) == 1 else None, native_comparison)
+        state["native"] = native
+        if native["state"] == "uncertain":
+            state.update(state="recovery_required", label="Recovery Required", message=native["message"])
+        elif native["state"] not in {"disabled", "verified"} and state["state"] == "no_change":
+            state.update(state="update" if native["state"] == "update" else "attention", label="Update Available" if native["state"] == "update" else "Needs Attention", message="Metadata evidence matches; " + native["message"])
+    except ShopifyError as exc:
+        state.update(state="attention", label="Needs Attention", message=str(exc))
     return state

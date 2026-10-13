@@ -5,6 +5,7 @@
   <p class="shopify-status-intent">Intended: {{ shopify.intent }} · Online Store: {{ shopify.publication }}</p>
   <p class="shopify-status-time">{% if shopify.compared_at %}Compared (cached, UTC): {{ shopify.compared_at }} · {{ shopify.change_count }} changes{% else %}{{ 'Cached verification (UTC): ' ~ shopify.verified_at if shopify.verified_at else 'No successful verification yet' }}{% endif %}</p>
   {% if shopify.revision_checked_at %}<p class="shopify-status-time">Remote revision checked: {{ shopify.revision_checked_at }} UTC</p>{% endif %}
+  {% if shopify.native %}<p class="shopify-status-evidence">Packed dimensions: {{ shopify.native.state|title }} · {{ shopify.native.message }}{% if current_user.is_admin %} <a href="{{ url_for('commerce.native_dimensions', product_id=shopify.product_id) }}">Review packed dimensions</a>{% endif %}</p>{% endif %}
   {% if shopify.change_summary %}<p>{{ shopify.change_summary|join(' · ') }}</p>{% endif %}
   {% for blocker in shopify.blockers %}<p class="field-helper">{{ blocker }}</p>{% endfor %}
   <details class="shopify-status-evidence"><summary>Evidence &amp; blockers</summary><p>{{ shopify.message }}</p>{% if shopify.verified_at %}<p>Cached verification (UTC): {{ shopify.verified_at }}</p>{% endif %}{% if shopify.remote_id %}<p class="text-break">{{ shopify.remote_id }}</p>{% endif %}</details>
