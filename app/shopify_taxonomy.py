@@ -1,10 +1,9 @@
 """Operational Shopify mappings over the existing TLC registry; no authored writes."""
 import json
 import uuid
-import hashlib
 
 from app import db
-from app.models import Collection, ShopifyCollectionIdentity
+from app.models import ShopifyCollectionIdentity
 from app.shopify_connection import ShopifyAdapter, ShopifyError, _gid
 from app.taxonomy_assignments import product_document, resolve
 from app.taxonomy_registry import load_configured_registry
@@ -34,11 +33,7 @@ def sources():
                     rows.append({"key": kind + ":" + item["key"], "name": item["name"],
                         "label": paths[item["key"]] if kind == "categories" else item["name"], "slug": item["slug"],
                         "parent": item.get("parent"), "order": item.get("order"), "aliases": list(item.get("aliases", []))})
-    for collection in Collection.query.order_by(Collection.id).all():
-        if collection.source_relpath:
-            rows.append({"key": "collection:" + collection.source_relpath, "name": collection.name,
-                "label": "Catalogue collection · " + collection.name,
-                "slug": "tlc-" + hashlib.sha256(collection.source_relpath.encode()).hexdigest()[:20]})
+    rows.sort(key=lambda r: (r["key"].split(":", 1)[0], r.get("order") or 0, r["label"], r["key"]))
     if has_request_context() and request.method == "GET":
         g.shopify_taxonomy_sources = rows
     return rows
@@ -48,6 +43,7 @@ def assignments(product):
     doc = product_document(product)
     resolved = resolve(doc)
     wanted, blockers = [], []
+    lookup = {r["key"]: r for r in sources()}
     for kind in ("categories", "storefront_collections"):
         for item in resolved[kind]:
             definition = item["definition"]
@@ -55,9 +51,16 @@ def assignments(product):
                 blockers.append(f'Unresolved active {kind}: {item["value"]}')
             else:
                 wanted.append(kind + ":" + definition["key"])
-    if product.collection and product.collection.source_relpath:
-        wanted.append("collection:" + product.collection.source_relpath)
-    lookup = {r["key"]: r for r in sources()}
+                if kind == "categories":
+                    cursor, visited = lookup.get(wanted[-1]), set()
+                    while cursor and cursor.get("parent"):
+                        parent = "categories:" + cursor["parent"]
+                        if parent in visited or parent not in lookup:
+                            blockers.append("Category ancestor is missing, inactive or cyclic; review the registry.")
+                            break
+                        visited.add(parent)
+                        wanted.append(parent)
+                        cursor = lookup[parent]
     if len(set(wanted)) > MAX_GROUPS:
         blockers.append("At most 12 collection memberships can be reviewed per Simple product.")
     return [lookup[k] for k in sorted(set(wanted))[:MAX_GROUPS] if k in lookup], blockers

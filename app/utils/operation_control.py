@@ -16,6 +16,8 @@ from app.utils.redaction import redact_diagnostic, runtime_redaction_paths
 
 
 ALLOWED_OPERATION_TYPES = {
+    "shopify_status_refresh",
+    "shopify_taxonomy_batch",
     "shopify_draft_publish",
     "woo_taxonomy_sync",
     "taxonomy_registry_update",

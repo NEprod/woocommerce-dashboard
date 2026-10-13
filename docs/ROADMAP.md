@@ -1,5 +1,23 @@
 # Roadmap
 
+## M3A.8.1 — implemented, awaiting Unraid acceptance
+
+Automatic Products revision/absence checking and independently fresh membership
+evidence now extend the existing ten-minute comparison model. Read-only bounded
+refresh precedes every normal review; it never authorizes writes. Local changes and
+confirmed remote differences have distinct badges.
+
+Taxonomy discovery now excludes filesystem catalogue groups, derives active ancestors,
+and reviews bounded manual collection/membership/tag stages with durable partial
+completion and explicit read-only recovery. Existing category keys/inheritance remain
+authoritative. Validate LCBC-0001 revisions/update status, NBNOC-0004 absence, Cards
+parent memberships and authored storefront collections across catalogue folders.
+No collection creation was confirmed in the preceding live inspection.
+
+Next after acceptance: M3A.9 complete shared-schema Create/Edit JSON forms. Do not
+bundle Variables, bulk products, storefront menus/channel publication or infrastructure
+renaming into that editor milestone. Historical recommendations below remain records.
+
 ## M3A.8 — implementation complete, awaiting Unraid acceptance
 
 Ten-minute durable comparison summaries, compact normal Products evidence, grouped

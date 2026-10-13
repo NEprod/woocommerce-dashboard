@@ -160,24 +160,28 @@ def require_absent_sku(adapter, config, sku):
         raise ShopifyError("A Shopify SKU candidate already exists or discovery is incomplete. Another create is blocked; inspect and reconcile identities, never auto-adopt.")
 
 
-def preview(product, adapter=None):
+def preview(product, adapter=None, *, context=None):
     try:
-        return _preview(product, adapter)
+        return _preview(product, adapter, context=context)
     except ShopifyError as exc:
         from app.shopify_comparison import failed
         failed(product, str(exc))
         raise
 
 
-def _preview(product, adapter=None):
+def _preview(product, adapter=None, *, context=None):
     plan = local_plan(product)
     config = configuration()
     adapter = adapter or ShopifyAdapter()
-    shop = adapter.test_connection(config)
-    if "write_products" not in shop["scopes"]:
-        plan["blockers"].append("Missing write_products; read-only comparison is available, writes are blocked.")
+    shop = context["shop"] if context and context["config"] == config.fingerprint() else adapter.test_connection(config)
+    can_write = "write_products" in shop["scopes"]
     store_key = digest({"id": shop["shop_id"]})
     row = matching_identity(shop["shop_id"], product)
+    from app.models import ShopifyProductComparison
+    previous_comparison = ShopifyProductComparison.query.filter_by(store_id=shop["shop_id"], source_identity=product.source_relpath).first()
+    if previous_comparison and json.loads(previous_comparison.summary_json).get("conflicting_changes"):
+        plan["warnings"].append("Both local and Shopify data changed since the checkpoint. Inspect before/after values before replacing remote data.")
+        plan["conflicting_changes"] = True
     from app.shopify_taxonomy import membership_plan
     plan["collections"], blockers, standard = membership_plan(product, shop["shop_id"], row.shopify_product_id if row else None, config, adapter)
     plan["blockers"] += blockers
@@ -194,6 +198,8 @@ def _preview(product, adapter=None):
         if row.state != "verified" or row.verification_state != "verified":
             raise ShopifyError(f"Recovery required for Shopify identity {row.id} ({row.state}). Reconcile its retained operation before any write; another create is blocked.")
         result, token = update_preview(product, row, plan, config, shop, adapter)
+        if result["classification"] == "update" and not can_write:
+            result["blockers"].append("Missing write_products; read-only comparison is available, writes are blocked.")
         from app.shopify_comparison import record
         record(product, result, row)
         return result, token if not result["blockers"] else None
@@ -205,6 +211,8 @@ def _preview(product, adapter=None):
     if "handle" in plan["managed"]["product"] and adapter.find_draft(config, plan["handle"])["nodes"]:
         raise ShopifyError("The authored handle already belongs to a Shopify product. Another create is refused.")
     plan["classification"] = "create"
+    if not can_write:
+        plan["blockers"].append("Missing write_products; read-only comparison is available, writes are blocked.")
     plan["fields"] = [{"field": key, "before": None, "after": value, "changed": value is not None}
         for key, value in plan["managed"]["product"].items()]
     plan["fields"] += [{"field": key, "before": None, "after": value, "changed": value is not None}
@@ -525,6 +533,7 @@ def update_preview(product, row, plan, config, shop, adapter):
         handle=plan["managed"]["product"].get("handle", remote["handle"]), nonce=data["plan"]["nonce"],
         remote_digest=digest(remote), identity_digest=digest(data))
     plan["actual_status"] = remote.get("status", "Unknown")
+    plan["remote_updated_at"] = remote.get("updatedAt")
     if actions["alt"]:
         plan["warnings"].append("Alt text is a Shopify file property; other uses of that same file may also reflect the change.")
     encode({"version": 1, "plan": plan})
@@ -704,7 +713,8 @@ def apply_simple_readback(row, data, remote, adapter=None):
         if product:
             record(product, {**plan, "classification": "no_change", "fields": rows,
                 "collections": [{**i, "action": "Already assigned"} for i in plan.get("collections", [])],
-                "remote_id": row.shopify_product_id, "remote_digest": digest(remote), "actual_status": remote["status"]}, row)
+                "remote_id": row.shopify_product_id, "remote_digest": digest(remote), "actual_status": remote["status"],
+                "remote_updated_at": remote.get("updatedAt")}, row)
 
 
 def reconcile(row, candidate_id=None, adapter=None, approval=None):
@@ -755,6 +765,15 @@ def _reconcile(row, candidate_id=None, adapter=None, approval=None):
         raise ShopifyError("Candidate draft does not match this operation's correlation. Identity remains protected.")
     row.shopify_product_id = _gid(product_id, "Product")
     save(row, data)
+    if data.get("taxonomy_attempt"):
+        from app.shopify_taxonomy_batch import verify_product_attempt
+        try:
+            verify_product_attempt(row, data, remote, config, adapter)
+        except ShopifyError as exc:
+            data["error"] = str(exc)
+            save(row, data, "uncertain")
+            raise
+        return row
     if approval:
         try:
             reviewed = serializer().loads(approval, max_age=900)

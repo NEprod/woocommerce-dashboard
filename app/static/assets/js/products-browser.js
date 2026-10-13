@@ -16,6 +16,7 @@
   let pickerState = { selectedRel: "" };
   const selectedReviews = new Map();
   let visibleProducts = [];
+  let refreshRunning = false;
 
   function renderSelection() {
     browser.querySelector("[data-shopify-selection-count]").textContent = selectedReviews.size;
@@ -46,12 +47,14 @@
 
   function shopifyState(product) {
     const node = text("span", "shopify-list-status", "");
+    node.dataset.shopifyState = product.id;
     const state = product.shopify || {};
     const label = pill(state.label || "Not yet verified", "neutral");
     node.appendChild(label);
     node.appendChild(text("small", "", state.intent || "Unresolved intent"));
     node.appendChild(text("small", "", state.remote_status || "Remote status unknown"));
     node.appendChild(text("small", "", state.compared_at ? `Compared ${formatDate(state.compared_at)} · ${state.change_count} changes` : state.verified_at ? `Verified ${formatDate(state.verified_at)}` : "Not compared"));
+    if (state.revision_checked_at) node.appendChild(text("small", "", `Revision checked ${formatDate(state.revision_checked_at)}`));
     return node;
   }
 
@@ -142,6 +145,11 @@
     tools.className = "product-actions";
     secondary.appendChild(tools);
     actions.appendChild(secondary);
+    if (browser.dataset.statusUrl && product.shopify && product.shopify.review_url) {
+      const refresh = button("Refresh Product", "btn btn-sm btn-outline-primary");
+      refresh.addEventListener("click", () => refreshStatuses([product.id], true, false));
+      tools.appendChild(refresh);
+    }
     if (product.shopify && product.shopify.identity_url) {
       const identity = text("a", "btn btn-sm btn-outline-primary", "Identity & History");
       identity.href = product.shopify.identity_url;
@@ -425,6 +433,7 @@
       const response = await fetch(`${browser.dataset.apiUrl}${window.location.search}`, { headers: { "Accept": "application/json" } });
       if (!response.ok) throw new Error(`The server returned HTTP ${response.status}.`);
       render(await response.json());
+      refreshStatuses([...new Set(visibleProducts.map(p => p.id))], false, false);
     } catch (error) {
       groupsTarget.replaceChildren();
       errorState.hidden = false;
@@ -435,6 +444,53 @@
       browser.setAttribute("aria-busy", "false");
     }
   }
+
+  async function refreshStatuses(ids, force, allScope) {
+    if (!browser.dataset.statusUrl || refreshRunning) return;
+    if (!allScope && !ids.length) return;
+    refreshRunning = true;
+    const progress = browser.querySelector("[data-shopify-refresh-progress]");
+    let queue = ids.slice(0, 25), after = 0, nextAfter = null, allNext = allScope, checked = 0, failures = 0, busy = 0, firstError = "";
+    try {
+      for (let step = 0; step < 100; step += 1) {
+        if (progress) progress.textContent = `Checking Shopify… ${checked} checked. Catalogue remains editable.`;
+        const response = await fetch(browser.dataset.statusUrl, {method: "POST",
+          headers: {"Content-Type": "application/json", "Accept": "application/json", "X-CSRFToken": browser.dataset.csrfToken},
+          body: JSON.stringify(allNext ? {scope: "all", after, force} : {ids: queue, force})});
+        if (response.status === 409 && busy++ < 3) {
+          await new Promise(resolve => setTimeout(resolve, 1500 * busy));
+          continue;
+        }
+        if (!response.ok) {
+          const problem = await response.json().catch(() => ({}));
+          throw new Error(problem.error || problem.message || `Status check unavailable (HTTP ${response.status}). Retry later.`);
+        }
+        const result = await response.json();
+        failures += (result.errors || []).length;
+        firstError = firstError || result.errors?.[0]?.message || "";
+        checked += (result.checked || []).length;
+        Object.entries(result.states || {}).forEach(([id, state]) => {
+          browser.querySelectorAll(`[data-shopify-state="${id}"]`).forEach(node => {
+            const product = visibleProducts.find(p => p.id === Number(id));
+            if (product) { product.shopify = state; node.replaceWith(shopifyState(product)); }
+          });
+        });
+        if (allNext) nextAfter = result.next_after;
+        queue = result.pending || [];
+        allNext = false;
+        if (!queue.length) {
+          if (allScope && nextAfter != null) { after = nextAfter; allNext = true; nextAfter = null; }
+          else { if (progress) progress.textContent = `Shopify check complete: ${checked} checked${failures ? `; ${failures} unavailable — ${firstError}. Historical evidence retained` : ""}. No store writes.`; return; }
+        }
+      }
+      if (progress) progress.textContent = "Read budget reached. Refresh again to continue; no store writes.";
+    } catch (error) {
+      if (progress) progress.textContent = error.message;
+    } finally { refreshRunning = false; }
+  }
+
+  browser.querySelector("[data-shopify-refresh-visible]")?.addEventListener("click", () => refreshStatuses([...new Set(visibleProducts.map(p => p.id))], true, false));
+  browser.querySelector("[data-shopify-refresh-all]")?.addEventListener("click", () => refreshStatuses([], true, true));
 
   async function loadVariations(productId, region, includeAll) {
     region.hidden = false;

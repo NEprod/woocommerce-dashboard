@@ -38,7 +38,7 @@ CREATE_QUERY = """mutation Draft($product: ProductCreateInput!, $media: [CreateM
 PRICE_QUERY = """mutation Price($id: ID!, $variants: [ProductVariantsBulkInput!]!) {
  productVariantsBulkUpdate(productId: $id, variants: $variants) { productVariants { id sku price }
  userErrors { field message } } }"""
-DRAFT_FIELDS = """id handle title descriptionHtml status
+DRAFT_FIELDS = """id handle title descriptionHtml status updatedAt
  metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
  variants(first: 2) { nodes { id sku price } pageInfo { hasNextPage endCursor } }
  media(first: 10) { nodes { id alt status mediaContentType ... on MediaImage { image { url } } }
@@ -68,6 +68,8 @@ FILES_QUERY = """mutation SimpleAlt($files: [FileUpdateInput!]!) {
 ORDER_QUERY = """mutation SimpleOrder($id: ID!, $moves: [MoveInput!]!) {
  productReorderMedia(id: $id, moves: $moves) { job { id } mediaUserErrors { field message } } }"""
 READ_QUERIES = READ_QUERIES | frozenset((SIMPLE_QUERY, COUNTRIES_QUERY, SKU_QUERY))
+REVISIONS_QUERY = '''query TLCRevisions($ids: [ID!]!) { nodes(ids: $ids) { id ... on Product { updatedAt status } } }'''
+READ_QUERIES = READ_QUERIES | frozenset((REVISIONS_QUERY,))
 COLLECTION_LOOKUP = '''query CollectionCandidates($query: String!) { collections(first: 20, query: $query) { nodes { id title handle ruleSet { appliedDisjunctively } metafield(namespace: "tlc_dashboard", key: "collection_attempt") { value } } pageInfo { hasNextPage endCursor } } }'''
 COLLECTION_STATE = '''query CollectionState($id: ID!, $product: ID!, $check: Boolean!) { collection(id: $id) { id title handle ruleSet { appliedDisjunctively } sources { __typename ... on CollectionConditionsSource { targetType shareable inclusion { conditions { __typename } } exclusion { conditions { __typename } selections(first: 1) { nodes { product { id } } } } } } hasProduct(id: $product) @include(if: $check) metafield(namespace: "tlc_dashboard", key: "collection_attempt") { value } } }'''
 COLLECTION_CREATE = '''mutation TLCCollection($input: CollectionInput!) { collectionCreate(input: $input) { collection { id } userErrors { field message } } }'''
@@ -252,6 +254,20 @@ def _access_token(config):
 class ShopifyAdapter:
     platform = "shopify"
     can_publish = False
+
+    def product_revisions(self, configuration, ids):
+        if not 1 <= len(ids) <= 25 or len(set(ids)) != len(ids):
+            raise ShopifyError("Revision checks require one to 25 distinct product identities.")
+        nodes = self._read(configuration, REVISIONS_QUERY, {"ids": [_gid(i, "Product") for i in ids]}).get("nodes")
+        if not isinstance(nodes, list) or len(nodes) != len(ids):
+            raise ShopifyError("Shopify revision evidence is incomplete.")
+        result = {}
+        for expected, row in zip(ids, nodes):
+            if row is not None and (row.get("id") != expected or not isinstance(row.get("updatedAt"), str)
+                    or row.get("status") not in {"DRAFT", "ACTIVE", "ARCHIVED"}):
+                raise ShopifyError("Shopify revision identity/status evidence is incomplete.")
+            result[expected] = row
+        return result
 
     def _read(self, configuration, query, variables=None, *, session=None):
         if query not in READ_QUERIES:

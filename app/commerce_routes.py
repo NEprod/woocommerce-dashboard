@@ -1,5 +1,6 @@
 """Administrator configuration/discovery/drafts. GET never contacts either store."""
-from flask import Blueprint, abort, render_template, request, redirect, url_for
+import json
+from flask import Blueprint, abort, render_template, request, redirect, url_for, jsonify
 from flask_login import login_required, current_user
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SelectField, HiddenField
@@ -8,6 +9,37 @@ from app import commerce_config as config
 from app.shopify_connection import ShopifyAdapter, ShopifyConfiguration, ShopifyError, VERSIONS
 
 commerce = Blueprint("commerce", __name__)
+
+
+@commerce.route("/api/shopify/status", methods=["POST"])
+@login_required
+def refresh_status():
+    # Global CSRFProtect validates X-CSRFToken before reaching this JSON endpoint.
+    if not current_user.is_admin:
+        abort(403)
+    from app.models import Product
+    from app.shopify_status import refresh
+    from app.shopify_products import states_for
+    from app.utils.operation_control import CatalogueOperationActive
+    body = request.get_json(silent=True) or {}
+    ids = body.get("ids", [])
+    if not isinstance(ids, list) or len(ids) > 25 or any(type(i) is not int or i < 1 for i in ids):
+        abort(400)
+    after = body.get("after", 0)
+    if type(after) is not int or after < 0:
+        abort(400)
+    query = Product.query.filter_by(product_type="simple", catalogue_status="active")
+    all_scope = body.get("scope") == "all"
+    products = (query.filter(Product.id > after) if all_scope else query.filter(Product.id.in_(ids))).order_by(Product.id).limit(25).all()
+    try:
+        result = refresh(products, force=body.get("force") is True)
+    except CatalogueOperationActive:
+        return jsonify(busy=True, message="Another catalogue operation is active; try again shortly."), 409
+    except (ShopifyError, config.CommerceConfigError) as exc:
+        return jsonify(error=str(exc), pending=[]), 400
+    result["states"] = states_for(products)
+    result["next_after"] = products[-1].id if all_scope and len(products) == 25 else None
+    return jsonify(result), 200, {"Cache-Control": "no-store"}
 
 
 class ConnectionForm(FlaskForm):
@@ -197,16 +229,28 @@ def draft_identity(identity_id):
 @login_required
 def taxonomy_mappings():
     from app import shopify_taxonomy as service
-    from app.models import ShopifyCollectionIdentity
+    from app import shopify_taxonomy_batch as batch
+    from app.models import ShopifyCollectionIdentity, CatalogueOperation
+    from app import db
     from app.utils.operation_control import CatalogueOperationActive
     if not current_user.is_admin:
         abort(403)
     form, plan, token, error, saved = FlaskForm(), None, None, None, False
+    batch_row, batch_plan, batch_token = None, None, None
     if request.method == "POST":
         if not form.validate_on_submit():
             abort(400)
         try:
-            if request.form.get("action") == "review":
+            if request.form.get("action") == "batch_review":
+                batch_row, batch_plan, batch_token = batch.review(request.form.getlist("sources"), after=request.form.get("after", type=int, default=0))
+            elif request.form.get("action") == "batch_confirm":
+                batch_row = batch.approve(request.form.get("review", ""), request.form.get("acknowledge") == "yes")
+            elif request.form.get("action") == "batch_recover":
+                batch_row = db.session.get(CatalogueOperation, request.form.get("batch_id"))
+                if not batch_row or batch_row.operation_type != "shopify_taxonomy_batch":
+                    abort(404)
+                batch.recover_batch(batch_row)
+            elif request.form.get("action") == "review":
                 plan, token = service.review_mapping(request.form.get("source", ""), request.form.get("mode", ""),
                     request.form.get("remote_id") or None, request.form.get("standard") or None)
             elif request.form.get("action") == "confirm":
@@ -216,9 +260,32 @@ def taxonomy_mappings():
                 abort(400)
         except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
             error = str(exc)
+    if request.method == "GET" and request.args.get("batch"):
+        batch_row = db.session.get(CatalogueOperation, request.args["batch"])
+        if not batch_row or batch_row.operation_type != "shopify_taxonomy_batch":
+            abort(404)
+    batch_data = json.loads(batch_row.scope) if batch_row else None
     return render_template("taxonomy/shopify.html", form=form, sources=service.sources(),
         mappings=ShopifyCollectionIdentity.query.order_by(ShopifyCollectionIdentity.updated_at.desc()).limit(200).all(),
+        overview=batch.overview(), evidence_totals=batch.evidence_totals(), batch_row=batch_row, batch_plan=batch_plan, batch_token=batch_token, batch_data=batch_data,
+        execution=batch.execution_token(batch_row) if batch_row and batch_row.status == "approved" else None,
         plan=plan, token=token, error=error, saved=saved), 400 if error else 200, {"Cache-Control": "no-store"}
+
+
+@commerce.route("/api/shopify/taxonomy/step", methods=["POST"])
+@login_required
+def taxonomy_step():
+    if not current_user.is_admin:
+        abort(403)
+    from app import shopify_taxonomy_batch as batch
+    from app.utils.operation_control import CatalogueOperationActive
+    try:
+        row = batch.execute_one((request.get_json(silent=True) or {}).get("execution", ""))
+        data = json.loads(row.scope)
+        return jsonify(status=row.status, completed=len(data["results"]), total=len(data["plan"]["steps"]),
+            excluded=data["plan"]["totals"]["excluded_products"], history=url_for("commerce.taxonomy_mappings", batch=row.id))
+    except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
+        return jsonify(error=str(exc)), 409
 
 
 def guard_platform():

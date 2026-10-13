@@ -1,5 +1,135 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.8.1 — automatic product checking and taxonomy sync
+
+### Status policy
+
+Products initially renders saved evidence only. Administrators' browser then submits
+bounded read-only refresh steps: up to 25 IDs, two complete canonical comparisons per
+request, serialized by existing operation control. Multiple navigations/tabs reuse
+persisted results. Manual Product/Visible refresh forces a new comparison; Refresh All
+walks ordered Simple-product pages, processing pending IDs before the next page.
+The client stops after 100 requests; no uncontrolled fan-out or perpetual polling.
+Closing the page pauses new requests; an in-flight bounded read may still complete.
+
+| Evidence | Freshness / action |
+|---|---|
+| Local supported data | Content-derived effective JSON/shipping/tags/taxonomy plus authorized image stats; changes queue full comparison |
+| Product ID/updatedAt/status | Batched GraphQL nodes, ten-minute freshness |
+| Full managed fields, media/inventory | Complete comparison no more than 30 minutes old; changed revisions/local fingerprints force it sooner |
+| Collection membership | Independent ten-minute check; never extended merely by product updatedAt |
+| Publication | Still unverified/deferred; ACTIVE is not Online Store availability |
+| Verified remote absence | Thirty minutes, invalidated by source/config/identity changes; Create always rechecks SKU/handle/identity |
+| Failed reads | Historical evidence retained, no new equality; 30-second exponential backoff capped at 15 minutes |
+
+The existing 0011 bounded version-1 comparison JSON gains revision, full/related/absence,
+previous equality and failure timestamps. No migration or independent sync database.
+Last full successful comparison, last attempted/failed check, previous verified equality
+and complete post-write verified_at remain distinct. Unsupported/unresolved publication
+prevents unqualified Up to Date. Before remote comparison, authored changes show **Local
+Changes Detected**; only verified differences show **Update Available**. Suitable checked
+absence shows **Needs Creating**, never just a missing local GID. Null retained nodes are
+missing/inaccessible evidence, not a confirmed deletion or permission to recreate.
+Possible local+remote changes are disclosed for operator review; no authored data is
+automatically overwritten. Client Credentials transport/expiry/redaction is unchanged.
+
+The fixed [nodes query](https://shopify.dev/docs/api/admin-graphql/latest/queries/nodes)
+uses at most 25 IDs, below Shopify's input-array bound. Existing network/response-size
+limits apply; rate-limit failures back off rather than automatically retrying mutations.
+GraphQL cost is still metered, not free. See [API limits](https://shopify.dev/docs/api/usage/limits).
+
+### Correct organisational model
+
+Filesystem catalogue collections manage scanner/editor/inheritance/SKU organisation;
+they **do not automatically become Shopify collections**. The previous M3A.8 inference
+is removed without deleting its stored mappings or remote memberships. The registry
+still owns categories, stable keys/parents/order/aliases, storefront collections and
+tag vocabulary. Existing resolved `categories` and `storefront_collections` assignments
+are consumed directly. Child category assignment derives every valid active ancestor;
+multiple branches are deduplicated and no extra references are written into JSON.
+Inactive/missing/cyclic/ambiguous definitions block affected memberships.
+
+Storefront collection assignments may span catalogue folders; missing assignment
+means none, not an inferred folder name. Existing inheritance/sparse overrides apply.
+Tags remain separate: unspecified is unmanaged, specified lists use reviewed replacement,
+and effective explicit empty lists disclose removals. Registry vocabulary does not
+generate tags. Optional standard Shopify category remains separate and is not guessed
+or required for unrelated collection sync.
+
+### Taxonomy proposal and execution
+
+Open Taxonomy → Shopify collection mappings. All definitions are discovered locally,
+including empty/inactive definitions; cached counts are not fresh remote proof. Select
+up to 20 active groups (first 20 initially selected) and **Review Taxonomy Sync**.
+Selected categories automatically include required active ancestors within that bound.
+Each proposal covers up to 25 active Simple products; an explicit next-page cursor handles
+larger catalogues. Review mapped identities, candidates, Create/No Change, ancestor/
+storefront membership additions, tags and exact removals. Candidate conflicts require
+individual verified Link, not adoption by title. Unverified/recovery products and blocked
+groups are visibly excluded; successful supported work can finish **Partial**, not
+whole-sync success. Empty local definitions stay available; new remote collections
+remain unpublished. No automatic rename, removal, deletion or menu creation.
+
+One signed 15-minute review and CSRF approval starts bounded sequential application.
+CatalogueOperation stores the proposal/results/claimed step (version 1, max 128 KiB),
+and child creates/product taxonomy writes retain individual operation identities.
+Create uses existing SQLite uniqueness, pending-before-request and attempt-marker
+readback. Product stages reread store/product identity and the reviewed remote/source
+digest, write only tags/memberships and independently verify each target. No price,
+shipping, media, product status, standard-category or publication write in the batch.
+Standard-category updates remain in the normal signed product Review.
+
+Closing the page pauses later stages. GET history never resumes writes automatically;
+**Continue approved stages** is explicit, with one-hour execution approval and source/
+configuration checks. Original child collection reviews still expire after 15 minutes;
+an expired remaining Create requires a fresh proposal, not an unsafe retry. Failed or
+interrupted steps retain successes and show the exact blocker. Inspect interrupted
+stage is read-only: first reconcile the uncertain collection marker or product taxonomy
+attempt through the existing identity workflow. If a membership genuinely did not land,
+resolve that reviewed membership explicitly in Shopify and reconcile; no automatic
+retry/rollback. Fresh proposals skip retained verified collections rather than recreate.
+Subset taxonomy verification does not advance complete-product verified_at or falsely
+certify metadata/media/publication equality; subsequent automatic full comparison does.
+
+Required scopes: read_products for revisions/collections; write_products for approved
+manual collection, tag and membership writes. write_files remains only for separately
+reviewed existing-file alt changes. No menu/publication scopes are used. The supported
+2026-10 collection mutations/source safety checks remain from M3A.8. No credential
+values or access tokens are stored in proposals/comparisons or sent to browser code.
+
+### Unraid acceptance
+
+1. Back up stopped appdata; deploy the new immutable tag (or matching develop), keeping
+   mounts, database and credentials. No new migration: head stays 0011_shopify_taxonomy.
+2. Open Products: rows must appear immediately; bounded Checking progress updates
+   statuses. Reopen within freshness: no redundant full comparisons. Refresh Visible
+   or Refresh Product is explicit; Refresh All remains usable and bounded.
+3. LCBC-0001: verify retained Product/Shop identity and automatic dimensions/weight
+   Update Available after comparison. Actual Draft and intended Live stay separate;
+   no automatic publish/update. Edit a genuine supported source field, allow targeted
+   scan, and check Local Changes Detected → confirmed Update Available.
+4. NBNOC-0004: Not Yet Verified until safe SKU reconciliation establishes absence;
+   then Needs Creating, not automatic Create. Invalid/missing required metadata remains
+   a visible validation blocker. Reopening reuses absence; reviewed Create still rechecks.
+5. Taxonomy: inspect Cards/child hierarchy and authored storefront collections separately
+   from filesystem groups. The preceding live test only inspected/proposed Cards Create;
+   no creation was confirmed and no retained mappings existed then.
+6. Review the selected taxonomy scope. Resolve candidate links explicitly; inspect
+   proposed parent memberships, tag removals and exclusions. Confirm once only when
+   satisfied. Check durable per-stage results and actual unpublished collections in
+   Shopify Admin. Product IDs/images/prices/publication must remain unchanged.
+7. Verify a child-assigned Simple product belongs to child+parents, and a shared authored
+   storefront collection spans different catalogue folders. A product without authored
+   storefront collection must gain no invented folder-based merchandising membership.
+8. Refresh Products: metadata, memberships and publication must be distinguished.
+   Simulate temporary connectivity loss only if safe: historical evidence remains,
+   Unavailable replaces current equality, and retries back off. For genuine uncertainty,
+   stop writes and use read-only recovery; never repeat a Create blindly.
+
+Live acceptance is still required. Variable/bulk product publishing, menus, actual Live
+transitions, automatic remote renames/removals and broader JSON editor changes remain
+deferred. M3A.9 complete Create/Edit JSON is next after acceptance, not part of this slice.
+
 ## M3A.8 — comparison evidence and reviewed taxonomy synchronisation
 
 ### Products status and review

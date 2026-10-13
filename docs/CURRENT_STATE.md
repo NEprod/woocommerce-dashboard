@@ -1,5 +1,54 @@
 # Current State
 
+## M3A.8.1 — automatic status and reviewed taxonomy stages
+
+Implemented, with live Unraid acceptance still required. Products renders saved
+local evidence first, then administrator-only incremental read checks update cards.
+Retained identities use batched `nodes` revisions (up to 25); at most two canonical
+full comparisons run per request. Unchanged revisions reuse supported field evidence
+for up to 30 minutes, with independent ten-minute membership checks. Remote revision
+freshness is ten minutes; full media/inventory revalidation is capped at 30 minutes.
+Verified absence lasts 30 minutes; every Create still repeats strict SKU/identity
+preflight. Local changes initially show Local Changes Detected, not remotely confirmed
+Update Available. Read failures preserve historical evidence and use 30–900 second
+backoff. Refresh Product/Visible/All remain read-only and bounded; no page-render API
+requests, duplicate background fan-out or unbounded refresh loop.
+
+M3A.8's filesystem-collection inference is corrected: catalogue groups are inheritance/
+scanner organisation, **not** storefront collections. Existing legacy mappings remain
+historical; no deletion/removal. Only registry categories (including active ancestors)
+and explicitly authored storefront collections produce intended memberships. Stable
+keys, order, aliases, shared metadata and sparse overrides remain authoritative.
+
+Taxonomy now discovers all local definitions, shows cached membership/tag evidence,
+and builds a read-only proposal for up to 20 selected groups and 25 Simple products
+per explicit product page. One signed/CSRF approval executes durable sequential stages:
+safe collection Create, additive memberships and disclosed tag replacements. Ambiguous
+candidates require individual Link; blocked/unverified products/groups are excluded
+and produce Partial, not false whole-sync success. Creation reservations/attempt markers,
+per-stage history and readback are retained. Interrupted steps require read-only
+inspection/reconciliation, never automatic replay. Closing the page pauses subsequent
+steps; GET history does not resume writes. Taxonomy subset verification does not advance
+the complete-product post-write verification timestamp.
+
+No new migration: existing 0011 comparison JSON and CatalogueOperation scope are
+extended with bounded version-1 evidence. The user reported LCBC-0001's refresh found
+real pending dimensions/weight; Cards inspection proposed Create with no candidates,
+but **no collection Create was confirmed and no retained mappings existed** in that
+live test. Do not treat mocked taxonomy writes as live acceptance.
+
+No scanner/SKU/marker/variation/Discord changes, source rewrites, bulk product publishing,
+Variable publishing, menus or channel publication. Intended Live remains separate and
+unresolved without verified Online Store availability. M3A.9 JSON forms remain next,
+not implemented here. User-owned Unraid XML remains outside the commit.
+
+Verification: 164 distinct focused Python cases and 12 JavaScript cases passed,
+including prior publisher compatibility, revision reuse/backoff, independent
+memberships, durable partial stages, signed integrity, cross-folder storefront
+assignments, migration preservation and scanner/SKU/marker parity. Compilation,
+affected-template parsing, changed-JS syntax and diff/credential checks passed.
+No full historical suite or automated live writes.
+
 ## M3A.8 — Shopify comparison, review UX and local taxonomy synchronisation
 
 Implemented; mocked verification and Unraid acceptance are separate gates. Fresh

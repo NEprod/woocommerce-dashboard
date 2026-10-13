@@ -1,5 +1,43 @@
 # Existing Architecture
 
+## M3A.8.1 incremental reconciliation and taxonomy execution
+
+`shopify_status.py` reuses the existing adapter and canonical read-only Preview.
+POST `/api/shopify/status` is administrator/CSRF-protected; GET pages stay local.
+The existing catalogue-operation lease serializes reads against writes/scans, and
+persisted freshness/backoff prevents repeated work across tabs. Requests contain
+at most 25 visible IDs or one ordered Refresh All page, with two full comparisons
+per step. Browser steps are finite and update existing cards without a framework.
+The production single-worker runtime uses existing operation locking; no new queue,
+worker or independent sync database. Closing navigation cancels further client steps;
+an already-running bounded server request may finish safely.
+
+Comparison JSON distinguishes full comparison time, product revision observed/check
+time, related membership check time, cached absence, previous equality and failures.
+Successful revision checks do not advance full comparison/post-write timestamps.
+Local resolved content fingerprints, mapping/identity evidence and configuration
+invalidate equality. Related memberships are re-read independently; media/inventory
+require complete comparison at most 30 minutes apart. Publication remains explicitly
+unverified/deferred. A null retained node means missing/inaccessible, not permission
+to Create. Read errors cannot clear uncertain publishing recovery.
+
+`shopify_taxonomy_batch.py` derives registry ancestors without modifying authored
+references. Catalogue Collection rows are excluded from storefront source discovery.
+Existing folder mappings are retained but no longer contribute managed memberships.
+An explicit proposal uses existing CatalogueOperation scope (version 1, 128 KiB max)
+with signed child reviews and bounded product pages. No new migration. Approved batch
+steps use durable claimed/in-flight state and serialized execution; each child has
+its own operation/identity/readback. Fresh GET history only offers explicit Resume.
+Expired/changed approvals require a new review, preserving completed results.
+
+Taxonomy-only product attempts reserve durable evidence before tag/membership writes,
+preserve IDs/media/publication/metadata, and verify only the approved subset. Genuine
+uncertainty blocks further writes and is reconciled read-only through the existing
+identity UI. Full product verified_at is not changed by subset verification; subsequent
+canonical comparison establishes complete supported sync. Candidate conflicts, inactive
+ancestors, unverified products and unavailable scopes are visible exclusions. No remote
+rollback, membership removal, arbitrary linking, automatic rename or menu publishing.
+
 ## M3A.8 operational comparisons and Shopify collection mappings
 
 `shopify_comparison.py` stores a bounded version-1 summary in

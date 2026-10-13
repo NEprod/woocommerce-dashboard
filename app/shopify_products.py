@@ -60,13 +60,13 @@ def states_for(products):
 def product_state(product, rows, comparisons=(), mappings=None):
     from flask import url_for
     from app.shopify_drafts import evidence
-    state = {"state": "unknown", "label": "Not yet verified", "remote_id": None,
+    state = {"product_id": product.id, "state": "unknown", "label": "Not yet verified", "remote_id": None,
              "remote_status": "Unknown", "publication": "Not verified", "verified_at": None,
              "identity_url": None, "store_id": None, "shopify_url": None,
              "review_url": url_for("commerce.drafts", product_id=product.id) if product.product_type == "simple" and product.catalogue_status == "active" else None,
              "message": "No retained identity. Remote duplicate checks are still required before Create.",
              "intent": "Unresolved", "intent_value": None, "compared_at": None,
-             "change_count": None, "change_summary": [], "blockers": []}
+             "change_count": None, "change_summary": [], "blockers": [], "revision_checked_at": None}
     try:
         live = product_document(product).get("live")
         state["intent_value"] = live if isinstance(live, bool) else None
@@ -93,7 +93,7 @@ def product_state(product, rows, comparisons=(), mappings=None):
                 if baseline and baseline == source_fingerprint(product, plan["images"]):
                     state.update(state="no_change", label="No Change", message="Last verified managed state; local metadata/image stats match. Remote freshness requires explicit Review or reconciliation.")
                 elif baseline:
-                    state.update(state="update", label="Update Available", message="Local source changed since the verified plan. Review determines supported writes.")
+                    state.update(state="local_changes", label="Local Changes Detected", message="Local source changed; a current comparison is pending, not yet a remotely confirmed update.")
                 else:
                     state.update(state="unavailable", label="Verification Unavailable", message="Retained draft is verified historically; build Review Changes for a current local/remote comparison.")
             elif row.state == "failed_before_create":
@@ -118,10 +118,11 @@ def product_state(product, rows, comparisons=(), mappings=None):
                 if data:
                     classification = data["classification"]
                     state.update(state="create" if classification == "create" else "update" if classification == "update" else "no_change",
-                        label="Create Available" if classification == "create" else "Update Available" if classification == "update" else "Up to Date",
+                        label="Needs Creating" if classification == "create" else "Update Available" if classification == "update" else "Up to Date",
                         compared_at=comparison.compared_at.isoformat() + "Z", change_count=data["change_count"],
                         change_summary=data.get("display_changes", []), blockers=data["blockers"],
                         remote_status=data["actual_status"].title() + " (last compared)",
+                        revision_checked_at=data["revision_checked_at"] + "Z" if data.get("revision_checked_at") else None,
                         message="Cached read-only comparison; this is not post-write verification.")
                     if classification == "no_change" and (data["blockers"] or live is not False):
                         state.update(state="attention", label="Needs Attention", message="Metadata matches, but publication or taxonomy blockers remain.")
@@ -129,6 +130,8 @@ def product_state(product, rows, comparisons=(), mappings=None):
                         state.update(state="unavailable", label="Verification Unavailable", change_count=None,
                             change_summary=[], blockers=[data["refresh_failure"]["message"]],
                             message="Last refresh failed; retained publication verification and last comparison are historical. Review again before writing.")
+                    if data.get("conflicting_changes"):
+                        state["message"] += " Both local and Shopify data changed since the checkpoint; inspect the reviewed before/after values before overwriting."
                     break
             else:
                 if identity:
@@ -139,11 +142,20 @@ def product_state(product, rows, comparisons=(), mappings=None):
                         if (comparison.store_id == identity.store_id and known.get("identity") == digest(identity.media_evidence_json)
                                 and known.get("config") == configuration().fingerprint()
                                 and known.get("local") != fingerprint(product, known["images"])):
-                            state.update(state="update", label="Update Available", message="Local metadata or taxonomy changed since the last comparison. Review verifies current remote differences; the previous change count is invalid.")
+                            state.update(state="local_changes", label="Local Changes Detected", message="Local metadata or taxonomy changed; pending remote comparison. The old change count is invalid.")
                             break
                 if state["state"] == "no_change":
                     # Last publish fingerprints predate managed taxonomy and cannot prove it.
                     state.update(state="unavailable", label="Verification Unavailable", message="Fresh managed comparison required; retained publishing evidence remains available.")
+                from app.shopify_drafts import configuration
+                for comparison in comparisons:
+                    failed = json.loads(comparison.summary_json)
+                    from app.shopify_comparison import recent, REVISION_AGE
+                    if failed.get("config") == configuration().fingerprint() and recent(failed.get("observed_revision_at"), REVISION_AGE):
+                        state.update(remote_status=failed["observed_status"].title() + " (revision checked)", revision_checked_at=failed["observed_revision_at"] + "Z")
+                    if failed.get("refresh_failure") and failed.get("config") == configuration().fingerprint():
+                        state.update(state="unavailable", label="Verification Unavailable", message=failed["refresh_failure"]["message"])
+                        break
     except (ValueError, OSError, KeyError, TypeError, AttributeError, RuntimeError):
         state.update(state="unavailable", label="Verification Unavailable", message="Local source or retained evidence needs review; no current equality is claimed.")
     return state

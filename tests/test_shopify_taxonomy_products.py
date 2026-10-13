@@ -84,6 +84,10 @@ def created(world, adapter=None):
     _, token = drafts.preview(world[0], adapter)
     row = drafts.confirm(token, True, adapter)
     assert row.state == "verified", drafts.evidence(row).get("error")
+    if taxonomy.load_configured_registry().available:
+        adapter.collections["gid://shopify/Collection/802"] = {"title": "Cards", "handle": "cards", "marker": None, "members": {row.shopify_product_id}}
+        db.session.add(ShopifyCollectionIdentity(store_id=row.store_id, source_key="categories:cards", remote_id="gid://shopify/Collection/802", state="verified", evidence_json='{"version":1}'))
+        db.session.commit()
     adapter.calls.clear()
     return row, adapter
 
@@ -115,6 +119,9 @@ def test_stale_comparison_and_source_override_invalidate(world):
     assert status(world[0])["label"] == "Up to Date"
     comparison = ShopifyProductComparison.query.one()
     comparison.compared_at -= timedelta(minutes=11)
+    data = json.loads(comparison.summary_json)
+    data["revision_checked_at"] = comparison.compared_at.isoformat()
+    comparison.summary_json = json.dumps(data)
     db.session.commit()
     assert status(world[0])["label"] == "Verification Unavailable"
     drafts.preview(world[0], adapter)
@@ -298,7 +305,7 @@ def test_scope_blockers_keep_read_only_comparison_available(world, registry):
     adapter.test_connection = lambda config: {"shop_id": "gid://shopify/Shop/42", "scopes": ["read_products"]}
     plan, token = drafts.preview(world[0], adapter)
     assert token is None and any("write_products" in b for b in plan["blockers"])
-    assert status(world[0])["label"] == "Create Available"
+    assert status(world[0])["label"] == "Needs Creating"
     with pytest.raises(ShopifyError, match="write_products"):
         taxonomy.review_mapping("categories:birthday", "create", adapter=adapter)
     assert "collection_create" not in adapter.calls
@@ -313,7 +320,7 @@ def test_new_source_edit_during_comparison_cannot_record_equality(world):
         return result
     adapter.read_simple = read
     drafts.preview(world[0], adapter)
-    assert status(world[0])["label"] == "Update Available"
+    assert status(world[0])["label"] == "Local Changes Detected"
     assert status(world[0])["compared_at"] is None
 
 
@@ -410,9 +417,11 @@ def test_explicit_product_type_is_independent_of_hierarchy(world):
     assert adapter.remote["productType"] == "Greeting card" and row.state == "verified"
 
 
-def test_mapping_state_change_invalidates_cached_equality(world):
+def test_mapping_state_change_invalidates_cached_equality(world, registry):
     row, adapter = created(world)
-    mapped = taxonomy.mapping(row.store_id, "collection:" + world[0].collection.source_relpath)
+    change(world, categories=["Cards"])
+    drafts.preview(world[0], adapter)
+    mapped = taxonomy.mapping(row.store_id, "categories:cards")
     mapped.state = "uncertain"
     db.session.commit()
     assert status(world[0])["label"] == "Verification Unavailable"
@@ -429,12 +438,13 @@ def test_existing_collection_candidate_inspection_never_links_or_creates(world, 
     assert adapter.calls == ["connection_read"]
 
 
-def test_mapping_edit_during_remote_compare_cannot_borrow_new_mapping_equality(world):
+def test_mapping_edit_during_remote_compare_cannot_borrow_new_mapping_equality(world, registry):
     row, adapter = created(world)
+    change(world, categories=["Cards"])
     original = adapter.read_simple
     def read(*args):
         remote = original(*args)
-        mapped = taxonomy.mapping(row.store_id, "collection:" + world[0].collection.source_relpath)
+        mapped = taxonomy.mapping(row.store_id, "categories:cards")
         mapped.standard_category_id = "gid://shopify/TaxonomyCategory/aa-1"
         db.session.commit()
         return remote

@@ -97,7 +97,10 @@ class FakeDraftAdapter:
         return {"productVariantsBulkUpdate": {"userErrors": [], "productVariants": [current]}}
 
     def read_simple(self, config, product_id, namespace):
-        return self.read_draft(config, product_id)
+        remote = self.read_draft(config, product_id)
+        if remote is not None:
+            remote.setdefault("updatedAt", "2026-10-12T00:00:00Z")
+        return remote
 
     def find_draft(self, config, handle):
         self.calls.append("find_read")

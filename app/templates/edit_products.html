@@ -68,6 +68,7 @@
 
 <section id="products-browser" class="products-browser" aria-label="Collection-grouped product catalogue" aria-busy="true"
          data-products-browser data-api-url="{{ url_for('main.api_products') }}"
+         {% if current_user.is_admin %}data-status-url="{{ url_for('commerce.refresh_status') }}" data-csrf-token="{{ csrf_token() }}"{% endif %}
          data-variations-url="{{ url_for('main.api_product_variations', product_id=0) }}"
          data-override-folders-url="{{ url_for('main.api_override_folders', product_id=0) }}"
          data-override-create-url="{{ url_for('main.api_override_create', product_id=0) }}"
@@ -95,6 +96,10 @@
     <a class="btn btn-outline-primary" href="{{ url_for('main.products') }}">Clear filters</a>
   </div>
   <div class="products-groups" data-products-groups></div>
+  {% if current_user.is_admin %}<section class="workspace-card workspace-card-body" aria-label="Shopify status refresh">
+    <div class="page-actions"><button type="button" class="btn btn-outline-primary" data-shopify-refresh-visible>Refresh Visible</button><button type="button" class="btn btn-ghost" data-shopify-refresh-all>Refresh All</button></div>
+    <p data-shopify-refresh-progress role="status" aria-live="polite">Saved evidence shown first. Read-only status checks run in bounded steps.</p>
+  </section>{% endif %}
   <section class="workspace-card workspace-card-body" aria-label="Shopify review selection">
     <h2>Selected Shopify reviews <span data-shopify-selection-count>0</span></h2>
     <p>Selection prepares individual reviews only. Each product requires its own Preview and confirmation; bulk execution is not implemented.</p>

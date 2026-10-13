@@ -41,7 +41,7 @@ def test_verified_local_evidence_and_restart(world):
 def test_authored_change_invalidates_workspace_no_change(world, field, value):
     product, _, _ = created(world)
     change(world, **{field: value})
-    assert status(product)["label"] == "Update Available"
+    assert status(product)["label"] == "Local Changes Detected"
 
 
 def test_image_edit_invalidates_without_reading_image_bytes(world, monkeypatch):
@@ -49,7 +49,7 @@ def test_image_edit_invalidates_without_reading_image_bytes(world, monkeypatch):
     created(world)
     Image.new("RGB", (7, 7), "blue").save(folder / "original.png")
     monkeypatch.setattr(drafts, "source_bytes", lambda *a: pytest.fail("Workspace hashed original image"))
-    assert status(product)["label"] == "Update Available"
+    assert status(product)["label"] == "Local Changes Detected"
 
 
 @pytest.mark.parametrize("value", [None, "false", 0])
@@ -176,7 +176,7 @@ def test_bad_retained_plan_never_breaks_product_list(world):
 def test_unresolved_taxonomy_invalidates_equality_without_inventing_writes(world):
     product, _, adapter = created(world)
     change(world, customisation={"proof_policy": "required"}, categories=["Future category"])
-    assert status(product)["label"] == "Update Available"
+    assert status(product)["label"] == "Local Changes Detected"
     plan, token = drafts.preview(product, adapter)
     assert plan["classification"] == "no_change" and token is None
     assert any("Unresolved" in b for b in plan["blockers"])

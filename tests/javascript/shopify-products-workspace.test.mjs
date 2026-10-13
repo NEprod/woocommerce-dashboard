@@ -6,22 +6,25 @@ import vm from "node:vm";
 // Tiny DOM fixture: exercises the real browser renderer without new dependencies.
 class Node {
   constructor(tag = "div") { this.tag = tag; this.children = []; this.dataset = {}; this.events = {}; this.attrs = {}; this.textContent = ""; this.classList = {add() {}, remove() {}}; }
-  appendChild(node) { this.children.push(node); return node; }
+  appendChild(node) { node.parent = this; this.children.push(node); return node; }
+  replaceWith(node) { this.parent.children[this.parent.children.indexOf(this)] = node; node.parent = this.parent; }
   replaceChildren(...nodes) { this.children = nodes; }
   setAttribute(key, value) { this.attrs[key] = value; }
   getAttribute(key) { return this.attrs[key]; }
   addEventListener(name, callback) { this.events[name] = callback; }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
   querySelectorAll(selector) {
-    const key = selector.match(/^\[data-([a-z-]+)\]$/)?.[1]?.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-    return this.children.flatMap(node => [...(key && key in node.dataset ? [node] : []), ...node.querySelectorAll(selector)]);
+    const match = selector.match(/^\[data-([a-z-]+)(?:="([^"]+)")?\]$/);
+    const key = match?.[1]?.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    return this.children.flatMap(node => [...(key && key in node.dataset && (match[2] == null || String(node.dataset[key]) === match[2]) ? [node] : []), ...node.querySelectorAll(selector)]);
   }
 }
 const source = fs.readFileSync(new URL("../../app/static/assets/js/products-browser.js", import.meta.url), "utf8");
-async function render() {
+async function render(automatic = false) {
   const browser = new Node();
   browser.dataset.apiUrl = "/api/edit_products";
-  for (const name of ["productsGroups", "productsLoading", "productsError", "productsEmpty", "productsFilteredEmpty", "productsPagination", "productsRetry", "shopifySelectionCount", "shopifyReviewQueue", "shopifySelectVisible", "shopifyClearSelection", "productsErrorMessage"]) {
+  if (automatic) { browser.dataset.statusUrl = "/api/shopify/status"; browser.dataset.csrfToken = "fictional_csrf"; }
+  for (const name of ["productsGroups", "productsLoading", "productsError", "productsEmpty", "productsFilteredEmpty", "productsPagination", "productsRetry", "shopifySelectionCount", "shopifyReviewQueue", "shopifySelectVisible", "shopifyClearSelection", "productsErrorMessage", "shopifyRefreshProgress", "shopifyRefreshVisible", "shopifyRefreshAll"]) {
     const node = new Node(); node.dataset[name] = ""; browser.appendChild(node);
   }
   const choose = new Node();
@@ -31,7 +34,7 @@ async function render() {
     view_url: "/products/1", metadata_source: "shared", publishing_intent_label: "Draft intended",
     shopify: {label: "Update Available", intent: "Draft intended", remote_status: "Draft (last compared)", compared_at: "2026-10-12T09:00:00Z", change_count: 2, review_url: "/products/1/shopify/review", identity_url: "/shopify/drafts/identity/1"}};
   const calls = [];
-  const fetch = async (...args) => { calls.push(args); return {ok: true, json: async () => ({summary: {}, groups: [{name: "Cards", product_count: 1, variation_count: 0, products: [product]}], pagination: {total: 1, from: 1, to: 1, page: 1, pages: 1}})}; };
+  const fetch = async (...args) => { calls.push(args); return {ok: true, json: async () => args[0] === "/api/shopify/status" ? {checked: [1], pending: [], states: {1: {...product.shopify, label: "Up to Date", change_count: 0}}, errors: []} : ({summary: {}, groups: [{name: "Cards", product_count: 1, variation_count: 0, products: [product]}], pagination: {total: 1, from: 1, to: 1, page: 1, pages: 1}})}; };
   const window = {location: {search: "", pathname: "/products", href: "https://local.test/products"}, fetch, ProductsOverrideClient: {}};
   vm.runInNewContext(source, {document, window, fetch, URLSearchParams, Intl, Map, Number, String, Date});
   await new Promise(resolve => setImmediate(resolve));
@@ -72,4 +75,15 @@ test("collection selection queues only its supported single-product reviews", as
   all(browser).find(n => n.textContent === "Select for Shopify review").events.click();
   assert.equal(browser.querySelector("[data-shopify-selection-count]").textContent, 1);
   assert.equal(calls.length, 1);
+});
+
+test("automatic status checking renders local rows first then updates desktop and mobile", async () => {
+  const {browser, calls} = await render(true);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0][0], "/api/edit_products");
+  assert.equal(calls[1][0], "/api/shopify/status");
+  assert.equal(calls[1][1].headers["X-CSRFToken"], "fictional_csrf");
+  assert.deepEqual(JSON.parse(calls[1][1].body), {ids: [1], force: false});
+  assert.equal(all(browser).filter(n => n.textContent === "Up to Date").length, 2);
+  assert.match(browser.querySelector("[data-shopify-refresh-progress]").textContent, /No store writes/);
 });
