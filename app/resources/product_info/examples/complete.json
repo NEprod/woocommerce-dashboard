@@ -1,4 +1,7 @@
 {
+  "primary_category": null,
+  "manage_stock": false,
+  "backorders": "no",
   "country_of_origin": "GB",
   "requires_shipping": true,
   "customisation": {"proof_policy": "optional", "fields": {"name": {"type": "text", "label": "Customer name", "required": true}}},

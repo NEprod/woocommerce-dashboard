@@ -45,6 +45,8 @@ def refresh(products, *, force=False, adapter=None):
         config = drafts.configuration()
         config_digest = config.fingerprint()
         mappings = {(r.store_id, r.source_key): r for r in ShopifyCollectionIdentity.query.all()}
+        from app.models import ShopifyAttributeIdentity
+        mappings.update({(r.store_id,r.source_key):r for r in ShopifyAttributeIdentity.query.all()})
         work, due = [], []
         for product in products:
             if product.product_type not in {"simple","variable"} or product.catalogue_status != "active":
@@ -111,6 +113,10 @@ def refresh(products, *, force=False, adapter=None):
                 if revision and valid and (revision["updatedAt"] != valid.get("remote_updated_at") or revision["status"] != valid.get("actual_status")):
                     needs_full = True
                 if identity and identity.shopify_product_id in revisions and revision is None:
+                    from app.shopify_lifecycle import check_absence
+                    if check_absence(identity, adapter):
+                        results.append(product.id)
+                        continue
                     raise ShopifyError("Retained Shopify product is missing or inaccessible. No Create is permitted; inspect identity and permissions.")
                 if needs_full:
                     if full >= FULL_PER_STEP:
@@ -147,6 +153,15 @@ def refresh(products, *, force=False, adapter=None):
                     comparison.store_summary(saved, data)
                 results.append(product.id)
             except ShopifyError as exc:
+                from app.shopify_connection import ShopifyProductAbsent
+                if isinstance(exc, ShopifyProductAbsent) and identity:
+                    from app.shopify_lifecycle import check_absence
+                    try:
+                        if check_absence(identity, adapter):
+                            results.append(product.id)
+                            continue
+                    except ShopifyError as failure:
+                        exc=failure
                 mark_failure(product, saved, str(exc))
                 errors.append({"product_id": product.id, "message": str(exc)})
                 results.append(product.id)

@@ -286,8 +286,12 @@ def test_missing_optional_fields_do_not_clear_remote_values(world):
     inventory = adapter.remote["simpleVariants"]["nodes"][0]["inventoryItem"]
     inventory.update(countryCodeOfOrigin="CN", requiresShipping=False, tracked=True)
     plan, token = drafts.preview(product, adapter)
-    assert plan["classification"] == "no_change" and token is None
+    assert plan["classification"] == "update" and token
+    assert [f["field"] for f in plan["fields"] if f["changed"]] == ["tracked"]
     assert "countryCodeOfOrigin" not in plan["managed"]["variant"]["inventoryItem"]
+    drafts.confirm(token, True, adapter)
+    assert inventory["countryCodeOfOrigin"]=="CN" and inventory["requiresShipping"] is False
+    assert adapter.remote["vendor"]=="Remote vendor" and adapter.remote["seo"]["title"]=="Remote SEO"
 
 
 def test_dimensions_type_conflict_blocks_before_write(world):

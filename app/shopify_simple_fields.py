@@ -56,7 +56,16 @@ def contract(snapshot, base):
     authored = snapshot.data["authored"]
     product = {"title": base["title"], "descriptionHtml": base["description"]}
     variant = {"price": base["price"], "compareAtPrice": None, "inventoryItem": {"sku": base["sku"]}}
-    warnings = ["DRAFT only. No inventory quantities, tracking, locations or fulfilment configuration will change."]
+    warnings = ["DRAFT only. No inventory quantities, locations or fulfilment configuration will change."]
+    tracking = authored.get("manage_stock", False)
+    if type(tracking) is not bool or authored.get("stock_quantity") is not None and "manage_stock" not in authored:
+        raise ShopifyError("Resolve the explicit finished-product tracking policy before publishing; quantities never imply an invented policy.")
+    backorders = authored.get("backorders", "no")
+    if backorders not in ("no", "yes", "notify", None):
+        raise ShopifyError("Unsupported authored backorder policy.")
+    variant["inventoryItem"]["tracked"] = tracking
+    variant["inventoryPolicy"] = "CONTINUE" if not tracking or backorders in ("yes", "notify") else "DENY"
+    warnings.append("Reviewed finished-product inventory: " + ("tracking enabled; existing quantities unchanged" if tracking else "untracked / continue selling; no artificial stock quantity"))
     if not base["description"]:
         warnings.append("Main product description is empty; confirming a reviewed description change may clear existing main copy. SEO description is separate and will not be substituted.")
     if "tags" not in authored:
@@ -147,7 +156,7 @@ def review_rows(plan):
         "seo.description": "SEO description", "price": "Customer price",
         "compareAtPrice": "Compare-at price", "variant.sku": "SKU", "sku": "SKU",
         "requiresShipping": "Requires shipping", "countryCodeOfOrigin": "Country of origin",
-        "weight": "Weight", "native.packed_dimensions": "Native packed dimensions", "media.order": "Gallery order", "category": "Standard Shopify category", "productType": "Shopify product type"}
+        "weight": "Weight", "tracked": "Track finished-product inventory", "inventoryPolicy": "Out-of-stock policy", "native.packed_dimensions": "Native packed dimensions", "media.order": "Gallery order", "category": "Standard Shopify category", "productType": "Shopify product type"}
     def value(item):
         if item is None or item == "":
             return "Not set"
@@ -240,6 +249,10 @@ def field_rows(managed, remote):
             or len(variants.get("nodes", [])) != 1):
         raise ShopifyError("Exactly one independently read Simple variant is required.")
     variant = variants["nodes"][0]
+    if "inventoryPolicy" in managed["variant"]:
+        if variant.get("inventoryPolicy") not in {"CONTINUE", "DENY"}:
+            raise ShopifyError("Remote inventory policy evidence is incomplete.")
+        add("inventoryPolicy", variant["inventoryPolicy"], managed["variant"]["inventoryPolicy"])
     if "sku" not in variant:
         raise ShopifyError("Remote variant SKU evidence is incomplete.")
     add("variant.sku", variant["sku"], managed["variant"]["inventoryItem"]["sku"])

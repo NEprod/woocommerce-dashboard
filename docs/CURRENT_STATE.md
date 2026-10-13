@@ -1,5 +1,75 @@
 # Current State
 
+## M3A.8.5 — inventory policy, first-use taxonomy and remote lifecycle
+
+Implemented; controlled Unraid acceptance remains required. The proven inventory
+defect is omission of tracked/inventoryPolicy from both default-variant updates and
+additional-variant creation/comparison. Shopify's bulk input defaults inventoryPolicy
+to DENY; creation paths could therefore diverge. The reported nine-variant store was
+not queried from development. Fresh Review now exposes actual per-SKU policy rather
+than inventing live values. No authored finished-stock policy means reviewed tracked
+false / CONTINUE for every variant. Explicit manage_stock and backorders are preserved;
+quantities/locations remain unchanged. Existing mismatches repair through signed Update.
+
+Required active category/ancestor/storefront mappings can now Create & Join during
+one confirmed product operation. Remote title/handle candidates block for explicit
+Link; pending identities reserve before Create. Only used definitions register, never
+filesystem catalogue groups. Successful earlier stages remain durable during failures.
+
+Informational attributes use their effective role, not a name heuristic. App-owned
+metaobject definitions and stable-keyed term entries feed list.metaobject_reference
+product metafields. Eight attributes/forty assigned terms maximum, with evidence-size
+preflight. Only explicit [] clears that owned reference list; absent fields and unrelated
+merchant metafields stay unmanaged. Independent resource/assignment verification is
+required. Migration 0012_shopify_attributes adds one store-scoped unique bounded
+operational mapping table with no backfill; authored registry/JSON remains authoritative.
+
+Known/incomplete informational stages need explicit read-only recovery and a fresh
+signed review, not automatic replay. Uncertain resource creation blocks until exact
+owned reads establish its identity or noncreation. Two successful null reads of an
+unknown app-owned unique resource can establish noncreation; only a NEW reviewed
+confirmation permits creation afterward. Base-only verification never advances full
+publish verification or permits deletion. Remaining stages use retained parent IDs.
+
+Registry browse_role explicitly selects internal/filter/destination/both, with optional
+browse_group and acyclic within-attribute browse_parent. Existing registries default
+internal; term existence/legacy visibility flags do not authorise public exposure.
+Dedicated destinations register only on reviewed product use. Optional primary_category
+references a directly assigned active TLC category key without replacing other assignments.
+Taxonomy Navigation Preview stays read-only, includes local usage/mapped IDs and hides
+empty/unknown destinations. Up to 25 exact publication reads per explicit check use
+configured Online Store Publication GID/read_publications; ACTIVE/local live alone is
+never eligible. Menu writes, Search & Discovery filter activation and theme rendering
+remain deferred. Local preview is capped at 500 products and declares truncation.
+
+Separate Delete from Shopify review requires admin/CSRF, signed expiry, typed exact SKU,
+fresh store/product/correlation/variant identity and unchanged review evidence. One
+irreversible productDelete is followed by two independent exact null reads. Timeout/
+survival/read errors remain protected and require read-only reconciliation, never replay.
+Confirmed absence archives complete old parent/variant/inventory/media receipts in
+protected CatalogueOperation history before clearing active bindings. Needs Creating
+then permits a fresh signed Create with SKU/candidate checks and new remote identities;
+local catalogue/files/images/SKUs/markers remain intact. Bounded normal refresh also
+recognises independently confirmed manual Shopify deletion. Archived/unpublished
+products retain identities; a failed request or missing revision is never deletion proof.
+
+Ordinary API remains 2026-10; only existing opt-in packed capability uses 2027-01 RC.
+No live Shopify writes/deletes, deployment, folder/SKU/scanner rewrite, image conversion,
+bulk publishing, JSON-editor milestone or unrelated Unraid changes are included.
+
+Verification: one focused compatibility regression passed 304 cases initially with
+four obsolete/incomplete-mock assertions; all four passed targeted corrections.
+Recovery/schema follow-up passed 115 with one optional external-reference skip;
+47 Simple/Variable/query-budget checks passed. Final milestone suite passed 24,
+including both variable layouts, controlled remaining-stage review, deletion/recreation
+and resource noncreation. JavaScript selection passed 29. No full historical suite or
+live Shopify request/write/deletion was run. Browser live acceptance remains required.
+The complete fictional JSON example/template was brought into line with the three new
+optional fields (unresolved primary_category stays null, not a fabricated category).
+All 19 product-contract cases passed; seven final lifecycle/attribute/UI cases passed.
+Final checks compiled 25 Python files, parsed eight templates/six JSON resources and
+passed JavaScript syntax/diff/credential-pattern checks. No unrelated Unraid file changed.
+
 ## M3A.8.4 — reviewed Variable publishing and compact Products
 
 Implemented for one existing active catalogue parent per signed, expiring administrator

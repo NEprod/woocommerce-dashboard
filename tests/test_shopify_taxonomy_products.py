@@ -143,7 +143,8 @@ def test_create_mapping_then_multiple_memberships(world, registry):
     row, adapter = created(world)
     change(world, categories=["Cards > Birthday Cards"], storefront_collections=["Personalised"], tags=["Birthday"])
     plan, token = drafts.preview(world[0], adapter)
-    assert token is None and len(plan["collections"]) == 3
+    assert token and len(plan["collections"]) == 3
+    assert sum(c["action"] == "Create & Join" for c in plan["collections"]) == 2
     assert "collection_create" not in adapter.calls
     source = "categories:birthday"
     reviewed, token = taxonomy.review_mapping(source, "create", adapter=adapter)
@@ -247,7 +248,7 @@ def test_migration_preserves_existing_identities_and_uniqueness(tmp_path):
     with sqlite3.connect(path) as con:
         con.execute("insert into shopify_product_identity(source_identity,sku,store_key,store_id,store_domain,state,verification_state,reviewed_digest,media_evidence_json) values('source','SKU','key','store','fictional.myshopify.com','verified','verified','digest','{}')")
         before = con.execute("select * from shopify_product_identity").fetchall()
-    assert ensure_database(f"sqlite:///{path}").revision == "0011_shopify_taxonomy"
+    assert ensure_database(f"sqlite:///{path}").revision == "0012_shopify_attributes"
     with sqlite3.connect(path) as con:
         assert before == con.execute("select * from shopify_product_identity").fetchall()
         assert con.execute("select count(*) from shopify_product_comparison").fetchone()[0] == 0
@@ -426,7 +427,7 @@ def test_mapping_state_change_invalidates_cached_equality(world, registry):
     db.session.commit()
     assert status(world[0])["label"] == "Verification Unavailable"
     plan, token = drafts.preview(world[0], adapter)
-    assert token is None and any("mapping required" in b for b in plan["blockers"])
+    assert token is None and any("recovery required" in b for b in plan["blockers"])
 
 
 def test_existing_collection_candidate_inspection_never_links_or_creates(world, registry):

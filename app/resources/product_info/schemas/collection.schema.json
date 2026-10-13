@@ -18,6 +18,9 @@
     "customisation": {"type": "object"},
     "dimensions": {"$ref": "#/$defs/dimensions"},
     "categories": {"$ref": "#/$defs/stringArray"},
+    "primary_category": {"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,95}$"}]},
+    "manage_stock": {"type":"boolean"},
+    "backorders": {"enum":["no","yes","notify"]},
     "storefront_collections": {"$ref": "#/$defs/stringArray"},
     "tags": {"$ref": "#/$defs/stringArray"},
     "live": {"type": "boolean"},
@@ -74,7 +77,7 @@
     },
     "attributeValues": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "items": {"type": ["string", "number", "boolean"]}
     },
     "attributes": {

@@ -36,6 +36,11 @@ def mapping_digest(row):
         "evidence": row.evidence_json}) if row else None
 
 
+def attribute_mapping_digest(row):
+    from app.shopify_drafts import digest
+    return digest({"remote":row.remote_id,"state":row.state,"evidence":row.evidence_json}) if row else None
+
+
 def fingerprint(product, images):
     from app.shopify_products import source_fingerprint
     from app.shopify_taxonomy import fingerprint as taxonomy_fingerprint
@@ -56,7 +61,7 @@ def record(product, plan, identity=None):
     if row is None:
         row = ShopifyProductComparison(store_id=plan["store_id"], source_identity=product.source_relpath)
     changes = [{"field": r["field"], "after": r["after"]} for r in plan["fields"] if r["changed"]]
-    changes += [{"field": "collections." + r["key"], "after": r["name"]} for r in plan.get("collections", []) if r["action"] == "Join"]
+    changes += [{"field": "collections." + r["key"], "after": r["name"]} for r in plan.get("collections", []) if r["action"] in {"Join","Create & Join"}]
     summary = {"version": 1, "product_id": product.id, "source": product.source_relpath,
         "store_id": plan["store_id"], "remote_id": plan.get("remote_id"),
         "local": expected_local, "images": [{"source": i["source"]} for i in plan["images"]],
@@ -66,6 +71,9 @@ def record(product, plan, identity=None):
         "mappings": {r["key"]: r.get("mapping_fingerprint") for r in plan.get("collections", [])},
         "actual_status": plan.get("actual_status", "Not yet created")}
     summary["config"] = plan.get("config_digest")
+    from app.shopify_attributes import resource
+    summary["attribute_mappings"]={r["source"]:attribute_mapping_digest(resource(plan["store_id"],r["source"]))
+        for a in plan.get("attributes",[]) for r in a["resources"]}
     summary["native"] = plan.get("native")
     summary["conflicting_changes"] = bool(plan.get("conflicting_changes")) and plan["classification"] == "update"
     stamp = now().isoformat()
@@ -134,5 +142,8 @@ def current(product, row, identity, mappings, *, freshness=True):
     for key, expected in data.get("mappings", {}).items():
         mapping = mappings.get((row.store_id, key))
         if expected != mapping_digest(mapping):
+            return None
+    for key,expected in data.get("attribute_mappings",{}).items():
+        if attribute_mapping_digest(mappings.get((row.store_id,key)))!=expected:
             return None
     return data

@@ -1,5 +1,32 @@
 [
   {
+    "key": "primary_category", "aliases": [], "type": "stable assigned TLC category key", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Scalar inheritance and explicit product replacement.", "merge": "Replacement; does not replace categories.",
+    "parent_effect": "Proposed default TLC breadcrumb only.", "variation_effect": "Parent-level browsing metadata, never another option.",
+    "woo_field": null, "sqlite_destination": "Resolved authoritative metadata; no new product column.",
+    "classification": "canonical and active", "implementation_status": "Validated assigned active identity in Shopify Review/navigation; theme breadcrumbs deferred.",
+    "example": "cat-cards", "warning_error": "Invalid or unassigned identity blocks reviewed publishing, not a silent rewrite."
+  },
+  {
+    "key": "manage_stock", "aliases": [], "type": "boolean", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Scalar inheritance/product override; absence uses the reviewed untracked policy.", "merge": "Replacement.",
+    "parent_effect": "Reviewed Shopify finished-product tracking.", "variation_effect": "Consistent inherited tracking, without quantity/location writes.",
+    "woo_field": null, "sqlite_destination": "Resolved authored publishing policy; scanner stock projections unchanged.",
+    "classification": "canonical and active", "implementation_status": "Explicit Shopify tracking and selling policy only; no stock quantities invented.",
+    "example": false, "warning_error": "Non-boolean or quantity without explicit policy requires resolution."
+  },
+  {
+    "key": "backorders", "aliases": [], "type": "no | yes | notify", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Scalar inheritance and product override.", "merge": "Replacement.",
+    "parent_effect": "Reviewed Shopify inventoryPolicy.", "variation_effect": "Inherited out-of-stock selling policy for tracked variants.",
+    "woo_field": null, "sqlite_destination": "Resolved metadata; no stock/inventory location projection changes.",
+    "classification": "canonical and active", "implementation_status": "yes/notify permits selling; no denies selling tracked out-of-stock variants. No notification mechanism added.",
+    "example": "no", "warning_error": "Unsupported policy blocks publishing. Quantities and locations remain separately managed."
+  },
+  {
     "key": "country_of_origin", "aliases": [], "type": "uppercase two-letter country code", "units": null,
     "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
     "inheritance": "Scalar override; missing inherits, then optional reviewed deployment default.", "merge": "Replacement.",

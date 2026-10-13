@@ -33,6 +33,21 @@ def sources():
                     rows.append({"key": kind + ":" + item["key"], "name": item["name"],
                         "label": paths[item["key"]] if kind == "categories" else item["name"], "slug": item["slug"],
                         "parent": item.get("parent"), "order": item.get("order"), "aliases": list(item.get("aliases", []))})
+        for attribute in registry.snapshot.data["attributes"]:
+            terms={t["key"]:t for t in attribute["terms"]}
+            for term in attribute["terms"]:
+                if attribute["state"]!="active" or term["state"]!="active" or term.get("browse_role",attribute.get("browse_role","internal")) not in {"destination","both"}:
+                    continue
+                trail=[term["name"]]; cursor=term.get("browse_parent"); ancestors=[]; issue=None
+                while cursor:
+                    if terms[cursor]["state"]!="active": issue="Browse ancestor is inactive; resolve the local registry policy before publication."
+                    if terms[cursor].get("browse_role",attribute.get("browse_role","internal")) in {"destination","both"}:
+                        ancestors.append("attribute_browse:"+attribute["key"]+":"+cursor)
+                    trail.insert(0,terms[cursor]["name"]); cursor=terms[cursor].get("browse_parent")
+                rows.append({"key":"attribute_browse:"+attribute["key"]+":"+term["key"],
+                    "name":attribute["name"]+": "+term["name"],"label":" > ".join([attribute.get("browse_group",attribute["name"]),*trail]),
+                    "slug":"tlc-"+__import__('hashlib').sha256((attribute["key"]+":"+term["key"]).encode()).hexdigest()[:24],
+                    "parent":None,"order":term.get("order",0),"aliases":[],"browse_ancestors":ancestors,"browse_issue":issue})
     rows.sort(key=lambda r: (r["key"].split(":", 1)[0], r.get("order") or 0, r["label"], r["key"]))
     if has_request_context() and request.method == "GET":
         g.shopify_taxonomy_sources = rows
@@ -61,8 +76,24 @@ def assignments(product):
                         visited.add(parent)
                         wanted.append(parent)
                         cursor = lookup[parent]
+    for attr in resolved["attributes"]:
+        if attr["variation"] or not attr["definition"]:
+            continue
+        for term in attr["terms"]:
+            if term["definition"]:
+                key="attribute_browse:"+attr["definition"]["key"]+":"+term["definition"]["key"]
+                if key in lookup:
+                    wanted.append(key)
+                    if lookup[key].get("browse_issue"): blockers.append(lookup[key]["browse_issue"])
+                    for parent in lookup[key].get("browse_ancestors",[]):
+                        if parent not in lookup: blockers.append("Required browse ancestor is unavailable; resolve registry roles.")
+                        else: wanted.append(parent)
+    primary=doc.get("primary_category")
+    direct={item["definition"]["key"] for item in resolved["categories"] if item["definition"] and item["definition"]["state"]=="active"}
+    if primary is not None and (not isinstance(primary,str) or primary not in direct):
+        blockers.append("Primary category must be an assigned active TLC category identity; other assignments are retained.")
     if len(set(wanted)) > MAX_GROUPS:
-        blockers.append("At most 12 collection memberships can be reviewed per Simple product.")
+        blockers.append("At most 12 collection memberships can be reviewed per product parent.")
     return [lookup[k] for k in sorted(set(wanted))[:MAX_GROUPS] if k in lookup], blockers
 
 
@@ -70,7 +101,12 @@ def fingerprint(product):
     from app.shopify_drafts import digest
     rows, blockers = assignments(product)
     # Include effective definitions/order/aliases/parent paths, not unrelated registry entries.
-    return digest({"sources": rows, "blockers": blockers,
+    from app.shopify_attributes import assigned
+    try:
+        info=assigned(product)
+    except ShopifyError as exc:
+        info={"unresolved":str(exc)}
+    return digest({"sources": rows, "blockers": blockers,"informational":info,
         "categories": product_document(product).get("categories", []),
         "collections": product_document(product).get("storefront_collections", [])})
 
@@ -88,7 +124,16 @@ def membership_plan(product, store, remote_id, config, adapter):
         item = dict(source, remote_id=row.remote_id if row else None, mapping_state=row.state if row else "missing",
             mapping_fingerprint=mapping_digest(row), action="Resolve mapping", member=None)
         if not row or row.state != "verified" or not row.remote_id:
-            blockers.append("Collection mapping required: " + source["label"])
+            if row:
+                blockers.append("Collection recovery required: " + source["label"])
+            else:
+                try:
+                    proposal, _ = review_mapping(source["key"], "create", adapter=adapter)
+                    from app.shopify_drafts import digest
+                    proposal["nonce"] = digest({"store":store,"source":source["key"],"kind":"required_collection"})[:32]
+                    item.update(registration=proposal, action="Create & Join")
+                except ShopifyError as exc:
+                    blockers.append(source["label"] + ": " + str(exc))
         else:
             remote = adapter.collection_state(config, row.remote_id, remote_id or "gid://shopify/Product/0")
             validate_collection(remote, row.remote_id)
@@ -100,6 +145,44 @@ def membership_plan(product, store, remote_id, config, adapter):
     if len(standards) > 1:
         blockers.append("Multiple explicit Shopify standard categories conflict; review their mappings.")
     return result, blockers, next(iter(standards)) if len(standards) == 1 else None
+
+
+def register_required(row, data, config, adapter):
+    """Called only after signed product approval, under its existing operation lease."""
+    from app.shopify_drafts import save, digest, payload_result
+    from app.shopify_comparison import mapping_digest
+    for item in data["plan"].get("collections", []):
+        proposal = item.get("registration")
+        if not proposal:
+            continue
+        existing = mapping(row.store_id, item["key"])
+        if existing:
+            raise ShopifyError("Required collection changed/reserved after review. Reconcile or rebuild, never duplicate Create.")
+        fresh, _ = review_mapping(item["key"], "create", adapter=adapter)
+        for key in ("source","mode","store_id","config","remote_id","standard","candidates","remote_digest","row_digest","row_state"):
+            if fresh[key] != proposal[key]:
+                raise ShopifyError("Required collection source/candidates/configuration changed; no registration attempted.")
+        data["stage"] = "required_collection_create"
+        save(row, data)
+        mapped = ShopifyCollectionIdentity(store_id=row.store_id,source_key=item["key"],state="creating",
+            operation_id=row.operation_id,evidence_json=encode(proposal))
+        db.session.add(mapped); db.session.commit()  # unique pending identity BEFORE create
+        try:
+            value = payload_result(adapter.create_collection(config,{"title":item["name"],"handle":item["slug"],
+                "metafields":[{"namespace":"tlc_dashboard","key":"collection_attempt","type":"single_line_text_field","value":proposal["nonce"]}]}),"collectionCreate")
+            mapped.remote_id = _gid((value.get("collection") or {}).get("id"),"Collection")
+            db.session.commit()
+            remote = validate_collection(adapter.collection_state(config,mapped.remote_id),mapped.remote_id)
+            if (remote.get("metafield") or {}).get("value") != proposal["nonce"]:
+                raise ShopifyError("Required collection creation correlation is not independently verified.")
+            mapped.state="verified"; mapped.evidence_json=encode({**proposal,"verified_remote":mapped.remote_id})
+            db.session.commit()
+            item.update(remote_id=mapped.remote_id,mapping_state="verified",mapping_fingerprint=mapping_digest(mapped),action="Join")
+            data.setdefault("completed_steps",[]).append("register:"+item["key"])
+            save(row,data)
+        except Exception:
+            db.session.rollback(); mapped.state="uncertain"; db.session.commit()
+            raise ShopifyError("Required collection registration is uncertain. Successful preceding mappings remain; use existing Taxonomy reconciliation, never retry Create.") from None
 
 
 def validate_collection(remote, expected):
@@ -238,6 +321,7 @@ def confirm_mapping(token, acknowledged, adapter=None):
 def join_reviewed(row, data, config, adapter):
     from app.shopify_drafts import save, payload_result, local_plan, configuration
     from app.models import Product
+    register_required(row, data, config, adapter)
     for item in data["plan"].get("collections", []):
         if item["action"] != "Join":
             continue
@@ -258,6 +342,12 @@ def join_reviewed(row, data, config, adapter):
 
 def verify_memberships(plan, config, adapter, product_id):
     for item in plan.get("collections", []):
+        if not item.get("remote_id") and item.get("registration"):
+            kept=mapping(plan["store_id"],item["key"])
+            if kept and kept.state=="verified" and json.loads(kept.evidence_json).get("nonce")==item["registration"]["nonce"]:
+                item["remote_id"]=kept.remote_id
+            else:
+                raise ShopifyError("Required collection attempt remains unresolved; reconcile its retained Taxonomy mapping before product recovery.")
         remote = validate_collection(adapter.collection_state(config, item["remote_id"], product_id), item["remote_id"])
         if not remote["hasProduct"]:
             raise ShopifyError("Managed collection membership is unresolved. Reconcile; do not retry the whole product blindly.")

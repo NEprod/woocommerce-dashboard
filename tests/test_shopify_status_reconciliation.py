@@ -16,6 +16,11 @@ from test_shopify_foundation import isolated_transport, Session, Response
 
 
 class RevisionAdapter(TaxonomyAdapter):
+    def lifecycle_product(self, config, product_id):
+        # A missing revision alone cannot prove absence: simulate unavailable
+        # independent existence evidence, which must keep the identity protected.
+        raise ShopifyError("Exact existence read unavailable; absence not established.")
+
     def product_revisions(self, config, ids):
         self.calls.append("revision_read")
         return {i: {"id": i, "updatedAt": self.remote.get("updatedAt", "2026-10-12T00:00:00Z"), "status": self.remote["status"]} if self.remote else None for i in ids}

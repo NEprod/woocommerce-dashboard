@@ -134,6 +134,13 @@ def _validate(data):
         _validate_scope(data[kind], "$." + kind, paths if kind == "categories" else None)
     for i, attribute in enumerate(data["attributes"]):
         _validate_scope(attribute["terms"], f"$.attributes[{i}].terms")
+        terms={t["key"]:t for t in attribute["terms"]}
+        for key,term in terms.items():
+            seen={key}; parent=term.get("browse_parent")
+            while parent:
+                if parent not in terms or parent in seen:
+                    _fail("browse_cycle", "$.attributes", "Browse parents must be acyclic terms within this attribute.")
+                seen.add(parent); parent=terms[parent].get("browse_parent")
 
 
 def _validate_scope(rows, path, category_paths=None):

@@ -23,7 +23,9 @@
         "slug": {"type": "string", "maxLength": 96, "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*(?![\\s\\S])"},
         "state": {"enum": ["draft", "active", "deprecated"]},
         "order": {"type": "integer", "minimum": 0, "maximum": 1000000},
-        "aliases": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/label"}}
+        "aliases": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/label"}},
+        "browse_role": {"enum": ["internal", "filter", "destination", "both"]},
+        "browse_parent": {"anyOf": [{"type":"null"},{"$ref":"#/$defs/key"}]}
       },
       "unevaluatedProperties": false
     },
@@ -50,6 +52,8 @@
         "order": {"$ref": "#/$defs/entry/properties/order"},
         "aliases": {"$ref": "#/$defs/entry/properties/aliases"},
         "navigation": {"type": "boolean"}, "visible_default": {"type": "boolean"},
+        "browse_role": {"enum": ["internal", "filter", "destination", "both"]},
+        "browse_group": {"$ref":"#/$defs/label"},
         "terms": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/entry"}}
       },
       "additionalProperties": false

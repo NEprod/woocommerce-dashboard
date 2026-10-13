@@ -1,5 +1,49 @@
 # Existing Architecture
 
+## M3A.8.5 — first-use resources and exact remote lifecycle
+
+The existing ShopifyAdapter transports new fixed 2026-10 resource, CAS assignment,
+publication-read and productDelete contracts. Existing auth/redaction/timeouts/no-retry
+and the separate native 2027-01 allowlist are unchanged. Shared field mapping now
+manages tracked/inventoryPolicy explicitly while never emitting quantities/locations.
+
+`shopify_taxonomy.register_required` runs inside the signed product operation lease,
+reuses registry sources, canonical candidate review and collection validation, and
+reserves ShopifyCollectionIdentity before mutation. Planned missing collections are
+signed as Create & Join; actual GIDs are retained and memberships independently read.
+No similarly named candidate is silently adopted, and no remote-only membership is removed.
+
+`shopify_attributes` resolves only effective informational assignments. Existing variant
+drivers remain options. Deterministic app-owned type/handle/field keys and TLC identity
+fields anchor controlled metaobjects; product lists reference verified Metaobject GIDs.
+SQLite ShopifyAttributeIdentity (0012) enforces store/source and store/remote uniqueness,
+16 KiB versioned resource evidence and operation references. No authoritative tree is
+duplicated. Registration/assignment stages persist before writes; metafieldsSet uses
+compareDigest CAS. Exact readback checks types, definition IDs, term identity and lists.
+Registry/source/resource changes invalidate reusable comparison; Products GET remains
+local and resource mappings load in one bounded query rather than per-product reads.
+
+Explicit recovery distinguishes unresolved registration, known noncreation and verified
+base work with remaining informational stages. Only successful exact owned reads can
+resolve a resource; absence requires two reads and no former known GID. Remaining base
+fields/media/memberships are independently verified before a new signed Update is offered.
+No old write plan is automatically replayed, and base_verified is not full publish proof.
+
+`shopify_navigation` derives paths/usage from the same registry and source assignments.
+Explicit browse roles and within-attribute parents do not change variant generation.
+An optional primary_category must reference a directly assigned active category. Offline
+proposals count at most 500 local parents; fresh exact Online Store evidence requires
+ACTIVE plus publishedOnPublication under configured Publication GID. Explicit bounded
+read checks persist comparison evidence, never write menus or activate storefront filters.
+
+`shopify_lifecycle` is a separate signed destructive authorisation. Fresh verified store,
+exact parent/correlation and child identities precede productDelete; two authenticated
+null reads establish absence. Complete old evidence is archived in permanently protected
+lifecycle operations before the reusable parent reservation becomes remote_deleted.
+Old child GIDs disappear from active evidence, not history. Fresh Create reuses local
+source/SKU reservation but performs duplicate checks and obtains new remote IDs. Transport
+failures and archived/unpublished states do not clear identities. No local deletion occurs.
+
 ## M3A.8.4 — bounded variable stages in the existing publisher
 
 `shopify_variables.py` is a helper of existing `shopify_drafts` Preview/Confirm/

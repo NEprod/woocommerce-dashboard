@@ -192,6 +192,33 @@ def drafts(product_id=None):
         selected_id=product_id or request.form.get("product_id", type=int) or request.args.get("product_id", type=int)), 400 if error else 200, {"Cache-Control": "no-store"}
 
 
+@commerce.route("/products/<int:product_id>/shopify/delete", methods=["GET", "POST"])
+@login_required
+def delete_shopify_product(product_id):
+    from app import db, shopify_lifecycle as lifecycle
+    from app.models import Product
+    from app.utils.operation_control import CatalogueOperationActive
+    if not current_user.is_admin:
+        abort(403)
+    product = db.get_or_404(Product, product_id)
+    form, plan, token, error = FlaskForm(), None, None, None
+    if request.method == "POST":
+        if not form.validate_on_submit():
+            abort(400)
+        try:
+            if request.form.get("action") == "review":
+                plan, token = lifecycle.review(product)
+            elif request.form.get("action") == "delete":
+                row = lifecycle.confirm(request.form.get("review", ""), request.form.get("acknowledge") == "yes",
+                    request.form.get("sku", ""), expected_product_id=product_id)
+                return redirect(url_for("commerce.draft_identity", identity_id=row.id))
+            else:
+                abort(400)
+        except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
+            error = str(exc)
+    return render_template("shopify_delete.html", product=product, form=form, plan=plan, token=token, error=error), 400 if error else 200
+
+
 @commerce.route("/products/<int:product_id>/shopify/native-dimensions", methods=["GET", "POST"])
 @login_required
 def native_dimensions(product_id):
@@ -256,7 +283,11 @@ def draft_identity(identity_id):
             approval = request.form.get("approval")
             if approval and request.form.get("acknowledge_mapping") != "yes":
                 raise ShopifyError("Explicit approval of the displayed media mapping is required.")
-            service.reconcile(row, request.form.get("candidate_id") or None, approval=approval)
+            if row.state in {"deleting", "delete_uncertain"}:
+                from app.shopify_lifecycle import reconcile
+                reconcile(row)
+            else:
+                service.reconcile(row, request.form.get("candidate_id") or None, approval=approval)
         except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
             error = str(exc)
         except IntegrityError:
@@ -322,6 +353,48 @@ def taxonomy_mappings():
         batch_row=batch_row, batch_plan=batch_plan, batch_token=batch_token, batch_data=batch_data,
         execution=batch.execution_token(batch_row) if batch_row and batch_row.status == "approved" else None,
         plan=plan, token=token, error=error, saved=saved), 400 if error else 200, {"Cache-Control": "no-store"}
+
+
+@commerce.route("/taxonomy/shopify/attributes/<int:identity_id>", methods=["GET", "POST"])
+@login_required
+def attribute_identity(identity_id):
+    from app import db, shopify_attributes as attributes
+    from app.models import ShopifyAttributeIdentity
+    from app import shopify_drafts as drafts
+    from app.utils.operation_control import operation_context, CatalogueOperationActive
+    if not current_user.is_admin: abort(403)
+    row=db.get_or_404(ShopifyAttributeIdentity,identity_id)
+    form,error=FlaskForm(),None
+    if request.method=="POST":
+        if not form.validate_on_submit(): abort(400)
+        try:
+            with operation_context("shopify_status_refresh",{"mode":"attribute_reconciliation","identity_id":row.id}):
+                configuration=drafts.configuration(); adapter=ShopifyAdapter(); shop=adapter.test_connection(configuration)
+                if shop["shop_id"]!=row.store_id or not attributes.READ_SCOPES.issubset(shop["scopes"]):
+                    raise ShopifyError("Restore this verified store and attribute read scopes before reconciliation.")
+                attributes.reconcile(row,adapter,configuration)
+        except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc: error=str(exc)
+    return render_template("taxonomy/attribute_identity.html",row=row,form=form,error=error,data=json.loads(row.evidence_json))
+
+
+@commerce.route("/taxonomy/navigation/check", methods=["POST"])
+@login_required
+def check_navigation():
+    from app import shopify_navigation
+    from app.utils.operation_control import CatalogueOperationActive
+    if not current_user.is_admin: abort(403)
+    form=FlaskForm()
+    if not form.validate_on_submit(): abort(400)
+    try:
+        after=request.form.get("after","0")
+        if not after.isascii() or not after.isdigit() or len(after)>12:
+            raise ShopifyError("Invalid navigation cursor.")
+        cursor=shopify_navigation.check(after=int(after))
+        return redirect(url_for("taxonomy.index",tab="navigation",after=cursor or 0,checked="yes"))
+    except (ShopifyError,config.CommerceConfigError,CatalogueOperationActive) as exc:
+        from flask import flash
+        flash(str(exc),"warning")
+        return redirect(url_for("taxonomy.index",tab="navigation"))
 
 
 @commerce.route("/api/shopify/taxonomy/step", methods=["POST"])

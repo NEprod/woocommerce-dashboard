@@ -163,6 +163,12 @@ def edit_definition(data, kind, key, attribute, form):
             row.update(navigation=form.get("navigation") == "yes",
                        visible_default=form.get("visible_default") == "yes",
                        terms=old["terms"] if old else [])
+            row["browse_role"]=form.get("browse_role", (old or {}).get("browse_role","internal"))
+            if form.get("browse_group", (old or {}).get("browse_group")):
+                row["browse_group"]=form.get("browse_group", old.get("browse_group") if old else None)
+        if kind == "terms":
+            row["browse_role"]=form.get("browse_role", (old or {}).get("browse_role",parent.get("browse_role","internal")))
+            row["browse_parent"]=form.get("browse_parent", (old or {}).get("browse_parent")) or None
         if old is None:
             rows.append(row)
         else:

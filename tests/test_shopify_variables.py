@@ -71,7 +71,7 @@ class VariableAdapter(UpdateAdapter):
     def _variant(self,number,options):
         iid=f"gid://shopify/InventoryItem/{number+1000}"
         self.packed[iid]={"length":0,"width":0,"height":0,"unit":"CENTIMETERS"}
-        return {"id":f"gid://shopify/ProductVariant/{number}","sku":"","price":"0.00","compareAtPrice":None,
+        return {"id":f"gid://shopify/ProductVariant/{number}","sku":"","price":"0.00","compareAtPrice":None,"inventoryPolicy":"DENY",
             "selectedOptions":options,"media":{"nodes":[],"pageInfo":{"hasNextPage":False}},
             "length":None,"width":None,"height":None,
             "inventoryItem":{"id":iid,"sku":"","countryCodeOfOrigin":None,"requiresShipping":True,"harmonizedSystemCode":None,
@@ -474,7 +474,7 @@ def test_country_shipping_and_variant_media_are_independently_verified(variable_
         if wanted["media_source"]:
             receipt=next(m for m in data["media"] if m["source"]==wanted["media_source"])
             assert actual["media"]["nodes"]==[{"id":receipt["id"]}]
-    assert all("tracked" not in payload.get("inventoryItem",{}) for batch in adapter.inputs for payload in batch if isinstance(payload,dict))
+    assert all(payload.get("inventoryItem",{}).get("tracked",False) is False for batch in adapter.inputs for payload in batch if isinstance(payload,dict))
 
 
 def test_uncertain_product_create_does_not_allow_another_create(variable_world):

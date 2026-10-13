@@ -16,6 +16,7 @@ from app.utils.redaction import redact_diagnostic, runtime_redaction_paths
 
 
 ALLOWED_OPERATION_TYPES = {
+    "shopify_product_lifecycle",
     "shopify_native_dimensions",
     "shopify_status_refresh",
     "shopify_taxonomy_batch",
@@ -139,6 +140,8 @@ def prune_operation_history(*, now=None, protected_ids=None):
 
     candidates = []
     for row in completed:
+        if row.operation_type == "shopify_product_lifecycle":
+            continue  # Deleted remote/child bindings are audit archives, not routine logs.
         if row.id in protected:
             continue
         if row.status == "succeeded" and row.recovery_state in (None, "none"):

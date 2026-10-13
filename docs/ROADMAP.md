@@ -1,5 +1,20 @@
 # Roadmap
 
+## M3A.8.5 — first-use organisation/lifecycle implemented; acceptance pending
+
+Accept the nine-variant policy correction through reviewed Update, one first-use
+category/ancestor/storefront mapping, informational term references without extra
+variants, a local navigation proposal with verified Online Store eligibility, and a
+specifically selected disposable Draft's reviewed Delete/absence/recreation. Check new
+remote child/media IDs with unchanged local SKUs. Test manual Admin deletion separately
+without conflating API errors/ARCHIVED with absence. Back up before migration 0012.
+
+Next remains M3A.9 complete shared-schema JSON Create/Edit after acceptance. No menu,
+theme, Search & Discovery activation, new inventory quantities/location policy, bulk,
+relationships or naming migration is bundled here. Existing registered informational
+schema/access changes require separate reviewed mapping work rather than silently
+replacing identities. Historical recommendations below retain their original context.
+
 ## M3A.8.4 — Variable workflow implemented, Unraid acceptance pending
 
 Accept one Variable Collection child-parent and one Single Variable root-parent as

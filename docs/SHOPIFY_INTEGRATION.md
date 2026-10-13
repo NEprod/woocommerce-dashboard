@@ -1,5 +1,155 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.8.5 — inventory, on-demand organisation and lifecycle
+
+### Reviewed inventory correction
+
+The former publisher omitted tracked/inventoryPolicy from both the default-variant
+update and additional-variant bulk create, and therefore did not compare them. Shopify
+documents [bulk variant inventoryPolicy](https://shopify.dev/docs/api/admin-graphql/2026-10/input-objects/ProductVariantsBulkInput)
+as DENY by default. This proves a path-dependent omission, not the actual tracked
+values of the reported live nine-variant product (not queried from development).
+Review now reads both fields, showing the actual before/after per SKU. No explicit
+finished-stock policy defaults to tracked:false / CONTINUE. Authored manage_stock:true
+retains tracking; backorders yes/notify uses CONTINUE, otherwise DENY. stock_quantity
+without explicit policy requires resolution, not inference. Quantities, locations,
+fulfilment configuration, SKU/InventoryItem IDs, prices/weight/packed values do not change
+as a side effect. Explicit quantity handling remains deferred until a location policy.
+
+### Categories, controlled information and scopes
+
+First confirmed product use can register missing active TLC categories, required
+ancestors and explicitly assigned storefront collections, then add/verify memberships.
+Preview reads candidates only; similarly named/handled collections require explicit
+verified Link. Pending SQLite mapping precedes Create; no unused registry upload,
+filesystem-folder collection, automatic rename/removal or duplicate registration occurs.
+Partial successes remain retained; existing Taxonomy reconciliation resolves uncertain
+collection outcomes before any further approved stage.
+
+Effective informational assignments use controlled app-owned metaobject definitions/
+terms and list.metaobject_reference product metafields under `$app:tlc_attributes`.
+Type/handle/field identity derives from stable TLC keys, not display names. Only used
+terms are registered. Multiple values are retained; explicit informational [] clears
+only that owned reference list. Missing source instructions preserve remote values.
+Variant-driving attributes remain existing options/SKUs, never extra information variants.
+Eight informational attributes/forty terms and existing evidence limits bound each review.
+Owned-reference writes use compareDigest CAS plus independent typed readback. Missing
+scope/schema, untrusted mapping or conflicting values block the affected reviewed workflow.
+
+Additional attribute scopes:
+
+- read_metaobject_definitions
+- write_metaobject_definitions
+- read_metaobjects
+- write_metaobjects
+
+Product/collection/metafield work retains read_products/write_products; gallery alt
+changes retain write_files. Native measurement changes alone need write_inventory.
+Navigation eligibility optionally needs read_publications, never write_publications or
+write_online_store_navigation. Do not silently change the Shopify app's scopes.
+See [definition Create](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/metaobjectDefinitionCreate)
+and [product metafield definitions](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/metafieldDefinitionCreate).
+
+Resource mappings persist in the additive `0012_shopify_attributes` table; no backfill
+or JSON/registry duplication. Unique store/source and store/remote constraints retain
+definition/field/term GIDs with bounded versioned evidence and operation references.
+Changed registered schema/access is blocked for separate reviewed mapping work rather
+than silently replaced. Read-only inspection/reconciliation is in Taxonomy → Attributes.
+Uncertain creation cannot replay automatically. Two successful exact app-owned unique
+resource null reads, with no previously known remote GID, establish noncreation; any
+subsequent attempt needs NEW signed product approval. Known incomplete stages can
+continue through fresh signed Update only after independent base/media/membership proof;
+base-only proof is not complete publishing verification. Original partial history remains.
+
+### Navigation foundations
+
+Existing registry entries can explicitly set browse_role internal/filter/destination/both.
+Optional attribute browse_group and acyclic within-attribute term browse_parent provide
+paths such as Occasions > Seasonal > Christmas without another taxonomy. No name-based
+visibility inference or global tag registration. Existing registries safely default
+internal, regardless of legacy navigation/visible_default flags. Set desired public
+roles before first registration; changing existing schema/access needs separate review.
+Only destination/both terms propose dedicated browsing collections on reviewed use.
+Optional authored primary_category is a directly assigned TLC category key for proposed
+breadcrumbs; it replaces no other category and renders no theme breadcrumb yet.
+
+Taxonomy → Navigation Preview performs no API requests on GET. It shows local matching
+SKUs, saved destination/identity mappings, independently checked Online Store eligibility
+and unresolved publication. Empty/unknown destinations are hidden from the live proposal,
+not deleted locally. The 500-product bound is disclosed; category ancestors aggregate
+descendants. Baseline menu intentions are retained, while page destinations, New In
+periods, Best Sellers rules and filter/theme/menu publication remain unresolved/deferred.
+
+For explicit read-only eligibility checks, configure the exact verified Online Store ID:
+
+```text
+SHOPIFY_API_VERSION=2026-10
+SHOPIFY_ONLINE_STORE_PUBLICATION_ID=gid://shopify/Publication/<verified-id>
+```
+
+The ID must resolve to the Online Store publication/channel in the verified store;
+it is not chosen by a guessed product/category ID. Add the optional environment field
+manually in Unraid, preserving existing credentials/mounts; the unrelated XML files
+are not modified by this milestone. Checks process 25 retained products per request
+and count only fresh ACTIVE + exact publishedOnPublication evidence. Draft, local live
+and ACTIVE alone never establish visibility. Search & Discovery filter activation and
+storefront rendering require separate live verification; this milestone writes no menu.
+
+### Delete, absence and recreation
+
+Product Detail → Remote lifecycle → Review Delete from Shopify opens a separate
+destructive workflow. GET is local-only; Review validates fresh exact store/Product/
+variant/InventoryItem/correlation identities, title/status/count, expiry and signed
+evidence. Confirm requires CSRF/admin and typed exact SKU; ordinary sync approval can
+never authorise deletion. Shopify requires write_products and product-delete permission.
+[productDelete](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/productDelete)
+is irreversible and removes associated remote variants/inventory/publications and
+unshared media. No TLC source, SKU, marker, image, assignment or local product is deleted.
+
+Timeout/incomplete outcomes become deletion uncertainty, never automatic retry. Identity
+& History → read-only reconciliation proves survival or absence under the verified
+store. Two successful exact null reads are required; API/auth/permission errors and
+revision hints are not absence. Archived/unpublished products still exist and retain
+IDs. Bounded normal refresh applies the same proof to manual Admin deletion, without
+automatically recreating anything.
+
+Confirmed absence archives complete old evidence in protected CatalogueOperation
+history before active product/variant/inventory/media bindings are cleared. Needs Creating
+then offers fresh duplicate/SKU/handle checks and signed Create with new remote GIDs.
+The parent local reservation and existing local child SKUs remain unchanged. Archive
+links survive later recreation. No bulk Delete or destructive rollback is implemented.
+
+### Unraid acceptance
+
+1. Back up persistent database/appdata before updating to develop or its unique
+   shopify-taxonomy-lifecycle rollback image. Keep existing paths/mounts; verify
+   migration head 0012_shopify_attributes. Do not restore a pre-upgrade database after
+   remote writes without reconciling newer remote identities.
+2. Test connection and required scopes. Normal API stays 2026-10; existing opt-in native
+   packed settings alone use 2027-01 RC. No new authentication method is introduced.
+3. Review the existing nine-variant parent: inspect actual tracked/policy differences,
+   confirm only approved corrections, verify all nine policies and unchanged SKUs/
+   InventoryItem IDs/prices/measurements. Recheck No Change; no quantity is invented.
+4. Review a product needing an unused category/ancestor and explicit storefront group.
+   Verify Create & Join proposals, candidate blocking, preserved existing mappings and
+   independent memberships after one confirmation; unused definitions remain local.
+5. Configure desired informational browse roles in the existing reviewed registry editor.
+   Review the Christmas pet decoration's effective informational assignments and actual
+   driver list. Confirm only used terms/owned references; verify no extra variants.
+6. Inspect Navigation Preview: correct local paths/usage, Draft not visible, empty local
+   entries retained. If configuring publication GID/read_publications, explicitly check
+   actual Online Store eligibility. No menu or filter activation should occur.
+7. Choose a specifically disposable verified Draft. Inspect exact Delete review, type
+   its SKU and confirm once. Verify Shopify absence, local files/SKUs untouched, archived
+   old IDs and Needs Creating. Then perform fresh reviewed recreation and inspect NEW
+   product/variant/InventoryItem/media IDs with the SAME local SKUs.
+8. Separately delete another disposable test Draft in Admin; refresh Dashboard and check
+   independent absence detection. Archive/unpublish instead of Delete must retain the
+   binding. API failures must remain unavailable/recovery, never Needs Creating.
+9. On any partial/uncertain result stop writes, inspect retained stages and use explicit
+   read-only reconciliation before another review. Do not induce live timeouts simply
+   to manufacture a recovery case. Report differences before widening acceptance.
+
 ## M3A.8.4 — reviewed variable parents and compact Products
 
 ### Existing catalogue boundaries and supported fields

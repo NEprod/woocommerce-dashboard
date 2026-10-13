@@ -402,6 +402,24 @@ class ShopifyCollectionIdentity(db.Model):
     updated_at = db.Column(db.DateTime, nullable=False, server_default=func.now())
 
 
+class ShopifyAttributeIdentity(db.Model):
+    """Operational attribute definition/term mappings, never an authoritative tree."""
+    __tablename__ = "shopify_attribute_identity"
+    __table_args__ = (
+        db.UniqueConstraint("store_id", "source_key", name="uq_shopify_attribute_source"),
+        db.UniqueConstraint("store_id", "remote_id", name="uq_shopify_attribute_remote"),
+        db.CheckConstraint("length(evidence_json) <= 16384", name="ck_shopify_attribute_evidence"),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    store_id = db.Column(db.String(100), nullable=False)
+    source_key = db.Column(db.String(300), nullable=False)
+    remote_id = db.Column(db.String(100))
+    state = db.Column(db.String(32), nullable=False)
+    operation_id = db.Column(db.String(32), db.ForeignKey("catalogue_operation.id", ondelete="SET NULL"))
+    evidence_json = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
 class ShopifyProductComparison(db.Model):
     __tablename__ = "shopify_product_comparison"
     __table_args__ = (

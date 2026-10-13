@@ -252,7 +252,9 @@ def validate_product_info(data, kind):
     if "variation_attributes" in data and not errors and (kind == "collection" or "attributes" in data):
         from app.taxonomy_assignments import variation_drivers
         try:
-            variation_drivers(data)
+            drivers=variation_drivers(data)
+            if any(not data.get("attributes",{}).get(name) for name in drivers):
+                raise ValueError("Variation-driving attributes require nonempty values; only informational assignments can be explicitly cleared.")
         except ValueError as error:
             errors += (ValidationIssue("$.variation_attributes", "invalid_variation_drivers", str(error)),)
     warnings = tuple(_warnings(data, kind))

@@ -67,6 +67,8 @@ def states_for(products):
         ShopifyProductIdentity.source_identity.in_([p.source_relpath for p in products if p.source_relpath]))).all()
     comparisons = ShopifyProductComparison.query.filter(ShopifyProductComparison.source_identity.in_([p.source_relpath for p in products if p.source_relpath])).all()
     mappings = {(r.store_id, r.source_key): r for r in ShopifyCollectionIdentity.query.all()}
+    from app.models import ShopifyAttributeIdentity
+    mappings.update({(r.store_id,r.source_key):r for r in ShopifyAttributeIdentity.query.all()})
     return {p.id: product_state(p, [r for r in rows if r.product_id == p.id or r.source_identity == p.source_relpath],
                 [r for r in comparisons if r.source_identity == p.source_relpath], mappings)
             for p in products}
@@ -94,6 +96,11 @@ def product_state(product, rows, comparisons=(), mappings=None):
         if rows:
             row = rows[0]
             data = evidence(row)
+            if row.state == "remote_deleted" and row.verification_state == "remote_absent" and not row.shopify_product_id:
+                state.update(state="create", label="Needs Creating", identity_url=url_for("commerce.draft_identity", identity_id=row.id),
+                    message="Former exact Shopify identity independently verified absent. History retained; fresh duplicate checks and signed Create are required.",
+                    remote_status="Deleted (verified absent)", native={"state":"disabled", "message":"Former inventory/media bindings are historical only."})
+                return state
             domain = data.get("plan", {}).get("domain", "")
             if (re.fullmatch(r"[a-z0-9][a-z0-9-]*\.myshopify\.com", domain)
                     and re.fullmatch(r"gid://shopify/Product/[0-9]+", row.shopify_product_id or "")):
@@ -103,6 +110,8 @@ def product_state(product, rows, comparisons=(), mappings=None):
                          remote_status="Draft (last verified)" if row.verification_state == "verified" else "Not currently verified")
             if row.state == "processing":
                 state.update(state="processing", label="Processing", message="Read-only reconciliation is required to check media processing.")
+            elif row.state=="attribute_review_required":
+                state.update(state="attention",label="Needs Attention",message="Base metadata/media/memberships are verified; remaining informational stages need a fresh signed Review. No automatic write replay.")
             elif row.state == "verified" and row.verification_state == "verified":
                 plan = data["plan"]
                 baseline = plan.get("workspace_source_fingerprint")

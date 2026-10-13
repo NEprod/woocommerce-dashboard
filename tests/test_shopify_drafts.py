@@ -70,6 +70,7 @@ class FakeDraftAdapter:
         self.remote["simpleVariants"]["nodes"][0].update(compareAtPrice=None, inventoryItem={
             "id": "gid://shopify/InventoryItem/250", "sku": "", "requiresShipping": True,
             "countryCodeOfOrigin": None, "tracked": False, "measurement": {"weight": {"value": 0, "unit": "GRAMS"}}})
+        self.remote["simpleVariants"]["nodes"][0]["inventoryPolicy"]="DENY"
         if self.failure == "create": raise ShopifyError("Creation outcome uncertain")
         return {"productCreate": {"product": copy.deepcopy(self.remote), "userErrors": []}}
 
@@ -243,6 +244,7 @@ def test_uncertain_create_review_and_explicit_media_adoption(world):
     # Operator fixes the retained draft in Shopify Admin, not this implementation.
     adapter.remote["variants"]["nodes"][0].update(sku=product.sku, price="3.50")
     adapter.remote["simpleVariants"]["nodes"][0].update(sku=product.sku, price="3.50")
+    adapter.remote["simpleVariants"]["nodes"][0]["inventoryPolicy"] = "CONTINUE"
     adapter.remote["simpleVariants"]["nodes"][0]["inventoryItem"]["sku"] = product.sku
     db.session.expire_all()  # Cache loss does not permit another create.
     row = db.session.get(ShopifyProductIdentity, row.id)

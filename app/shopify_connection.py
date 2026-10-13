@@ -1,4 +1,4 @@
-"""Bounded discovery transport and separately allowlisted Simple draft mutations."""
+"""One bounded transport for fixed reads and separately reviewed Shopify mutations."""
 from dataclasses import dataclass, field
 import json
 import re
@@ -55,7 +55,7 @@ SIMPLE_QUERY = """query SimpleRead($id: ID!, $namespace: String!) {
  length: metafield(namespace: $namespace, key: "product_length") { id type value }
  width: metafield(namespace: $namespace, key: "product_width") { id type value }
  height: metafield(namespace: $namespace, key: "product_height") { id type value }
- simpleVariants: variants(first: 2) { nodes { id sku price compareAtPrice
+ simpleVariants: variants(first: 2) { nodes { id sku price compareAtPrice inventoryPolicy
  inventoryItem { id sku requiresShipping countryCodeOfOrigin tracked
  measurement { weight { value unit } } } } pageInfo { hasNextPage endCursor } }
  } }"""
@@ -101,7 +101,7 @@ VARIABLE_FIELDS = '''id title handle status updatedAt descriptionHtml vendor tag
  width: metafield(namespace: $namespace, key: "product_width") { id type value }
  height: metafield(namespace: $namespace, key: "product_height") { id type value }
  media(first: 21) { nodes { id alt status mediaContentType ... on MediaImage { image { url } } } pageInfo { hasNextPage } }
- variants(first: 33) { nodes { id sku price compareAtPrice selectedOptions { name value }
+ variants(first: 33) { nodes { id sku price compareAtPrice inventoryPolicy selectedOptions { name value }
  media(first: 2) { nodes { id } pageInfo { hasNextPage } }
  length: metafield(namespace: $namespace, key: "product_length") { id type value }
  width: metafield(namespace: $namespace, key: "product_width") { id type value }
@@ -130,6 +130,48 @@ VARIANTS_UPDATE = '''mutation VariantsUpdate($id: ID!, $variants: [ProductVarian
 READ_QUERIES |= frozenset((VARIABLE_READ, VARIABLE_NATIVE_READ, NATIVE_INVENTORY_READ))
 WRITE_QUERIES |= frozenset((VARIABLE_CREATE, VARIANTS_CREATE, VARIANTS_UPDATE))
 NATIVE_QUERIES |= frozenset((VARIABLE_NATIVE_READ, NATIVE_INVENTORY_READ))
+
+LIFECYCLE_READ = '''query Lifecycle($id: ID!) { product(id: $id) { id title status updatedAt
+ metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
+ variants(first: 33) { nodes { id sku inventoryItem { id sku } } pageInfo { hasNextPage } }
+ media(first: 21) { nodes { id } pageInfo { hasNextPage } }
+} }'''
+PRODUCT_DELETE = '''mutation DeleteReviewedProduct($id: ID!) {
+ productDelete(input: {id: $id}, synchronous: true) { deletedProductId userErrors { field message } }
+}'''
+READ_QUERIES |= frozenset((LIFECYCLE_READ,))
+WRITE_QUERIES |= frozenset((PRODUCT_DELETE,))
+
+ATTRIBUTE_SCHEMA = '''query AttributeSchema {
+ definition: __type(name: "MetaobjectDefinitionCreateInput") { inputFields { name } }
+ term: __type(name: "MetaobjectCreateInput") { inputFields { name } }
+ assignment: __type(name: "MetafieldsSetInput") { inputFields { name } }
+}'''
+ATTRIBUTE_DEFINITION = '''query AttributeDefinition($type: String!) { metaobjectDefinitionByType(type: $type) {
+ id name type fieldDefinitions { key type { name } } access { storefront } } }'''
+ATTRIBUTE_TERM = '''query AttributeTerm($type: String!, $handle: String!) { metaobjectByHandle(handle: {type: $type, handle: $handle}) {
+ id type handle fields { key value } } }'''
+ATTRIBUTE_FIELD = '''query AttributeField($namespace: String!, $key: String!) {
+ metafieldDefinitions(first: 2, ownerType: PRODUCT, namespace: $namespace, key: $key) {
+ nodes { id namespace key type { name } validations { name value } access { storefront } } pageInfo { hasNextPage } } }'''
+ATTRIBUTE_VALUES = '''query AttributeValues($id: ID!, $namespace: String!) { product(id: $id) {
+ id metafields(first: 129, namespace: $namespace) { nodes { id key type value compareDigest } pageInfo { hasNextPage } } } }'''
+ATTRIBUTE_DEF_CREATE = '''mutation AttributeDefinitionCreate($definition: MetaobjectDefinitionCreateInput!) {
+ metaobjectDefinitionCreate(definition: $definition) { metaobjectDefinition { id } userErrors { field message } } }'''
+ATTRIBUTE_TERM_CREATE = '''mutation AttributeTermCreate($metaobject: MetaobjectCreateInput!) {
+ metaobjectCreate(metaobject: $metaobject) { metaobject { id } userErrors { field message } } }'''
+ATTRIBUTE_FIELD_CREATE = '''mutation AttributeFieldCreate($definition: MetafieldDefinitionInput!) {
+ metafieldDefinitionCreate(definition: $definition) { createdDefinition { id } userErrors { field message } } }'''
+ATTRIBUTE_SET = '''mutation AttributeAssignment($metafields: [MetafieldsSetInput!]!) {
+ metafieldsSet(metafields: $metafields) { metafields { id key value } userErrors { field message } } }'''
+READ_QUERIES |= frozenset((ATTRIBUTE_SCHEMA,ATTRIBUTE_DEFINITION,ATTRIBUTE_TERM,ATTRIBUTE_FIELD,ATTRIBUTE_VALUES))
+WRITE_QUERIES |= frozenset((ATTRIBUTE_DEF_CREATE,ATTRIBUTE_TERM_CREATE,ATTRIBUTE_FIELD_CREATE,ATTRIBUTE_SET))
+NAVIGATION_READ = '''query NavigationEligibility($ids: [ID!]!, $publication: ID!) {
+ publication(id: $publication) { id name app { title } }
+ nodes(ids: $ids) { ... on Product { id status metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
+ publishedOnPublication(publicationId: $publication) } }
+}'''
+READ_QUERIES |= frozenset((NAVIGATION_READ,))
 
 
 def _cursor(value):
@@ -188,6 +230,10 @@ def _media(connection, cursor=None):
 
 class ShopifyError(ValueError):
     pass
+
+
+class ShopifyProductAbsent(ShopifyError):
+    """A successful exact product read returned null, not a transport failure."""
 
 
 class ShopifyNativeWriteRejected(ShopifyError):
@@ -451,6 +497,46 @@ class ShopifyAdapter:
 
     def create_variable(self, config, product, media):
         return self._transport(config, VARIABLE_CREATE, {"product": product, "media": media})
+
+    def lifecycle_product(self, config, product_id):
+        data = self._read(config, LIFECYCLE_READ, {"id": _gid(product_id, "Product")})
+        if "product" not in data:
+            raise ShopifyError("Incomplete product existence evidence; absence is not established.")
+        return data["product"]
+
+    def delete_product(self, config, product_id):
+        return self._write(config, PRODUCT_DELETE, {"id": _gid(product_id, "Product")})
+
+    def attribute_schema(self, config):
+        return self._read(config, ATTRIBUTE_SCHEMA)
+
+    def attribute_resource(self, config, kind, spec):
+        if kind == "definition":
+            return self._read(config,ATTRIBUTE_DEFINITION,{"type":spec["type"]})["metaobjectDefinitionByType"]
+        if kind == "term":
+            return self._read(config,ATTRIBUTE_TERM,{"type":spec["type"],"handle":spec["handle"]})["metaobjectByHandle"]
+        part=self._read(config,ATTRIBUTE_FIELD,{"namespace":spec["namespace"],"key":spec["key"]})["metafieldDefinitions"]
+        if part["pageInfo"]["hasNextPage"] or len(part["nodes"])>1:
+            raise ShopifyError("Attribute definition lookup is ambiguous/incomplete.")
+        return part["nodes"][0] if part["nodes"] else None
+
+    def create_attribute_resource(self, config, kind, spec):
+        query = {"definition":ATTRIBUTE_DEF_CREATE,"term":ATTRIBUTE_TERM_CREATE,"field":ATTRIBUTE_FIELD_CREATE}[kind]
+        return self._write(config,query,{"metaobject" if kind=="term" else "definition":spec})
+
+    def attribute_values(self, config, product_id, namespace):
+        product=self._read(config,ATTRIBUTE_VALUES,{"id":_gid(product_id,"Product"),"namespace":namespace}).get("product")
+        if not product or product["id"]!=product_id or product["metafields"]["pageInfo"]["hasNextPage"]:
+            raise ShopifyError("Attribute assignments are incomplete; no clearing/equality assumed.")
+        return product["metafields"]["nodes"]
+
+    def set_attributes(self, config, values):
+        return self._write(config,ATTRIBUTE_SET,{"metafields":values})
+
+    def navigation_eligibility(self, config, ids, publication):
+        if not 1<=len(ids)<=25:
+            raise ShopifyError("Check at most 25 retained product identities per navigation request.")
+        return self._read(config,NAVIGATION_READ,{"ids":[_gid(i,"Product") for i in ids],"publication":_gid(publication,"Publication")})
 
     def read_packed_inventory(self, config, inventory_id):
         return self._transport(config, NATIVE_INVENTORY_READ, {"id": _gid(inventory_id, "InventoryItem")}, api_version="2027-01").get("inventoryItem")

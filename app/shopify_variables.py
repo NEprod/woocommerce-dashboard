@@ -156,10 +156,10 @@ def local_plan(product):
         name = option["name"]
         values = list(dict.fromkeys(next(o["value"] for o in v["options"] if o["name"] == name) for v in variants))
         plan["options"].append({"name": name, "position": len(plan["options"])+1, "values": [{"name": value} for value in values]})
-    plan["warnings"].append("Parent SKU is a local grouping identity; existing child SKUs belong to Shopify variants. Inventory tracking, quantities and locations remain unmanaged. Remote-only variants are retained.")
+    plan["warnings"].append("Parent SKU is a local grouping identity; existing child SKUs belong to Shopify variants. Tracking/selling policy is explicitly reviewed; quantities and locations remain unmanaged. Remote-only variants are retained.")
     if any(isinstance(v,dict) and "sale_price" in v for v in product_document(product).get("variation_modifiers",{}).values()):
         plan["warnings"].append("Existing scanner does not emit modifier sale_price; reviewed effective database sale prices are used, no alternate discount calculation is invented.")
-    plan["unsupported"] = ["Online Store publication / navigation", "Customer-facing customisation", "Inventory quantities/tracking/locations",
+    plan["unsupported"] = ["Online Store publication / navigation", "Customer-facing customisation", "Inventory quantities/locations",
         "Destructive option restructuring / variant deletion", "Existing gallery replacement/addition/removal", "Shopify package presets / labels"]
     plan["digest"] = drafts.digest({"base": plan["digest"], "variants": variants, "options": plan["options"]})
     return plan
@@ -332,16 +332,16 @@ def preview(product, adapter=None, *, context=None, seed=None):
         drafts.finalize_processing(row,adapter)
         if row.state == "processing":
             raise ShopifyError("Variable media is still processing. Refresh shortly; no retry/upload is needed.")
-    if row and row.state not in {"verified","failed_before_create"}:
+    if row and row.state not in {"verified","failed_before_create","remote_deleted","attribute_review_required"}:
         raise ShopifyError("Recovery required for this variable identity. Reconcile the retained stage; no duplicate product/variant create.")
-    if row and row.state == "verified" and drafts.evidence(row).get("kind") != "variable":
+    if row and row.state in {"verified","attribute_review_required"} and drafts.evidence(row).get("kind") != "variable":
         raise ShopifyError("Existing Simple-to-variable conversion requires a separately reviewed identity migration; another Create is blocked.")
     if row and (row.source_identity != product.source_relpath or row.sku != product.sku):
         raise ShopifyError("Retained parent source/SKU identity changed; restore it before any variable write.")
     plan.update(store_id=shop["shop_id"], store_key=drafts.digest({"id":shop["shop_id"]}), domain=config.domain,
-        config_digest=config.fingerprint(), nonce=seed or (drafts.evidence(row)["plan"]["nonce"] if row and row.state=="verified" else uuid.uuid4().hex))
+        config_digest=config.fingerprint(), nonce=seed or (drafts.evidence(row)["plan"]["nonce"] if row and row.state in {"verified","attribute_review_required"} else uuid.uuid4().hex))
     plan["handle"] = plan["managed"]["product"].get("handle") or "tlc-draft-"+plan["nonce"]
-    remote_id = row.shopify_product_id if row and row.state=="verified" else None
+    remote_id = row.shopify_product_id if row and row.state in {"verified","attribute_review_required"} else None
     from app.shopify_taxonomy import membership_plan
     plan["collections"], blockers, standard = membership_plan(product,shop["shop_id"],remote_id,config,adapter)
     plan["blockers"] += blockers
@@ -354,6 +354,9 @@ def preview(product, adapter=None, *, context=None, seed=None):
     data = drafts.evidence(row) if remote_id else {}
     if remote_id:
         remote = adapter.read_variable(config,remote_id,plan["managed"]["namespace"])
+        if remote is None:
+            from app.shopify_connection import ShopifyProductAbsent
+            raise ShopifyProductAbsent("Exact Shopify variable parent read returned absent; reconcile existence before any new Create.")
         compare(plan,row,data,remote)
         plan.update(remote_id=remote_id,remote_digest=drafts.digest(remote),identity_digest=drafts.digest(data),
             identity_id=row.id,actual_status=remote["status"],remote_updated_at=remote.get("updatedAt"))
@@ -371,8 +374,14 @@ def preview(product, adapter=None, *, context=None, seed=None):
         plan["fields"] += [{"field":"variants."+v["sku"]+".create","before":None,"after":v["managed"]["price"],"changed":True} for v in plan["variants"]]
         for v in plan["variants"]: v["action"] = "Create"
         plan["actual_status"] = "Not yet created"
+    # The attribute digest is folded into the final signed taxonomy contract below.
+    plan["taxonomy_review_digest"] = drafts.digest({"collections":plan["collections"],"standard":standard})
+    from app.shopify_attributes import attach
+    attach(product,plan,config,shop,adapter,remote_id)
     native_review(plan,row if remote_id else None,data,config,shop,adapter)
-    plan["classification"] = "create" if not remote_id else "update" if any(f["changed"] for f in plan["fields"]) or any(c["action"]=="Join" for c in plan["collections"]) else "no_change"
+    plan["classification"] = "create" if not remote_id else "update" if any(f["changed"] for f in plan["fields"]) or any(c["action"] in {"Join","Create & Join"} for c in plan["collections"]) else "no_change"
+    if row and row.state=="attribute_review_required" and plan["classification"]=="no_change":
+        plan["blockers"].append("Attributes now match; complete read-only identity reconciliation for final verification.")
     if "write_products" not in shop["scopes"] and plan["classification"] != "no_change":
         plan["blockers"].append("Missing write_products; read-only Preview remains available.")
     if plan.get("media_actions",{}).get("alt") and "write_files" not in shop["scopes"]:
@@ -383,14 +392,14 @@ def preview(product, adapter=None, *, context=None, seed=None):
             matches = adapter.find_skus(config,additions)
             if not isinstance(matches,dict) or not isinstance(matches.get("nodes"),list) or matches.get("pageInfo",{}).get("hasNextPage") is not False or matches["nodes"]:
                 plan["blockers"].append("New variant SKU candidate already exists or discovery is incomplete; resolve before creation.")
-    plan["taxonomy_review_digest"] = drafts.digest({"collections":plan["collections"],"standard":standard,
+    plan["taxonomy_review_digest"] = drafts.digest({"collections":plan["collections"],"standard":standard,"attributes":plan["attribute_review_digest"],
         "native":{k:v for k,v in plan["native"].items() if k!="checked_at"}})
     # Leave room for durable media/maps/native receipts BEFORE any remote write.
     reserves={"version":1,"plan":plan,"media":[{"source":i["source"],"filename":i["filename"],"sha256":i["sha256"],"id":"x"*100,"url":"x"*1024,"status":"x"*24} for i in plan["images"]],
         "created_media":[{"id":"x"*100} for i in plan["images"]],
         "variant_maps":{v["identity"]:{"id":"x"*100,"inventory_id":"x"*100,"sku":v["sku"],"options":v["options"]} for v in plan["variants"]},
         "option_maps":[dict(o,id="x"*100,values=[dict(value,id="x"*100) for value in o["values"]]) for o in plan["options"]],
-        "reserve":"x"*3000}
+        "reserve":"x"*(3000+sum(len(a["resources"]) for a in plan.get("attributes",[]))*300)}
     if plan["native"]["enabled"]:
         reserves["variant_native"]={v["identity"]:{"version":1,"state":"uncertain","desired":v["native"]["desired"],"observed":v["native"]["desired"],"inventory_id":"x"*100,"operation_id":"x"*100,"checked_at":"x"*100,"message":"x"*512} for v in plan["variants"]}
     drafts.encode(reserves)
@@ -492,7 +501,7 @@ def _native_apply(row,data,config,adapter,operation_id):
     return "verified" if all(proofs.get(v["identity"],{}).get("state")=="verified" for v in data["plan"]["variants"]) else "blocked"
 
 
-def verify(row,data,config,adapter, *, recover=False, approval=None):
+def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attribute_review=False):
     plan = data["plan"]
     remote = adapter.read_variable(config,row.shopify_product_id,plan["managed"]["namespace"])
     if recover:
@@ -533,6 +542,15 @@ def verify(row,data,config,adapter, *, recover=False, approval=None):
         raise ShopifyError("Managed variable fields differ from the retained reviewed plan. No whole-operation retry; reconcile the recorded stage.")
     from app.shopify_taxonomy import verify_memberships
     verify_memberships(plan,config,adapter,row.shopify_product_id)
+    from app.shopify_attributes import verify as verify_attributes
+    remaining=False
+    try:
+        verify_attributes(plan,config,adapter,row.shopify_product_id)
+    except ShopifyError:
+        if not allow_attribute_review: raise
+        from app.shopify_attributes import remaining_review
+        remaining=remaining_review(plan,config,adapter,row.shopify_product_id)
+    data["verification"]["attributes"]="remaining_review" if remaining else "verified"
     data["verification"]["memberships"] = "verified"
     expected = [m.get("id") for m in data.get("created_media",[])]
     observed = remote["media"]["nodes"]
@@ -562,12 +580,12 @@ def verify(row,data,config,adapter, *, recover=False, approval=None):
                 if observed.get("id")!=mapping["inventory_id"] or observed.get("sku")!=mapping["sku"] or not native.equal(observed["measurement"]["packedDimensions"],proof["desired"]):
                     raise ShopifyError("Native outcome remains unresolved for this InventoryItem. No native write replay allowed.")
                 proof.update(state="verified",observed=observed["measurement"]["packedDimensions"],checked_at=drafts.now().isoformat())
-    row.verification_state="verified" if ready else "processing"
-    if ready: row.verified_at=drafts.now()
-    data.update(stage="verified" if ready else "media_reordering" if order!=expected else "media_processing",checked_at=drafts.now().isoformat())
+    row.verification_state="base_verified" if ready and remaining else "verified" if ready else "processing"
+    if ready and not remaining: row.verified_at=drafts.now()
+    data.update(stage="attribute_review_required" if ready and remaining else "verified" if ready else "media_reordering" if order!=expected else "media_processing",checked_at=drafts.now().isoformat())
     data.pop("error",None)
-    drafts.save(row,data,"verified" if ready else "processing")
-    if ready:
+    drafts.save(row,data,"attribute_review_required" if ready and remaining else "verified" if ready else "processing")
+    if ready and not remaining:
         from app.shopify_comparison import record
         result = copy.deepcopy(plan)
         result.update(classification="no_change",fields=[dict(f,changed=False) for f in fields_found], remote_id=row.shopify_product_id,
@@ -600,12 +618,15 @@ def confirm(reviewed, adapter=None):
         if creating:
             data = {"version":1,"kind":"variable","plan":plan,"stage":"pending","media":[],"created_media":[],
                 "variant_maps":{},"variant_native":{},"variant_creates_attempted":[],"create_attempted":False}
+            if row and row.state == "remote_deleted":
+                data["history_operation"] = drafts.evidence(row).get("history_operation")
             if row is None:
                 row = ShopifyProductIdentity(product_id=product.id,source_identity=product.source_relpath,sku=product.sku,
                     store_key=plan["store_key"],store_id=plan["store_id"],store_domain=config.domain,
                     operation_id=lease.id,reviewed_digest=plan["digest"],state="pending",verification_state="unverified",media_evidence_json=drafts.encode(data))
                 db.session.add(row); db.session.commit()  # SQLite constraints reserve before remote writes
             else:
+                if row.product_id is None: row.product_id=product.id
                 row.operation_id,row.reviewed_digest=lease.id,plan["digest"]
                 drafts.save(row,data,"pending")
             stage=drafts.payload_result(adapter.stage_images(config,plan["images"]),"stagedUploadsCreate")
@@ -685,7 +706,7 @@ def confirm(reviewed, adapter=None):
                 leaves={f["leaf"] for f in plan["fields"] if f.get("variant_identity")==wanted["identity"] and f["changed"]}
                 full=_payload(wanted,media)
                 patch={"id":wanted["remote_id"]}
-                for key in ("price","compareAtPrice","mediaId"):
+                for key in ("price","compareAtPrice","mediaId","inventoryPolicy"):
                     if key in leaves and key in full: patch[key]=full[key]
                 inventory={k:value for k,value in full["inventoryItem"].items() if k in leaves or k=="measurement" and "weight" in leaves}
                 if inventory: patch["inventoryItem"]=inventory
@@ -704,6 +725,10 @@ def confirm(reviewed, adapter=None):
         _save_maps(row,data,adapter.read_variable(config,row.shopify_product_id,plan["managed"]["namespace"]))
         from app.shopify_taxonomy import join_reviewed
         join_reviewed(row,data,config,adapter)
+        from app.shopify_attributes import apply as apply_attributes
+        if any(a["changed"] for a in plan.get("attributes",[])):
+            attempted=True
+        apply_attributes(row,data,config,adapter)
         verify(row,data,config,adapter)
         native_state="blocked" if row.state=="processing" and plan["native"]["enabled"] else _native_apply(row,data,config,adapter,lease.id) if row.state=="verified" else "disabled"
         if native_state=="uncertain":
@@ -736,7 +761,7 @@ def confirm(reviewed, adapter=None):
         raise
 
 
-def reconcile(row,adapter=None, *, candidate_id=None, approval=None):
+def reconcile(row,adapter=None, *, candidate_id=None, approval=None, allow_attribute_review=False):
     adapter=adapter or ShopifyAdapter(); config=drafts.configuration()
     shop=adapter.test_connection(config)
     if shop["shop_id"]!=row.store_id:
@@ -755,7 +780,7 @@ def reconcile(row,adapter=None, *, candidate_id=None, approval=None):
         row.shopify_product_id=temporary.shopify_product_id
         drafts.save(row,data)
     try:
-        return verify(row,data,config,adapter,recover=True,approval=approval)
+        return verify(row,data,config,adapter,recover=True,approval=approval,allow_attribute_review=allow_attribute_review)
     except ShopifyError as exc:
         data["error"]=str(exc); drafts.save(row,data,"uncertain")
         raise

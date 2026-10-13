@@ -176,7 +176,9 @@ def workspace_context(active_tab=None):
     from flask_wtf import FlaskForm
     from app.shopify_taxonomy import sources
     from app.shopify_taxonomy_batch import overview, evidence_totals
-    from app.models import ShopifyCollectionIdentity
+    from app.models import ShopifyCollectionIdentity, ShopifyAttributeIdentity
+    from app import shopify_navigation
+    from app import shopify_attributes
     status = registry.load_configured_registry()
     data = None
     if status.available:
@@ -195,14 +197,17 @@ def workspace_context(active_tab=None):
     entries = overview()
     entry_by_key = {r["key"]: r for r in entries}
     tab = active_tab or request.args.get("tab") or {"categories": "categories", "storefront_collections": "collections", "attributes": "attributes", "tags": "attributes"}.get(kind, "categories")
-    if tab not in {"categories", "collections", "attributes", "shopify"}:
+    if tab not in {"categories", "collections", "attributes", "shopify", "navigation"}:
         tab = "categories"
     last = CatalogueOperation.query.filter_by(operation_type="taxonomy_registry_update").order_by(CatalogueOperation.started_at.desc()).first()
     return dict(status=status, counts=service.counts(data), registry_data=data, category_children=children,
         labels=LABELS, paths=paths, active_tab=tab, query=request.args.get("q", "")[:191], last=last,
         form=FlaskForm(), sources=sources(), overview=entries, entry_by_key=entry_by_key,
         mappings=ShopifyCollectionIdentity.query.order_by(ShopifyCollectionIdentity.updated_at.desc()).limit(200).all(),
-        evidence_totals=evidence_totals())
+        evidence_totals=evidence_totals(),
+        attribute_mappings=ShopifyAttributeIdentity.query.order_by(ShopifyAttributeIdentity.source_key).limit(500).all(),
+        attribute_usage=shopify_attributes.local_overview() if tab=="attributes" else None,
+        navigation=shopify_navigation.preview() if tab=="navigation" else None)
 
 
 @taxonomy.route("/advanced", methods=["GET", "POST"])

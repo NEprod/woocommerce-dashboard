@@ -30,6 +30,8 @@
     });
   }
   tabs.forEach(link => link.addEventListener("click", event => {
+    // Eligibility/usage is built locally only when its server-rendered tab opens.
+    if (["navigation", "attributes"].includes(link.dataset.taxonomyTab)) return;
     event.preventDefault(); activate(link.dataset.taxonomyTab);
     window.history.replaceState(null, "", link.href);
   }));
