@@ -94,8 +94,9 @@ def test_existing_private_resources_offer_persisted_update_without_recreation(wo
     adapter.calls.clear(); result=status.refresh([world[0]],force=True,adapter=adapter)
     assert not result['errors']
     saved=json.loads(ShopifyProductComparison.query.one().summary_json)
-    assert saved['classification']=='update' and saved['change_count']==2
-    assert all(v['field'].startswith('attribute_access.') for v in saved['changes'])
+    assert saved['classification']=='update' and saved['change_count']==4
+    assert sum(v['field'].startswith('attribute_access.') for v in saved['changes'])==2
+    assert sum(v['field'].startswith('attribute_capability.') for v in saved['changes'])==2
     assert display(world[0])['label']=='Update Available'
     assert 'storefront access' in ' '.join(display(world[0])['change_summary'])
     assert not any('create' in call or 'update' in call or 'write' in call for call in adapter.calls)

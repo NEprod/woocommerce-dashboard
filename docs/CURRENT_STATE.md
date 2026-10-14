@@ -1,5 +1,30 @@
 # Current State
 
+## Attribute capability follow-up to M3A.8.5.3
+
+The existing app-owned informational attribute path now compares/repairs eligible Admin
+filtering and automated collection-condition flags, alongside both existing storefront
+access levels. New definitions use reviewed base creation, then actual eligibility reads
+before enabling supported flags. Existing identities and matching references stay intact;
+uncertain repairs use read-only reconciliation, not recreation or automatic replay.
+Registry customer-facing roles, including Production Method, drive policy without name
+lists; internal/mixed-visibility safeguards remain. Historical access-only comparisons
+are downgraded for affected informational products until current settings are read.
+Unsupported capabilities and pending/failed Admin index status are disclosed. No Search
+& Discovery filters, menu, collection or membership writes are added by this change.
+No migration/auth/API/mount changes. Live Unraid acceptance remains required; see
+SHOPIFY_INTEGRATION for exact policy, permissions and controlled acceptance.
+
+Verification: 287 distinct focused Python cases passed across one bounded regression
+and targeted corrective runs; the final 55-case selection passed. Checks cover both
+Variable layouts, independently reviewed flags/access, existing identity/reference
+retention, internal/mixed-visibility guards, unsupported eligibility, signed-plan
+drift, incomplete reads and read-only uncertainty recovery. The regression also
+corrected base-definition timeout recovery without claiming unfinished capabilities,
+and retained Needs Attention for deliberately scoped inventory-only verification
+rather than mislabelling it as a failed full read. Python compilation, affected-template
+parsing and diff whitespace checks passed. No live Shopify or Discord test requests.
+
 ## M3A.8.5.3 — Products status and publishing Discord outcomes
 
 Implemented; mocked acceptance is recorded below. Live Unraid acceptance remains

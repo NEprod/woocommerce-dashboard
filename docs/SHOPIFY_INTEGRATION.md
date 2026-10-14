@@ -1,5 +1,72 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## Attribute definition capabilities — 2026-10-14 follow-up
+
+Customer-facing informational attributes use the existing reviewed registration/repair
+workflow. Effective registry roles (including inherited legacy navigation/visible defaults)
+select policy, not hardcoded attribute names. Production Method is public when the
+registry declares it so. Explicit internal vocabulary stays `NONE` at both storefront
+access levels; mixed public/internal values sharing a definition remain blocked.
+
+For configured Admin API **2026-10**, the supported fields are:
+
+| Use | Definition readback | Reviewed input |
+|---|---|---|
+| Admin/API filtering | `MetafieldDefinition.capabilities.adminFilterable { eligible enabled status }` | `capabilities.adminFilterable.enabled: true` |
+| Automated collection-condition eligibility | `MetafieldDefinition.capabilities.smartCollectionCondition { eligible enabled }` | `capabilities.smartCollectionCondition.enabled: true` |
+| Product metafield Storefront API access | `MetafieldDefinition.access.storefront` | `access.storefront: PUBLIC_READ` |
+| Referenced term-definition Storefront API access | `MetaobjectDefinition.access.storefront` | `access.storefront: PUBLIC_READ` |
+
+The capability inputs belong to `MetafieldCapabilityCreateInput` /
+`MetafieldCapabilityUpdateInput`, used by `MetafieldDefinitionInput` /
+`MetafieldDefinitionUpdateInput`. Do not use deprecated `useAsCollectionCondition`.
+See [capability readback](https://shopify.dev/docs/api/admin-graphql/2026-10/objects/MetafieldCapabilities),
+[update input](https://shopify.dev/docs/api/admin-graphql/2026-10/input-objects/MetafieldDefinitionUpdateInput)
+and [Shopify's capability guide](https://shopify.dev/docs/apps/build/metafields/use-metafield-capabilities).
+
+Schema support and **definition-specific eligibility are separate**. Read-only schema
+discovery guards missing inputs/outputs. Existing definitions are checked independently
+for both flags and both access settings; only eligible disabled flags become reviewed
+changes. Ineligible capabilities or unsupported API fields produce explicit limitations,
+not forced mutations. For a new definition, eligibility cannot be inspected before it
+exists: the signed review discloses base creation followed by eligibility readback and
+conditional enablement of supported flags. Its exact GID and pending update evidence
+are committed before the capability mutation. Timeout recovery reads the same identity
+and before/desired settings; it never replays or recreates a definition automatically.
+If the base-definition creation response is lost, reconciliation may retain the exact
+independently verified base identity; unfinished capability settings require a fresh
+signed repair. An older signed operation cannot manufacture a new-policy comparison
+checkpoint merely by being reconciled after upgrade.
+
+Existing repair patches contain only changed settings. Matching product term references
+are not rewritten; definition, entry, product, variant and inventory identities remain.
+Access-only historical comparison checkpoints for informational products are invalidated
+on upgrade so automatic status checking compares the new policy. Products without such
+attributes retain their existing cache policy. No migration; head stays
+`0012_shopify_attributes`, with versioned evidence in existing mappings/comparisons.
+
+Flags enabled is not proof that the Admin search index is ready: readback reports
+`FILTERABLE`, `IN_PROGRESS`, `FAILED` or `NOT_FILTERABLE`. Non-ready states are disclosed
+without repeatedly writing an already-enabled flag. Public read access does **not**
+configure Shopify Search & Discovery filters, theme rendering or navigation menus.
+Capability mutations create no collections, change no memberships and alter no local
+taxonomy. Any separate product/collection actions already in the full signed product
+plan remain independently disclosed; do not confirm unreviewed collection actions.
+
+Permissions are unchanged: `read_products` / `write_products`,
+`read_metaobject_definitions` / `write_metaobject_definitions`, and
+`read_metaobjects` / `write_metaobjects` as needed by existing attribute stages. Capability
+patches use `write_products`; access to the term definition uses
+`write_metaobject_definitions`. No new authentication, API version or Unraid setting.
+
+Unraid acceptance: pull the immutable capability image or `develop`, keep existing
+mounts and credentials, and Refresh Product for an existing informational product.
+Review disabled flags and access settings separately. Confirm only the intended signed
+changes; check retained IDs/references and unchanged collections (including 16-Bit).
+Refresh/build Preview again: matching settings should show No Changes. Inspect Shopify
+Admin read-only definitions for flags/access and indexing status; readonly app ownership
+is expected. Search & Discovery/filter activation and menu publishing remain separate.
+
 ## M3A.8.5.3 — ten-minute status and publishing notifications
 
 Products renders local evidence immediately, then its existing administrator-only

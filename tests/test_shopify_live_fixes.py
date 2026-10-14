@@ -172,12 +172,7 @@ def test_pre_85_variable_inventory_update_keeps_all_identities(variable_world):
 
 class AccessAdapter(LifecycleAdapter):
     def update_attribute_access(self,config,kind,remote_id,spec):
-        self.calls.append('attribute_access_update')
-        resource=self.resources[self.key(kind,spec)]
-        assert resource['id']==remote_id
-        resource['access']=copy.deepcopy(spec['access'])
-        name='metaobjectDefinitionUpdate' if kind=='definition' else 'metafieldDefinitionUpdate'
-        return {name:{'metaobjectDefinition' if kind=='definition' else 'updatedDefinition':{'id':remote_id},'userErrors':[]}}
+        return super().update_attribute_access(config,kind,remote_id,spec)
 
 
 def test_reviewed_access_repair_preserves_terms_and_multivalue_assignments(world,registry):

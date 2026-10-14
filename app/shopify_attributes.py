@@ -7,6 +7,8 @@ from app.taxonomy_registry import load_configured_registry, attribute_browse_rol
 from app.shopify_connection import ShopifyError, _gid
 
 NAMESPACE = "$app:tlc_attributes"
+CAPABILITY_POLICY_VERSION = 1
+CAPABILITY_LABELS = {"adminFilterable":"Admin/API filtering", "smartCollectionCondition":"Automated collection conditions"}
 READ_SCOPES = {"read_metaobject_definitions", "read_metaobjects"}
 WRITE_SCOPES = {"write_metaobject_definitions", "write_metaobjects", "write_products"}
 PAYLOADS = {"definition":("metaobjectDefinitionCreate","metaobjectDefinition","MetaobjectDefinition"),
@@ -55,6 +57,43 @@ def resource(store,key):
     return ShopifyAttributeIdentity.query.filter_by(store_id=store,source_key=key).first()
 
 
+def supported_capabilities(schema):
+    def names(key, collection):
+        return {f["name"] for f in (schema.get(key) or {}).get(collection) or []}
+    if not all("capabilities" in names(k,"inputFields") for k in ("fieldCreate","fieldUpdate")):
+        return {}
+    return {key:{"enabled":True} for key, output in (("adminFilterable","adminCapability"),("smartCollectionCondition","collectionCapability"))
+        if all(key in names(k,c) for k,c in (("capabilityCreate","inputFields"),("capabilityUpdate","inputFields"),("capabilityOutput","fields")))
+        and {"eligible","enabled"}.issubset(names(output,"fields")) and "enabled" in names(output+"Input","inputFields")
+        and (key!="adminFilterable" or "status" in names(output,"fields"))}
+
+
+def settings_changes(kind, remote, spec):
+    changes=[]
+    if remote and spec.get("capabilities") and not isinstance(remote.get("capabilities"),dict):
+        raise ShopifyError("Attribute capability readback is incomplete; no settings equality or update is authorised.")
+    if remote and kind in {"field","definition"}:
+        before=remote["access"]["storefront"]
+        if before!=spec["access"]["storefront"]:
+            changes.append({"key":"storefront","label":"storefront access","before":before,"after":spec["access"]["storefront"]})
+    for key,wanted in spec.get("capabilities",{}).items():
+        actual=(remote.get("capabilities") or {}).get(key) if remote else None
+        if remote and (not isinstance(actual,dict) or type(actual.get("eligible")) is not bool or type(actual.get("enabled")) is not bool
+                or key=="adminFilterable" and actual.get("status") not in {"FILTERABLE","IN_PROGRESS","FAILED","NOT_FILTERABLE"}):
+            raise ShopifyError("Attribute capability readback is incomplete; no settings equality or update is authorised.")
+        if actual and actual["eligible"] and actual["enabled"]!=wanted["enabled"]:
+            changes.append({"key":key,"label":CAPABILITY_LABELS[key],"before":actual["enabled"],"after":wanted["enabled"]})
+    return changes
+
+
+def settings_patch(kind, spec, changes):
+    patch={k:spec[k] for k in (("type",) if kind=="definition" else ("namespace","key"))}
+    if any(c["key"]=="storefront" for c in changes): patch["access"]=spec["access"]
+    capabilities={c["key"]:spec["capabilities"][c["key"]] for c in changes if c["key"]!="storefront"}
+    if capabilities: patch["capabilities"]=capabilities
+    return patch
+
+
 def valid(kind, remote, spec, source, expected=None, *, allow_access=False):
     if remote is None:
         return None
@@ -90,6 +129,9 @@ def valid(kind, remote, spec, source, expected=None, *, allow_access=False):
             raise ShopifyError("Informational field owner/namespace differs from the exact app-owned PRODUCT contract.")
         if remote["key"]!=spec["key"] or remote["type"]["name"]!="list.metaobject_reference" or validations.get("metaobject_definition_id")!=spec["validations"][0]["value"] or (not allow_access and remote["access"]["storefront"]!=spec["access"]["storefront"]):
             raise ShopifyError("Attribute metafield definition/reference/access is incompatible.")
+        changes=settings_changes(kind,remote,spec)
+        if not allow_access and changes:
+            raise ShopifyError("Attribute definition capabilities do not match the reviewed settings; reconcile before another write.")
     return remote
 
 
@@ -108,8 +150,11 @@ def inspect_resource(kind, key, spec, store, config, adapter, *, definition=None
         publishable=remote["capabilities"].get("publishable")
         if public and publishable and publishable.get("status")!="ACTIVE":
             raise ShopifyError("Public term has inactive publishable status; storefront filtering is not ready. Resolve entry publication explicitly; no automatic activation or recreation.")
+    changes=settings_changes(kind,remote,spec)
+    capabilities=(remote.get("capabilities") or {}) if remote and kind=="field" else {}
     return {"kind":kind,"source":key,"spec":spec,"remote_id":remote["id"] if remote else None,
-        "action":"Update storefront access" if remote and kind in {"definition","field"} and remote["access"]["storefront"]!=spec["access"]["storefront"] else "Reuse" if kept and kept.state=="verified" else "Link owned resource" if remote else "Create",
+        "action":("Update definition settings" if any(c["key"]!="storefront" for c in changes) else "Update storefront access") if changes else "Reuse" if kept and kept.state=="verified" else "Link owned resource" if remote else "Create",
+        "settings_changes":changes, "capabilities":capabilities,
         "before_access":remote["access"]["storefront"] if remote and kind in {"definition","field"} else None,
         "remote_digest":drafts.digest(remote),"mapping_digest":drafts.digest(kept.evidence_json) if kept else None}
 
@@ -122,6 +167,7 @@ def preview(product, store, remote_id, config, shop, adapter):
     if missing:
         raise ShopifyError("Missing informational-attribute read scopes: "+", ".join(sorted(missing)))
     schema=adapter.attribute_schema(config)
+    capabilities=supported_capabilities(schema)
     if (not {"type","fieldDefinitions"}.issubset({f["name"] for f in (schema.get("definition") or {}).get("inputFields",[])})
             or "compareDigest" not in {f["name"] for f in (schema.get("assignment") or {}).get("inputFields",[])}):
         raise ShopifyError("Configured Shopify API lacks the controlled-attribute/CAS contract.")
@@ -139,8 +185,19 @@ def preview(product, store, remote_id, config, shop, adapter):
         field={"name":"TLC · "+attr["name"],"namespace":NAMESPACE,"key":suffix,"ownerType":"PRODUCT",
             "type":"list.metaobject_reference","access":{"storefront":visibility},
             "validations":[{"name":"metaobject_definition_id","value":did or "pending reviewed definition"}]}
+        if attr["public"] and capabilities: field["capabilities"]=capabilities
         resources.append(inspect_resource("field",prefix+":field",field,store,config,adapter) if did else
             {"kind":"field","source":prefix+":field","spec":field,"remote_id":None,"action":"Create","remote_digest":drafts.digest(None),"mapping_digest":None})
+        limitations=[]
+        if attr["public"]:
+            for key,label in CAPABILITY_LABELS.items():
+                observed_cap=resources[1].get("capabilities",{}).get(key)
+                if key not in capabilities:
+                    limitations.append(label+" unsupported by the configured API schema; no capability write will be attempted.")
+                elif observed_cap and not observed_cap["eligible"]:
+                    limitations.append(label+" is not eligible for this Shopify definition; left unchanged.")
+                elif key=="adminFilterable" and observed_cap and observed_cap["enabled"] and observed_cap["status"]!="FILTERABLE":
+                    limitations.append("Admin filtering flag is enabled; Shopify index status is "+observed_cap["status"]+". Filtering readiness is not confirmed; no repeated enable write.")
         for term in attr["terms"]:
             key=prefix+":term:"+term["key"]
             spec={"type":definition["type"],"handle":"tlc-"+drafts.digest(key)[:24],
@@ -158,22 +215,23 @@ def preview(product, store, remote_id, config, shop, adapter):
         changed=any(r["action"]!="Reuse" for r in resources) or assignment_changed
         required=set()
         for item in resources:
-            if item["action"] in {"Create","Update storefront access"}:
+            if item["action"] in {"Create","Update storefront access","Update definition settings"}:
                 required.add({"definition":"write_metaobject_definitions","term":"write_metaobjects","field":"write_products"}[item["kind"]])
         if changed: required.add("write_products")
         missing_writes=sorted(required-set(shop["scopes"]))
-        if any(r["action"]=="Update storefront access" for r in resources):
+        if any(r["action"] in {"Update storefront access","Update definition settings"} for r in resources):
             # Access belongs to the attribute definition, not one assignment;
             # disclosure is required because other products share this definition.
-            access_notice="Reviewed access change affects all products referencing this app-owned attribute."
+            access_notice="Reviewed definition-setting changes affect all products referencing this app-owned attribute."
         else:
             access_notice=""
-        rows.append({**attr,"field_key":suffix,"resources":resources,"before":before,"changed":changed,
+        rows.append({**attr,"field_key":suffix,"resources":resources,"before":before,"changed":changed,"limitations":limitations,
             "desired_ids":desired,"assignment_changed":assignment_changed,"missing_scopes":missing_writes,"access_notice":access_notice,"action":"Clear owned references" if assignment_changed and not attr["terms"] else "Update" if assignment_changed else "Already matching"})
     return rows
 
 
 def attach(product, plan, config, shop, adapter, remote_id=None):
+    plan["attribute_capability_policy"] = CAPABILITY_POLICY_VERSION
     plan["attribute_diagnostics"]=[]
     try:
         plan["attributes"]=preview(product,shop["shop_id"],remote_id,config,shop,adapter)
@@ -181,6 +239,7 @@ def attach(product, plan, config, shop, adapter, remote_id=None):
         plan["attributes"]=[]; plan["blockers"].append(str(exc))
         plan["attribute_diagnostics"]=[{"name":a["name"],"action":"Required assignment / verification blocked: "+str(exc)} for a in resolve(product_document(product))["attributes"] if not a["variation"]]
     for attr in plan["attributes"]:
+        plan["warnings"].extend(attr.get("limitations",[]))
         if attr.get("missing_scopes"):
             plan["blockers"].append("Required informational operation for "+attr["name"]+" is blocked. Missing token scopes: "+", ".join(attr["missing_scopes"]))
     plan["attribute_review_digest"]=drafts.digest(plan["attributes"])
@@ -190,10 +249,11 @@ def attach(product, plan, config, shop, adapter, remote_id=None):
         plan["fields"].append({"field":"attributes."+attr["name"],"before":(attr["before"] or {}).get("value") if attr["assignment_changed"] else names,
             "after":names,"changed":attr["assignment_changed"]})
         for item in attr["resources"]:
-            if item["action"]=="Update storefront access":
-                label=attr["name"]+" · "+("term definition" if item["kind"]=="definition" else "product attribute")+" storefront access"
-                plan["fields"].append({"field":"attribute_access."+item["source"],"label":label,
-                    "before":item["before_access"],"after":item["spec"]["access"]["storefront"],"changed":True})
+            for change in item.get("settings_changes",[]):
+                label=attr["name"]+" · "+("term definition" if item["kind"]=="definition" else "product attribute")+" "+change["label"]
+                prefix="attribute_access." if change["key"]=="storefront" else "attribute_capability."
+                plan["fields"].append({"field":prefix+item["source"]+("."+change["key"] if change["key"]!="storefront" else ""),"label":label,
+                    "before":change["before"],"after":change["after"],"changed":True})
         if attr["changed"] and not attr["assignment_changed"] and any(item["action"] in {"Create","Link owned resource"} for item in attr["resources"]):
             plan["fields"].append({"field":"attribute_registration."+attr["key"],"label":attr["name"]+" · retained resource mapping",
                 "before":"Not fully retained","after":"Verify and retain existing resources","changed":True})
@@ -210,7 +270,7 @@ def save_resource(row,data,state):
 def ensure(item,store,config,adapter,operation):
     kind,key,spec=item["kind"],item["source"],item["spec"]
     row=resource(store,key)
-    changing_access=item["action"]=="Update storefront access"
+    changing_access=item["action"] in {"Update storefront access","Update definition settings"}
     remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id if row else None,allow_access=changing_access)
     if row:
         if row.state=="absent_verified" and remote is None and item["mapping_digest"]==drafts.digest(row.evidence_json):
@@ -226,21 +286,38 @@ def ensure(item,store,config,adapter,operation):
     if changing_access:
         row.remote_id=remote["id"]  # exact retained target durable BEFORE access mutation
     row.operation_id=operation
-    save_resource(row,{"version":1,"kind":kind,"spec":spec,"source":key,"before_access":item.get("before_access")},"pending")
+    save_resource(row,{"version":1,"kind":kind,"spec":spec,"source":key,"before_access":item.get("before_access"),
+        "settings_before":{k:remote[k] for k in ("access","capabilities") if remote and k in remote} if changing_access else None},"pending")
     try:
         if changing_access:
             save_resource(row,json.loads(row.evidence_json),"updating_access")
-            payload=drafts.payload_result(adapter.update_attribute_access(config,kind,remote["id"],spec),"metaobjectDefinitionUpdate" if kind=="definition" else "metafieldDefinitionUpdate")
+            patch=settings_patch(kind,spec,item["settings_changes"])
+            payload=drafts.payload_result(adapter.update_attribute_access(config,kind,remote["id"],patch),"metaobjectDefinitionUpdate" if kind=="definition" else "metafieldDefinitionUpdate")
             returned=(payload.get("metaobjectDefinition" if kind=="definition" else "updatedDefinition") or {}).get("id")
             if returned!=remote["id"]:
                 raise ShopifyError("Access update receipt identity differs; reconcile retained resource.")
             remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id)
         if remote is None:
-            save_resource(row,json.loads(row.evidence_json),"creating")
+            creating_evidence=json.loads(row.evidence_json)
+            creating_evidence["base_capability_pending"] = kind=="field" and bool(spec.get("capabilities"))
+            save_resource(row,creating_evidence,"creating")
             name,receipt,model=PAYLOADS[kind]
-            payload=drafts.payload_result(adapter.create_attribute_resource(config,kind,spec),name)
+            # Eligibility is available on an actual definition, not on a type
+            # template. Create the reviewed base first; never guess list support.
+            creating={k:v for k,v in spec.items() if k!="capabilities"}
+            payload=drafts.payload_result(adapter.create_attribute_resource(config,kind,creating),name)
             row.remote_id=_gid((payload.get(receipt) or {}).get("id"),model); db.session.commit()
-            remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id)
+            remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id,allow_access=kind=="field")
+            changes=settings_changes(kind,remote,spec)
+            if changes:
+                # The signed new-definition plan explicitly authorises enabling
+                # only supported/eligible flags after independent creation readback.
+                before={k:remote[k] for k in ("access","capabilities") if k in remote}
+                save_resource(row,{"version":1,"kind":kind,"spec":spec,"source":key,"settings_before":before},"updating_access")
+                result=drafts.payload_result(adapter.update_attribute_access(config,kind,remote["id"],settings_patch(kind,spec,changes)),"metafieldDefinitionUpdate")
+                if (result.get("updatedDefinition") or {}).get("id")!=row.remote_id:
+                    raise ShopifyError("Capability receipt identity differs; reconcile retained definition.")
+                remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id)
         if remote is None:
             raise ShopifyError("Attribute receipt is not independently verified.")
         row.remote_id=remote["id"]
@@ -296,7 +373,9 @@ def verify(plan,config,adapter,product_id):
             kept=resource(plan["store_id"],item["source"])
             if not kept or kept.state!="verified":
                 raise ShopifyError("Informational resource not independently verified; reconcile mapping first.")
-            spec=json.loads(kept.evidence_json)["spec"]
+            # Current signed policy, not a legacy mapping's access-only spec,
+            # determines which definition settings must be independently proved.
+            spec=item["spec"]
             observed=valid(item["kind"],adapter.attribute_resource(config,item["kind"],spec),spec,item["source"],kept.remote_id)
             if observed is None: raise ShopifyError("Informational resource is absent; no assignment equality is assumed.")
             if item["kind"]=="definition": definition_id=kept.remote_id
@@ -314,7 +393,27 @@ def verify(plan,config,adapter,product_id):
 
 def reconcile(identity,adapter,config):
     data=json.loads(identity.evidence_json)
-    observed=valid(data["kind"],adapter.attribute_resource(config,data["kind"],data["spec"]),data["spec"],identity.source_key,identity.remote_id,allow_access=bool(data.get("before_access")))
+    repairing=bool(data.get("before_access") or data.get("settings_before"))
+    base_only=bool(data.get("base_capability_pending"))
+    observed=valid(data["kind"],adapter.attribute_resource(config,data["kind"],data["spec"]),data["spec"],identity.source_key,identity.remote_id,allow_access=repairing or base_only)
+    if observed and base_only:
+        if observed["access"]["storefront"]!=data["spec"]["access"]["storefront"]:
+            raise ShopifyError("Recovered base definition access differs from its reviewed creation; inspect before adoption.")
+        data["deferred_capabilities"] = plain(data["spec"].get("capabilities",{}))
+        for key,wanted in data["spec"].get("capabilities",{}).items():
+            wanted["enabled"]=observed["capabilities"][key]["enabled"]
+        data["base_capability_pending"]=False  # verified base only; fresh signed policy repair still required
+    if observed and data.get("settings_before"):
+        before=data["settings_before"]
+        actual=observed["access"]["storefront"]
+        if actual not in {before["access"]["storefront"],data["spec"]["access"]["storefront"]}:
+            raise ShopifyError("Definition access conflicts with both reviewed states; no automatic replay.")
+        data["spec"]["access"]["storefront"]=actual
+        for key,wanted in data["spec"].get("capabilities",{}).items():
+            actual=observed["capabilities"][key]["enabled"]
+            if actual not in {(before.get("capabilities") or {}).get(key,{}).get("enabled"),wanted["enabled"]}:
+                raise ShopifyError("Definition capability conflicts with reviewed states; inspect before retrying.")
+            wanted["enabled"]=actual  # resolve observed outcome, never replay a write
     if observed and data.get("before_access"):
         actual=observed["access"]["storefront"]
         if actual not in {data["before_access"],data["spec"]["access"]["storefront"]}:

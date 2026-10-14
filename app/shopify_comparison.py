@@ -50,6 +50,9 @@ def fingerprint(product, images):
 
 def record(product, plan, identity=None):
     from app.shopify_drafts import now, digest
+    from app.shopify_attributes import CAPABILITY_POLICY_VERSION
+    if plan.get("attributes") and plan.get("attribute_capability_policy") != CAPABILITY_POLICY_VERSION:
+        return False  # reconciling an old signed plan proves only its historical scope
     if not plan.get("taxonomy_fingerprint") or not plan.get("workspace_source_fingerprint"):
         return False  # legacy publishing verification did not cover the new taxonomy contract
     expected_local = digest({"local": plan["workspace_source_fingerprint"], "taxonomy": plan["taxonomy_fingerprint"]})
@@ -69,8 +72,9 @@ def record(product, plan, identity=None):
     prior = json.loads(row.summary_json) if row.summary_json else {}
     # A diagnostic for a failed required attribute read is not successful
     # comparison evidence. Keep its previous success checkpoint, if any.
-    incomplete = scoped or bool(plan.get("attribute_diagnostics")) or bool(
+    read_failed = bool(plan.get("attribute_diagnostics")) and not scoped or bool(
         (plan.get("native") or {}).get("enabled") and (plan.get("native") or {}).get("classification") == "blocked")
+    incomplete = scoped or read_failed
     changes = [{"field": r["field"], "after": summary_value(r["after"])} for r in plan["fields"] if r["changed"] and not r.get("deferred")]
     changes += [{"field": "collections." + r["key"], "after": r["name"]} for r in plan.get("collections", []) if r["action"] in {"Join","Create & Join"}]
     summary = {"version": 1, "product_id": product.id, "source": product.source_relpath,
@@ -86,6 +90,7 @@ def record(product, plan, identity=None):
     from app.shopify_attributes import resource
     summary["attribute_mappings"]={r["source"]:attribute_mapping_digest(resource(plan["store_id"],r["source"]))
         for a in plan.get("attributes",[]) for r in a["resources"]}
+    summary["attribute_capability_policy"] = plan.get("attribute_capability_policy")
     summary["native"] = plan.get("native")
     summary["conflicting_changes"] = bool(plan.get("conflicting_changes")) and plan["classification"] == "update"
     stamp = now().isoformat()
@@ -99,7 +104,7 @@ def record(product, plan, identity=None):
         metadata_display=[], verified_at=identity.verified_at.isoformat() if identity and identity.verified_at else None,
         absence_checked_at=stamp if plan["classification"] == "create" else None,
         equality_at=stamp if plan["classification"] == "no_change" and not plan.get("blockers") and not incomplete else prior.get("equality_at"))
-    if incomplete:
+    if read_failed:
         summary["refresh_failure"] = {"at": stamp, "message": "Required managed evidence is incomplete; no successful freshness checkpoint was renewed."}
         summary["retry_after"] = (now() + timedelta(seconds=30)).isoformat()
         summary["failure_local"] = expected_local
@@ -143,6 +148,9 @@ def current(product, row, identity, mappings, *, freshness=True):
     from app.shopify_drafts import now, digest
     from app.shopify_drafts import configuration
     data = json.loads(row.summary_json)
+    from app.shopify_attributes import CAPABILITY_POLICY_VERSION
+    if data.get("attribute_mappings") and data.get("attribute_capability_policy") != CAPABILITY_POLICY_VERSION:
+        return None  # access-only historical proof cannot attest newly managed flags
     fresh = (recent(data.get("absence_checked_at"), ABSENCE_AGE) if data.get("classification") == "create" else
         recent(data.get("full_compared_at"), FULL_AGE) and recent(data.get("revision_checked_at"), REVISION_AGE)
         and recent(data.get("related_checked_at"), MAX_AGE))

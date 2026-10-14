@@ -47,7 +47,14 @@ class LifecycleAdapter(TaxonomyAdapter):
         if self.collection_failure: raise ShopifyError("Collection outcome lost")
         return {"collectionCreate":{"collection":{"id":gid},"userErrors":[]}}
     def attribute_schema(self,config):
-        return {"definition":{"inputFields":[{"name":k} for k in ("type","fieldDefinitions")]},"assignment":{"inputFields":[{"name":"compareDigest"}]}}
+        result={"definition":{"inputFields":[{"name":k} for k in ("type","fieldDefinitions")]},"assignment":{"inputFields":[{"name":"compareDigest"}]}}
+        for key in ("fieldCreate","fieldUpdate"): result[key]={"inputFields":[{"name":"capabilities"}]}
+        for key in ("capabilityCreate","capabilityUpdate","capabilityOutput"):
+            result[key]={"fields" if key=="capabilityOutput" else "inputFields":[{"name":v} for v in ("adminFilterable","smartCollectionCondition")]}
+        for key in ("adminCapability","collectionCapability"):
+            result[key]={"fields":[{"name":v} for v in ("eligible","enabled","status")]}
+            result[key+"Input"]={"inputFields":[{"name":"enabled"}]}
+        return result
     def key(self,kind,spec):
         return (kind,spec["type"] if kind=="definition" else spec["handle"] if kind=="term" else spec["key"])
     def attribute_resource(self,config,kind,spec):
@@ -64,13 +71,27 @@ class LifecycleAdapter(TaxonomyAdapter):
         gid=f"gid://shopify/{info.PAYLOADS[kind][2]}/{7000+len(self.resources)}"
         value=copy.deepcopy(spec); value["id"]=gid
         if kind=="definition": value["fieldDefinitions"]=[{"key":f["key"],"type":{"name":f["type"]}} for f in spec["fieldDefinitions"]]
-        if kind=="field": value["type"]={"name":spec["type"]}
+        if kind=="field":
+            value["type"]={"name":spec["type"]}
+            value["capabilities"]={key:{"eligible":True,"enabled":False,**({"status":"NOT_FILTERABLE"} if key=="adminFilterable" else {})}
+                for key in ("adminFilterable","smartCollectionCondition")}
         self.resources[self.key(kind,spec)]=value
         if self.resource_failure==kind: raise ShopifyError("Resource response lost")
         name,receipt,_=info.PAYLOADS[kind]
         return {name:{receipt:{"id":gid},"userErrors":[]}}
     def attribute_values(self,config,pid,namespace):
         return list(copy.deepcopy(self.attr_values).values())
+    def update_attribute_access(self,config,kind,remote_id,spec):
+        self.calls.append('attribute_access_update')
+        remote=self.resources[self.key(kind,spec)]
+        assert remote['id']==remote_id
+        if 'access' in spec: remote['access']=copy.deepcopy(spec['access'])
+        for key,value in spec.get('capabilities',{}).items():
+            assert remote['capabilities'][key]['eligible']
+            remote['capabilities'][key]['enabled']=value['enabled']
+            if key=='adminFilterable': remote['capabilities'][key]['status']='FILTERABLE' if value['enabled'] else 'NOT_FILTERABLE'
+        name='metaobjectDefinitionUpdate' if kind=='definition' else 'metafieldDefinitionUpdate'
+        return {name:{'metaobjectDefinition' if kind=='definition' else 'updatedDefinition':{'id':remote_id},'userErrors':[]}}
     def set_attributes(self,config,values):
         self.calls.append("attribute_assignment_write")
         assert drafts.evidence(ShopifyProductIdentity.query.one())["stage"]=="attribute_assignment"

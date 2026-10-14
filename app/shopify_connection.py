@@ -146,6 +146,15 @@ ATTRIBUTE_SCHEMA = '''query AttributeSchema {
  definition: __type(name: "MetaobjectDefinitionCreateInput") { inputFields { name } }
  term: __type(name: "MetaobjectCreateInput") { inputFields { name } }
  assignment: __type(name: "MetafieldsSetInput") { inputFields { name } }
+ fieldCreate: __type(name: "MetafieldDefinitionInput") { inputFields { name } }
+ fieldUpdate: __type(name: "MetafieldDefinitionUpdateInput") { inputFields { name } }
+ capabilityCreate: __type(name: "MetafieldCapabilityCreateInput") { inputFields { name } }
+ capabilityUpdate: __type(name: "MetafieldCapabilityUpdateInput") { inputFields { name } }
+ capabilityOutput: __type(name: "MetafieldCapabilities") { fields { name } }
+ adminCapability: __type(name: "MetafieldCapabilityAdminFilterable") { fields { name } }
+ collectionCapability: __type(name: "MetafieldCapabilitySmartCollectionCondition") { fields { name } }
+ adminCapabilityInput: __type(name: "MetafieldCapabilityAdminFilterableInput") { inputFields { name } }
+ collectionCapabilityInput: __type(name: "MetafieldCapabilitySmartCollectionConditionInput") { inputFields { name } }
 }'''
 ATTRIBUTE_DEFINITION = '''query AttributeDefinition($type: String!) { metaobjectDefinitionByType(type: $type) {
  id name type fieldDefinitions { key type { name } } access { storefront } } }'''
@@ -154,6 +163,10 @@ ATTRIBUTE_TERM = '''query AttributeTerm($type: String!, $handle: String!) { meta
 ATTRIBUTE_FIELD = '''query AttributeField($namespace: String!, $key: String!) {
  metafieldDefinitions(first: 2, ownerType: PRODUCT, namespace: $namespace, key: $key) {
  nodes { id namespace key ownerType type { name } validations { name value } access { storefront } } pageInfo { hasNextPage } } }'''
+ATTRIBUTE_FIELD_CAPABILITIES = {}
+for _keys in (("adminFilterable",), ("smartCollectionCondition",), ("adminFilterable", "smartCollectionCondition")):
+    _selection = " ".join(key + " { eligible enabled" + (" status" if key == "adminFilterable" else "") + " }" for key in _keys)
+    ATTRIBUTE_FIELD_CAPABILITIES[_keys] = ATTRIBUTE_FIELD.replace("access { storefront }", "access { storefront } capabilities { " + _selection + " }")
 ATTRIBUTE_VALUES = '''query AttributeValues($id: ID!, $namespace: String!) { product(id: $id) {
  id metafields(first: 129, namespace: $namespace) { nodes { id key type value compareDigest } pageInfo { hasNextPage } } } }'''
 ATTRIBUTE_ENTRIES = '''query AttributeEntries($ids: [ID!]!) { nodes(ids: $ids) { ... on Metaobject {
@@ -172,6 +185,7 @@ ATTRIBUTE_DEF_ACCESS = '''mutation AttributeDefinitionAccess($id: ID!, $definiti
 ATTRIBUTE_FIELD_ACCESS = '''mutation AttributeFieldAccess($definition: MetafieldDefinitionUpdateInput!) {
  metafieldDefinitionUpdate(definition: $definition) { updatedDefinition { id } userErrors { field message } } }'''
 READ_QUERIES |= frozenset((ATTRIBUTE_SCHEMA,ATTRIBUTE_DEFINITION,ATTRIBUTE_TERM,ATTRIBUTE_FIELD,ATTRIBUTE_VALUES,ATTRIBUTE_ENTRIES))
+READ_QUERIES |= frozenset(ATTRIBUTE_FIELD_CAPABILITIES.values())
 WRITE_QUERIES |= frozenset((ATTRIBUTE_DEF_CREATE,ATTRIBUTE_TERM_CREATE,ATTRIBUTE_FIELD_CREATE,ATTRIBUTE_SET,ATTRIBUTE_DEF_ACCESS,ATTRIBUTE_FIELD_ACCESS))
 NAVIGATION_READ = '''query NavigationEligibility($ids: [ID!]!, $publication: ID!) {
  publication(id: $publication) { id name app { title } }
@@ -614,7 +628,9 @@ class ShopifyAdapter:
             return self._read(config,ATTRIBUTE_DEFINITION,{"type":spec["type"]})["metaobjectDefinitionByType"]
         if kind == "term":
             return self._read(config,ATTRIBUTE_TERM,{"type":spec["type"],"handle":spec["handle"]})["metaobjectByHandle"]
-        part=self._read(config,ATTRIBUTE_FIELD,{"namespace":spec["namespace"],"key":spec["key"]})["metafieldDefinitions"]
+        keys=tuple(sorted(spec.get("capabilities", {})))
+        query=ATTRIBUTE_FIELD_CAPABILITIES[keys] if keys else ATTRIBUTE_FIELD
+        part=self._read(config,query,{"namespace":spec["namespace"],"key":spec["key"]})["metafieldDefinitions"]
         if part["pageInfo"]["hasNextPage"] or len(part["nodes"])>1:
             raise ShopifyError("Attribute definition lookup is ambiguous/incomplete.")
         return part["nodes"][0] if part["nodes"] else None
@@ -627,7 +643,9 @@ class ShopifyAdapter:
         if kind == "definition":
             return self._write(config,ATTRIBUTE_DEF_ACCESS,{"id":_gid(remote_id,"MetaobjectDefinition"),"definition":{"access":spec["access"]}})
         if kind == "field":
-            return self._write(config,ATTRIBUTE_FIELD_ACCESS,{"definition":{"namespace":spec["namespace"],"key":spec["key"],"ownerType":"PRODUCT","access":spec["access"]}})
+            patch={"namespace":spec["namespace"],"key":spec["key"],"ownerType":"PRODUCT"}
+            patch.update({key:spec[key] for key in ("access","capabilities") if key in spec})
+            return self._write(config,ATTRIBUTE_FIELD_ACCESS,{"definition":patch})
         raise ShopifyError("Only existing controlled definitions permit reviewed access updates.")
 
     def attribute_values(self, config, product_id, namespace):
