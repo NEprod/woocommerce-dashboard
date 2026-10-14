@@ -302,6 +302,9 @@ def _preview(product, adapter=None, *, context=None, scope="full"):
 
 
 def save(row, data, state=None):
+    from flask import has_request_context,g
+    if has_request_context() and g.get("shopify_request_summary"):
+        data["api_requests"]=g.shopify_request_summary
     row.media_evidence_json = encode(data)
     if state:
         row.state = state
@@ -309,6 +312,12 @@ def save(row, data, state=None):
             row.verification_state = "unverified"
     row.updated_at = now()
     db.session.commit()
+
+
+def completed_step(row,data,stage):
+    steps=data.setdefault("completed_steps",[])
+    if stage not in steps: steps.append(stage)
+    save(row,data)
 
 
 def payload_result(data, name):
@@ -409,6 +418,7 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         targets = stage.get("stagedTargets")
         if not isinstance(targets, list) or len(targets) != len(plan["images"]):
             raise ShopifyError("Incomplete staged targets. Product creation was not attempted.")
+        completed_step(row,data,"staged_uploads")
         media_inputs = []
         for image, target in zip(plan["images"], targets):
             content, filename, mime = source_bytes(product, image["source"])
@@ -418,6 +428,7 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
             media_inputs.append({"originalSource": target["resourceUrl"], "mediaContentType": "IMAGE", "alt": image["alt"]})
             data["media"].append({"source": image["source"], "filename": filename, "sha256": image["sha256"], "upload": "completed"})
             save(row, data)
+        completed_step(row,data,"original_image_uploads")
         # Recheck source after potentially slow uploads; no stale product create.
         if local_plan(product)["digest"] != plan["digest"]:
             raise ShopifyError("Local product changed during uploads. Product creation was not attempted.")
@@ -436,6 +447,7 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
             data["created_media"] = (created.get("media") or {}).get("nodes", [])
             save(row, data, "created")
         payload_result(response, "productCreate")
+        completed_step(row,data,"product_create")
         if not row.shopify_product_id:
             raise ShopifyError("Product creation returned no trusted ID; reconcile the recorded handle.")
         variants = (created.get("variants") or {}).get("nodes", [])
@@ -447,6 +459,7 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         save(row, data)
         payload_result(adapter.update_simple_variant(config, row.shopify_product_id,
             {"id": variant_id, **plan["managed"]["variant"]}), "productVariantsBulkUpdate")
+        completed_step(row,data,"variant_update")
         data["stage"] = "independent_readback"
         save(row, data)
         from app.shopify_taxonomy import join_reviewed

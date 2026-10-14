@@ -1,5 +1,65 @@
 # Current State
 
+## M3A.8.5.2 — publishing receipts, Variable readback and attribute proof
+
+Two reproduced routing defects corrected: the hidden `action` input shadows the
+browser form's `action` property, so progress confirmation now uses the form content
+attribute; the status endpoint's Simple-only filter now includes active Variable parents.
+These are independent defects. They do not prove a Shopify write failed or that nine
+variants were truncated in the user's store. No live credentials/store reads were available.
+
+Accepted signed/admin/CSRF confirmation commits CatalogueOperation before source/API
+revalidation. The existing writer reuses that lease, commits pending identities/stages
+before mutations and releases SQLite writer transactions before network requests.
+Independent-connection tests prove receipt visibility during both nine-variant layouts.
+Exact ticket lookup no longer loses receipts behind the latest hundred operations.
+Validation failures, receipt database unavailability, interrupted execution, partial
+success and uncertainty have distinct outcomes; no write is automatically replayed.
+
+The progress dialog shows server stage, elapsed time, last response and durable completed
+steps. Closing/hidden-page navigation pauses/aborts reads, not publishing. Reopen/reload
+reads the same ticket only. Missing acceptance after thirty seconds is explicitly unknown;
+read timeout/backoff and ten-minute checking limits do not claim Shopify failure/success.
+Known media Processing and genuine Recovery Required remain different from completion.
+
+Canonical Variable reads now assemble cursor pages (sixteen requested/page, four pages,
+sixty seconds, existing thirty-two-variant limit). Parent revision/options/media changes,
+duplicate IDs, missing cursors, incomplete pages and overflow cannot prove equality.
+Last-page SKU/InventoryItem/options, modifier price/weight/dimensions, tracking/policy,
+featured media and opt-in native measurements are independently compared. Missing retained
+variants need attention; contradictory identities require recovery; neither triggers recreation.
+Normal operations remain 2026-10; only explicitly enabled packed queries use 2027-01.
+
+Attribute proof now additionally requires term→retained definition identity, exact app-owned
+PRODUCT namespace/owner, complete product references and reviewed storefront access/status.
+No merchant-definition duplicate or blanket public access change. Production Method follows
+its explicitly configured public/internal registry role like other informational attributes.
+Admin read-only definitions/pinning remain distinct from assigned values and storefront use.
+
+Safe request diagnostics retain fixed query/version/status/cost/throttle counts, never
+credentials, headers or request variables. Explicitly throttled reads have bounded retries;
+authentication tests, failures of other kinds and all mutations remain single-attempt.
+The existing SQLite-read-only diagnostic adds `--catalogue` for actual parent/variants/media,
+InventoryItems, retained evidence and operation stages without startup/reconciliation writes.
+The reported Shopify Admin custom-data loading issue is unproven and needs a redacted trace,
+not speculative cleanup. See SHOPIFY_INTEGRATION for controlled acceptance instructions.
+
+No migration, authored/scanner/SKU/source-image change, inventory quantity/location write,
+menu publication, bulk feature or unrelated Unraid edit is included. Automated verification
+and live acceptance are separate; the corrected image still requires controlled Unraid testing.
+
+Verification: 53 distinct incident Python cases covered (48 passed, then twelve targeted
+malformed-page/deadline/explicit-absence cases passed including five new cases); one compatibility pass
+returned 319 passed / two failed. The obsolete transport mock was corrected and passed
+its targeted rerun. The other failure is the intentionally preserved local Unraid XML
+removing Client ID/Secret fields: the unchanged committed/shipped template passed that
+exact check when read from Git, without overwriting the local edit. Thus 374 distinct
+Python cases are verified against shipped source, with the local XML caveat explicit.
+JavaScript: 32 passed across progress/Products/override checks, including executed named-
+control, close/reload, timeout, receipt-unavailable and no-resubmission regressions.
+Only existing datetime/SQLAlchemy deprecation warnings and the local Electron launcher
+warning appeared; no full historical suite or live API acceptance was run.
+
 ## M3A.8.5.1 — live corrections and publishing feedback
 
 Implemented: lossless hash-checked large review evidence within existing 64 KiB SQLite

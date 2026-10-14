@@ -421,7 +421,7 @@ def test_variable_transport_uses_stable_api_except_narrow_packed_reads(monkeypat
     import requests
     from app.shopify_connection import ShopifyAdapter, ShopifyConfiguration
     from test_shopify_foundation import Session, Response, TOKEN
-    response=Response({"data":{"product":{"id":"gid://shopify/Product/100"},
+    response=Response({"data":{"product":{"id":"gid://shopify/Product/100","variants":{"nodes":[],"pageInfo":{"hasNextPage":False}}},
         "inventoryItem":{"id":"gid://shopify/InventoryItem/250"},
         "productCreate":{},"productVariantsBulkCreate":{},"productVariantsBulkUpdate":{}}})
     session=Session(response)
@@ -437,7 +437,7 @@ def test_variable_transport_uses_stable_api_except_narrow_packed_reads(monkeypat
     adapter.read_packed_inventory(config,"gid://shopify/InventoryItem/250")
     assert all("/2026-10/" in url for url,_ in session.calls[:4])
     assert all("/2027-01/" in url for url,_ in session.calls[4:])
-    assert session.calls[4][1]["json"]["variables"]=={"id":"gid://shopify/Product/100"}
+    assert session.calls[4][1]["json"]["variables"]=={"id":"gid://shopify/Product/100","after":None}
     assert all(request["timeout"]==(5,15) and request["allow_redirects"] is False for _,request in session.calls)
     assert config.api_version=="2026-10"
 

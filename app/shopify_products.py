@@ -159,6 +159,9 @@ def product_state(product, rows, comparisons=(), mappings=None):
                         state.update(state="unavailable", label="Verification Unavailable", change_count=None,
                             change_summary=[], blockers=[data["refresh_failure"]["message"]],
                             message="Last refresh failed; retained publication verification and last comparison are historical. Review again before writing.")
+                        kind=data["refresh_failure"].get("kind")
+                        if kind in {"identity_conflict","variant_missing"}:
+                            state.update(state="recovery_required" if kind=="identity_conflict" else "attention",label="Recovery Required" if kind=="identity_conflict" else "Needs Attention",message=data["refresh_failure"]["message"])
                     if data.get("conflicting_changes"):
                         state["message"] += " Both local and Shopify data changed since the checkpoint; inspect the reviewed before/after values before overwriting."
                     break
@@ -184,6 +187,9 @@ def product_state(product, rows, comparisons=(), mappings=None):
                         state.update(remote_status=failed["observed_status"].title() + " (revision checked)", revision_checked_at=failed["observed_revision_at"] + "Z")
                     if failed.get("refresh_failure") and failed.get("config") == configuration().fingerprint():
                         state.update(state="unavailable", label="Verification Unavailable", message=failed["refresh_failure"]["message"])
+                        kind=failed["refresh_failure"].get("kind")
+                        if kind in {"identity_conflict","variant_missing"}:
+                            state.update(state="recovery_required" if kind=="identity_conflict" else "attention",label="Recovery Required" if kind=="identity_conflict" else "Needs Attention")
                         break
     except (ValueError, OSError, KeyError, TypeError, AttributeError, RuntimeError):
         state.update(state="unavailable", label="Verification Unavailable", message="Local source or retained evidence needs review; no current equality is claimed.")

@@ -43,6 +43,8 @@ def assigned(product):
         public=attr.get("browse_role","internal")!="internal" or any(t.get("browse_role",attr.get("browse_role","internal"))!="internal" for t in terms)
         result.append({"key":attr["key"],"name":attr["name"],"role":attr.get("browse_role","internal"),"public":public,
             "terms":sorted(terms,key=lambda t:t["key"])})
+    if len({a["key"] for a in result})!=len(result) or any(len({t["key"] for t in a["terms"]})!=len(a["terms"]) for a in result):
+        raise ShopifyError("Duplicate/alias informational assignments need source review; no duplicate terms or references are invented.")
     if len(result)>8 or sum(len(a["terms"]) for a in result)>40:
         raise ShopifyError("Review at most eight informational attributes / forty assigned terms per product.")
     return sorted(result,key=lambda a:a["key"])
@@ -55,7 +57,7 @@ def resource(store,key):
 def valid(kind, remote, spec, source, expected=None, *, allow_access=False):
     if remote is None:
         return None
-    keys={"definition":{"id","type","fieldDefinitions","access"},"term":{"id","type","handle","fields"},"field":{"id","key","type","validations","access"}}[kind]
+    keys={"definition":{"id","type","fieldDefinitions","access"},"term":{"id","type","handle","fields","definition","capabilities"},"field":{"id","key","namespace","ownerType","type","validations","access"}}[kind]
     if not isinstance(remote,dict) or not keys.issubset(remote) or kind in {"definition","field"} and not isinstance(remote["access"],dict):
         raise ShopifyError("Attribute resource readback is incomplete; no equality or retry is authorised.")
     _gid(remote.get("id"),PAYLOADS[kind][2])
@@ -67,6 +69,12 @@ def valid(kind, remote, spec, source, expected=None, *, allow_access=False):
         if not remote.get("type","").endswith(spec["type"].removeprefix("$app:")) or {f["key"]:f["type"]["name"] for f in remote["fieldDefinitions"]}!={"name":"single_line_text_field","tlc_key":"single_line_text_field"} or (not allow_access and remote["access"]["storefront"]!=spec["access"]["storefront"]):
             raise ShopifyError("Attribute definition schema/access is incompatible; inspect its retained mapping.")
     elif kind=="term":
+        definition=remote["definition"]
+        if not isinstance(definition,dict) or not isinstance(definition.get("access"),dict) or not isinstance(remote["capabilities"],dict):
+            raise ShopifyError("Referenced term definition/access evidence is incomplete.")
+        _gid(definition.get("id"),"MetaobjectDefinition")
+        if not definition.get("type","").endswith(spec["type"].removeprefix("$app:")):
+            raise ShopifyError("Referenced term definition/type does not match its controlled registry identity.")
         fields={f["key"]:f["value"] for f in remote["fields"]}
         if fields.get("name")!=next(f["value"] for f in spec["fields"] if f["key"]=="name"):
             raise ShopifyError("Registered term label differs; explicit mapping rename required, not a duplicate term Create.")
@@ -74,6 +82,11 @@ def valid(kind, remote, spec, source, expected=None, *, allow_access=False):
             raise ShopifyError("Controlled term lacks its exact TLC/type/handle identity.")
     else:
         validations={v["name"]:v["value"] for v in remote["validations"]}
+        namespace=remote["namespace"]
+        suffix=spec["namespace"].removeprefix("$app:")
+        import re
+        if remote["ownerType"]!="PRODUCT" or not (namespace==spec["namespace"] or isinstance(namespace,str) and re.fullmatch(r"app--[0-9]+--"+re.escape(suffix),namespace)):
+            raise ShopifyError("Informational field owner/namespace differs from the exact app-owned PRODUCT contract.")
         if remote["key"]!=spec["key"] or remote["type"]["name"]!="list.metaobject_reference" or validations.get("metaobject_definition_id")!=spec["validations"][0]["value"] or (not allow_access and remote["access"]["storefront"]!=spec["access"]["storefront"]):
             raise ShopifyError("Attribute metafield definition/reference/access is incompatible.")
     return remote
@@ -252,11 +265,21 @@ def verify(plan,config,adapter,product_id):
         return
     current={v["key"]:v for v in adapter.attribute_values(config,product_id,NAMESPACE)}
     for attr in entries:
-        desired=[]
+        desired=[]; definition_id=None
         for item in attr["resources"]:
             kept=resource(plan["store_id"],item["source"])
-            if not kept or kept.state!="verified" or valid(item["kind"],adapter.attribute_resource(config,item["kind"],json.loads(kept.evidence_json)["spec"]),json.loads(kept.evidence_json)["spec"],item["source"],kept.remote_id) is None:
+            if not kept or kept.state!="verified":
                 raise ShopifyError("Informational resource not independently verified; reconcile mapping first.")
+            spec=json.loads(kept.evidence_json)["spec"]
+            observed=valid(item["kind"],adapter.attribute_resource(config,item["kind"],spec),spec,item["source"],kept.remote_id)
+            if observed is None: raise ShopifyError("Informational resource is absent; no assignment equality is assumed.")
+            if item["kind"]=="definition": definition_id=kept.remote_id
+            if item["kind"]=="term":
+                if observed["definition"].get("id")!=definition_id:
+                    raise ShopifyError("Referenced term belongs to a different metaobject definition.")
+                publishable=(observed.get("capabilities") or {}).get("publishable")
+                if attr["public"] and (observed["definition"].get("access",{}).get("storefront")!="PUBLIC_READ" or publishable and publishable.get("status")!="ACTIVE"):
+                    raise ShopifyError("Assigned term is not storefront-readable under the reviewed public role; inspect access/publishable status. No broad activation is attempted.")
             if item["kind"]=="term": desired.append(kept.remote_id)
         actual=current.get(attr["field_key"])
         if not actual or actual["type"]!="list.metaobject_reference" or json.loads(actual["value"])!=desired:

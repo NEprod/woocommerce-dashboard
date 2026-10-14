@@ -27,10 +27,15 @@ def shopify_progress(product_id):
     form = FlaskForm()
     if not form.validate_on_submit(): abort(400)
     from app.shopify_progress import receipt
+    from sqlalchemy.exc import SQLAlchemyError
     try:
         return jsonify(receipt(product_id,request.form.get("review",""))), 200, {"Cache-Control":"no-store"}
     except ShopifyError as exc:
         return jsonify(error=str(exc)),400,{"Cache-Control":"no-store"}
+    except SQLAlchemyError:
+        from app import db
+        db.session.rollback()
+        return jsonify(error="Receipt temporarily unavailable (database busy). Inspect retained History; no Shopify failure or retry is assumed."),503,{"Cache-Control":"no-store"}
 
 
 @commerce.route("/api/shopify/status", methods=["POST"])
@@ -50,7 +55,7 @@ def refresh_status():
     after = body.get("after", 0)
     if type(after) is not int or after < 0:
         abort(400)
-    query = Product.query.filter_by(product_type="simple", catalogue_status="active")
+    query = Product.query.filter(Product.product_type.in_(["simple","variable"]), Product.catalogue_status=="active")
     all_scope = body.get("scope") == "all"
     products = (query.filter(Product.id > after) if all_scope else query.filter(Product.id.in_(ids))).order_by(Product.id).limit(25).all()
     try:
@@ -179,6 +184,7 @@ def drafts(product_id=None):
     from app.models import Product, ShopifyProductIdentity
     from app import shopify_drafts as service
     from app.utils.operation_control import CatalogueOperationActive
+    from sqlalchemy.exc import SQLAlchemyError
     if not current_user.is_admin:
         abort(403)
     form = FlaskForm()
@@ -206,7 +212,16 @@ def drafts(product_id=None):
                         return jsonify({**prior,"return_url":products_return(target)}), 200, {"Cache-Control":"no-store"}
                     return redirect(prior.get("history_url") or products_return(target))
                 g.shopify_review_ticket = service.digest(review)
-                row = service.confirm(review, request.form.get("acknowledge") == "yes", expected_product_id=product_id)
+                from app.shopify_progress import accept, finalise_unfinished
+                accepted = accept(target,review,request.form.get("acknowledge") == "yes")
+                confirmation_error=None
+                try:
+                    row = service.confirm(review, True, expected_product_id=target)
+                except (ShopifyError,config.CommerceConfigError) as exc:
+                    confirmation_error=str(exc)
+                    raise
+                finally:
+                    finalise_unfinished(accepted.id,confirmation_error)
                 result = receipt(target,review)
                 if result["state"] in {"completed","processing"}:
                     flash("Shopify product verified." if result["state"] == "completed" else "Shopify media is processing; check its product status.","success" if result["state"] == "completed" else "info")
@@ -221,6 +236,11 @@ def drafts(product_id=None):
             error = str(exc)
             if request.headers.get("Accept") == "application/json":
                 return jsonify(state="failed",message=error,return_url=products_return(product_id)),400,{"Cache-Control":"no-store"}
+        except SQLAlchemyError:
+            db.session.rollback()
+            error="Operation receipt/database is temporarily unavailable. Inspect History and reconcile any uncertain stage; do not resubmit automatically."
+            if request.headers.get("Accept") == "application/json":
+                return jsonify(state="receipt_unavailable",message=error,return_url=products_return(product_id)),503,{"Cache-Control":"no-store"}
     products = Product.query.filter(Product.product_type.in_(["simple","variable"]),Product.catalogue_status=="active").order_by(Product.title).limit(500).all()
     identities_query = ShopifyProductIdentity.query
     if scoped_product:

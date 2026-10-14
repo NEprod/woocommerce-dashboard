@@ -1,5 +1,39 @@
 # Existing Architecture
 
+## M3A.8.5.2 — durable acceptance and complete read evidence
+
+The route validates admin/CSRF and the signed 900-second product review, reserves and
+commits the existing operation lease before slow revalidation, then passes that request-
+scoped lease through existing Simple/Variable/inventory writers. Pending product/resource
+reservations and stage commits still precede mutations. There is no new worker/queue,
+second API client, migration or write retry. SQLite is not held in a write transaction
+across network calls. A finally-path marks unfinished accepted operations failed before
+product writes or recovery-required afterward. Startup interruption handling is unchanged.
+Read-only receipts match the durable review hash directly in JSON scope; reading approval
+outlives execution approval (24 hours versus 15 minutes). Expired receipts use History.
+
+The modal reads server evidence and tracks a single confirmation. DOM named controls cannot
+choose the confirmation destination: the URL comes from `getAttribute('action')`, verified
+same-origin. Closing aborts polling only; saved tickets reconnect to read receipts, not writes.
+Database-busy/missing-receipt states never mean a failed Shopify mutation. Final full verified
+identity plus succeeded operation is required for the completed outcome; scoped/partial
+proof and native uncertainty remain authoritative.
+
+`ShopifyAdapter.read_variable` assembles at most four cursor pages within sixty seconds,
+preserving the thirty-two-variant contract and checking unchanged parent evidence. Only
+complete nodes reach canonical identity/field/media comparison. The status route includes
+both supported parent types; fresh cache/revision/related-field logic is shared. Observation
+failures classify retained missing variants separately from identity conflicts and unavailable
+reads; no observation silently repairs/adopts/recreates a retained remote identity.
+
+The same transport records bounded safe request/cost diagnostics. Only explicit read
+THROTTLED/HTTP429 gets up to two retries, at most three seconds total waiting; connection
+tests and mutations remain single-attempt. Fixed native contracts alone use 2027-01.
+Attribute readback proves definition GIDs, exact PRODUCT owner/app namespace, actual lists
+on the requested product and both storefront definition access and optional publishable
+status. The standalone diagnostic loads configuration without normal application startup
+and opens the existing SQLite database with mode=ro; it cannot persist reconciliation.
+
 ## M3A.8.5.1 — complete evidence and scoped publishing feedback
 
 Large complete publishing evidence uses a lossless versioned zlib/hash/size envelope

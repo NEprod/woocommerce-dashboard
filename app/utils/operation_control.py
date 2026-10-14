@@ -190,6 +190,12 @@ def get_active_operation() -> dict | None:
 def acquire_catalogue_operation(operation_type: str, scope=None) -> OperationLease:
     global _active_operation
 
+    # Confirm has already committed the same authoritative operation before
+    # network revalidation. Reuse only its request-scoped lease, never a global
+    # lease from another request or a reconciliation operation.
+    if operation_type == "shopify_draft_publish" and has_request_context() and g.get("shopify_confirm_lease"):
+        return g.shopify_confirm_lease
+
     if operation_type not in ALLOWED_OPERATION_TYPES:
         raise ValueError(f"Unsupported catalogue operation type: {operation_type}")
     if not _catalogue_lock.acquire(blocking=False):

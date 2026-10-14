@@ -1,5 +1,14 @@
 # Roadmap
 
+## M3A.8.5.2 — incident corrections implemented; controlled acceptance pending
+
+Validate corrected single confirmation/receipt polling and Products Variable status checks,
+complete nine-variant readback in both folder layouts, exact informational assignments and
+public/internal storefront access. Preserve genuine recovery and avoid retrying uncertainty.
+Capture redacted Shopify Admin custom-data loading evidence if still reproducible; no store
+corruption or causal relationship has been established. Read-only diagnostics precede any
+explicitly reviewed repair. No bulk/menu/editor redesign is added by this incident milestone.
+
 ## M3A.8.5 — first-use organisation/lifecycle implemented; acceptance pending
 
 Accept the nine-variant policy correction through reviewed Update, one first-use

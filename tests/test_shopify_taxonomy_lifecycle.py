@@ -52,7 +52,11 @@ class LifecycleAdapter(TaxonomyAdapter):
         return (kind,spec["type"] if kind=="definition" else spec["handle"] if kind=="term" else spec["key"])
     def attribute_resource(self,config,kind,spec):
         self.calls.append("attribute_read")
-        return copy.deepcopy(self.resources.get(self.key(kind,spec)))
+        result=copy.deepcopy(self.resources.get(self.key(kind,spec)))
+        if result and kind=="term":
+            result["definition"]=copy.deepcopy(self.resources.get(("definition",spec["type"])))
+            result["capabilities"]={"publishable":None}
+        return result
     def create_attribute_resource(self,config,kind,spec):
         pending=ShopifyAttributeIdentity.query.filter_by(state="creating").one(); assert pending.operation_id
         self.calls.append("attribute_"+kind+"_create")

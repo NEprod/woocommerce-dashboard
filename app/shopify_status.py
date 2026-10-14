@@ -20,7 +20,7 @@ def retry_due(data):
         return True
 
 
-def mark_failure(product, row, message):
+def mark_failure(product, row, message, *, kind="unavailable"):
     if row is None:
         config = drafts.configuration()
         row = ShopifyProductComparison(store_id="unverified:" + config.fingerprint(),
@@ -30,7 +30,7 @@ def mark_failure(product, row, message):
         data = json.loads(row.summary_json)
     failures = min(int(data.get("failures", 0)) + 1, 6)
     data.update(failures=failures, retry_after=(drafts.now() + timedelta(seconds=min(900, 30 * 2 ** (failures - 1)))).isoformat(),
-        refresh_failure={"at": drafts.now().isoformat(), "message": message[:500]})
+        refresh_failure={"at": drafts.now().isoformat(), "message": message[:500],"kind":kind})
     comparison.store_summary(row, data)
 
 
@@ -162,7 +162,9 @@ def refresh(products, *, force=False, adapter=None):
                             continue
                     except ShopifyError as failure:
                         exc=failure
-                mark_failure(product, saved, str(exc))
+                from app.shopify_connection import ShopifyIdentityConflict, ShopifyVariantMissing
+                kind="identity_conflict" if isinstance(exc,ShopifyIdentityConflict) else "variant_missing" if isinstance(exc,ShopifyVariantMissing) else "unavailable"
+                mark_failure(product, saved, str(exc),kind=kind)
                 errors.append({"product_id": product.id, "message": str(exc)})
                 results.append(product.id)
         return {"checked": results, "pending": pending, "errors": errors, "full_comparisons": full}

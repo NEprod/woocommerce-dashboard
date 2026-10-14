@@ -1,5 +1,108 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.8.5.2 — reliable confirmation, Variable comparison and attribute validation
+
+Confirmed root causes (local reproduction, not inferred store failures): a hidden control
+named `action` overrides `HTMLFormElement.action`, misdirecting the enhanced confirmation;
+the status route excluded Variable parents despite a capable reconciliation service.
+Confirmation uses the content attribute and the status query now includes both types.
+The form behavior is specified by the [HTML named getter contract](https://html.spec.whatwg.org/multipage/forms.html#dom-form-action).
+No live Shopify credentials were available in development, so remote incidents remain
+unverified rather than described as permanently fixed.
+
+Admin/CSRF/signature acknowledgement first creates a durable accepted operation receipt,
+then existing source/remote revalidation and publishing execute under the same lease.
+The record is visible from an independent SQLite connection before remote mutations;
+pending identities/stages commit before writes. Validation failure does not leave an
+indefinite running receipt; database contention is receipt-unavailable, not Shopify failure.
+Exact ticket lookup works beyond the latest hundred operations. Restart-interrupted or
+uncertain outcomes require read-only reconciliation, never automatic mutation retry.
+
+Progress shows product/SKU, actual stage, elapsed time, last server response and recorded
+completed stages. It does not simulate percentages or use parent verification as proof
+that all stages finished. Close stops checking without cancelling the writer; Show publishing
+progress/reload reconnects only to the saved receipt. Read requests time out after ten
+seconds, back off and pause after five failures; checking pauses at ten minutes. A missing
+accepted receipt after thirty seconds explicitly asks for History/log inspection. Do not
+resubmit because a receipt/HTTP response was lost. Receipt reads last 24 hours; execution
+approval is still 15 minutes, and History remains available afterward.
+
+Variable readers request sixteen nodes/page and assemble complete cursor connections under
+four-page/sixty-second/thirty-two-variant limits. Revisions/options/media must stay consistent
+between pages; stalled cursors, duplicate/missing identities, malformed/incomplete pages and
+overflow are unavailable evidence, never equality or proof that a child should be recreated.
+Both Variable Collection and Single Variable Product layouts use this reader. Tests exercise
+nine real scanner-generated combinations, retained SKUs, modifier prices/weights/dimensions,
+InventoryItem identities, tracked/policy defaults, featured image GIDs and native packed
+readback, including differences on the last page. Existing quantities, locations, files,
+collection mappings and destructive authorisation are untouched.
+
+Normal product/variant/attribute operations stay on `SHOPIFY_API_VERSION=2026-10`. Only
+explicit opt-in packed capability/read/write uses 2027-01. Safe fixed-query diagnostics
+record version/status/request count/cost/throttle numbers, without tokens, headers, variables
+or raw exception payloads. Explicit read throttling can wait/retry twice (three seconds total
+wait maximum). No mutation, authentication failure or timeout is automatically retried.
+See [Shopify pagination](https://shopify.dev/docs/api/usage/pagination-graphql) and
+[GraphQL rate limits](https://shopify.dev/docs/api/usage/limits).
+
+Attribute readback now additionally checks the referenced term's retained definition GID,
+PRODUCT owner, exact app-owned namespace, actual product reference list and reviewed access
+on both definition layers. Public assigned entries with publishable capability must be ACTIVE;
+disabled publishable capability needs no invented activation. Internal registry roles remain
+NONE. Production Method has no name exception: explicitly configured public roles are
+honoured like other attributes. No duplicate merchant definitions are created to change
+Admin editability. Read-only definition listing/pinning is not proof of assignments or filter
+activation. These checks use Shopify's [Metaobject definition/capability contract](https://shopify.dev/docs/api/admin-graphql/2026-10/objects/Metaobject).
+
+No new scopes are requested by this correction. Actual token needs `read_products` and
+`write_products` for product/variant writes; `write_inventory` for enabled native writes;
+`write_files` for reviewed existing-file alt changes. Informational reads need
+`read_metaobjects`, `read_metaobject_definitions`; registration/access repair needs the
+corresponding `write_metaobjects`, `write_metaobject_definitions` only when those actions
+are required. Existing product assignments use `write_products`. The existing configured
+navigation-eligibility check needs `read_publications`; this milestone does not write menus
+or publications. Missing actual token scopes are explained, not inferred from app settings.
+
+### Controlled Unraid acceptance and read-only evidence
+
+1. Back up appdata and note the prior immutable image. Deploy the new incident-fix image
+   manually using existing volumes/credentials; no migration/configuration change is needed.
+2. Products must render local rows immediately, then compare both Simple and Variable parents.
+   Review the affected retained Variable: check all nine SKUs/options, effective modifier
+   prices/weights/dimensions, actual InventoryItem GIDs, tracking/policy and featured images.
+   An unavailable read must not offer a duplicate Create. Uncertain identities stay blocked.
+3. Before another uncertain operation, inspect Identity & History and capture fresh reads
+   from the container console (substitute the actual SKU, not another similarly named product):
+
+   ```sh
+   python -m app.shopify_attribute_diagnostic --sku HERO-0001 --catalogue
+   python -m app.shopify_attribute_diagnostic --sku HERO-0001
+   ```
+
+   `--catalogue` reports fresh Product/variants/InventoryItems/media and retained stages,
+   comparison summaries/request costs; native read is separate and opt-in only. Default
+   mode reports actual informational references, entries and definition access/status.
+   Both open SQLite mode=ro, start no migrations/workers and save no evidence/operations.
+   They require existing container credentials/scopes and the authoritative mounts for a
+   local comparison. Diagnostic operation history is bounded to ten matching records from
+   the latest hundred publishing records; normal receipt lookup has no such hundred limit.
+4. Only after checking evidence, explicitly build/confirm one fresh supported reviewed update.
+   Check its receipt is running before slow calls, close/reopen the dialog, and reload: no
+   duplicate writer, parent/child/media creation or upload. Last stage/errors must be visible.
+   Lost response/recovery uses read-only reconciliation, not pressing Confirm again.
+5. For Recipient/Material/Occasion/Personalisation/Production Method, inspect actual product
+   reference lists and entries rather than an empty editable-definition list. Review any
+   explicitly desired access repair; verify public versus internal roles without blanket exposure.
+   Search & Discovery/filter/theme activation remains deferred.
+6. The reported Shopify Admin Metafields/Metaobjects loading issue has no demonstrated cause.
+   Reproduce without running a Dashboard write, then capture the affected Admin network
+   request URL/path, HTTP status, timing and redacted error/console text. Compare another
+   browser/private session and an unaffected Admin page. Never share tokens, cookies,
+   Authorization headers or an unredacted HAR. Do not delete definitions/terms as a workaround.
+
+This correction adds no migration, scanner change, source rewrite, variant deletion, bulk
+engine or live-store repair. Automated mocked verification is not live acceptance.
+
 ## M3A.8.5.1 — live acceptance corrections
 
 The previous 64 KiB SQLite product evidence boundary also served as Preview preflight.

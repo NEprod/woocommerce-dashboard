@@ -5,7 +5,7 @@ import re
 import hashlib
 import threading
 from collections import OrderedDict
-from time import monotonic
+from time import monotonic, sleep
 from urllib.parse import urlsplit, unquote
 
 import requests
@@ -108,12 +108,12 @@ VARIABLE_FIELDS = '''id title handle status updatedAt descriptionHtml vendor tag
  height: metafield(namespace: $namespace, key: "product_height") { id type value }
  inventoryItem { id sku countryCodeOfOrigin requiresShipping harmonizedSystemCode tracked measurement { weight { value unit } PACKED_FIELD } }
  } pageInfo { hasNextPage } }'''
-VARIABLE_READ = 'query VariableRead($id: ID!, $namespace: String!) { product(id: $id) { ' + VARIABLE_FIELDS.replace('PACKED_FIELD', '') + ' } }'
-VARIABLE_NATIVE_READ = '''query VariablePackedRead($id: ID!) { product(id: $id) {
- id status metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
- variants(first: 33) { nodes { id sku selectedOptions { name value }
+VARIABLE_READ = 'query VariableRead($id: ID!, $namespace: String!, $after: String) { product(id: $id) { ' + VARIABLE_FIELDS.replace('PACKED_FIELD', '').replace('variants(first: 33)', 'variants(first: 16, after: $after)').replace('} pageInfo { hasNextPage } }', '} pageInfo { hasNextPage endCursor } }') + ' } }'
+VARIABLE_NATIVE_READ = '''query VariablePackedRead($id: ID!, $after: String) { product(id: $id) {
+ id status updatedAt metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
+ variants(first: 16, after: $after) { nodes { id sku selectedOptions { name value }
  inventoryItem { id sku measurement { packedDimensions { length width height unit } } }
- } pageInfo { hasNextPage } }
+ } pageInfo { hasNextPage endCursor } }
 } }'''
 NATIVE_INVENTORY_READ = '''query PackedInventory($id: ID!) { inventoryItem(id: $id) { id sku measurement { packedDimensions { length width height unit } } } }'''
 VARIABLE_CREATE = '''mutation VariableCreate($product: ProductCreateInput!, $media: [CreateMediaInput!]) {
@@ -150,10 +150,10 @@ ATTRIBUTE_SCHEMA = '''query AttributeSchema {
 ATTRIBUTE_DEFINITION = '''query AttributeDefinition($type: String!) { metaobjectDefinitionByType(type: $type) {
  id name type fieldDefinitions { key type { name } } access { storefront } } }'''
 ATTRIBUTE_TERM = '''query AttributeTerm($type: String!, $handle: String!) { metaobjectByHandle(handle: {type: $type, handle: $handle}) {
- id type handle fields { key value } } }'''
+ id type handle fields { key value } definition { id type access { storefront } } capabilities { publishable { status } } } }'''
 ATTRIBUTE_FIELD = '''query AttributeField($namespace: String!, $key: String!) {
  metafieldDefinitions(first: 2, ownerType: PRODUCT, namespace: $namespace, key: $key) {
- nodes { id namespace key type { name } validations { name value } access { storefront } } pageInfo { hasNextPage } } }'''
+ nodes { id namespace key ownerType type { name } validations { name value } access { storefront } } pageInfo { hasNextPage } } }'''
 ATTRIBUTE_VALUES = '''query AttributeValues($id: ID!, $namespace: String!) { product(id: $id) {
  id metafields(first: 129, namespace: $namespace) { nodes { id key type value compareDigest } pageInfo { hasNextPage } } } }'''
 ATTRIBUTE_ENTRIES = '''query AttributeEntries($ids: [ID!]!) { nodes(ids: $ids) { ... on Metaobject {
@@ -237,6 +237,14 @@ def _media(connection, cursor=None):
 
 class ShopifyError(ValueError):
     pass
+
+
+class ShopifyIdentityConflict(ShopifyError):
+    """Complete reads contradict a retained identity; never repair by creation."""
+
+
+class ShopifyVariantMissing(ShopifyError):
+    """A retained variant is absent from a COMPLETE bounded parent read."""
 
 
 class ShopifyProductAbsent(ShopifyError):
@@ -361,6 +369,12 @@ def _access_token(config):
             session.close()
 
 
+class ShopifyReadThrottled(ShopifyError):
+    def __init__(self, delay):
+        super().__init__("Shopify read budget is exhausted; bounded read retries ended. Wait before another comparison.")
+        self.delay=delay
+
+
 class ShopifyAdapter:
     platform = "shopify"
     can_publish = False
@@ -390,6 +404,33 @@ class ShopifyAdapter:
         return self._transport(configuration, query, variables)
 
     def _transport(self, configuration, query, variables=None, *, session=None, api_version=None):
+        retries=0; waited=0
+        while True:
+            try:
+                return self._request(configuration,query,variables,session=session,api_version=api_version)
+            except ShopifyReadThrottled as exc:
+                # Connection/auth tests and every mutation stay single-attempt.
+                if query==QUERY or query in WRITE_QUERIES or retries>=2 or not 0<=exc.delay<=2 or waited+exc.delay>3:
+                    raise
+                sleep(exc.delay); waited+=exc.delay; retries+=1
+
+    def _note_request(self,query,version,status,cost=None,*,throttled=False):
+        name=re.search(r"(?:query|mutation)\s+(\w+)",query)
+        detail={"query":name.group(1) if name else "fixed-query","version":version,"http_status":status,
+            "writing":query in WRITE_QUERIES,"throttled":status==429 or throttled}
+        if isinstance(cost,dict):
+            detail.update({k:cost[k] for k in ("requestedQueryCost","actualQueryCost") if isinstance(cost.get(k),(int,float))})
+            throttle=cost.get("throttleStatus",{})
+            if isinstance(throttle,dict): detail["throttle"]={k:throttle[k] for k in ("currentlyAvailable","restoreRate") if isinstance(throttle.get(k),(int,float))}
+        self.request_trace=(getattr(self,"request_trace",[])+[detail])[-128:]
+        self.request_count=getattr(self,"request_count",0)+1
+        from flask import has_app_context,has_request_context,current_app,g
+        if has_request_context():
+            g.shopify_request_summary={"count":self.request_count,"last":detail,
+                "throttled":sum(r["throttled"] for r in self.request_trace),"timeouts":sum(r["http_status"]=="timeout" for r in self.request_trace)}
+        if has_app_context(): current_app.logger.info("Shopify request %s",json.dumps(detail,sort_keys=True))
+
+    def _request(self, configuration, query, variables=None, *, session=None, api_version=None):
         if query not in READ_QUERIES | WRITE_QUERIES:
             raise ShopifyError("Unsupported Shopify operation.")
         writing = query in WRITE_QUERIES
@@ -409,6 +450,7 @@ class ShopifyAdapter:
                 json={"query": query, **({"variables": variables} if variables is not None else {})},
                 timeout=(5, 15), allow_redirects=False, stream=True,
             ) as response:
+                if response.status_code!=200: self._note_request(query,version,response.status_code)
                 if response.status_code in (401, 403):
                     if response.status_code == 401:
                         _authentication_failed(config)
@@ -418,7 +460,9 @@ class ShopifyAdapter:
                 if response.status_code == 429:
                     if writing:
                         raise ShopifyError("Shopify throttled this mutation. Review retained operation evidence before any retry.")
-                    raise ShopifyError("Shopify is rate limiting reads. Wait before retrying; no automatic retry or store write occurred.")
+                    try: delay=float(response.headers.get("Retry-After","0.5"))
+                    except (TypeError,ValueError): delay=3
+                    raise ShopifyReadThrottled(delay)
                 if response.status_code != 200:
                     if writing:
                         raise ShopifyError("Shopify mutation failed with uncertain evidence. Reconcile the retained operation; do not blindly retry.")
@@ -432,16 +476,25 @@ class ShopifyAdapter:
                     if len(raw) > (65536 if query == QUERY else 1048576) or monotonic() - started > 20:
                         raise ShopifyError("Shopify returned incomplete mutation evidence. Reconcile before retrying." if writing else "Shopify returned an oversized or incomplete response. Try again later.")
                 data = json.loads(raw)
+                cost=(data.get("extensions") or {}).get("cost") if isinstance(data,dict) else None
+                errors=data.get("errors",[]) if isinstance(data,dict) else []
+                throttled=isinstance(errors,list) and any(isinstance(e,dict) and (e.get("extensions") or {}).get("code")=="THROTTLED" for e in errors)
+                self._note_request(query,version,response.status_code,cost,throttled=throttled)
                 if data.get("errors"):
                     errors = data["errors"]
                     if isinstance(errors, list) and any(isinstance(e, dict) and
                             (e.get("extensions") or {}).get("code") == "THROTTLED" for e in errors):
-                        raise ShopifyError("Shopify query budget is exhausted. Review retained operation evidence before retrying." if writing else "Shopify query budget is exhausted. Wait before retrying this read-only page.")
+                        if writing: raise ShopifyError("Shopify query budget is exhausted. Review retained operation evidence before retrying.")
+                        bucket=(cost or {}).get("throttleStatus",{})
+                        deficit=max(0,(cost or {}).get("requestedQueryCost",0)-bucket.get("currentlyAvailable",0))
+                        rate=bucket.get("restoreRate",0)
+                        raise ShopifyReadThrottled(max(.25,deficit/rate) if rate else .5)
                     raise ShopifyError("Shopify returned mutation errors. Reconcile retained evidence; no automatic retry." if writing else "Shopify could not complete the read query. Check token permissions or rate limits.")
                 if not isinstance(data["data"], dict):
                     raise ShopifyError("Shopify returned incomplete mutation evidence. Reconcile before retrying." if writing else "Shopify returned incomplete read evidence. Retry later.")
                 return data["data"]
         except requests.Timeout:
+            self._note_request(query,version,"timeout")
             raise ShopifyError("Shopify mutation timed out. Reconcile retained evidence; do not blindly retry." if writing else "Shopify timed out. Retry the read-only connection test later.") from None
         except requests.RequestException:
             raise ShopifyError("Shopify mutation outcome is uncertain. Reconcile retained evidence; do not blindly retry." if writing else "Unable to reach Shopify securely. Check connectivity and the store domain.") from None
@@ -498,9 +551,48 @@ class ShopifyAdapter:
         return self._transport(config, NATIVE_CAPABILITY, api_version="2027-01")
 
     def read_variable(self, config, product_id, namespace, *, native=False):
-        return self._transport(config, VARIABLE_NATIVE_READ if native else VARIABLE_READ,
-            {"id": _gid(product_id, "Product"), **({} if native else {"namespace": namespace})},
-            **({"api_version": "2027-01"} if native else {})).get("product")
+        product_id=_gid(product_id,"Product")
+        after, seen, nodes, first, header = None, set(), [], None, None
+        deadline=monotonic()+60
+        for _ in range(4):
+            if monotonic()>deadline:
+                raise ShopifyError("Variable read deadline exceeded; partial pages are not comparison evidence.")
+            payload=self._transport(config, VARIABLE_NATIVE_READ if native else VARIABLE_READ,
+                {"id":product_id,"after":after,**({} if native else {"namespace":namespace})},
+                **({"api_version":"2027-01"} if native else {}))
+            if monotonic()>deadline:
+                raise ShopifyError("Variable read deadline exceeded; partial pages are not comparison evidence.")
+            if not isinstance(payload,dict) or "product" not in payload:
+                raise ShopifyError("Variable product read is incomplete; absence is not established.")
+            remote=payload["product"]
+            if remote is None and first is None: return None
+            if not isinstance(remote,dict) or remote.get("id")!=product_id:
+                raise ShopifyError("Variable product identity disappeared/changed during pagination; incomplete read.")
+            current={k:v for k,v in remote.items() if k!="variants"}
+            if first is None: first,header=remote,current
+            elif current!=header:
+                raise ShopifyError("Product revision/options/media changed across variant pages; compare again, no write.")
+            connection=remote.get("variants",{})
+            if not isinstance(connection,dict):
+                raise ShopifyError("Variable page is incomplete; no unseen variant is considered deleted.")
+            page=connection.get("pageInfo",{})
+            rows=connection.get("nodes")
+            if not isinstance(page,dict) or not isinstance(rows,list) or type(page.get("hasNextPage")) is not bool or any(not isinstance(v,dict) for v in rows):
+                raise ShopifyError("Variable page is incomplete; no unseen variant is considered deleted.")
+            ids=[v.get("id") for v in rows]
+            if any(not isinstance(i,str) or i in {n["id"] for n in nodes} for i in ids) or len(set(ids))!=len(ids):
+                raise ShopifyError("Duplicate/incomplete variant page identities; no mapping is adopted.")
+            nodes.extend(rows)
+            if len(nodes)>32:
+                raise ShopifyError("Remote product exceeds the existing 32-variant contract; no truncation or repair create.")
+            if page["hasNextPage"] is False:
+                first["variants"]={"nodes":nodes,"pageInfo":{"hasNextPage":False}}
+                return first
+            cursor=page.get("endCursor")
+            if not rows or not isinstance(cursor,str) or not cursor or len(cursor)>1024 or cursor in seen:
+                raise ShopifyError("Variant pagination stalled/missing cursor; partial evidence is unavailable.")
+            seen.add(cursor); after=cursor
+        raise ShopifyError("Variant page budget exhausted; no partial equality or duplicate create is permitted.")
 
     def create_variable(self, config, product, media):
         return self._transport(config, VARIABLE_CREATE, {"product": product, "media": media})
@@ -540,9 +632,16 @@ class ShopifyAdapter:
 
     def attribute_values(self, config, product_id, namespace):
         product=self._read(config,ATTRIBUTE_VALUES,{"id":_gid(product_id,"Product"),"namespace":namespace}).get("product")
-        if not product or product["id"]!=product_id or product["metafields"]["pageInfo"]["hasNextPage"]:
+        connection=product.get("metafields") if isinstance(product,dict) else None
+        nodes=connection.get("nodes") if isinstance(connection,dict) else None
+        if (not product or product.get("id")!=product_id or not isinstance(connection,dict)
+                or connection.get("pageInfo",{}).get("hasNextPage") is not False
+                or not isinstance(nodes,list) or len(nodes)>128
+                or any(not isinstance(v,dict) or not {"id","key","type","value","compareDigest"}.issubset(v) for v in nodes)):
             raise ShopifyError("Attribute assignments are incomplete; no clearing/equality assumed.")
-        return product["metafields"]["nodes"]
+        if len({v["key"] for v in nodes})!=len(nodes):
+            raise ShopifyError("Attribute assignment keys are ambiguous; no equality assumed.")
+        return nodes
 
     def set_attributes(self, config, values):
         return self._write(config,ATTRIBUTE_SET,{"metafields":values})

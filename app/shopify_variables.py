@@ -166,6 +166,7 @@ def local_plan(product):
 
 
 def remote_identity(row, data, remote, *, native_only=False):
+    from app.shopify_connection import ShopifyIdentityConflict, ShopifyVariantMissing
     if (not isinstance(remote,dict) or remote.get("id") != row.shopify_product_id or remote.get("status") != "DRAFT"
             or (remote.get("metafield") or {}).get("value") != data["plan"]["nonce"]):
         raise ShopifyError("Retained variable product/store/correlation/Draft identity is untrusted; no new Create or update allowed.")
@@ -190,9 +191,11 @@ def remote_identity(row, data, remote, *, native_only=False):
     by_id = {v["id"]:v for v in nodes}
     for identity, mapping in data.get("variant_maps",{}).items():
         current = by_id.get(mapping["id"])
-        if (not current or current["inventoryItem"]["id"] != mapping["inventory_id"] or current["sku"] != mapping["sku"]
+        if not current:
+            raise ShopifyVariantMissing("Retained variant missing from the complete Shopify read: "+mapping["sku"]+". No automatic recreation; inspect Identity & History.")
+        if (current["inventoryItem"]["id"] != mapping["inventory_id"] or current["sku"] != mapping["sku"]
                 or current["selectedOptions"] != mapping["options"]):
-            raise ShopifyError("A retained variant identity/SKU/options changed or disappeared. Reconcile, never recreate it automatically.")
+            raise ShopifyIdentityConflict("A retained variant identity/SKU/options changed. Reconcile, never recreate it automatically.")
     if not native_only:
         options=remote.get("options")
         if not isinstance(options,list) or not 1<=len(options)<=3:
@@ -631,7 +634,7 @@ def confirm(reviewed, adapter=None):
         row = drafts.matching_identity(plan["store_id"],product)
         creating = not plan.get("remote_id")
         if creating:
-            data = {"version":1,"kind":"variable","plan":plan,"stage":"pending","media":[],"created_media":[],
+            data = {"version":1,"kind":"variable","plan":plan,"stage":"pending","completed_steps":[],"media":[],"created_media":[],
                 "variant_maps":{},"variant_native":{},"variant_creates_attempted":[],"create_attempted":False}
             if row and row.state == "remote_deleted":
                 data["history_operation"] = drafts.evidence(row).get("history_operation")
@@ -648,6 +651,7 @@ def confirm(reviewed, adapter=None):
             targets=stage.get("stagedTargets")
             if not isinstance(targets,list) or len(targets)!=len(plan["images"]):
                 raise ShopifyError("Staged image targets incomplete; no product Create attempted.")
+            drafts.completed_step(row,data,"staged_uploads")
             uploads=[]
             for image,target in zip(plan["images"],targets):
                 content,_,_=drafts.source_bytes(product,image["source"])
@@ -657,6 +661,7 @@ def confirm(reviewed, adapter=None):
                 uploads.append({"originalSource":target["resourceUrl"],"mediaContentType":"IMAGE","alt":image["alt"]})
                 data["media"].append({"source":image["source"],"sha256":image["sha256"],"filename":image["filename"]})
                 drafts.save(row,data)
+            drafts.completed_step(row,data,"original_image_uploads")
             if local_plan(product)["digest"]!=plan["digest"]:
                 raise ShopifyError("Local source changed during uploads; no product Create attempted.")
             data.update(stage="product_create",create_attempted=True)
@@ -672,6 +677,7 @@ def confirm(reviewed, adapter=None):
             drafts.payload_result(response,"productCreate")
             if not row.shopify_product_id:
                 raise ShopifyError("Product create receipt is incomplete; resolve the retained correlation, never Create again.")
+            drafts.completed_step(row,data,"product_create")
             remote=adapter.read_variable(config,row.shopify_product_id,plan["managed"]["namespace"])
             nodes=remote_identity(row,data,remote)
             first=plan["variants"][0]
@@ -684,7 +690,7 @@ def confirm(reviewed, adapter=None):
         else:
             previous={"data":copy.deepcopy(drafts.evidence(row)),"operation_id":row.operation_id,"reviewed_digest":row.reviewed_digest}
             data=drafts.evidence(row)
-            data.update(plan=plan,stage="reviewed_update",update_attempted=True)
+            data.update(plan=plan,stage="reviewed_update",update_attempted=True,completed_steps=[])
             row.operation_id,row.reviewed_digest,row.verification_state=lease.id,plan["digest"],"unverified"
             drafts.save(row,data,"updating")
             metadata,_=drafts.update_inputs(dict(plan,variant_id="unused"))
@@ -692,16 +698,19 @@ def confirm(reviewed, adapter=None):
                 fresh()
                 data["stage"]="product_update"; drafts.save(row,data); attempted=True
                 drafts.payload_result(adapter.update_simple_product(config,metadata),"productUpdate")
+                drafts.completed_step(row,data,"product_update")
             actions=plan["media_actions"]
             if actions["alt"]:
                 fresh()
                 data["stage"]="media_alt"; drafts.save(row,data); attempted=True
                 drafts.payload_result(adapter.update_media_alt(config,actions["alt"]),"fileUpdate")
+                drafts.completed_step(row,data,"media_alt")
             if actions["reorder"]:
                 fresh()
                 data["stage"]="media_order"; drafts.save(row,data); attempted=True
                 payload=drafts.payload_result(adapter.reorder_media(config,row.shopify_product_id,actions["ids"]),"productReorderMedia")
                 data["reorder_job"]=(payload.get("job") or {}).get("id")
+                drafts.completed_step(row,data,"media_order")
             data["created_media"]=[{"id":i} for i in actions["ids"]]
             drafts.save(row,data)
         if len(data["created_media"])!=len(plan["images"]):
@@ -732,11 +741,13 @@ def confirm(reviewed, adapter=None):
             fresh()
             data["stage"]="variant_update"; drafts.save(row,data); attempted=True
             drafts.payload_result(adapter.update_variants(config,row.shopify_product_id,updates),"productVariantsBulkUpdate")
+            drafts.completed_step(row,data,"variant_update")
         if additions:
             fresh()
             data["variant_creates_attempted"] += [v["identity"] for v in plan["variants"] if v["action"]=="Create"]
             data["stage"]="variant_create"; drafts.save(row,data); attempted=True
             drafts.payload_result(adapter.create_variants(config,row.shopify_product_id,additions),"productVariantsBulkCreate")
+            drafts.completed_step(row,data,"variant_create")
         _save_maps(row,data,adapter.read_variable(config,row.shopify_product_id,plan["managed"]["namespace"]))
         from app.shopify_taxonomy import join_reviewed
         join_reviewed(row,data,config,adapter)
