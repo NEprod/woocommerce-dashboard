@@ -204,7 +204,7 @@ def test_matching_foreign_access_failure_never_becomes_no_change(world,registry)
     def denied(*args): raise ShopifyError('Attribute read unavailable; no access equality can be established')
     adapter.attribute_resource=denied
     result=status.refresh([world[0]],force=True,adapter=adapter)
-    assert result['errors'] or display(world[0])['label']=='Needs Attention'
+    assert result['errors'] or display(world[0])['label']=='Verification Unavailable'
     assert display(world[0])['label']!='Up to Date'
     assert row.state=='verified'  # publishing recovery is not rewritten by a read failure
     adapter.attribute_resource=original

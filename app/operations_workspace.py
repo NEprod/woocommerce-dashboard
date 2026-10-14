@@ -121,6 +121,12 @@ def _live_run(operation_id, row=None):
 
 
 def _discord_view(operation_id, row=None):
+    if row:
+        from app.shopify_notifications import events_view
+        events = events_view(row)
+        if events:
+            state = events[-1]["state"]
+            return {"state": state, "label": "Publishing delivery: " + state.replace("_", " "), "events": events}
     run = _live_run(operation_id, row)
     if run and run.get("discord"):
         return run["discord"]

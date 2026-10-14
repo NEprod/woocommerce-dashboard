@@ -1,5 +1,11 @@
 # Scanner, Operations, and Discord
 
+M3A.8.5.3 notification clarification: per-product ingestion discovery notices are
+emitted only after committing a newly created local catalogue record. Existing-product
+upserts (unchanged or updated) retain detailed processing logs and scan summary counts,
+but do not replay a discovery notice. Scan start/completion/warnings and Discord
+configuration/delivery remain unchanged. Ordinary Products visits do not invoke scanning.
+
 Phase 2 Milestone 7 provides authenticated `/scanner`, `/operations`, and
 `/operations/<operation-id>` workspaces over the protected Phase 1 scanner and
 operation model. These pages are a presentation layer. They do not change

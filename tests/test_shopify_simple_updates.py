@@ -398,7 +398,13 @@ def test_uncertain_updates_block_retry_and_reconcile_without_writes(world, failu
         if failure == "partial": adapter.remote["simpleVariants"]["nodes"][0]["price"] = "4.00"
         drafts.reconcile(row, adapter=adapter)
         assert row.state == "verified"
-    assert db.session.get(CatalogueOperation, op_id).status == "partial"
+    completed=db.session.get(CatalogueOperation, op_id)
+    assert completed.status == "succeeded"
+    # Complete independent reconciliation supersedes the original outcome without
+    # deleting the uncertain attempt, original error or its notification event.
+    retained=json.loads(completed.scope)
+    assert retained['resolved_previous_outcome']['status']=='partial'
+    assert 'recovery_required' in retained['shopify_discord_events']
     assert "product_create" not in adapter.calls
 
 

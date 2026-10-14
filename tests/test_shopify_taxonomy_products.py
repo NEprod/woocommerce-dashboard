@@ -123,7 +123,7 @@ def test_stale_comparison_and_source_override_invalidate(world):
     data["revision_checked_at"] = comparison.compared_at.isoformat()
     comparison.summary_json = json.dumps(data)
     db.session.commit()
-    assert status(world[0])["label"] == "Verification Unavailable"
+    assert status(world[0])["label"] == "Checking Changes"
     drafts.preview(world[0], adapter)
     (world[1] / "product_info.json").write_text(json.dumps({"weight": 51}))
     assert status(world[0])["label"] != "Up to Date"
@@ -321,7 +321,7 @@ def test_new_source_edit_during_comparison_cannot_record_equality(world):
         return result
     adapter.read_simple = read
     drafts.preview(world[0], adapter)
-    assert status(world[0])["label"] == "Local Changes Detected"
+    assert status(world[0])["label"] == "Checking Changes"
     assert status(world[0])["compared_at"] is None
 
 
@@ -405,7 +405,7 @@ def test_legacy_readback_remains_verified_without_taxonomy_equality_backfill(wor
     db.session.commit()
     drafts.reconcile(row, adapter=adapter)
     assert row.state == "verified" and ShopifyProductComparison.query.count() == 0
-    assert status(world[0])["label"] == "Verification Unavailable"
+    assert status(world[0])["label"] == "Checking Changes"
 
 
 def test_explicit_product_type_is_independent_of_hierarchy(world):
@@ -425,7 +425,7 @@ def test_mapping_state_change_invalidates_cached_equality(world, registry):
     mapped = taxonomy.mapping(row.store_id, "categories:cards")
     mapped.state = "uncertain"
     db.session.commit()
-    assert status(world[0])["label"] == "Verification Unavailable"
+    assert status(world[0])["label"] == "Recovery Required"
     plan, token = drafts.preview(world[0], adapter)
     assert token is None and any("recovery required" in b for b in plan["blockers"])
 

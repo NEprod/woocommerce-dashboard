@@ -1,5 +1,68 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.8.5.3 — ten-minute status and publishing notifications
+
+Products renders local evidence immediately, then its existing administrator-only
+status endpoint compares stale/missing/invalidated parents in bounded steps (25 IDs,
+two canonical comparisons per request). No server scheduler, render-time Shopify
+calls or continuous expiry polling. A successful **complete** full comparison lasts
+ten minutes; product revisions alone cannot renew inventory/media/attribute proof.
+Explicit Refresh bypasses freshness, not recovery controls. Failed/throttled reads
+retain last successful timestamps and back off. Missing required attribute/native
+evidence cannot renew successful full/equality freshness or show Up to Date.
+
+Pending local/stat/schema evidence changes show **Checking Changes**. Only canonical
+remote differences show **Update Available**. Stat-only changes automatically resolve
+when the same original image bytes and managed fields match. Variable status hashes
+exclude unrelated production/customisation notes while retaining calculation inputs,
+stable child identities, prices, weights, images and policies. Signed review continues
+to bind full source and original image bytes. A no-change Preview and automatic status
+use the same projection/checkpoint. Draft status is not Online Store publication;
+unresolved publication or other required stages prevent unqualified Up to Date.
+
+Ordinary Products/search/filter/reload, readonly status/Preview/reconciliation,
+operation polling and modal interactions send no Discord messages. Existing scanner
+start/completion/warnings remain; per-product ingestion discovery is sent only when
+the local catalogue record is genuinely new, not for existing-record upserts.
+
+Reviewed Create/Update terminal outcomes enqueue a bounded, versioned event in the
+existing `CatalogueOperation.scope`: verified success, definitive failure before
+product mutation, partial completion, or Recovery Required. Product title/SKU, create
+vs update, completion time, independently known status/variant/image counts and safe
+Shopify link are included when proved. Retained images are not labelled new uploads.
+Verified metadata success does not imply Live channel publication; deferred work is
+separate. Original partial/recovery evidence is retained when later full readback
+settles a completed asynchronous publishing operation. Reconciliation of an already
+completed operation sends nothing. Pre-milestone operations are not backfilled.
+
+Events are committed with terminal results. SQLite compare-and-swap claims prevent
+competing workers from sending the same logical outcome. Existing Discord transport
+and channels are reused: `DISCORD_WEBHOOK_SCANS_INFO` for verified success,
+`DISCORD_WEBHOOK_SCANS_ERRORS` for attention; `DISCORD_ENABLED=true` enables delivery.
+No new webhook or Shopify scope is required. Delivery occurs after database commit,
+with one bounded attempt; missing/disabled webhook or delivery failure cannot fail
+Shopify publishing. Publishing requests use Discord's supported
+[`wait=true` confirmation](https://docs.discord.com/developers/resources/webhook#execute-webhook)
+and suppress mentions; the scanner transport keeps its established behaviour.
+Operations → original publishing operation shows retained state
+and an admin/CSRF-protected **Retry Discord delivery** action. A timeout/service error
+or sending claim abandoned for two minutes is uncertain: explicitly acknowledge
+possible duplicate external delivery before retrying. There is no automatic retry
+of ambiguous sends and no exactly-once external-delivery guarantee. Unsent/failed
+events are protected from history pruning. The same envelope supports up to 25 future
+product results, without implementing bulk publishing.
+
+No migration; database head remains `0012_shopify_attributes`. No authentication,
+API-version or volume-path change: normal Shopify operations use configured 2026-10,
+native dimensions remain opt-in 2027-01. No live Shopify/Discord requests are performed
+by tests. Live acceptance: visit Products twice within ten minutes (no repeat complete
+read/no Discord); revisit after ten minutes (bounded readonly refresh, no Discord);
+touch/edit an affected source and distinguish Checking Changes from actual Update;
+review and explicitly confirm one known Simple or Variable update, check verified
+status and one appropriate publishing notice; repeat readonly checks/receipt polling
+and confirm no duplicate. Test disabled Discord independently of publication success,
+then use only the explicit Operations retry after restoring configured delivery.
+
 ## Customer-facing registry mapping and existing-resource corrections — 2026-10-14
 
 Registry categories/subcategories map to Shopify collections; local hierarchy/order remains
@@ -807,18 +870,18 @@ Closing the page pauses new requests; an in-flight bounded read may still comple
 |---|---|
 | Local supported data | Content-derived effective JSON/shipping/tags/taxonomy plus authorized image stats; changes queue full comparison |
 | Product ID/updatedAt/status | Batched GraphQL nodes, ten-minute freshness |
-| Full managed fields, media/inventory | Complete comparison no more than 30 minutes old; changed revisions/local fingerprints force it sooner |
+| Full managed fields, media/inventory | M3A.8.5.3: successful complete comparison no more than ten minutes old; effective local changes force it sooner |
 | Collection membership | Independent ten-minute check; never extended merely by product updatedAt |
 | Publication | Still unverified/deferred; ACTIVE is not Online Store availability |
-| Verified remote absence | Thirty minutes, invalidated by source/config/identity changes; Create always rechecks SKU/handle/identity |
+| Verified remote absence | Ten minutes, invalidated by source/config/identity changes; Create always rechecks SKU/handle/identity |
 | Failed reads | Historical evidence retained, no new equality; 30-second exponential backoff capped at 15 minutes |
 
 The existing 0011 bounded version-1 comparison JSON gains revision, full/related/absence,
 previous equality and failure timestamps. No migration or independent sync database.
 Last full successful comparison, last attempted/failed check, previous verified equality
 and complete post-write verified_at remain distinct. Unsupported/unresolved publication
-prevents unqualified Up to Date. Before remote comparison, authored changes show **Local
-Changes Detected**; only verified differences show **Update Available**. Suitable checked
+prevents unqualified Up to Date. Before remote comparison, changed evidence shows **Checking
+Changes**; only verified differences show **Update Available**. Suitable checked
 absence shows **Needs Creating**, never just a missing local GID. Null retained nodes are
 missing/inaccessible evidence, not a confirmed deletion or permission to recreate.
 Possible local+remote changes are disclosed for operator review; no authored data is

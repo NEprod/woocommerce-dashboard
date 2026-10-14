@@ -2314,6 +2314,24 @@ def operation_detail(operation_id):
     )
 
 
+@main.route("/operations/<operation_id>/discord/<event>/retry", methods=["POST"])
+@login_required
+def operation_discord_retry(operation_id, event):
+    if not current_user.is_admin:
+        abort(403)
+    operation = db.session.get(CatalogueOperation, operation_id)
+    if operation is None:
+        abort(404)
+    from app.shopify_notifications import deliver, events_view
+    if not any(item["event"] == event and item["retryable"] for item in events_view(operation)):
+        abort(409, "Notification is not eligible for retry.")
+    try:
+        deliver(operation_id, event, retry=True, acknowledge_uncertain=request.form.get("acknowledge_uncertain") == "yes")
+    except ValueError as error:
+        raise BadRequest(str(error)) from error
+    return redirect(url_for("main.operation_detail", operation_id=operation_id))
+
+
 @main.route("/operations/<operation_id>/intake-result")
 @login_required
 def operation_intake_result(operation_id):

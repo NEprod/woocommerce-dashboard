@@ -1062,7 +1062,10 @@ def ingest_rows_to_db(
         summary["variations_restored"] += result["variations_restored"]
         summary["products_restored"] += int(result["product_restored"])
         canonical_sku = result["sku"]
-        per_product[canonical_sku] = result["notification"]
+        # Discovery is a transition, not an upsert. Updates retain their scan
+        # summary/logs without replaying a new-product Discord event.
+        if result["product_created"]:
+            per_product[canonical_sku] = result["notification"]
         action = "created" if result["product_created"] else "updated"
         log(f"✅ Product {action}: {canonical_sku}", "INFO")
 

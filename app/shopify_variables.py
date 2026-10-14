@@ -522,6 +522,7 @@ def _native_apply(row,data,config,adapter,operation_id):
 def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attribute_review=False):
     plan = data["plan"]
     remote = adapter.read_variable(config,row.shopify_product_id,plan["managed"]["namespace"])
+    data["observed_status"] = remote.get("status")
     if recover:
         remote_identity(row,data,remote)
         data["recovery_remote_digest"]=drafts.digest(remote)

@@ -20,6 +20,13 @@ def retry_due(data):
         return True
 
 
+def failure_fingerprint(product, data):
+    try:
+        return comparison.fingerprint(product, data.get("images", []))
+    except (ShopifyError, OSError, ValueError, KeyError):
+        return None
+
+
 def mark_failure(product, row, message, *, kind="unavailable"):
     if row is None:
         config = drafts.configuration()
@@ -30,7 +37,8 @@ def mark_failure(product, row, message, *, kind="unavailable"):
         data = json.loads(row.summary_json)
     failures = min(int(data.get("failures", 0)) + 1, 6)
     data.update(failures=failures, retry_after=(drafts.now() + timedelta(seconds=min(900, 30 * 2 ** (failures - 1)))).isoformat(),
-        refresh_failure={"at": drafts.now().isoformat(), "message": message[:500],"kind":kind})
+        refresh_failure={"at": drafts.now().isoformat(), "message": message[:500],"kind":kind},
+        failure_local=failure_fingerprint(product, data))
     comparison.store_summary(row, data)
 
 
@@ -54,7 +62,7 @@ def refresh(products, *, force=False, adapter=None):
             rows = ShopifyProductComparison.query.filter_by(source_identity=product.source_relpath).order_by(ShopifyProductComparison.compared_at.desc()).all()
             saved = next((r for r in rows if json.loads(r.summary_json).get("config") == config_digest), None)
             data = json.loads(saved.summary_json) if saved else {}
-            if not force and not retry_due(data):
+            if not force and not retry_due(data) and (not data.get("failure_local") or data["failure_local"] == failure_fingerprint(product, data)):
                 results.append(product.id)
                 continue
             # Trust the persisted Shop GID only under the same complete configuration.
@@ -112,7 +120,7 @@ def refresh(products, *, force=False, adapter=None):
                 attributes_due=bool(valid and valid.get("attribute_mappings") and not comparison.recent(valid.get("related_checked_at"),comparison.MAX_AGE))
                 # Product updatedAt cannot prove shared definition access or term references.
                 # Reuse the bounded canonical comparison at the related-evidence deadline.
-                needs_full = force or native_due or attributes_due or not valid or valid.get("scope","full") != "full" or not identity or not revision or not comparison.recent(valid.get("full_compared_at"), comparison.FULL_AGE)
+                needs_full = force or native_due or attributes_due or not valid or valid.get("scope","full") != "full" or not identity or not revision or not comparison.recent(valid.get("full_compared_at"), comparison.FULL_AGE) or not comparison.recent(valid.get("related_checked_at"), comparison.MAX_AGE) or bool(valid.get("blockers"))
                 if revision and valid and (revision["updatedAt"] != valid.get("remote_updated_at") or revision["status"] != valid.get("actual_status")):
                     needs_full = True
                 if identity and identity.shopify_product_id in revisions and revision is None:
@@ -128,6 +136,10 @@ def refresh(products, *, force=False, adapter=None):
                     full += 1
                     previous = json.loads(saved.summary_json) if saved else {}
                     drafts.preview(product, adapter, context={"shop": shop, "config": config.fingerprint()})  # no mutation, token discarded
+                    checked = ShopifyProductComparison.query.filter_by(store_id=shop["shop_id"], source_identity=product.source_relpath).first()
+                    checked_data = json.loads(checked.summary_json) if checked else {}
+                    if checked_data.get("refresh_failure"):
+                        errors.append({"product_id": product.id, "message": checked_data["refresh_failure"]["message"]})
                     if identity and not valid and revision and previous.get("remote_updated_at") and previous["remote_updated_at"] != revision["updatedAt"]:
                         updated = ShopifyProductComparison.query.filter_by(store_id=shop["shop_id"], source_identity=product.source_relpath).first()
                         if updated:

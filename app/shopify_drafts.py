@@ -509,6 +509,7 @@ def apply_readback(row, data, remote, adapter=None, *, allow_attribute_review=Fa
         if node.get("image") is not None and not isinstance(node.get("image"), dict):
             raise ShopifyError("Remote media evidence is incomplete. Reconcile later; another create remains blocked.")
     data["recovery_remote_digest"] = digest(remote)
+    data["observed_status"] = remote.get("status")
     data["checked_at"] = now().isoformat()
     data["observed_media"] = [{"id": m.get("id"), "url": (m.get("image") or {}).get("url"),
         "status": m.get("status"), "alt": m.get("alt")} for m in media.get("nodes", [])]
@@ -807,6 +808,7 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
         "variant": plan["managed"]["variant"]}
     data["checked_at"] = now().isoformat()
     data["recovery_remote_digest"] = digest(remote)
+    data["observed_status"] = remote.get("status")
     data["observed_media"] = [{"id": m["id"], "url": (m.get("image") or {}).get("url"),
         "status": m.get("status"), "alt": m.get("alt")} for m in remote["media"]["nodes"]]
     # Retain trusted identity/media observations before optional-field parsing.
@@ -886,6 +888,8 @@ def reconcile(row, candidate_id=None, adapter=None, approval=None):
         finish_catalogue_operation(lease.id, status="succeeded" if result.state == "verified" else "partial",
             recovery_state="none" if result.state == "verified" else "review_required",
             operation_summary={"identity_id": row.id, "mode": "read_only_reconciliation", "state": result.state, "remote_writes": 0})
+        from app.shopify_notifications import settle
+        settle(result)
         return result
     except Exception:
         finish_catalogue_operation(lease.id, status="failed", error="Shopify read-only reconciliation requires review; original publishing history is retained.")
@@ -906,7 +910,10 @@ def finalize_processing(row, adapter=None, *, force=True):
             return row
     data["processing_checked_at"] = now().isoformat()
     save(row, data)
-    return _reconcile(row, adapter=adapter)
+    result = _reconcile(row, adapter=adapter)
+    from app.shopify_notifications import settle
+    settle(result)
+    return result
 
 
 def _reconcile(row, candidate_id=None, adapter=None, approval=None, *, allow_attribute_review=False):

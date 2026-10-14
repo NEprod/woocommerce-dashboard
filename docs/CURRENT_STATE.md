@@ -1,5 +1,47 @@
 # Current State
 
+## M3A.8.5.3 — Products status and publishing Discord outcomes
+
+Implemented; mocked acceptance is recorded below. Live Unraid acceptance remains
+required. Products HTML/JSON remains local-only; the existing administrator browser
+refresh performs bounded read-only comparisons on visits when successful evidence is
+older than ten minutes, absent, or invalidated. Two canonical comparisons per request,
+25 parents, shared operation serialization, finite pending steps and failure backoff
+remain intact. No scheduler or Shopify mutation is added. Both Variable layouts retain
+complete paginated variant, inventory, media, taxonomy and attribute verification.
+
+Unverified changed fingerprints now mean **Checking Changes**, not a confirmed update.
+Variable workspace fingerprints exclude unrelated authored production/customisation
+notes; signed Preview/Confirm still binds the full source. Failed/incomplete required
+reads retain previous successful full/equality times and cannot claim Up to Date.
+Full no-change Preview refreshes the same comparison checkpoint without writing.
+Publication intent and Online Store availability remain separate/deferred.
+
+Read-only operations no longer emit generic Discord failure notifications. Per-product
+ingest discovery messages are limited to newly created local catalogue records; normal
+scanner start/completion/warnings/logging and genuine discovery remain unchanged.
+
+Shopify reviewed publishing enqueues bounded versioned outcome events in the existing
+CatalogueOperation scope, atomically with terminal state. No migration/new credentials
+store. Delivery uses SQLite compare-and-swap claims, existing Discord channels and
+bounded transport after commit. Disabled/failed/uncertain delivery is visible in
+Operations and has an administrator/CSRF-protected retry. Uncertain retry explicitly
+acknowledges possible external duplication. No browser GET/poll initiates delivery.
+Later complete asynchronous readback can resolve the original publishing result and
+emit one newly verified outcome; its prior partial/recovery event remains retained.
+Historical operations are not backfilled into unsolicited notices. No bulk engine,
+navigation/editor work, mount/auth/API changes or live requests are included.
+
+Verification: 373 distinct focused Python cases passed across one bounded regression
+pass and targeted corrective reruns (including 31 new status/Discord cases); 25
+JavaScript cases passed. Python compilation, affected-template parsing, JS syntax
+and diff whitespace checks passed. The regression initially found obsolete stale-label
+and resolved-receipt assertions plus a test credential-configuration error; all were
+corrected and rerun. No unresolved failures or full historical-suite run. Existing
+dependency deprecation warnings remain. These are mocked/local results, not live
+Shopify or Discord acceptance. Three unrelated Unraid/template worktree files remain
+excluded and byte-for-byte unchanged.
+
 ## Customer-facing taxonomy policy correction — 2026-10-14
 
 The TLC example registry declares all seven attributes as navigation vocabulary but

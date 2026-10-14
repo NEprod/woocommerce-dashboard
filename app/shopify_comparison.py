@@ -7,8 +7,8 @@ from app.models import ShopifyProductComparison
 
 MAX_AGE = timedelta(minutes=10)
 REVISION_AGE = timedelta(minutes=10)
-FULL_AGE = timedelta(minutes=30)
-ABSENCE_AGE = timedelta(minutes=30)
+FULL_AGE = MAX_AGE
+ABSENCE_AGE = MAX_AGE
 
 
 def recent(value, age):
@@ -66,6 +66,11 @@ def record(product, plan, identity=None):
         # signed/hash-bound plan and lossless durable publishing evidence.
         return {"sha256":digest(value),"bytes":len(raw.encode()),"detail":"See full reviewed value"} if len(raw.encode()) > 512 else value
     scoped = plan.get("scope") == "inventory"
+    prior = json.loads(row.summary_json) if row.summary_json else {}
+    # A diagnostic for a failed required attribute read is not successful
+    # comparison evidence. Keep its previous success checkpoint, if any.
+    incomplete = scoped or bool(plan.get("attribute_diagnostics")) or bool(
+        (plan.get("native") or {}).get("enabled") and (plan.get("native") or {}).get("classification") == "blocked")
     changes = [{"field": r["field"], "after": summary_value(r["after"])} for r in plan["fields"] if r["changed"] and not r.get("deferred")]
     changes += [{"field": "collections." + r["key"], "after": r["name"]} for r in plan.get("collections", []) if r["action"] in {"Join","Create & Join"}]
     summary = {"version": 1, "product_id": product.id, "source": product.source_relpath,
@@ -87,13 +92,18 @@ def record(product, plan, identity=None):
     summary.update(sku=product.sku, remote_updated_at=plan.get("remote_updated_at"),
         tags_managed="tags" in plan["managed"]["product"],
         revision_checked_at=stamp if plan.get("remote_updated_at") else None,
-        full_compared_at=stamp, related_checked_at=stamp, collections=plan.get("collections", []),
+        full_compared_at=prior.get("full_compared_at") if incomplete else stamp,
+        related_checked_at=prior.get("related_checked_at") if incomplete else stamp,
+        read_complete=not incomplete, collections=plan.get("collections", []),
         metadata_changes=[r for r in changes if not r["field"].startswith("collections.")],
         metadata_display=[], verified_at=identity.verified_at.isoformat() if identity and identity.verified_at else None,
         absence_checked_at=stamp if plan["classification"] == "create" else None,
-        equality_at=stamp if plan["classification"] == "no_change" and not plan.get("blockers") and not scoped else (json.loads(row.summary_json).get("equality_at") if row.summary_json else None))
-    prior = json.loads(row.summary_json) if row.summary_json else {}
-    equality = plan["classification"] == "no_change" and not plan.get("blockers") and not scoped
+        equality_at=stamp if plan["classification"] == "no_change" and not plan.get("blockers") and not incomplete else prior.get("equality_at"))
+    if incomplete:
+        summary["refresh_failure"] = {"at": stamp, "message": "Required managed evidence is incomplete; no successful freshness checkpoint was renewed."}
+        summary["retry_after"] = (now() + timedelta(seconds=30)).isoformat()
+        summary["failure_local"] = expected_local
+    equality = plan["classification"] == "no_change" and not plan.get("blockers") and not incomplete
     summary.update(equality_local=expected_local if equality else prior.get("equality_local"),
         equality_remote_updated_at=plan.get("remote_updated_at") if equality else prior.get("equality_remote_updated_at"),
         equality_mappings=summary["mappings"] if equality else prior.get("equality_mappings"))

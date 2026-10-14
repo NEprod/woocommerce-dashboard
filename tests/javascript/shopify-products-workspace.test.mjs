@@ -20,7 +20,7 @@ class Node {
   }
 }
 const source = fs.readFileSync(new URL("../../app/static/assets/js/products-browser.js", import.meta.url), "utf8");
-async function render(automatic = false, syncState = "update", productType = "simple") {
+async function render(automatic = false, syncState = "update", productType = "simple", productCount = 1) {
   const browser = new Node();
   browser.dataset.apiUrl = "/api/edit_products";
   browser.dataset.overrideEditorUrl = "/edit_products/0/edit/override";
@@ -35,7 +35,8 @@ async function render(automatic = false, syncState = "update", productType = "si
     view_url: "/products/1", metadata_source: "shared", publishing_intent_label: "Draft intended",
     shopify: {state: syncState, label: "Update Available", intent: "Draft intended", intent_value: false, remote_status: "Draft (last compared)", compared_at: "2026-10-12T09:00:00Z", change_count: 2, review_url: "/products/1/shopify/review", identity_url: "/shopify/drafts/identity/1"}};
   const calls = [];
-  const fetch = async (...args) => { calls.push(args); return {ok: true, json: async () => args[0] === "/api/shopify/status" ? {checked: [1], pending: [], states: {1: {...product.shopify, state: "no_change", label: "Up to Date", change_count: 0}}, errors: []} : ({summary: {}, groups: [{name: "Cards", product_count: 1, variation_count: 0, products: [product]}], pagination: {total: 1, from: 1, to: 1, page: 1, pages: 1}})}; };
+  const products = Array.from({length: productCount}, (_, index) => ({...product, id: index + 1}));
+  const fetch = async (...args) => { calls.push(args); return {ok: true, json: async () => args[0] === "/api/shopify/status" ? {checked: [1], pending: [], states: {1: {...product.shopify, state: "no_change", label: "Up to Date", change_count: 0}}, errors: []} : ({summary: {}, groups: [{name: "Cards", product_count: productCount, variation_count: 0, products}], pagination: {total: productCount, from: 1, to: productCount, page: 1, pages: 1}})}; };
   const navigations = [];
   const window = {location: {search: "", pathname: "/products", href: "https://local.test/products", assign: url => navigations.push(url)}, fetch,
     ProductsOverrideClient: {routeUrl: (template, id) => template.replace("/0/", `/${id}/`)}};
@@ -117,7 +118,16 @@ test("compact seven-column rows keep technical evidence collapsed and intent onc
   assert.equal(calls.length,1);
 });
 
-for (const [state,meaning] of Object.entries({no_change:"success",update:"warning",local_changes:"warning",create:"info",processing:"info",attention:"warning",recovery_required:"danger",unknown:"neutral",unavailable:"neutral"})) {
+test("automatic visible refresh includes rows beyond the first bounded batch", async () => {
+  const {calls} = await render(true, "update", "simple", 30);
+  const requests = calls.filter(([url]) => url === "/api/shopify/status").map(([, options]) => JSON.parse(options.body));
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].ids.length, 25);
+  assert.deepEqual(requests[1].ids, [26, 27, 28, 29, 30]);
+  assert.ok(requests.every(request => request.force === false));
+});
+
+for (const [state,meaning] of Object.entries({no_change:"success",update:"warning",local_changes:"info",create:"info",processing:"info",attention:"warning",recovery_required:"danger",unknown:"neutral",unavailable:"neutral"})) {
   test(`status ${state} uses shared ${meaning} semantics and readable text`,async()=>{
     const {browser}=await render(false,state);
     const nodes=all(browser);

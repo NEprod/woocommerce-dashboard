@@ -83,7 +83,7 @@ def configuration_summary():
     }
 
 
-def _post(webhook_url, payload):
+def _post(webhook_url, payload, *, single_attempt=False):
     _refresh_configuration()
     if not ENABLED:
         return False, "disabled"
@@ -92,16 +92,20 @@ def _post(webhook_url, payload):
     if not _valid_webhook(webhook_url):
         return False, "invalid webhook configuration"
     final_error = "delivery failed"
-    for attempt in range(MAX_ATTEMPTS):
+    attempts = 1 if single_attempt else MAX_ATTEMPTS
+    for attempt in range(attempts):
         try:
             response = requests.post(
                 webhook_url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
                 timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+                **({"params": {"wait": "true"}, "allow_redirects": False} if single_attempt else {}),
             )
             if 200 <= response.status_code < 300:
                 return True, "sent"
+            if single_attempt and response.status_code >= 500:
+                return False, "uncertain delivery: Discord service error"
             if response.status_code == 429:
                 final_error = "rate limited"
                 if attempt + 1 < MAX_ATTEMPTS:
@@ -119,19 +123,21 @@ def _post(webhook_url, payload):
                 final_error = f"Discord returned HTTP {response.status_code}"
             break
         except (requests.Timeout, requests.ConnectionError) as error:
+            if single_attempt:
+                return False, "uncertain delivery: network timeout or disconnect"
             final_error = error.__class__.__name__.replace("Error", " failure").lower()
             if attempt + 1 < MAX_ATTEMPTS:
                 continue
         except requests.RequestException:
-            final_error = "request failure"
+            final_error = "uncertain delivery: request failure" if single_attempt else "request failure"
             break
         except Exception:
-            final_error = "unexpected delivery failure"
+            final_error = "uncertain delivery: unexpected failure" if single_attempt else "unexpected delivery failure"
             break
     return False, redact_diagnostic(final_error, limit=240)
 
 
-def send_discord_message(content="", *, embeds=None, channels=None, username=None, avatar_url=None):
+def send_discord_message(content="", *, embeds=None, channels=None, username=None, avatar_url=None, single_attempt=False):
     _refresh_configuration()
     if not ENABLED:
         return False, "disabled"
@@ -143,10 +149,12 @@ def send_discord_message(content="", *, embeds=None, channels=None, username=Non
         "embeds": embeds or [],
     }
     payload = {key: value for key, value in payload.items() if value not in (None, "", [], {})}
+    if single_attempt:
+        payload["allowed_mentions"] = {"parse": []}
     sent = 0
     failures = []
     for channel in channels:
-        ok, result = _post(WEBHOOKS.get(channel, ""), payload)
+        ok, result = _post(WEBHOOKS.get(channel, ""), payload, single_attempt=True) if single_attempt else _post(WEBHOOKS.get(channel, ""), payload)
         if ok:
             sent += 1
         else:
@@ -156,6 +164,33 @@ def send_discord_message(content="", *, embeds=None, channels=None, username=Non
     if sent:
         return False, "partially sent"
     return False, failures[-1] if failures else "not configured"
+
+
+def publishing_message(summary):
+    """One terminal envelope, using existing channels and protected transport."""
+    products = summary["products"]
+    success = summary["verified_success"] == summary["attempted"]
+    labels = {"verified_success": "Verified successfully", "failed_before_write": "Failed before product mutation",
+        "recovery_required": "Recovery Required — remote completion uncertain", "partial_completion": "Partial completion — required stages outstanding"}
+    fields = []
+    if len(products) == 1:
+        product = products[0]
+        fields = [{"name": label, "value": value, "inline": True} for label, value in
+            [("Product", product["title"]), ("SKU", product["sku"]), ("Operation", product["operation"]),
+             ("Result", labels[product["outcome"]]), ("Completed (UTC)", product["completed_at"])]]
+        for key, label in [("variants", "Variants"), ("images", "Images synchronised/retained"), ("shopify_status", "Shopify status")]:
+            if key in product:
+                fields.append({"name": label, "value": str(product[key]), "inline": True})
+        notes = product.get("deferred", []) + ([product["reason"]] if product.get("reason") else [])
+        if notes:
+            fields.append({"name": "Outstanding / deferred", "value": "\n".join(notes)})
+        description = f"[View verified Shopify product]({product['url']})" if product.get("url") else "Open TLCDashboard Operations for retained evidence."
+    else:
+        description = f"Attempted: {summary['attempted']} · Verified: {summary['verified_success']} · Failed before write: {summary['failed_before_write']} · Recovery: {summary['recovery_required']} · Partial: {summary['partial_completion']}"
+        fields = [{"name": "Product outcomes", "value": "\n".join(f"{p['sku']} — {labels[p['outcome']]}" for p in products)}]
+    embed = build_embed("TLC Shopify Sync — " + ("Successful" if success else "Needs Attention"), description,
+        COLORS["success"] if success else COLORS["warn"], fields, footer="TLCDashboard")
+    return send_discord_message(embeds=[embed], channels=["scans_info" if success else "scans_errors"], single_attempt=True)
 
 
 def _truncate(value):

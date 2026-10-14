@@ -140,6 +140,9 @@ def prune_operation_history(*, now=None, protected_ids=None):
 
     candidates = []
     for row in completed:
+        from app.shopify_notifications import KEY, scope_of
+        if any(e.get("state") != "sent" for e in scope_of(row).get(KEY, {}).values()):
+            continue  # pending/failed/uncertain delivery remains recoverable
         if row.operation_type == "shopify_product_lifecycle":
             continue  # Deleted remote/child bindings are audit archives, not routine logs.
         if row.id in protected:
@@ -268,6 +271,7 @@ def finish_catalogue_operation(
     if status not in FINAL_STATUSES:
         raise ValueError(f"Unsupported final operation status: {status}")
     notification = None
+    publishing_event = None
     try:
         row = db.session.get(CatalogueOperation, operation_id)
         if row:
@@ -305,10 +309,13 @@ def finish_catalogue_operation(
             # Dedicated scan/publish/connection/intake notifiers retain their summaries.
             # Capture before commit: notification delivery must never refresh an ORM row.
             dedicated = {"append", "product_update", "shared_collection_update", "full",
-                         "woo_controlled_publish", "woo_connection_test", "intake_catalogue_handoff"}
+                         "woo_controlled_publish", "woo_connection_test", "intake_catalogue_handoff",
+                         "shopify_status_refresh", "shopify_draft_publish"}
+            from app.shopify_notifications import enqueue, read_only
+            publishing_event = enqueue(row)
             if row.operation_type == "woo_publish_preview" and operation_summary and operation_summary.get("readiness"):
                 dedicated.add("woo_publish_preview")
-            if row.operation_type not in dedicated and (status != "succeeded" or row.recovery_state not in (None, "none") or row.operation_type == "woo_taxonomy_sync"):
+            if row.operation_type not in dedicated and not read_only(row) and (status != "succeeded" or row.recovery_state not in (None, "none") or row.operation_type == "woo_taxonomy_sync"):
                 try:
                     saved_summary = json.loads(row.scope or "{}").get("operation_summary", {})
                 except (ValueError, AttributeError):
@@ -337,6 +344,13 @@ def finish_catalogue_operation(
         except Exception:
             if has_app_context():
                 current_app.logger.warning("Discord terminal notification failed safely")
+    if publishing_event:
+        try:
+            from app.shopify_notifications import deliver
+            deliver(operation_id, publishing_event)
+        except Exception:
+            db.session.rollback()
+            current_app.logger.warning("Discord publishing delivery remains pending; publication result retained")
     try:
         prune_operation_history()
     except Exception as cleanup_error:
@@ -365,13 +379,26 @@ def recover_interrupted_operations() -> int:
     if not rows:
         return 0
     finished_at = _utcnow()
-    notices = [(row.id, row.operation_type) for row in rows[:10]]
+    from app.shopify_notifications import enqueue, read_only, deliver
+    notices = [(row.id, row.operation_type) for row in rows if not read_only(row) and row.operation_type != "shopify_draft_publish"][:10]
+    publishing_events = []
     for row in rows:
         row.status = "interrupted"
         row.finished_at = finished_at
         row.recovery_state = "review_required"
         row.error = row.error or "Application stopped before operation completion"
+        event = enqueue(row)
+        if event:
+            publishing_events.append((row.id, event))
     db.session.commit()
+    for operation_id, event in publishing_events:
+        try:
+            deliver(operation_id, event)
+        except Exception:
+            db.session.rollback()
+            current_app.logger.warning("Discord interrupted publishing delivery remains pending")
+    if not notices:
+        return len(rows)
     try:
         from app.utils.discord import notify_operation_attention
         notify_operation_attention(

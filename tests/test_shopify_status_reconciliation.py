@@ -58,14 +58,14 @@ def test_cached_page_navigation_performs_no_duplicate_read(world):
     assert adapter.calls == [] and displayed(world[0])["label"] == "Up to Date"
 
 
-def test_unchanged_batched_revision_renews_without_full_fetch(world):
+def test_expired_related_evidence_requires_complete_comparison(world):
     row, adapter = created(world)
     original = ShopifyProductComparison.query.one().compared_at
     age(11, "revision_checked_at", "related_checked_at")
     result = status_service.refresh([world[0]], adapter=adapter)
-    assert result["full_comparisons"] == 0 and adapter.calls == ["connection_read", "revision_read"]
+    assert result["full_comparisons"] == 1 and "product_read" in adapter.calls
     assert displayed(world[0])["label"] == "Up to Date"
-    assert ShopifyProductComparison.query.one().compared_at == original
+    assert ShopifyProductComparison.query.one().compared_at > original
 
 
 @pytest.mark.parametrize("kind", ["local", "remote", "both", "media_interval"])
@@ -74,7 +74,7 @@ def test_affected_product_gets_canonical_full_comparison(world, kind):
     age(11, "revision_checked_at")
     if kind in {"local", "both"}:
         change(world, weight=51)
-        assert displayed(world[0])["label"] == "Local Changes Detected"
+        assert displayed(world[0])["label"] == "Checking Changes"
     if kind in {"remote", "both"}:
         adapter.remote["updatedAt"] = "2026-10-13T02:00:00Z"
         adapter.remote["title"] = "Changed remotely"
@@ -151,9 +151,9 @@ def test_related_membership_is_checked_independently_of_product_revision(world, 
         return ([{"key": "categories:cards", "name": "Cards", "action": "Join", "mapping_fingerprint": None}], [], None)
     monkeypatch.setattr("app.shopify_taxonomy.membership_plan", membership)
     result = status_service.refresh([world[0]], adapter=adapter)
-    assert calls and result["full_comparisons"] == 0
+    assert calls and result["full_comparisons"] == 1
     assert json.loads(ShopifyProductComparison.query.one().summary_json)["classification"] == "update"
-    assert "product_read" not in adapter.calls
+    assert "product_read" in adapter.calls
 
 
 def test_step_budget_and_unknown_product_backoff(world, monkeypatch):
@@ -181,7 +181,7 @@ def test_revision_failure_backs_off_and_preserves_equality_timestamp(world):
     assert adapter.calls == previous_calls
 
 
-def test_cached_revision_never_gets_a_manufactured_new_check_timestamp(world):
+def test_expired_related_evidence_gets_real_full_read_not_manufactured_timestamp(world):
     row, adapter = created(world)
     age(11, "related_checked_at")
     age(9, "revision_checked_at")
@@ -192,5 +192,5 @@ def test_cached_revision_never_gets_a_manufactured_new_check_timestamp(world):
     saved.summary_json = json.dumps(data)
     db.session.commit()
     status_service.refresh([world[0]], adapter=adapter)
-    assert adapter.calls == ["connection_read"]
-    assert json.loads(saved.summary_json)["revision_checked_at"] == observed_at
+    assert "product_read" in adapter.calls
+    assert json.loads(saved.summary_json)["revision_checked_at"] != observed_at

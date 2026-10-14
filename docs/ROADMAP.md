@@ -1,5 +1,16 @@
 # Roadmap
 
+## M3A.8.5.3 — status/cache and publishing Discord checkpoint
+
+Implemented and focused regression verified; accept the ten-minute visit-triggered
+read-only refresh, Checking Changes → actual comparison, both Variable layouts and
+one durable reviewed publishing notification on Unraid. Confirm repeated page loads,
+Preview, status checks and polling remain silent; test controlled delivery retry without
+replaying Shopify writes. Existing recovery, identity/media/taxonomy/inventory policies
+remain. No new migration, API/auth/storage-path change or bulk/navigation/editor work.
+After live acceptance, the next bounded milestone remains the shared-schema JSON
+Create/Edit forms, not an expanded scheduler or a second notification system.
+
 ## M3A.8.5.2 — incident corrections implemented; controlled acceptance pending
 
 Validate corrected single confirmation/receipt polling and Products Variable status checks,

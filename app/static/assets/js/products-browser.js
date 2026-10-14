@@ -49,7 +49,7 @@
     const node = text("span", "shopify-list-status", "");
     node.dataset.shopifyState = product.id;
     const state = product.shopify || {};
-    const meaning = {no_change: "success", update: "warning", local_changes: "warning", create: "info", processing: "info", attention: "warning", recovery_required: "danger", unavailable: "neutral", unknown: "neutral"};
+    const meaning = {no_change: "success", update: "warning", local_changes: "info", create: "info", processing: "info", attention: "warning", recovery_required: "danger", unavailable: "neutral", unknown: "neutral"};
     const label = pill(state.label || "Not yet verified", `shopify-${meaning[state.state] || "neutral"}`);
     if (state.state === "processing") {
       const activity = text("span", "shopify-activity", ""); activity.setAttribute("aria-hidden", "true"); label.appendChild(activity);
@@ -465,7 +465,7 @@
     if (!allScope && !ids.length) return;
     refreshRunning = true;
     const progress = browser.querySelector("[data-shopify-refresh-progress]");
-    let queue = ids.slice(0, 25), after = 0, nextAfter = null, allNext = allScope, checked = 0, failures = 0, busy = 0, firstError = "";
+    let queue = ids.slice(0, 25), remaining = ids.slice(25), after = 0, nextAfter = null, allNext = allScope, checked = 0, failures = 0, busy = 0, firstError = "";
     try {
       for (let step = 0; step < 100; step += 1) {
         if (progress) progress.textContent = `Checking Shopify… ${checked} checked. Catalogue remains editable.`;
@@ -495,6 +495,7 @@
         allNext = false;
         if (!queue.length) {
           if (allScope && nextAfter != null) { after = nextAfter; allNext = true; nextAfter = null; }
+          else if (!allScope && remaining.length) { queue = remaining.splice(0, 25); }
           else { if (progress) progress.textContent = `Shopify check complete: ${checked} checked${failures ? `; ${failures} unavailable — ${firstError}. Historical evidence retained` : ""}. No store writes.`; return; }
         }
       }

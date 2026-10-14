@@ -43,7 +43,18 @@ def source_fingerprint(product, images):
             "image_stats": stats}
     if product.product_type == "variable":
         from app.shopify_variables import source_parts
-        data["variable"] = source_parts(product)
+        # Status invalidation uses the effective publishing projection. The
+        # signed Preview still binds the complete source document independently.
+        parts = source_parts(product)
+        # Variant source invalidation includes calculation inputs, not unrelated
+        # proof/customisation/production notes. Actual publishing still validates
+        # projection() against scanner results before allowing a write.
+        parts["authored"] = {key: parts["authored"][key] for key in (
+            "attributes", "variation_attributes", "variation_modifiers", "price", "sale_price",
+            "sale_start_date", "sale_end_date", "weight", "length", "width", "height",
+            "manage_stock", "backorders", "stock_quantity", "harmonized_system_code",
+            "country_of_origin", "requires_shipping") if key in parts["authored"]}
+        data["variable"] = parts
     from app.shopify_native_dimensions import desired
     native_policy = desired(product)
     if native_policy["enabled"]:
@@ -121,7 +132,7 @@ def product_state(product, rows, comparisons=(), mappings=None):
                 if baseline and baseline == source_fingerprint(product, plan["images"]):
                     state.update(state="no_change", label="No Change", message="Last verified managed state; local metadata/image stats match. Remote freshness requires explicit Review or reconciliation.")
                 elif baseline:
-                    state.update(state="local_changes", label="Local Changes Detected", message="Local source changed; a current comparison is pending, not yet a remotely confirmed update.")
+                    state.update(state="local_changes", label="Checking Changes", message="Effective local evidence changed; read-only comparison is pending, not a confirmed Shopify update.")
                 else:
                     state.update(state="unavailable", label="Verification Unavailable", message="Retained draft is verified historically; build Review Changes for a current local/remote comparison.")
             elif row.state == "failed_before_create":
@@ -171,16 +182,24 @@ def product_state(product, rows, comparisons=(), mappings=None):
                     from app.shopify_drafts import digest, configuration
                     for comparison in comparisons:
                         known = json.loads(comparison.summary_json)
+                        if (comparison.store_id == identity.store_id and known.get("config") == configuration().fingerprint()
+                                and known.get("local") == fingerprint(product, known.get("images", []))):
+                            required_keys = set(known.get("mappings", {})) | set(known.get("attribute_mappings", {}))
+                            if any(mappings.get((identity.store_id, key)) and mappings[(identity.store_id, key)].state in {"pending", "uncertain"} for key in required_keys):
+                                state.update(state="recovery_required", label="Recovery Required", message="A required retained collection/attribute mapping has unresolved write evidence. Reconcile that identity before publishing; no automatic retry.")
+                                break
                         if (comparison.store_id == identity.store_id and known.get("identity") == digest(identity.media_evidence_json)
                                 and known.get("config") == configuration().fingerprint()
                                 and known.get("local") != fingerprint(product, known["images"])):
-                            state.update(state="local_changes", label="Local Changes Detected", message="Local metadata or taxonomy changed; pending remote comparison. The old change count is invalid.")
+                            state.update(state="local_changes", label="Checking Changes", message="Local metadata or taxonomy evidence changed; pending remote comparison. The old change count is invalid.")
                             break
                 if state["state"] == "no_change":
                     # Last publish fingerprints predate managed taxonomy and cannot prove it.
-                    state.update(state="unavailable", label="Verification Unavailable", message="Fresh managed comparison required; retained publishing evidence remains available.")
+                    state.update(state="local_changes", label="Checking Changes", message="Comparison checkpoint is stale or predates the current managed projection. A bounded read-only check is pending; historical verification is retained.")
                 from app.shopify_drafts import configuration
                 for comparison in comparisons:
+                    if state["state"] == "recovery_required":
+                        break
                     failed = json.loads(comparison.summary_json)
                     from app.shopify_comparison import recent, REVISION_AGE
                     if failed.get("config") == configuration().fingerprint() and recent(failed.get("observed_revision_at"), REVISION_AGE):
@@ -191,7 +210,7 @@ def product_state(product, rows, comparisons=(), mappings=None):
                         if kind in {"identity_conflict","variant_missing"}:
                             state.update(state="recovery_required" if kind=="identity_conflict" else "attention",label="Recovery Required" if kind=="identity_conflict" else "Needs Attention")
                         break
-    except (ValueError, OSError, KeyError, TypeError, AttributeError, RuntimeError):
+    except (ValueError, OSError, KeyError, TypeError, AttributeError, RuntimeError, ShopifyError):
         state.update(state="unavailable", label="Verification Unavailable", message="Local source or retained evidence needs review; no current equality is claimed.")
     from app.shopify_native_dimensions import local_status
     try:
