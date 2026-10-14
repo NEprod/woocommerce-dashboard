@@ -21,10 +21,14 @@ def recent(value, age):
 
 
 def store_summary(row, data):
+    from app.shopify_capacity import guard_owner
+    guard_owner()
     encoded = json.dumps(data, sort_keys=True)
     if len(encoded.encode()) > 32768:
         from app.shopify_connection import ShopifyError
         raise ShopifyError("Comparison exceeds its evidence bound.")
+    from app.shopify_capacity import fence_owner
+    fence_owner()
     row.summary_json = encoded
     db.session.add(row)
     db.session.commit()
@@ -49,6 +53,8 @@ def fingerprint(product, images):
 
 
 def record(product, plan, identity=None):
+    from app.shopify_capacity import guard_owner
+    guard_owner()
     from app.shopify_drafts import now, digest
     from app.shopify_attributes import CAPABILITY_POLICY_VERSION
     if plan.get("attributes") and plan.get("attribute_capability_policy") != CAPABILITY_POLICY_VERSION:
@@ -121,12 +127,16 @@ def record(product, plan, identity=None):
     if len(encoded.encode()) > 32768:
         from app.shopify_connection import ShopifyError
         raise ShopifyError("Comparison exceeds its evidence bound. Reduce reviewed data.")
+    from app.shopify_capacity import fence_owner
+    fence_owner()
     row.summary_json, row.compared_at = encoded, now()
     db.session.add(row)
     db.session.commit()
 
 
 def invalidate(store_id, source):
+    from app.shopify_capacity import fence_owner
+    fence_owner()
     ShopifyProductComparison.query.filter_by(store_id=store_id, source_identity=source).delete()
     db.session.commit()
 
@@ -134,6 +144,8 @@ def invalidate(store_id, source):
 def failed(product, message):
     """Preserve last-known comparison, but never reuse equality after a failed check."""
     from app.shopify_drafts import configuration, now
+    from app.shopify_capacity import guard_owner
+    guard_owner()
     for row in ShopifyProductComparison.query.filter_by(source_identity=product.source_relpath).all():
         data = json.loads(row.summary_json)
         if data.get("config") == configuration().fingerprint():
@@ -141,6 +153,8 @@ def failed(product, message):
             encoded = json.dumps(data, sort_keys=True)
             if len(encoded.encode()) <= 32768:
                 row.summary_json = encoded
+    from app.shopify_capacity import fence_owner
+    fence_owner()
     db.session.commit()
 
 

@@ -6,7 +6,7 @@
   <div>
     <p class="eyebrow">Catalogue</p>
     <h1 class="page-title">Products</h1>
-    <p class="page-lede">Edit local metadata by collection, then review Shopify changes. Retained Shopify status is last-known evidence; Review or Identity / Refresh performs bounded remote checks.</p>
+    <p class="page-lede">Edit local metadata by collection, then review Shopify changes. Saved Shopify evidence is maintained by background Scheduled Tasks, not page visits. Manual Refresh and Review remain available.</p>
   </div>
 </header>
 <p class="panel-note">Review one Simple or Variable parent per confirmed operation. Bulk publishing and Online Store publication remain deferred.</p>
@@ -98,7 +98,7 @@
   <div class="products-groups" data-products-groups></div>
   {% if current_user.is_admin %}<section class="workspace-card workspace-card-body" aria-label="Shopify status refresh">
     <div class="page-actions"><button type="button" class="btn btn-outline-primary" data-shopify-refresh-visible>Refresh Visible</button><button type="button" class="btn btn-ghost" data-shopify-refresh-all>Refresh All</button></div>
-    <p data-shopify-refresh-progress role="status" aria-live="polite">Saved evidence shown first. Read-only status checks run in bounded steps.</p>
+    <p data-shopify-refresh-progress role="status" aria-live="polite">Saved evidence shown. Background reconciliation runs independently; these Refresh actions are explicit read-only exceptions.</p>
   </section>{% endif %}
   <section class="workspace-card workspace-card-body" aria-label="Shopify review selection">
     <h2>Selected Shopify reviews <span data-shopify-selection-count>0</span></h2>

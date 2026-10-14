@@ -31,4 +31,4 @@ RUN mkdir -p /app/instance /catalogue /output && \
 EXPOSE 7485
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["gunicorn", "--workers", "1", "--threads", "4", "--bind", "0.0.0.0:7485", "--access-logfile", "-", "--error-logfile", "-", "run:app"]
+CMD ["python", "-m", "app.runtime", "gunicorn", "--workers", "1", "--threads", "4", "--bind", "0.0.0.0:7485", "--access-logfile", "-", "--error-logfile", "-", "run:app"]

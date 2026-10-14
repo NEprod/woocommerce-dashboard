@@ -1,4 +1,4 @@
-"""Single-process catalogue-operation locking and persistent history."""
+"""Atomic SQLite catalogue-operation reservation and persistent history."""
 
 from __future__ import annotations
 
@@ -201,6 +201,9 @@ def acquire_catalogue_operation(operation_type: str, scope=None) -> OperationLea
 
     if operation_type not in ALLOWED_OPERATION_TYPES:
         raise ValueError(f"Unsupported catalogue operation type: {operation_type}")
+    from app.shopify_capacity import signal_priority
+    if operation_type.startswith("shopify_"):
+        signal_priority(1 if operation_type == "shopify_status_refresh" else 2)
     if not _catalogue_lock.acquire(blocking=False):
         raise CatalogueOperationActive(
             get_active_operation()
@@ -232,14 +235,19 @@ def acquire_catalogue_operation(operation_type: str, scope=None) -> OperationLea
             })
         if operation_type == "shopify_draft_publish" and has_request_context() and g.get("shopify_review_ticket"):
             scope = {**(scope or {}), "review_ticket":g.shopify_review_ticket}
-        row = CatalogueOperation(
-            id=operation_id,
-            operation_type=operation_type,
-            status="running",
-            scope=_safe_scope(scope),
-            started_at=_utcnow(),
-        )
-        db.session.add(row)
+        # One SQLite write closes the check/insert race across web/worker processes.
+        from sqlalchemy import insert, select, literal, exists
+        occupied = exists(select(CatalogueOperation.id).where(
+            CatalogueOperation.operation_type.in_(ALLOWED_OPERATION_TYPES),
+            CatalogueOperation.status.in_({"running", "pending"})))
+        values = {"id":operation_id,"operation_type":operation_type,"status":"running",
+            "scope":_safe_scope(scope),"started_at":_utcnow(),"marker_state":"not_started","recovery_state":"none",
+            **{key:0 for key in ("products_attempted","products_succeeded","products_failed","products_missing","products_restored","variations_missing","variations_restored")}}
+        inserted = db.session.execute(insert(CatalogueOperation.__table__).from_select(
+            list(values), select(*(literal(value) for value in values.values())).where(~occupied)))
+        if inserted.rowcount != 1:
+            db.session.rollback()
+            raise CatalogueOperationActive(get_active_operation() or {"id":"unknown","operation_type":"unknown"})
         db.session.commit()
         with _state_lock:
             _active_operation = active
@@ -273,6 +281,8 @@ def finish_catalogue_operation(
     notification = None
     publishing_event = None
     try:
+        from app.shopify_capacity import guard_owner
+        guard_owner()
         row = db.session.get(CatalogueOperation, operation_id)
         if row:
             row.status = status
@@ -325,6 +335,8 @@ def finish_catalogue_operation(
                 notification = (row.operation_type, dict(saved_summary,
                     products_attempted=row.products_attempted, products_failed=row.products_failed,
                     recovery_state=row.recovery_state), row.error)
+            from app.shopify_capacity import fence_owner
+            fence_owner()
             db.session.commit()
     except Exception:
         db.session.rollback()

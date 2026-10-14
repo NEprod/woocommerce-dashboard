@@ -7,6 +7,7 @@ from app.models import Product, ShopifyProductComparison, ShopifyCollectionIdent
 from app.shopify_connection import ShopifyAdapter, ShopifyError
 from app import shopify_comparison as comparison, shopify_drafts as drafts
 from app.utils.operation_control import acquire_catalogue_operation, finish_catalogue_operation
+from app.shopify_capacity import BackgroundYield
 
 BATCH = 25
 FULL_PER_STEP = 2
@@ -23,11 +24,13 @@ def retry_due(data):
 def failure_fingerprint(product, data):
     try:
         return comparison.fingerprint(product, data.get("images", []))
-    except (ShopifyError, OSError, ValueError, KeyError):
+    except (ShopifyError, OSError, ValueError, KeyError, TypeError, RuntimeError):
         return None
 
 
 def mark_failure(product, row, message, *, kind="unavailable"):
+    from app.shopify_capacity import guard_owner
+    guard_owner()
     if row is None:
         config = drafts.configuration()
         row = ShopifyProductComparison(store_id="unverified:" + config.fingerprint(),
@@ -42,13 +45,17 @@ def mark_failure(product, row, message, *, kind="unavailable"):
     comparison.store_summary(row, data)
 
 
-def refresh(products, *, force=False, adapter=None):
+def refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, scheduled_run=None):
     products = list(products)
     if len(products) > BATCH:
         raise ShopifyError("At most 25 visible products can be checked per request.")
     adapter = adapter or ShopifyAdapter()
-    lease = acquire_catalogue_operation("shopify_status_refresh", {"products": [p.id for p in products]})
+    scope = {"products": [p.id for p in products]}
+    if scheduled_run:
+        scope.update(scheduled_run=scheduled_run[0], scheduled_owner=scheduled_run[1])
+    lease = acquire_catalogue_operation("shopify_status_refresh", scope)
     results, pending, errors, full = [], [], [], 0
+    deferred_reason = None
     try:
         config = drafts.configuration()
         config_digest = config.fingerprint()
@@ -62,7 +69,7 @@ def refresh(products, *, force=False, adapter=None):
             rows = ShopifyProductComparison.query.filter_by(source_identity=product.source_relpath).order_by(ShopifyProductComparison.compared_at.desc()).all()
             saved = next((r for r in rows if json.loads(r.summary_json).get("config") == config_digest), None)
             data = json.loads(saved.summary_json) if saved else {}
-            if not force and not retry_due(data) and (not data.get("failure_local") or data["failure_local"] == failure_fingerprint(product, data)):
+            if not scheduled_run and not force and not retry_due(data) and (not data.get("failure_local") or data["failure_local"] == failure_fingerprint(product, data)):
                 results.append(product.id)
                 continue
             # Trust the persisted Shop GID only under the same complete configuration.
@@ -70,7 +77,10 @@ def refresh(products, *, force=False, adapter=None):
             if identity and identity.state != "processing" and (identity.state != "verified" or identity.verification_state != "verified"):
                 results.append(product.id)  # operation recovery is never cleared by background checks
                 continue
-            valid = comparison.current(product, saved, identity, mappings, freshness=False) if saved and data.get("local") else None
+            try:
+                valid = comparison.current(product, saved, identity, mappings, freshness=False) if saved and data.get("local") else None
+            except (OSError,ValueError,KeyError,TypeError,RuntimeError):
+                valid = None  # source failures need their own bounded comparison, not a batch abort
             native_due = product.product_type == "variable" and (data.get("native") or {}).get("enabled") and not comparison.recent((data.get("native") or {}).get("checked_at") or data.get("full_compared_at"),comparison.MAX_AGE)
             if valid and not force and not native_due and not data.get("refresh_failure") and comparison.current(product, saved, identity, mappings):
                 results.append(product.id)
@@ -91,11 +101,11 @@ def refresh(products, *, force=False, adapter=None):
                 observed = json.loads(saved.summary_json)
                 if comparison.recent(observed.get("observed_revision_at"), comparison.REVISION_AGE) and observed.get("observed_updated_at"):
                     revisions[identity.shopify_product_id] = {"id": identity.shopify_product_id, "updatedAt": observed["observed_updated_at"], "status": observed["observed_status"]}
-        for product, saved, identity, valid in work:
+        for index, (product, saved, identity, valid) in enumerate(work):
             try:
                 identity = drafts.matching_identity(shop["shop_id"], product)
                 if identity and identity.state == "processing":
-                    if full >= FULL_PER_STEP:
+                    if full >= full_limit:
                         pending.append(product.id)
                         continue
                     full += 1
@@ -130,7 +140,7 @@ def refresh(products, *, force=False, adapter=None):
                         continue
                     raise ShopifyError("Retained Shopify product is missing or inaccessible. No Create is permitted; inspect identity and permissions.")
                 if needs_full:
-                    if full >= FULL_PER_STEP:
+                    if full >= full_limit:
                         pending.append(product.id)
                         continue
                     full += 1
@@ -167,6 +177,10 @@ def refresh(products, *, force=False, adapter=None):
                     data.pop("retry_after", None)
                     comparison.store_summary(saved, data)
                 results.append(product.id)
+            except BackgroundYield as exc:
+                deferred_reason = str(exc)
+                pending.extend(p.id for p, *_ in work[index:])
+                break
             except ShopifyError as exc:
                 from app.shopify_connection import ShopifyProductAbsent
                 if isinstance(exc, ShopifyProductAbsent) and identity:
@@ -182,11 +196,19 @@ def refresh(products, *, force=False, adapter=None):
                 mark_failure(product, saved, str(exc),kind=kind)
                 errors.append({"product_id": product.id, "message": str(exc)})
                 results.append(product.id)
-        return {"checked": results, "pending": pending, "errors": errors, "full_comparisons": full}
+            except (OSError,ValueError,KeyError,TypeError,RuntimeError):
+                message="Local catalogue evidence is unavailable for this product; review its source. No Shopify write occurred."
+                mark_failure(product,saved,message)
+                errors.append({"product_id":product.id,"message":message})
+                results.append(product.id)
+        return {"checked": results, "pending": pending, "errors": errors, "full_comparisons": full, "deferred_reason":deferred_reason}
+    except BackgroundYield as exc:
+        pending = [p.id for p in products if p.id not in results]
+        return {"checked":results,"pending":pending,"errors":errors,"full_comparisons":full,"deferred_reason":str(exc)}
     except ShopifyError as exc:
         errors.append({"message": str(exc)})
         for product, saved, _, _ in locals().get("work", []):
             mark_failure(product, saved, str(exc))
         return {"checked": [p.id for p in products], "pending": [], "errors": errors, "full_comparisons": full}
     finally:
-        finish_catalogue_operation(lease.id, status="partial" if errors else "succeeded", recovery_state="none", operation_summary={"mode": "read_only", "checked": len(results), "errors": errors, "full_comparisons": full})
+        finish_catalogue_operation(lease.id, status="partial" if errors or pending else "succeeded", recovery_state="none", operation_summary={"mode": "read_only", "checked": len(results), "errors": errors, "full_comparisons": full})

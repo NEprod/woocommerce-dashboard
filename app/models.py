@@ -433,6 +433,54 @@ class ShopifyProductComparison(db.Model):
     compared_at = db.Column(db.DateTime, nullable=False)
 
 
+class ScheduledTask(db.Model):
+    __tablename__ = "scheduled_task"
+    __table_args__ = (db.CheckConstraint("interval_minutes BETWEEN 1 AND 1440", name="ck_task_interval"),)
+    key = db.Column(db.String(64), primary_key=True)
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    interval_minutes = db.Column(db.Integer, nullable=False, default=20)
+    next_due = db.Column(db.DateTime, nullable=False)
+    last_scheduled = db.Column(db.DateTime)
+    last_started = db.Column(db.DateTime)
+    last_completed = db.Column(db.DateTime)
+    last_successful = db.Column(db.DateTime)
+    state = db.Column(db.String(32), nullable=False, default="idle")
+    last_outcome = db.Column(db.String(32))
+    duration_seconds = db.Column(db.Float)
+    active_run_id = db.Column(db.String(32))
+    owner = db.Column(db.String(32))
+    lease_until = db.Column(db.DateTime)
+    resume_at = db.Column(db.DateTime)
+    selection_cursor = db.Column(db.Integer, nullable=False, default=0)
+
+
+class ScheduledTaskRun(db.Model):
+    __tablename__ = "scheduled_task_run"
+    __table_args__ = (db.CheckConstraint("length(data_json) <= 65536", name="ck_task_run_bound"),)
+    id = db.Column(db.String(32), primary_key=True)
+    task_key = db.Column(db.String(64), db.ForeignKey("scheduled_task.key"), nullable=False, index=True)
+    trigger = db.Column(db.String(16), nullable=False)
+    state = db.Column(db.String(32), nullable=False, default="queued")
+    created_at = db.Column(db.DateTime, nullable=False)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    duration_seconds = db.Column(db.Float)
+    data_json = db.Column(db.Text, nullable=False, default="{}")
+    error = db.Column(db.String(1000))
+
+
+class ShopifyApiCapacity(db.Model):
+    __tablename__ = "shopify_api_capacity"
+    key = db.Column(db.String(64), primary_key=True)
+    available = db.Column(db.Float)
+    maximum = db.Column(db.Float)
+    restore_rate = db.Column(db.Float)
+    requested_cost = db.Column(db.Float)
+    observed_at = db.Column(db.DateTime)
+    priority_until = db.Column(db.DateTime)
+    priority = db.Column(db.Integer, nullable=False, default=0)
+
+
 class WooProductIdentity(db.Model):
     """Store-scoped Woo identity and sync state; never authored catalogue data."""
 

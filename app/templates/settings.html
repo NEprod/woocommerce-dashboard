@@ -11,6 +11,7 @@
   <p><strong>Read-only configuration</strong><span>Environment and Discord changes are configured in Unraid and require a container restart. Secret values are never shown here.</span></p>
 </div>
 <section class="workspace-panel"><h2>Shopify connection</h2><p>Test the installed Shopify app. Credentials remain protected and existing operational identities are preserved.</p><a class="btn btn-outline-primary" href="{{ url_for('commerce.settings') }}">Shopify connection settings</a></section>
+<section class="workspace-panel"><h2>Scheduled Tasks</h2><p>Manage persistent read-only Shopify reconciliation, intervals, progress and run history.</p><a class="btn btn-outline-primary" href="{{ url_for('tasks.index') }}">Scheduled Tasks</a></section>
 
 <section class="settings-summary-grid" aria-label="Configuration overview">
   <article><span>Database</span><strong>{{ 'Available' if workspace.application.database_available else 'Unavailable' }}</strong><small>Migration {{ workspace.application.migration_head }}</small></article>

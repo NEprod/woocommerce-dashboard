@@ -1,5 +1,45 @@
 # Current State
 
+## M3A.8.6 — persistent Scheduled Tasks
+
+Implemented and focused regression verified; live Unraid acceptance remains. Settings →
+Scheduled Tasks manages the enabled-by-default Shopify Product Reconciliation task
+at 20 minutes (10/20/30/60 selectable). It runs independently of browser sessions.
+The Docker runtime now supervises the existing Gunicorn server and one dedicated
+worker. SQLite task/run ownership prevents duplicate execution across processes.
+Migration `0013_scheduled_tasks` adds task configuration/history and shared API-cost
+observations only; existing catalogue and Shopify/Woo mappings are not backfilled.
+
+At each run, complete valid successful evidence with age **less than** ten minutes
+is skipped; exactly ten minutes is eligible. Failed, incomplete, invalidated or scoped
+evidence cannot earn that skip. Reviewed publishing still verifies immediately.
+Products renders saved evidence and no longer starts automatic status requests;
+manual product refresh/Review and the publishing modal remain. Run Now queues one
+durable manual run, bypassing the freshness skip for its scope, never recovery.
+Between runs, a complete unchanged-fingerprint historical result is labelled Last check
+matched / Update Available (last check), with its last successful comparison time;
+stale evidence is not advertised as fresh equality. Local changes invalidate it immediately.
+
+The canonical status service handles all three layouts. Bounded slices use 25 parents,
+up to eight full comparisons, 120 GraphQL attempts/120 seconds; pending work resumes
+from the same persisted run. Known unavailable/recovery results remain accurate.
+History distinguishes completed/partial/failed, records actual counts and retains
+100 completed runs up to 90 days. Cost/throttle information and interactive priority
+signals are shared through SQLite. Routine reads stay silent on Discord; original
+publishing outcomes and scanner discovery notifications retain their contracts.
+No unattended Shopify write, new credentials, source-file edit or mount/API change.
+See SHOPIFY_INTEGRATION, ARCHITECTURE and DOCKER for ownership, limits and acceptance.
+
+Verification: 319 distinct Python cases passed across one bounded 305-case compatibility
+regression and focused follow-ups, including 50 scheduler cases; 31 JavaScript cases
+passed. The regression was followed by
+targeted scheduler/status checks for final refinements. New tests include separate-process
+ownership, expired lease recovery, concurrency, exact ten-minute examples, both Variable
+layouts, API budgets/throttling, read-only transport, silent tasks and immediate publishing
+verification. JavaScript workspace/progress tests and task controls passed. Compilation,
+template parsing and whitespace checks passed. Docker offline smoke and remote publication
+are recorded in the delivery report; no live store acceptance is claimed here.
+
 ## Attribute capability follow-up to M3A.8.5.3
 
 The existing app-owned informational attribute path now compares/repairs eligible Admin

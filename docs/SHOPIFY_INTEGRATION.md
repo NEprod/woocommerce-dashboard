@@ -1,5 +1,80 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.8.6 — browser-independent product reconciliation
+
+Settings → Scheduled Tasks exposes Shopify Product Reconciliation, enabled by default
+every 20 minutes; choose 10, 20, 30 or 60 minutes without restarting. Configuration,
+due times, ownership, counters and history persist in SQLite revision
+`0013_scheduled_tasks`. No catalogue, identity, credential or authored JSON backfill.
+
+The existing canonical status/Preview comparison is reused for Simple Product,
+Variable Collection and Single Variable Product. Required variant pagination,
+prices/modifiers, inventory policy/identities, native packed dimensions, media,
+taxonomy and attribute capabilities retain their existing readers and safeguards.
+The background transport refuses mutations; it never recreates products/variants,
+uploads media, repairs definitions or replays uncertain writes.
+
+Only complete, fingerprint/config/identity/mapping-valid successful evidence under
+ten minutes old can be skipped. Exactly ten minutes, missing/invalidated/incomplete
+evidence and failed checks are eligible; failed attempt backoff does not masquerade
+as successful verification. Relevant domain timestamps must all be recent. A reviewed
+publish records independent verification immediately and is skipped while recent.
+Eligibility uses the run-start cutoff across continuations; newly completed publishing
+proof also supersedes previously queued reads. A later slice does not age a skipped
+product into the same run merely because processing took time.
+Processing can be finalized through existing read-only retained-plan readback; uncertain
+operations and mappings still require explicit recovery. Original asynchronous publishing
+completion may settle its existing durable publishing notification—not a routine task alert.
+
+Products HTML and browser navigation render saved evidence without automatic Shopify
+requests. Manual per-product/visible refresh, identity reconciliation and Review remain.
+Complete historical results remain visible as Last check matched / Update Available
+(last check) when only their freshness expires. The time shown is the last successful
+full comparison, not a failed attempt. Source/identity/mapping invalidation still requires
+a new comparison; incomplete or failed reads never borrow that historical equality.
+Run Now durably queues one manual run (all active parents by default; the endpoint also
+accepts one to 25 explicit product IDs). It bypasses freshness, not recovery, owner or
+rate limits. Repeated clicks return the existing run. It does not shift the periodic due
+time. Only explicit Run Now gets a finite UI progress window; no always-on browser polling.
+
+Each slice selects at most 25 parents, with up to eight canonical comparisons, at most
+120 GraphQL attempts and a 120-second transport budget. The browser's two-comparison
+limit remains for manual status requests, not the worker. There are at most 1,000 local
+parents per sweep, 60 slices and 20 minutes per run; partial work is recorded accurately.
+Continuation uses the same persisted run/queue with a 15-second pause. Excess work
+rotates to later scheduled sweeps; a parent repeatedly exceeding local capacity/budget
+is deferred after three attempts rather than starving others. No partial read proves equality.
+
+The shared API coordinator records returned requested cost, available/max capacity,
+restore rate and observation time against a hashed configuration identity. Background
+requests reserve up to 100 cost units (scaled to the actual bucket/query size) for
+interactive work and yield before the next query when capacity is low or an interactive
+priority signal exists.
+Foreground publishing/recovery demand has higher rank than manual status checks;
+normal read signals cannot downgrade an outstanding publishing demand. Both outrank
+background work. Existing bounded read throttle retries (at most two; three seconds
+total wait) remain; mutations never gain
+automatic retries. A currently in-flight read is not cancelled. Interactive publishing
+may briefly report the existing Busy response until the background slot is released.
+Missing cost observations still use strict request/time budgets, not unlimited capacity.
+Coordination logging/persistence cannot hide an interactive Shopify mutation receipt.
+
+Task history records scheduled/manual trigger, timestamps, duration, considered/skipped/
+checked/matching/update/attention/unavailable/deferred counts, pending IDs, throttling and
+redacted errors. Partial runs never advance last-successful-run time. Latest 100 completed
+runs expire after 90 days; active runs are protected. No Shopify payload/token is copied.
+Routine task completion/failure emits no Discord alert. Existing scanner and reviewed
+publishing notifications are unchanged. Orders, sale transitions and new alerts are deferred.
+
+Unraid acceptance: back up instance/appdata, pull the scheduler image, keep mounts,
+credentials and default image command, then confirm migration 0013. With browser closed,
+allow a due run or queue Run Now and close the browser; reopen task history to inspect
+its durable result. Test a fresh verified product skip, an exactly-ten-minute eligible
+product, both Variable layouts, an authored change and an existing recovery record.
+Confirm read-only checks find changes without applying them. Test duplicate Run Now,
+interval persistence across restart, preserved publishing progress/Discord outcomes,
+and silent Products navigation. Actual live acceptance is not claimed by mocked tests.
+
 ## Attribute definition capabilities — 2026-10-14 follow-up
 
 Customer-facing informational attributes use the existing reviewed registration/repair

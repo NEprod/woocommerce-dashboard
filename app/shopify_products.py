@@ -154,16 +154,25 @@ def product_state(product, rows, comparisons=(), mappings=None):
                 if identity and comparison.store_id != identity.store_id:
                     continue
                 data = current(product, comparison, identity, mappings or {})
+                stale = False
+                if not data:
+                    cached = current(product, comparison, identity, mappings or {}, freshness=False)
+                    if cached and cached.get("read_complete") is True and cached.get("scope","full") == "full" and cached.get("classification") != "create":
+                        data, stale = cached, True
                 if data:
                     native_comparison = data.get("native")
                     classification = data["classification"]
                     state.update(state="create" if classification == "create" else "update" if classification == "update" else "no_change",
                         label="Needs Creating" if classification == "create" else "Update Available" if classification == "update" else "Up to Date",
-                        compared_at=comparison.compared_at.isoformat() + "Z", change_count=data["change_count"],
+                        compared_at=(data.get("full_compared_at") or comparison.compared_at.isoformat()) + "Z", change_count=data["change_count"],
                         change_summary=data.get("display_changes", []), blockers=data["blockers"],
                         remote_status=data["actual_status"].title() + " (last compared)",
                         revision_checked_at=data["revision_checked_at"] + "Z" if data.get("revision_checked_at") else None,
                         message="Cached read-only comparison; this is not post-write verification.")
+                    if stale:
+                        state.update(evidence_stale=True,
+                            label="Last check matched" if classification == "no_change" else "Update Available (last check)",
+                            message="Verification is due. Saved comparison only; the background Scheduled Task refreshes it independently. Manual Refresh remains available.")
                     if classification == "no_change" and (data["blockers"] or live is not False):
                         state.update(state="attention", label="Needs Attention", message="Metadata matches, but publication or taxonomy blockers remain.")
                     if data.get("refresh_failure"):

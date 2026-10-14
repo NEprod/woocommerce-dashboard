@@ -1,5 +1,41 @@
 # Existing Architecture
 
+## M3A.8.6 — durable scheduling and API coordination
+
+`app.runtime` performs existing migration/interruption recovery once before supervising
+Gunicorn and `app.scheduler_worker` within the same container. Child app factories skip
+startup interruption recovery so another worker cannot interrupt live operations merely
+by starting. The scheduler is not spawned by a Flask request or import. For non-Docker
+development, run `python -m app.scheduler_worker` beside the existing server; default
+Docker CMD launches both. Supervisor exits/stops both children if either dies.
+
+`ScheduledTask` and `ScheduledTaskRun` (0013) store generic task configuration, leases
+and bounded versioned progress/history; Shopify is the only registered handler. Run Now
+and due enqueue use atomic conditional SQLite updates of the task's active run ID.
+Claim/renew/save check run ID, owner and expiry. Lease duration is 120 seconds, renewed
+before/after bounded API work and evidence persistence. An expired owner can resume the
+same queue; only its exact abandoned read-only catalogue operation is interrupted.
+Old ownership cannot save task state or comparison/identity evidence: commit fencing
+checks ownership in the same SQLite transaction as evidence updates. One catch-up run
+advances the due time from now, avoiding a missed-interval backlog. Intervals are stored
+generically as positive minutes; the Shopify settings form allows only 10/20/30/60.
+
+Catalogue-operation reservation now inserts only when no active allowed operation
+exists, in one SQLite write statement. This closes the cross-process check/insert race
+without deleting operations or adding a constraint to historical records. Existing
+thread locks and durable publishing receipts remain. Network work never holds a SQLite
+write transaction. `shopify_capacity.background_work` carries a checked owner, budget
+and cooperative priority context. Normal diagnostics without a managed app factory do
+not persist cost observations, preserving their read-only database contract.
+
+Future authorised order/sale handlers can reuse task ownership/history and their own
+bounded progress JSON, and the same hashed-store API capacity observations. Add an
+explicit known handler and its own settings/scoping policy—not a plugin framework.
+Webhook order ingestion and higher-priority order recovery would use foreground capacity;
+future five-minute tasks need no restructuring of the generic interval/lease schema.
+Current background product work explicitly prohibits Shopify mutations. No order/sale
+handler, stock mutation or scheduled price transition is implemented.
+
 ## Shared customer-facing taxonomy intent — 2026-10-14
 
 `taxonomy_registry.attribute_browse_role` resolves explicit attribute/term roles first,

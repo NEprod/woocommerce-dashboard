@@ -12,13 +12,14 @@ login_manager = LoginManager()
 csrf = CSRFProtect()
 
 
-def create_app():
+def create_app(*, recover=None):
     from .security import validate_secret_key
 
     secret_key = validate_secret_key()
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_object(Config)
     app.config["SECRET_KEY"] = secret_key
+    app.config["SHOPIFY_CAPACITY_COORDINATION"] = True
 
     app.config["DISCORD_WEBHOOK_URL"] = os.getenv("DISCORD_WEBHOOK_URL", "")
     app.config["DISCORD_ENABLED"] = (
@@ -54,6 +55,8 @@ def create_app():
     from .commerce_routes import commerce, guard_platform
     app.register_blueprint(commerce)
     app.before_request(guard_platform)
+    from .scheduled_task_routes import tasks
+    app.register_blueprint(tasks)
 
     @app.context_processor
     def commerce_context():
@@ -68,6 +71,12 @@ def create_app():
     def inject_current_year():
         return {"current_year": datetime.now().year}
 
+    @app.context_processor
+    def task_activity():
+        from .models import ScheduledTask
+        task = db.session.get(ScheduledTask, "shopify_products")
+        return {"scheduled_activity": task.state if task else None}
+
     with app.app_context():
         from .database import ensure_database
         from .product_relationships import recover_relationship_transactions
@@ -80,11 +89,8 @@ def create_app():
         if any(app.config.get(key) is not None for key in ("PRODUCT_FOLDER", "OUTPUT_FOLDER", "URL_PREFIX")) and Settings.query.first() is None:
             db.session.add(Settings())
             db.session.commit()
-        app.config["RELATIONSHIP_TRANSACTIONS_RECOVERED"] = (
-            recover_relationship_transactions()
-        )
-        app.config["INTERRUPTED_OPERATIONS_RECOVERED"] = (
-            recover_interrupted_operations()
-        )
+        should_recover = recover if recover is not None else os.getenv("TLC_MANAGED_RUNTIME") != "true"
+        app.config["RELATIONSHIP_TRANSACTIONS_RECOVERED"] = recover_relationship_transactions() if should_recover else 0
+        app.config["INTERRUPTED_OPERATIONS_RECOVERED"] = recover_interrupted_operations() if should_recover else 0
 
     return app

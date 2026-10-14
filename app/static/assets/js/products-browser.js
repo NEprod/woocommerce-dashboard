@@ -448,7 +448,6 @@
       const response = await fetch(`${browser.dataset.apiUrl}${window.location.search}`, { headers: { "Accept": "application/json" } });
       if (!response.ok) throw new Error(`The server returned HTTP ${response.status}.`);
       render(await response.json());
-      refreshStatuses([...new Set(visibleProducts.map(p => p.id))], false, false);
     } catch (error) {
       groupsTarget.replaceChildren();
       errorState.hidden = false;

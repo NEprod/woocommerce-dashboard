@@ -449,6 +449,8 @@ class ShopifyAdapter:
             raise ShopifyError("Unsupported Shopify operation.")
         writing = query in WRITE_QUERIES
         config = configuration.validated()
+        from app.shopify_capacity import before
+        before(config, writing=writing)
         if api_version is not None and (api_version != "2027-01" or query not in NATIVE_QUERIES):
             raise ShopifyError("Only packed-dimension operations may use the release-candidate API.")
         version = api_version or config.api_version
@@ -472,6 +474,8 @@ class ShopifyAdapter:
                         raise ShopifyNativeWriteRejected("Shopify denied the native update before execution. Check credentials and write_inventory; rebuild Review after resolving access.")
                     raise ShopifyError("Shopify rejected authentication or access. Check the installed app, token expiry and scopes.")
                 if response.status_code == 429:
+                    from app.shopify_capacity import observed
+                    observed(config, None, throttled=True)
                     if writing:
                         raise ShopifyError("Shopify throttled this mutation. Review retained operation evidence before any retry.")
                     try: delay=float(response.headers.get("Retry-After","0.5"))
@@ -494,6 +498,8 @@ class ShopifyAdapter:
                 errors=data.get("errors",[]) if isinstance(data,dict) else []
                 throttled=isinstance(errors,list) and any(isinstance(e,dict) and (e.get("extensions") or {}).get("code")=="THROTTLED" for e in errors)
                 self._note_request(query,version,response.status_code,cost,throttled=throttled)
+                from app.shopify_capacity import observed
+                observed(config, cost, throttled=throttled)
                 if data.get("errors"):
                     errors = data["errors"]
                     if isinstance(errors, list) and any(isinstance(e, dict) and
@@ -732,6 +738,8 @@ class ShopifyAdapter:
 
     def upload_image(self, configuration, target, image, content):
         """Upload only to a validated staged target, without the Admin API token."""
+        from app.shopify_capacity import before
+        before(configuration, writing=True)
         config = configuration.validated()
         def safe_url(value):
             try:

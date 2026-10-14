@@ -1,5 +1,29 @@
 # Docker
 
+## M3A.8.6 scheduler runtime
+
+The image's default CMD runs `python -m app.runtime`, supervising the existing
+Gunicorn (one worker/four threads) plus the dedicated persistent scheduler. No extra
+container, Redis, port, credentials or volume is needed. Keep the default CMD; an
+old custom Gunicorn-only command bypasses the scheduler. Startup migrations/recovery
+run once before child services. If either child dies, the supervisor stops its sibling
+and exits so the existing container restart policy can recover both.
+
+Revision `0013_scheduled_tasks` adds only local task/configuration/history and API-cost
+tables. Existing SQLite migration backups apply. Preserve `/app/instance` (site.db,
+backups, onboarding and retained Shopify identities) and all existing catalogue/output/
+taxonomy mounts. No Unraid XML or mount edits are required. Back up the complete instance
+before replacing the image. A pre-0013 image does not know the new Alembic revision:
+image-only rollback is not sufficient. Use the pre-upgrade database backup (only if
+no subsequent publishing evidence would be lost) or a separately reviewed downgrade.
+Restoring the old database loses later local task/publishing evidence; never do so
+after Shopify writes without reviewing retained identities and recovery implications.
+
+Task schedules survive container/Unraid restart. Expired 120-second leases resume
+abandoned queued work; no browser is required. Use Settings → Scheduled Tasks to
+change interval, pause automatic runs, Run Now and inspect history. Routine task reads
+do not send Discord messages. See SHOPIFY_INTEGRATION for limits and acceptance.
+
 ## Shopify authentication (M3A.1)
 
 Compose passes optional `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_API_VERSION`,

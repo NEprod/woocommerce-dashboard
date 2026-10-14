@@ -90,13 +90,19 @@ test("collection selection queues only its supported single-product reviews", as
   assert.equal(calls.length, 1);
 });
 
-test("automatic status checking renders local rows first then updates desktop and mobile", async () => {
+test("Products navigation renders saved evidence without starting status checks", async () => {
   const {browser, calls} = await render(true);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 1);
   assert.equal(calls[0][0], "/api/edit_products");
+  assert.equal(calls.some(([url]) => url === "/api/shopify/status"), false);
+});
+
+test("explicit manual refresh still updates desktop and mobile", async () => {
+  const {browser, calls} = await render(true);
+  await browser.querySelector("[data-shopify-refresh-visible]").events.click();
   assert.equal(calls[1][0], "/api/shopify/status");
   assert.equal(calls[1][1].headers["X-CSRFToken"], "fictional_csrf");
-  assert.deepEqual(JSON.parse(calls[1][1].body), {ids: [1], force: false});
+  assert.deepEqual(JSON.parse(calls[1][1].body), {ids: [1], force: true});
   assert.equal(all(browser).filter(n => n.textContent === "Up to Date").length, 2);
   assert.equal(all(browser).filter(n => n.className === "catalogue-pill is-shopify-success").length, 2);
   assert.match(browser.querySelector("[data-shopify-refresh-progress]").textContent, /No store writes/);
@@ -118,13 +124,14 @@ test("compact seven-column rows keep technical evidence collapsed and intent onc
   assert.equal(calls.length,1);
 });
 
-test("automatic visible refresh includes rows beyond the first bounded batch", async () => {
-  const {calls} = await render(true, "update", "simple", 30);
+test("explicit visible refresh includes rows beyond the first bounded batch", async () => {
+  const {browser, calls} = await render(true, "update", "simple", 30);
+  await browser.querySelector("[data-shopify-refresh-visible]").events.click();
   const requests = calls.filter(([url]) => url === "/api/shopify/status").map(([, options]) => JSON.parse(options.body));
   assert.equal(requests.length, 2);
   assert.equal(requests[0].ids.length, 25);
   assert.deepEqual(requests[1].ids, [26, 27, 28, 29, 30]);
-  assert.ok(requests.every(request => request.force === false));
+  assert.ok(requests.every(request => request.force === true));
 });
 
 for (const [state,meaning] of Object.entries({no_change:"success",update:"warning",local_changes:"info",create:"info",processing:"info",attention:"warning",recovery_required:"danger",unknown:"neutral",unavailable:"neutral"})) {

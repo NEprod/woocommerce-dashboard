@@ -1,5 +1,16 @@
 # Roadmap
 
+## M3A.8.6 — persistent Scheduled Tasks
+
+Implemented for focused verification and Unraid acceptance: browser-independent,
+read-only Shopify reconciliation with persisted ownership/history, default 20-minute
+cadence, exact ten-minute successful-evidence skip and manual Run Now. This supersedes
+the M3A.8.5.3 visit-triggered routine refresh, while preserving manual checks and immediate
+reviewed-publish verification. Accept migration/restart recovery, silent browsing/tasks,
+both Variable layouts and interactive priority before adding other jobs. Sale transitions,
+orders, Kanban, catalogue maintenance and new automatic alerts remain unimplemented.
+The shared-schema JSON editor and storefront-navigation milestones remain separate.
+
 ## M3A.8.5.3 — status/cache and publishing Discord checkpoint
 
 Implemented and focused regression verified; accept the ten-minute visit-triggered

@@ -83,6 +83,8 @@ def archive_absence(row, remote_id, origin, operation_id=None):
     scope=json.loads(archive.scope or "{}")
     scope["operation_summary"]={"version":1,"remote_id":remote_id,"confirmed_absent":True,"origin":origin}
     archive.scope=json.dumps(scope,sort_keys=True)
+    from app.shopify_capacity import fence_owner
+    fence_owner()
     db.session.commit()
     row.shopify_product_id = None
     row.operation_id = archive.id

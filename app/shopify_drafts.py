@@ -302,10 +302,15 @@ def _preview(product, adapter=None, *, context=None, scope="full"):
 
 
 def save(row, data, state=None):
+    from app.shopify_capacity import guard_owner
+    guard_owner()
     from flask import has_request_context,g
     if has_request_context() and g.get("shopify_request_summary"):
         data["api_requests"]=g.shopify_request_summary
-    row.media_evidence_json = encode(data)
+    encoded = encode(data)
+    from app.shopify_capacity import fence_owner
+    fence_owner()
+    row.media_evidence_json = encoded
     if state:
         row.state = state
         if state in {"uncertain", "failed_before_create"}:
