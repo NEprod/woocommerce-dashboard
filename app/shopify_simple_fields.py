@@ -192,12 +192,15 @@ def review_rows(plan):
             expanded = [("dimensions." + item["key"].removeprefix("product_"), None, item)
                 for item in row["after"]]
         for key, before, after in expanded:
-            label=labels.get(key, key.replace("dimensions.", "Product ").replace("media.alt.", "Image alt "))
+            label=row.get("label") or labels.get(key, key.replace("dimensions.", "Product ").replace("media.alt.", "Image alt "))
             if key.startswith("variants."):
                 _,sku,leaf=key.split(".",2)
                 label=f'Variant {sku} · {labels.get(leaf, leaf.replace("dimensions.", "Product ").replace("create", "Create"))}'
             elif key.startswith("native.") and key != "native.packed_dimensions":
                 label="Packed dimensions · " + key.removeprefix("native.")
+            elif key.startswith("attribute_access."):
+                access={"PUBLIC_READ":"Public storefront read","NONE":"Internal only"}
+                before,after=access.get(before,before),access.get(after,after)
             rows.append({"label": label,
                 "before": "Not created" if plan["classification"] == "create" and after is not None else value(before),
                 "after": value(after), "action": "Deferred (inventory-only scope)" if row.get("deferred") else "Set on create" if plan["classification"] == "create" and after is not None

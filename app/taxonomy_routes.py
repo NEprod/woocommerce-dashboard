@@ -263,6 +263,9 @@ def edit(kind):
         **row, "aliases": "\n".join(row.get("aliases", [])),
         "navigation": "yes" if row.get("navigation") else "",
         "visible_default": "yes" if row.get("visible_default") else ""}
+    if request.method=="GET" and kind=="attributes":
+        from app.taxonomy_registry import attribute_browse_role
+        values["browse_role"]=attribute_browse_role(row) if key else "filter"
     if request.method == "GET" and not key and request.args.get("name"):
         # Prefill is only a proposal: the unchanged reviewed writer validates it.
         values["name"] = request.args["name"][:191]

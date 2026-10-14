@@ -1,5 +1,66 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## Customer-facing registry mapping and existing-resource corrections — 2026-10-14
+
+Registry categories/subcategories map to Shopify collections; local hierarchy/order remains
+authoritative. Registry storefront_collections map to their dedicated Shopify collections.
+Informational attributes are public filter definitions with referenced controlled terms;
+variant-driving attributes remain options. Only explicit destination/both roles create term
+browsing collections. A filter value does not imply a collection or menu entry.
+
+The supplied TLC registry has seven navigation=true attributes, with no browse_role. The
+previous internal fallback ignored that existing declaration. Missing roles now resolve to
+filter if navigation or visible_default is true; otherwise internal. Explicit roles always
+win. This includes Production Method under the same policy, without a name exception.
+Terms inherit the parent unless explicitly overridden. The editor shows effective public
+intent and provides an Inherit attribute role choice; new guided attributes start as filters.
+No author JSON is rewritten at startup, scan or Preview. Explicitly internal existing fields
+remain private: change their role only through the existing reviewed registry editor.
+
+Storefront access belongs to the shared metaobject definition. Mixed internal/public term
+roles under one definition cannot be secured by choosing a different product assignment:
+publishing blocks with an explanation. Align the vocabulary's roles or keep private data in
+a separate explicitly internal attribute. No automatic exposure/splitting/recreation occurs.
+
+For already-created resources, Refresh/Compare reads retained exact IDs, definition access,
+terms and actual product references. NONE→PUBLIC_READ corrections appear as separate readable
+changes and persist Update Available. Matching references are shown as matching and access-
+only repairs do not reassign them. Confirmation preserves parent/variant/media/term GIDs and
+uses existing signed/admin/CSRF, durable reservations, uncertainty and independent readback.
+Missing write_metaobject_definitions blocks an affected definition repair, not useful read-
+only comparison; product-field access needs write_products. No new scopes are introduced.
+
+Term readback must also match the retained definition GID and the access snapshot read
+for that definition. A public entry with enabled publishable capability and DRAFT status
+blocks storefront equality/Confirm; it is not automatically activated or recreated. This
+condition needs explicit entry-publication resolution rather than a misleading Up to Date.
+
+An unchanged product updatedAt is not proof that shared definition access or references still
+match. Attributes are rechecked through the existing bounded canonical path when ten-minute
+related evidence expires; fresh results are reused. Each status request still handles at most
+two full comparisons and 25 parents. Policy/registry/source changes invalidate cached evidence;
+GET rendering makes no remote requests. Comparison timestamps are not post-write verification.
+
+Admin read-only app ownership remains intentional and separate from storefront access.
+Both definition layers need PUBLIC_READ and referenced entries must satisfy publishable
+status where enabled. [Shopify's app-owned access rules](https://shopify.dev/docs/apps/build/metafields/definitions)
+and [metaobject filtering requirements](https://help.shopify.com/en/manual/online-store/storefront-search/search-and-discovery-filters)
+do not make definitions merchant-owned merely to expose them publicly.
+
+Acceptance: back up appdata and deploy the tested image manually. Open an existing product
+using Recipient (then Material/Occasion/Personalisation/Production Method), Refresh/Compare,
+and inspect persisted Update Available and the exact access/reference changes. Review and
+confirm only intended repairs; check retained IDs, no duplicate creation/uploads and independent
+readback. For explicitly internal registry entries, first review the intended public role
+locally; never expose internal operational data indiscriminately. A Draft product stays Draft.
+Use the existing read-only attribute diagnostic for actual definition/term/value evidence.
+
+Then check Apps → Search & Discovery → Filters for the relevant product-metafield source,
+select the term name as label where required, and test a supported theme against genuinely
+Online Store-published products. Public data alone neither activates filters nor creates
+menus. Filter/theme configuration and full menu publication remain separate; live storefront
+success has not been claimed from mocked tests. No live store API access was used in development.
+
 ## M3A.8.5.2 — reliable confirmation, Variable comparison and attribute validation
 
 Confirmed root causes (local reproduction, not inferred store failures): a hidden control

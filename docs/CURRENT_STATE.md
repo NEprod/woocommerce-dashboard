@@ -1,5 +1,45 @@
 # Current State
 
+## Customer-facing taxonomy policy correction — 2026-10-14
+
+The TLC example registry declares all seven attributes as navigation vocabulary but
+omits the later browse_role field. Previously omission meant internal even when
+navigation=true. The shared read-only resolver now honours existing navigation or
+visible_default declarations as filter intent when role is absent. Explicit internal
+still wins; undeclared non-customer vocabulary stays internal. No registry/product JSON
+rewrite or name-specific exception (including Production Method) is introduced.
+
+Categories/subcategories and storefront_collections retain existing reviewed collection
+mapping/membership. Informational attributes/terms use public app-owned references;
+filter-only terms do not become collections. Destination/both remains explicit. Variation
+drivers remain options. Guided new attributes start as filters; missing term roles inherit
+instead of freezing a parent's old role. Definition-wide public/internal policy must be
+consistent: mixed private/public terms block publishing rather than flipping shared access
+per product or exposing private vocabulary. Align roles under local review if required.
+
+Retained resources are freshly read and any access/reference differences record persisted
+Update Available without recreation. Access changes have separate readable before/after
+rows and counts; matching assignments stay matching and are not rewritten. Related attribute
+proof is fully rechecked at the existing ten-minute deadline even if product updatedAt did
+not change. Fresh comparisons are reused across page loads; Products GET stays local.
+Missing permissions preserve comparison differences but block Confirm. Incompatible term
+definition IDs or public entries with inactive publishable status block equality/Confirm;
+unsupported entry activation is not silently performed. Genuine uncertainty,
+retained GIDs, signed review and independent readback remain authoritative.
+
+Admin read-only definitions are not a storefront restriction. Search & Discovery filter
+activation, actual public product availability, theme rendering and menu publication remain
+separate live-acceptance/deferred steps. No live Shopify reads/writes or Unraid deployment
+were performed. No migration, scanner/SKU change or unrelated Unraid edit is included.
+
+Verification: twenty-two new focused policy/status/readback cases passed; the targeted registry,
+editor, Simple/Variable, attribute/recovery and status regression passed 229 cases with one
+optional external-reference check skipped (references not configured). Thirty related
+JavaScript cases passed. Python compilation, affected-template parsing and diff/credential
+checks passed. Tests prove persisted access-only Update Available, stable existing GIDs,
+no duplicate creation/reference rewrite, stale shared-access rechecks, scope blocking,
+signed-policy invalidation and both Variable layouts. Live filter/theme acceptance remains.
+
 ## M3A.8.5.2 — publishing receipts, Variable readback and attribute proof
 
 Two reproduced routing defects corrected: the hidden `action` input shadows the

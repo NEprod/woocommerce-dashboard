@@ -6,7 +6,7 @@ from app import db
 from app.models import ShopifyCollectionIdentity
 from app.shopify_connection import ShopifyAdapter, ShopifyError, _gid
 from app.taxonomy_assignments import product_document, resolve
-from app.taxonomy_registry import load_configured_registry
+from app.taxonomy_registry import load_configured_registry, attribute_browse_role
 from app.taxonomy_workspace import category_paths
 
 MAX_GROUPS = 12
@@ -36,12 +36,12 @@ def sources():
         for attribute in registry.snapshot.data["attributes"]:
             terms={t["key"]:t for t in attribute["terms"]}
             for term in attribute["terms"]:
-                if attribute["state"]!="active" or term["state"]!="active" or term.get("browse_role",attribute.get("browse_role","internal")) not in {"destination","both"}:
+                if attribute["state"]!="active" or term["state"]!="active" or attribute_browse_role(attribute,term) not in {"destination","both"}:
                     continue
                 trail=[term["name"]]; cursor=term.get("browse_parent"); ancestors=[]; issue=None
                 while cursor:
                     if terms[cursor]["state"]!="active": issue="Browse ancestor is inactive; resolve the local registry policy before publication."
-                    if terms[cursor].get("browse_role",attribute.get("browse_role","internal")) in {"destination","both"}:
+                    if attribute_browse_role(attribute,terms[cursor]) in {"destination","both"}:
                         ancestors.append("attribute_browse:"+attribute["key"]+":"+cursor)
                     trail.insert(0,terms[cursor]["name"]); cursor=terms[cursor].get("browse_parent")
                 rows.append({"key":"attribute_browse:"+attribute["key"]+":"+term["key"],

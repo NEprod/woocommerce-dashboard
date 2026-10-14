@@ -24,6 +24,25 @@ KINDS = ("categories", "storefront_collections", "attributes", "tags")
 SCHEMA_PATH = Path(__file__).parent / "resources/taxonomy/registry.schema.json"
 
 
+def attribute_browse_role(attribute, term=None):
+    """Resolve authored storefront intent without changing registry.json.
+
+    Legacy navigation/default-visible vocabulary is customer-facing. Explicit
+    roles always win; undeclared non-customer vocabulary remains internal.
+    A missing term role inherits, rather than freezing a copy of its parent.
+    """
+    inherited=attribute.get("browse_role", "filter" if attribute.get("navigation") or attribute.get("visible_default") else "internal")
+    return term.get("browse_role",inherited) if term is not None else inherited
+
+
+def attribute_storefront_public(attribute):
+    """Access is shared by the definition, NOT chosen per product assignment."""
+    roles=[attribute_browse_role(attribute), *[attribute_browse_role(attribute,t) for t in attribute.get("terms",[])]]
+    if len({role!="internal" for role in roles})>1:
+        raise ValueError("Mixed public/internal terms share one Shopify definition: "+attribute["name"]+". Align its registry roles or keep private data in a separate attribute; no access change is authorised.")
+    return roles[0]!="internal"
+
+
 @dataclass(frozen=True)
 class RegistryIssue:
     code: str

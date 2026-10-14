@@ -1,5 +1,24 @@
 # Existing Architecture
 
+## Shared customer-facing taxonomy intent — 2026-10-14
+
+`taxonomy_registry.attribute_browse_role` resolves explicit attribute/term roles first,
+then legacy navigation/default-visible declarations to filter, otherwise internal. Terms
+inherit absent roles; no authored file is normalised automatically. Publisher, collection
+projection and guided editor use this same resolver. `attribute_storefront_public` checks
+the whole definition/term vocabulary, not just one product's selected terms: one shared
+Shopify metaobject definition cannot safely alternate public/internal access per product.
+Mixed visibility blocks before mutation without altering registry loading/scanner contracts.
+
+Signed informational plans distinguish assignment differences from exact retained resource
+access changes. Access-only confirmation updates definitions without rewriting equal product
+references; complete readback verifies both. Product comparison stores readable access rows,
+counts and classification in the existing table. Policy changes invalidate the effective
+taxonomy fingerprint, and shared-resource GID/evidence changes invalidate dependent mappings.
+Ten-minute-expired attribute proof takes the existing bounded full-comparison path even when
+product updatedAt is unchanged, avoiding false freshness of independently changed definitions.
+No new API client, schema, migration, background writer or filter/menu activation engine.
+
 ## M3A.8.5.2 — durable acceptance and complete read evidence
 
 The route validates admin/CSRF and the signed 900-second product review, reserves and

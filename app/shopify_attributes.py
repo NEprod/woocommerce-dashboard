@@ -3,7 +3,7 @@ import json
 from app import db, shopify_drafts as drafts
 from app.models import ShopifyAttributeIdentity, Product
 from app.taxonomy_assignments import product_document, resolve
-from app.taxonomy_registry import load_configured_registry
+from app.taxonomy_registry import load_configured_registry, attribute_browse_role, attribute_storefront_public
 from app.shopify_connection import ShopifyError, _gid
 
 NAMESPACE = "$app:tlc_attributes"
@@ -40,8 +40,9 @@ def assigned(product):
             if not value or value["state"]!="active":
                 raise ShopifyError("Informational term requires an active registered TLC identity: "+str(term["value"]))
             terms.append(next(plain(t) for t in attr["terms"] if t["key"]==value["key"]))
-        public=attr.get("browse_role","internal")!="internal" or any(t.get("browse_role",attr.get("browse_role","internal"))!="internal" for t in terms)
-        result.append({"key":attr["key"],"name":attr["name"],"role":attr.get("browse_role","internal"),"public":public,
+        try: public=attribute_storefront_public(attr)
+        except ValueError as exc: raise ShopifyError(str(exc)) from None
+        result.append({"key":attr["key"],"name":attr["name"],"role":attribute_browse_role(attr),"public":public,
             "terms":sorted(terms,key=lambda t:t["key"])})
     if len({a["key"] for a in result})!=len(result) or any(len({t["key"] for t in a["terms"]})!=len(a["terms"]) for a in result):
         raise ShopifyError("Duplicate/alias informational assignments need source review; no duplicate terms or references are invented.")
@@ -92,13 +93,21 @@ def valid(kind, remote, spec, source, expected=None, *, allow_access=False):
     return remote
 
 
-def inspect_resource(kind, key, spec, store, config, adapter):
+def inspect_resource(kind, key, spec, store, config, adapter, *, definition=None, public=False):
     kept=resource(store,key)
     if kept and kept.state not in {"verified","absent_verified"}:
         raise ShopifyError("Attribute registration recovery required: "+key+". Inspect/reconcile before any new Create.")
     remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,kept.remote_id if kept else None,allow_access=kind in {"definition","field"})
     if kept and kept.state=="verified" and remote is None:
         raise ShopifyError("Retained attribute resource missing; no automatic recreation.")
+    if kind=="term" and remote:
+        if not definition or remote["definition"]["id"]!=definition["remote_id"]:
+            raise ShopifyError("Referenced term belongs to a different or unverified attribute definition; no equality or duplicate Create is assumed.")
+        if remote["definition"]["access"].get("storefront")!=definition["before_access"]:
+            raise ShopifyError("Shared term-definition access changed during comparison; refresh again before review.")
+        publishable=remote["capabilities"].get("publishable")
+        if public and publishable and publishable.get("status")!="ACTIVE":
+            raise ShopifyError("Public term has inactive publishable status; storefront filtering is not ready. Resolve entry publication explicitly; no automatic activation or recreation.")
     return {"kind":kind,"source":key,"spec":spec,"remote_id":remote["id"] if remote else None,
         "action":"Update storefront access" if remote and kind in {"definition","field"} and remote["access"]["storefront"]!=spec["access"]["storefront"] else "Reuse" if kept and kept.state=="verified" else "Link owned resource" if remote else "Create",
         "before_access":remote["access"]["storefront"] if remote and kind in {"definition","field"} else None,
@@ -136,7 +145,7 @@ def preview(product, store, remote_id, config, shop, adapter):
             key=prefix+":term:"+term["key"]
             spec={"type":definition["type"],"handle":"tlc-"+drafts.digest(key)[:24],
                 "fields":[{"key":"name","value":term["name"]},{"key":"tlc_key","value":key}]}
-            resources.append(inspect_resource("term",key,spec,store,config,adapter))
+            resources.append(inspect_resource("term",key,spec,store,config,adapter,definition=resources[0],public=attr["public"]))
         before=observed.get(suffix)
         if before and before["type"]!="list.metaobject_reference":
             raise ShopifyError("Owned informational metafield has an incompatible type; no merchant value is overwritten.")
@@ -145,7 +154,8 @@ def preview(product, store, remote_id, config, shop, adapter):
             current=json.loads(before["value"]) if before else []
         except ValueError:
             raise ShopifyError("Informational reference evidence is malformed.") from None
-        changed=any(r["action"]!="Reuse" for r in resources) or None in desired or current!=desired
+        assignment_changed=before is None or None in desired or current!=desired
+        changed=any(r["action"]!="Reuse" for r in resources) or assignment_changed
         required=set()
         for item in resources:
             if item["action"] in {"Create","Update storefront access"}:
@@ -159,7 +169,7 @@ def preview(product, store, remote_id, config, shop, adapter):
         else:
             access_notice=""
         rows.append({**attr,"field_key":suffix,"resources":resources,"before":before,"changed":changed,
-            "desired_ids":desired,"missing_scopes":missing_writes,"access_notice":access_notice,"action":"Clear owned references" if not attr["terms"] else "Update" if changed else "Already matching"})
+            "desired_ids":desired,"assignment_changed":assignment_changed,"missing_scopes":missing_writes,"access_notice":access_notice,"action":"Clear owned references" if assignment_changed and not attr["terms"] else "Update" if assignment_changed else "Already matching"})
     return rows
 
 
@@ -169,14 +179,24 @@ def attach(product, plan, config, shop, adapter, remote_id=None):
         plan["attributes"]=preview(product,shop["shop_id"],remote_id,config,shop,adapter)
     except ShopifyError as exc:
         plan["attributes"]=[]; plan["blockers"].append(str(exc))
-        plan["attribute_diagnostics"]=[{"name":a["name"],"action":"Required assignment / verification blocked: "+str(exc)} for a in assigned(product)]
+        plan["attribute_diagnostics"]=[{"name":a["name"],"action":"Required assignment / verification blocked: "+str(exc)} for a in resolve(product_document(product))["attributes"] if not a["variation"]]
     for attr in plan["attributes"]:
         if attr.get("missing_scopes"):
             plan["blockers"].append("Required informational operation for "+attr["name"]+" is blocked. Missing token scopes: "+", ".join(attr["missing_scopes"]))
     plan["attribute_review_digest"]=drafts.digest(plan["attributes"])
     plan["taxonomy_review_digest"]=drafts.digest({"base":plan["taxonomy_review_digest"],"attributes":plan["attribute_review_digest"]})
-    plan["fields"] += [{"field":"attributes."+a["name"],"before":(a["before"] or {}).get("value"),
-        "after":[t["name"] for t in a["terms"]],"changed":a["changed"]} for a in plan["attributes"]]
+    for attr in plan["attributes"]:
+        names=[t["name"] for t in attr["terms"]]
+        plan["fields"].append({"field":"attributes."+attr["name"],"before":(attr["before"] or {}).get("value") if attr["assignment_changed"] else names,
+            "after":names,"changed":attr["assignment_changed"]})
+        for item in attr["resources"]:
+            if item["action"]=="Update storefront access":
+                label=attr["name"]+" · "+("term definition" if item["kind"]=="definition" else "product attribute")+" storefront access"
+                plan["fields"].append({"field":"attribute_access."+item["source"],"label":label,
+                    "before":item["before_access"],"after":item["spec"]["access"]["storefront"],"changed":True})
+        if attr["changed"] and not attr["assignment_changed"] and any(item["action"] in {"Create","Link owned resource"} for item in attr["resources"]):
+            plan["fields"].append({"field":"attribute_registration."+attr["key"],"label":attr["name"]+" · retained resource mapping",
+                "before":"Not fully retained","after":"Verify and retain existing resources","changed":True})
 
 
 def save_resource(row,data,state):
@@ -252,6 +272,12 @@ def apply(row,data,config,adapter):
         if current!=attr["before"]:
             raise ShopifyError("Informational metafield changed after review; retain prior stages and reconcile, no blind overwrite.")
         attr["desired_ids"]=ids
+        if attr.get("assignment_changed") is False:
+            # Access-only repairs retain matching product references; no hidden
+            # metafieldsSet of an "Already matching" assignment. Final readback
+            # still proves both resources and the exact product reference list.
+            data.setdefault("completed_steps",[]).append("attribute:"+attr["key"]); drafts.save(row,data)
+            continue
         data["stage"]="attribute_assignment"; drafts.save(row,data)  # durable BEFORE CAS mutation
         value={"ownerId":row.shopify_product_id,"namespace":NAMESPACE,"key":attr["field_key"],"type":"list.metaobject_reference",
             "value":json.dumps(ids),"compareDigest":current["compareDigest"] if current else None}
@@ -352,9 +378,13 @@ def local_overview():
     rows=[]
     for attr in registry.snapshot.data["attributes"]:
         prefix="attribute:"+attr["key"]
-        for key,name,role in [(prefix+":definition",attr["name"],attr.get("browse_role","internal")),
-            *[(prefix+":term:"+term["key"],attr["name"]+" / "+term["name"],term.get("browse_role",attr.get("browse_role","internal"))) for term in attr["terms"]]]:
+        try:
+            public=attribute_storefront_public(attr); issue=""
+        except ValueError as exc:
+            public=None; issue=str(exc)
+        for key,name,role in [(prefix+":definition",attr["name"],attribute_browse_role(attr)),
+            *[(prefix+":term:"+term["key"],attr["name"]+" / "+term["name"],attribute_browse_role(attr,term)) for term in attr["terms"]]]:
             known=mappings.get(key,[]); kept=known[0] if len(known)==1 else None
-            rows.append({"key":key,"name":name,"role":role,"products":sorted(usage.get(key,set())),
+            rows.append({"key":key,"name":name,"role":role,"desired_access":"Resolve mixed roles" if public is None else "Public storefront read" if public else "Internal only","policy_issue":issue,"products":sorted(usage.get(key,set())),
                 "state":kept.state if kept else "defined locally / not registered","identity_id":kept.id if kept else None,"remote_id":kept.remote_id if kept else None})
     return {"rows":rows,"partial":len(parents)>500}
