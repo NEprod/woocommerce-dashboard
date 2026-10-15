@@ -1,5 +1,16 @@
 # M3A.9 Product Creator & Editor contract
 
+## M3A.9.3.4 — one review entry after local editing
+
+Product Override and Shared Collection Metadata retain Publishing status, discovered
+channel choices, explicit false/unmanaged behaviour, sparse inheritance and validation.
+Only the redundant Publishing-section review link was removed. Save locally, wait
+for the existing targeted scan, then review Shopify changes from Products or Product
+Details. A shared save authorises no child publication; each child remains independently
+reviewed. Channel discovery is read-only. There was no button-specific JS handler to
+remove; main signed/CSRF review, recovery and publication services remain unchanged.
+Container startup now queues Shopify Products reads, never local catalogue scanning.
+
 ## M3A.9.3.3 — one publishing review; local saving remains local
 
 Review & Sync now includes eligible discovered status/channel before/after changes

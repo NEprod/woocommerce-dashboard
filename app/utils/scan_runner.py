@@ -296,7 +296,7 @@ def build_scan_scope(scan_folder, scan_mode, *, collection_relpath=None):
         )
 
     try:
-        if scan_mode in {"shared_collection", "startup"}:
+        if scan_mode == "shared_collection":
             target = _safe_collection_path(scan_folder, collection_relpath or "")
             if not target or not os.path.isdir(target):
                 return ScanScopePlan(
@@ -431,6 +431,8 @@ def start_scan(
     scope=None,
     collection_relpath=None,
 ):
+    if scan_mode not in {'append','update','full','shared_collection'}:
+        raise ValueError('Choose an existing explicit or targeted scanner mode; automatic startup scanning is retired.')
     operation_scope = dict(scope or {"scan_mode": scan_mode})
     if scan_mode == "full":
         operation_scope.setdefault("scope_kind", "catalogue")
@@ -674,8 +676,8 @@ def _scan_thread(
                 log(operation_error, level="ERROR")
                 return
 
-            force = scan_mode in {"full", "shared_collection", "startup"}
-            update = scan_mode in {"update", "shared_collection", "startup"}
+            force = scan_mode in {"full", "shared_collection"}
+            update = scan_mode in {"update", "shared_collection"}
 
             recovered = recover_committed_markers(scan_folder, log=log)
             if recovered["recovered"]:
@@ -686,7 +688,7 @@ def _scan_thread(
 
             plan = build_scan_scope(
                 scan_folder,
-                'shared_collection' if scan_mode=='startup' else scan_mode,
+                scan_mode,
                 collection_relpath=collection_relpath,
             )
             folders = [os.path.basename(path) for path in plan.collection_paths]
@@ -725,8 +727,6 @@ def _scan_thread(
                         log=log,
                         defer_markers=True,
                         operation_id=operation_id,
-                        **(__import__('app.catalogue_startup',fromlist=['scanner_options']).scanner_options(scan_folder)
-                            if scan_mode == 'startup' else {}),
                     )
                     all_rows.extend(rows)
                     image_counts = image_ownership_summary(rows)
@@ -820,7 +820,6 @@ def _scan_thread(
                 operation_error = "Authoritative catalogue scope did not resolve completely"
             if (
                 plan.authoritative
-                and scan_mode != 'startup'
                 and scan_complete
                 and products_failed == 0
                 and marker_failed == 0

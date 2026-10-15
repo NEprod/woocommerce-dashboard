@@ -1,6 +1,42 @@
 # Current State
 
-## M3A.9.3.3 — unified review, retained evidence and startup reconciliation
+## M3A.9.3.4 — correct boot task and remove redundant editor review
+
+M3A.9.3.3 queued the wrong task from the managed runtime: catalogue_startup,
+not Shopify Products reconciliation. Its first checkpoint was absent, selecting
+all collections; startup mode forced scanner processing despite .scanned, with
+SKU reuse/index reset disabled. This reprojected existing rows and invoked normal
+scan-start/completion/error notifications per collection. Product discovery notices
+still require a genuinely new committed DB record. Live Unraid histories/message
+types were unavailable, so no claim is made that every observed notice was discovery.
+
+Automatic filesystem traversal, manifests, startup scan mode and its execution path
+are removed. Known queued/abandoned legacy task runs are explicitly cancelled, not
+reported successful; history/unfinished queue evidence and catalogue operations are
+retained. A live legacy task owner retains its lease until expiry, but new workers
+never claim/execute that task type. No marker or source is touched by retirement.
+Existing explicit scanner/recovery and Save Locally targeted .update paths remain.
+
+After migration/recovery, only the existing runtime supervisor queues one existing
+shopify_products run with trigger Startup. Web/Gunicorn workers do not enqueue it.
+The existing enabled setting is respected. Active manual/scheduled work coalesces
+without replacing its queue, cursor or owner. A newly queued boot run advances its
+next due time by the unchanged configured interval to avoid an immediate duplicate
+scheduled run. Complete valid proof younger than ten minutes is skipped; stale or
+managed-changed evidence uses normal bounded read-only comparison. Sale/interactive
+priority, backlog, existing processing bounds, timestamps and write protection remain.
+
+The Publishing section no longer has its own Review & Sync button in either shared
+or override editors. Status, discovered channels, false/unmanaged selections,
+inheritance, validation and saves remain. Guidance now sends users to Products or
+Product Details after saving/scanning. Main unified signed publishing is unchanged;
+no backend review/recovery route or shared service was removed.
+
+No migration (head 0014_shopify_sales), auth/scope/environment/mount/API change.
+Normal API remains 2026-10; opt-in packed measurements remain 2027-01. No production
+catalogue or live Shopify/Discord test is used. Controlled Unraid acceptance remains.
+
+## M3A.9.3.3 — historical checkpoint (local startup scan superseded above)
 
 The old split was explicit: publication.annotate made display-only rows and the main
 publisher withheld confirmation for publication-only changes. Eligible discovered

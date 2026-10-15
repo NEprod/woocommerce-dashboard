@@ -151,41 +151,33 @@ def wait_scan(operation_id):
     raise AssertionError('Local scanner failed to complete')
 
 
-def test_startup_incremental_three_layouts_restart_and_missing_source(core,monkeypatch):
+def test_startup_three_layouts_preserves_sources_and_projection(core,monkeypatch):
     app,client,root,_,parents,*_=core
-    monkeypatch.setattr('requests.sessions.Session.request',lambda *a,**k:pytest.fail('Startup must be offline'))
+    def forbidden(*args,**kwargs): pytest.fail('Startup must not scan, ingest, traverse sources or notify')
     with app.app_context():
-        before={p.source_relpath:(p.id,p.sku,[(v.id,v.sku) for v in p.variations]) for p in Product.query.all()}
-        indices={str(p):p.read_bytes() for p in root.rglob('sku_index.json')}
-        authored={str(p):p.read_bytes() for p in root.rglob('product_info.json')}
-        run_id=startup.enqueue();assert startup.enqueue()==run_id
-        assert tasks.claim('startup')==(startup.KEY,run_id)
-        for _ in range(10):
-            startup.run_slice(startup.KEY,run_id,'startup')
-            run=db.session.get(ScheduledTaskRun,run_id);data=json.loads(run.data_json)
-            if data.get('scan_operation'): assert wait_scan(data['scan_operation']).status in {'succeeded','partial'}
-            if run.completed_at: break
-            db.session.execute(__import__('sqlalchemy').update(ScheduledTask).where(ScheduledTask.key==startup.KEY).values(owner='startup',lease_until=tasks.now()+tasks.LEASE,resume_at=None));db.session.commit()
-        assert db.session.get(ScheduledTaskRun,run_id).state=='completed'
-        assert before=={p.source_relpath:(p.id,p.sku,[(v.id,v.sku) for v in p.variations]) for p in Product.query.all()}
-        assert authored=={str(p):p.read_bytes() for p in root.rglob('product_info.json')}
-        assert indices=={str(p):p.read_bytes() for p in root.rglob('sku_index.json')}
-        assert startup.selection()[0]==[]
-        target=root/'Simple Collection'/'product_info.json'
-        value=json.loads(target.read_text());value['description']='Only this collection changed';target.write_text(json.dumps(value))
-        assert startup.selection()[0]==['Simple Collection']
-
-
-def test_startup_waits_for_existing_catalogue_lease(core):
-    app,*_=core
-    from app.utils.operation_control import acquire_catalogue_operation,finish_catalogue_operation
-    with app.app_context():
-        lease=acquire_catalogue_operation('product_update',{})
-        run_id=startup.enqueue();tasks.claim('worker')
-        startup.run_slice(startup.KEY,run_id,'worker')
+        files={p:(p.read_bytes(),p.stat().st_mtime_ns) for p in root.rglob('*') if p.is_file()}
+        before={p.source_relpath:(p.id,p.sku,p.resolved_row_json,p.local_updated_at,
+            [(v.id,v.sku) for v in p.variations]) for p in Product.query.all()}
+        monkeypatch.setattr('requests.sessions.Session.request',forbidden)
+        monkeypatch.setattr('app.utils.scan_runner.start_scan',forbidden)
+        monkeypatch.setattr('app.utils.scanner.scan_collection',forbidden)
+        monkeypatch.setattr('app.utils.ingest.ingest_rows_to_db',forbidden)
+        monkeypatch.setattr('os.walk',forbidden)
+        run_id=tasks.enqueue_startup()
+        assert tasks.enqueue_startup()==run_id
         run=db.session.get(ScheduledTaskRun,run_id)
-        assert run.state=='paused' and 'scan_operation' not in json.loads(run.data_json)
-        finish_catalogue_operation(lease.id,status='succeeded')
+        assert run.task_key==tasks.KEY and run.trigger=='startup'
+        assert before=={p.source_relpath:(p.id,p.sku,p.resolved_row_json,p.local_updated_at,
+            [(v.id,v.sku) for v in p.variations]) for p in Product.query.all()}
+        assert all((p.read_bytes(),p.stat().st_mtime_ns)==value for p,value in files.items())
+
+
+def test_retired_startup_scanner_cannot_execute(core):
+    from app.utils.scan_runner import start_scan
+    with pytest.raises(ValueError,match='retired'):
+        start_scan(core[0],'not-started',scan_mode='startup')
+    with pytest.raises(ValueError,match='retired'):
+        tasks.run_slice(startup.KEY,'not-started','no-owner')
 
 
 def test_projected_scope_queues_only_actual_managed_revision(world,published):
@@ -260,13 +252,12 @@ def test_completed_scan_handoff_is_after_commit_and_before_remote_work(core,monk
         assert Product.query.filter_by(source_relpath='Simple Collection/Blue Token').one().description.startswith('Save →')
 
 
-def test_startup_source_removal_is_reported_without_deletion(core):
+def test_startup_does_not_reclassify_missing_local_sources(core):
     app,_,root,*_=core
     with app.app_context():
         # Move only an isolated fixture, never production sources.
         (root/'Simple Collection'/'Green Token').rename(root/'_temporarily-unmounted-fixture')
-        _,_,missing=startup.selection()
-        assert 'Simple Collection/Green Token' in missing
+        tasks.enqueue_startup()
         assert Product.query.filter_by(source_relpath='Simple Collection/Green Token').one().catalogue_status=='active'
 
 

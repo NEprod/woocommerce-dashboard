@@ -1,6 +1,29 @@
 # Scanner, Operations, and Discord
 
-## M3A.9.3.3 startup and post-save handoff
+## M3A.9.3.4 — no automatic local catalogue scan on boot
+
+The previous runtime hook queued catalogue_startup. On first deployment there was
+no manifest, so every collection was selected and forced scanning bypassed .scanned
+selection while reusing identities. Normal scanner start/terminal notifications could
+therefore occur per collection even for known products. Discovery notices still depend
+on new committed database rows; the user's exact historical message types are unknown.
+
+That execution/traversal/manifest path and startup scanner mode are removed. Existing
+queued/expired legacy task runs are cancelled, retaining history and unfinished scope;
+unexpired owners keep their lease but cannot be claimed by the new worker. Scanner
+operations, .update/.scanned.pending and review_required receipts are never falsely
+completed or deleted. Use the existing explicit scanner/recovery workflow for known
+pending local work. Normal boot performs no catalogue walk or broad marker recovery;
+existing startup operation recovery inspects operation rows/known transaction manifests.
+
+The runtime now queues the existing Shopify Products reconciliation instead. Its
+asynchronous read-only comparisons respect complete-proof freshness, task leases,
+cursor, API capacity and sale/interactive priority. No scan or new product Discord
+event comes from that read-only run. Manual scans, .update-selected post-save scans,
+shared scope, detailed logging and genuine discovery/scan Discord events are preserved.
+Historical local startup scans remain accessible from Scheduled Tasks history.
+
+## M3A.9.3.3 historical startup behaviour (superseded above); post-save handoff retained
 
 The managed Docker runtime queues Startup Catalogue Reconciliation once per container
 lifetime, using the existing task tables/worker. Web startup does not wait for scanning.

@@ -11,8 +11,8 @@ def main():
     os.environ["TLC_MANAGED_RUNTIME"]="true"
     app=create_app(recover=True)  # migration/startup recovery ONCE before children
     with app.app_context():
-        from app.catalogue_startup import enqueue
-        enqueue()
+        from app.scheduled_tasks import enqueue_startup
+        enqueue_startup()
         db.session.remove();db.engine.dispose()
     children=[]
     stopping=False

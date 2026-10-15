@@ -74,9 +74,11 @@ def configure(key, *, enabled, interval):
     return snapshot(db.session.get(ScheduledTask,key))
 
 
-def enqueue(key=KEY, *, manual=False, product_ids=None):
+def enqueue(key=KEY, *, manual=False, product_ids=None, startup=False):
     if key not in {KEY,SALE_KEY}:
         raise ValueError("Unknown task.")
+    if startup and (key!=KEY or manual or product_ids is not None):
+        raise ValueError('Startup only queues the existing full read-only Products task.')
     if product_ids is not None and (key==SALE_KEY or not manual or not isinstance(product_ids,list) or not 1 <= len(product_ids) <= 25
             or any(type(i) is not int or i < 1 for i in product_ids) or len(set(product_ids)) != len(product_ids)):
         raise ValueError("An explicit manual scope accepts one to 25 distinct product IDs.")
@@ -84,17 +86,26 @@ def enqueue(key=KEY, *, manual=False, product_ids=None):
     run_id, stamp = uuid.uuid4().hex, now()
     conditions = [ScheduledTask.key==key, ScheduledTask.active_run_id.is_(None)]
     if not manual:
-        conditions += [ScheduledTask.enabled.is_(True), ScheduledTask.next_due<=stamp]
+        conditions += [ScheduledTask.enabled.is_(True)]
+        if not startup: conditions += [ScheduledTask.next_due<=stamp]
     values = {"active_run_id":run_id,"state":"queued","owner":None,"lease_until":None,"resume_at":None}
     if not manual:
-        values.update(last_scheduled=stamp,next_due=stamp+timedelta(minutes=task.interval_minutes))
+        values.update(next_due=stamp+timedelta(minutes=task.interval_minutes))
+        if not startup: values['last_scheduled']=stamp
     claimed = db.session.execute(update(ScheduledTask).where(*conditions).values(**values)).rowcount
     if claimed:
-        db.session.add(ScheduledTaskRun(id=run_id, task_key=key, trigger="manual" if manual else "scheduled",
+        db.session.add(ScheduledTaskRun(id=run_id, task_key=key, trigger="startup" if startup else "manual" if manual else "scheduled",
             state="queued",created_at=stamp,data_json=encoded({"version":1,"scope":product_ids,"counts":{k:0 for k in COUNTERS},"slices":0,"items":[]})))
     db.session.commit()
     db.session.expire_all()
     return db.session.get(ScheduledTask,key).active_run_id
+
+
+def enqueue_startup():
+    """Supervisor-only boot handoff; no network or catalogue traversal here."""
+    from app.catalogue_startup import retire
+    retire()
+    return enqueue(startup=True)
 
 
 def renew(key, run_id, owner):
@@ -110,10 +121,9 @@ def renew(key, run_id, owner):
 
 def claim(owner):
     stamp=now()
-    from app.catalogue_startup import KEY as local_key
-    candidate=ScheduledTask.query.filter(ScheduledTask.active_run_id.isnot(None),
+    candidate=ScheduledTask.query.filter(ScheduledTask.key.in_({KEY,SALE_KEY}),ScheduledTask.active_run_id.isnot(None),
         or_(ScheduledTask.resume_at.is_(None),ScheduledTask.resume_at<=stamp),
-        or_(ScheduledTask.owner.is_(None),ScheduledTask.lease_until<=stamp)).order_by((ScheduledTask.key==SALE_KEY).desc(),(ScheduledTask.key==local_key).desc(),ScheduledTask.next_due).first()
+        or_(ScheduledTask.owner.is_(None),ScheduledTask.lease_until<=stamp)).order_by((ScheduledTask.key==SALE_KEY).desc(),ScheduledTask.next_due).first()
     if not candidate:
         return None
     run_id,key=candidate.active_run_id,candidate.key
@@ -265,8 +275,7 @@ def item_result(data,product,state):
 
 
 def run_slice(key,run_id,owner,*,adapter=None):
-    from app.catalogue_startup import KEY as local_key, run_slice as local_slice
-    if key==local_key: return local_slice(key,run_id,owner)
+    if key not in {KEY,SALE_KEY}: raise ValueError('Unknown or retired task; history is read-only.')
     if key==SALE_KEY:
         return sale_slice(key,run_id,owner,adapter=adapter)
     from app.shopify_connection import ShopifyAdapter,ShopifyError
@@ -279,7 +288,7 @@ def run_slice(key,run_id,owner,*,adapter=None):
         if not data.get("initialized"):
             data=select_products(task,data)
             save_progress(key,run_id,owner,data)
-        if not task.enabled and run.trigger=="scheduled":
+        if not task.enabled and run.trigger in {"scheduled","startup"}:
             data["reason"]="Disabled by administrator; outstanding products retained for future runs."
             data["counts"]["deferred"]+=len(data["queue"])
             return save_progress(key,run_id,owner,data,terminal="partially_completed")
@@ -358,6 +367,8 @@ def run_slice(key,run_id,owner,*,adapter=None):
 
 
 def tick(owner,*,adapter=None):
+    from app.catalogue_startup import retire
+    retire()  # database-only retirement after any historical lease expires
     enqueue()
     enqueue(SALE_KEY)
     claimed=claim(owner)

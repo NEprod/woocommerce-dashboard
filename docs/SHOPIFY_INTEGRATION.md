@@ -1,6 +1,60 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
-## M3A.9.3.3 — unified review, scanning and verification
+## M3A.9.3.4 — startup means Shopify Products reconciliation, not a scan
+
+The managed runtime supervisor queues the existing Shopify Products task after
+migration and known-operation recovery, before launching the existing web/scheduler
+children. Only queueing is synchronous: no remote request or source traversal occurs
+in this hook, and web worker imports never schedule extra boot runs. History uses
+trigger Startup alongside Scheduled and Manual. Existing enabled/cadence settings
+are preserved; disabled automatic reconciliation stays disabled. A new boot run sets
+next_due to boot plus that configured interval (20 minutes by default), avoiding an
+immediate scheduled duplicate. An already-active run keeps its queue/lease/cursor.
+
+The same existing worker, selection cursor, complete-proof ten-minute skip, variant/
+media/attribute/native verification, API budgets and commit fences apply. Fresh proof
+is not erased; changed managed fingerprints/stale evidence are compared normally.
+Recovery-protected writes remain protected, and processing can only finalize through
+existing read-only verification. Startup never grants product/channel/sale authority.
+Due authorised sales and interactive publishing retain priority. No new processing
+cap is added; the erroneous 256-collection local checkpoint bound is removed.
+
+The M3A.9.3.3 local startup task and forced-scanning mode are retired, not relocated.
+Its historical records remain available under Historical local startup scans. Queued/
+abandoned runs are cancelled with retained evidence; a live owner is fenced until its
+lease expires. No catalogue operation or pending marker is falsely completed. Explicit
+manual/affected scans and established interrupted-operation/marker recovery remain
+available. Normal unchanged restart does not touch .scanned, .update, SKU indexes,
+authored JSON, images or catalogue projections. Indexed-source reads needed for an
+eligible Shopify comparison are not a filesystem scanner or database re-ingestion.
+
+Both editors retain Publishing fields/discovery but no longer link directly to a
+separate review from that section. Save Locally → affected scan → read-only comparison
+→ Products/Product Details main Review & Sync → explicit confirmation remains the
+workflow. Shared intent is authored once but independently reviewed per product; no
+collection-wide publishing is authorised. Main mutation/receipt/recovery semantics,
+scheduled sales and Discord delivery/deduplication are unchanged.
+
+Confirmed notification mechanism: old forced startup scans invoked scanner start and
+terminal events for each selected collection; unchanged ingestion itself does not
+emit new-product events. The actual live message types/new-record counts require
+Unraid evidence and are not inferred from the reported burst. Removing automatic
+scanning removes that source of notices without globally suppressing scanner alerts.
+
+Unraid acceptance: back up stopped-container appdata, retain the previous image, and
+pull the new immutable startup-reconcile image or develop using unchanged template,
+mounts, credentials and settings. No XML, scope, environment or migration change;
+head remains 0014_shopify_sales, normal API 2026-10/native opt-in 2027-01.
+Check Shopify Products task history for Startup (or preserved active work), fresh
+skips and stale checks. Confirm no local scanner operation/notification burst and
+unchanged source/marker/index/identity data. Then edit one override and one shared
+definition: Publishing fields remain, redundant link is absent, save performs only
+its normal targeted scan, children retain overrides, and main Review shows metadata,
+status and eligible channels together. Confirm only intentionally reviewed writes.
+Check due authorised sale behaviour independently; restarting grants no new sale
+authority. Historical local scanner records remain available, not hidden/deleted.
+
+## M3A.9.3.3 — historical checkpoint (startup instructions superseded above)
 
 This supersedes earlier separate-publication-screen instructions. Products → Review
 & Sync includes eligible metadata, price/variants, status and discovered channels

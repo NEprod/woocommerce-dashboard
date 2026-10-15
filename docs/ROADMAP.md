@@ -1,6 +1,17 @@
 # Roadmap
 
-## M3A.9.3.3 — unified workflow acceptance checkpoint
+## M3A.9.3.4 — startup regression correction and editor cleanup
+
+Startup now queues the existing read-only Shopify Products task, not a new local
+scanner. Automatic local traversal/forced reprojection is removed; its history and
+legitimate pending scan recovery remain. Product/shared editors keep Publishing
+fields but lose the redundant review link; the accepted main unified review remains.
+Accept unchanged Unraid restart (no scanner/notification burst, fresh evidence skipped,
+stale evidence checked), then targeted override/shared saves and normal signed review.
+No migration, API/scopes/configuration/mount change or new scheduler/publisher.
+M3A.9.4 and catalogue capacity expansion remain separate, not started here.
+
+## M3A.9.3.3 — historical checkpoint (local startup behaviour corrected above)
 
 Accept the unified signed metadata/status/discovered-channel review, committed
 scan-to-comparison handoff and managed startup reconciliation on Unraid. Historical
