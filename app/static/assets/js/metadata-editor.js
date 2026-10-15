@@ -90,6 +90,7 @@
   function setDirty(value) {
     dirty = value;
     saveStates.forEach((node) => { node.textContent = value ? "Unsaved changes" : "Saved"; });
+    window.TLCSaleEditor?.refresh();
   }
 
   function setBusy(value) {
@@ -99,6 +100,7 @@
       button.setAttribute("aria-busy", String(value));
       button.textContent = value ? "Saving…" : "Save Metadata";
     });
+    window.TLCSaleEditor?.refresh();
   }
 
   function showFeedback(type, title, message) {
@@ -371,6 +373,7 @@
       node.textContent = isShared ? "" : "Inherited: " + (value == null ? "Not set" : typeof value === "object" ? JSON.stringify(value) : String(value));
     });
     updateCharacterCounts();
+    window.TLCSaleDates?.refresh(guided);
     initialValues = structuredClone(guidedValues());
   }
 
@@ -390,6 +393,7 @@
   }
 
   function guidedValues() {
+    window.TLCSaleDates?.sync(guided);
     const result = {};
     Object.entries(authored).forEach(([key, value]) => { if (!knownFields.has(key)) result[key] = value; });
     guided.querySelectorAll("[data-field]").forEach((control) => {
@@ -576,6 +580,7 @@
       originalDocument = structuredClone(payload.authored || documentValue);
       populate(originalDocument);
       setDirty(false);
+      window.TLCSaleEditor?.saved(payload);
       showFeedback("success", payload.unchanged ? "No changes to save" : "JSON saved — scanning",
         payload.unchanged ? "Source and scan history are unchanged." : "Local source saved with backup. Scanner/database update is pending; Shopify has not been published.");
       startProgress(payload.run_id);
@@ -597,6 +602,7 @@
       if (!response.ok) throw new Error(payload.message || "Reload the editor and inspect scanner history.");
       boot.revision = payload.revision;
       originalDocument = structuredClone(payload.authored); populate(originalDocument); setDirty(false);
+      window.TLCSaleEditor?.saved(payload);
       showFeedback("success", "Local scan queued", "No JSON or Shopify values were rewritten. Check scanner completion before publishing.");
       startProgress(payload.run_id);
     } catch (error) {
@@ -627,6 +633,7 @@
         window.clearInterval(interval);
         stream.close();
         const incomplete = progress.status === "error" || progress.errors > 0 || ["failed", "partial"].includes(progress.outcome);
+        window.TLCSaleEditor?.scanned(!incomplete);
         showFeedback(incomplete ? "warning" : "success", incomplete ? "Local JSON retained — check scan results" : "Local scan completed",
           incomplete ? "Some projection work needs recovery. Inspect Scanner history; do not assume Shopify is ready." : "The scanner completed its local projection. Review Shopify Changes separately; no Shopify mutation was submitted.");
         if (incomplete) {
@@ -813,4 +820,7 @@
     setDirty(true);
   });
   setDirty(false);
+  window.TLCMetadataSaleEditor={snapshot:()=>({kind:boot.kind,revision:boot.revision,can_save:boot.can_save,dirty,busy,
+    data:dirty ? null : activeMode==="advanced" ? JSON.parse(jsonEditor.value) : guidedDocument()})};
+  window.TLCSaleEditor?.check();
 })();

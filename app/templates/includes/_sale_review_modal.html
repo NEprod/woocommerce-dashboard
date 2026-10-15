@@ -1,0 +1,11 @@
+<div class="modal fade" id="saleReviewModal" tabindex="-1" aria-hidden="true" aria-labelledby="saleReviewTitle">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h2 class="modal-title h5" id="saleReviewTitle">Review scheduled sale</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close sale review"></button></div>
+    <div class="modal-body">
+      <p data-sale-modal-message role="status" aria-live="polite"></p>
+      <div data-sale-review-content hidden><h3 data-sale-product></h3><p data-sale-schedule></p><dl class="settings-definition-list"><div><dt>Start · Europe/London</dt><dd data-sale-start></dd></div><div><dt>End · Europe/London</dt><dd data-sale-end></dd></div><div><dt>Proposed action</dt><dd data-sale-action></dd></div></dl>
+      <h4>Affected variants · <span data-sale-variant-count></span></h4><div class="editor-effective-variations" data-sale-variants></div><h4>Warnings</h4><ul data-sale-warnings></ul></div>
+    </div>
+    <div class="modal-footer sale-review-footer"><label class="check-row"><input type="checkbox" data-sale-ack> I explicitly authorise only the reviewed saved prices, identities and dates. This does not publish prices now.</label><button type="button" class="btn btn-primary" data-sale-authorise disabled>Authorise reviewed sale</button><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div>
+  </div></div>
+</div>

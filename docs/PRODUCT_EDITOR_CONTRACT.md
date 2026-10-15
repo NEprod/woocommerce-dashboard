@@ -6,6 +6,33 @@ claim that complete creator forms or storefront customisation exist. Historical
 design-only sections below describe their checkpoint; this section supersedes the
 earlier scheduled-sale/publication deferrals only.
 
+## M3A.9.3.1 — saved-source sale review UX
+
+The Pricing section uses one combined UK `DD/MM/YYYY HH:mm` control per boundary,
+Europe/London GMT/BST display, a live device clock, Set to Now and Clear authored
+value. Ambiguous autumn times require an explicit GMT/BST selection; nonexistent
+spring times are rejected. Unchanged controls preserve original strings, offsets,
+seconds and inclusive date-only end semantics. Editing a boundary deliberately
+creates an exact UTC date-time; end is exclusive. Clear removes the authored key,
+so an inherited boundary can apply; it does not cancel an existing approval.
+
+Review Sale opens a Bootstrap modal over the same editor, preserving its mode,
+values and scroll. It is disabled for unsaved edits (conservatively all editor
+changes), saves in flight, unavailable/stale/invalid source and incomplete scans.
+Save Locally → completed projection → Review Sale → explicit Authorise is required.
+The readiness/Preview/Confirm endpoint checks the existing signed editor revision,
+submitted draft equality with saved JSON, effective validation, active operation,
+current SKU marker/update/pending state, source/marker timestamps and relevant
+failed scan receipts before any Shopify read. The signed 15-minute sale review is
+wrapped with the saved editor binding and rechecked on confirmation. Old full-page
+review POSTs cannot bypass this handoff; its schedule status/pause controls remain.
+
+Opening/closing a modal cannot approve, pause or replay a sale. An in-flight explicit
+authorisation is not aborted by closing; unknown responses require checking retained
+schedule status, never automatic resubmission. The existing authorisation service,
+task/receipts/recovery, price calculations, inheritance, scanner and Discord are
+unchanged. No migration, scope, API version or deployment setting is added.
+
 ## M3A.9.3 — publication, defaults and separately approved sales
 
 - Publishing section: `shopify_status` DRAFT/ACTIVE/ARCHIVED; legacy `live` still

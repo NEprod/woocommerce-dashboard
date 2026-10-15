@@ -523,11 +523,8 @@ def sale_review(product_id):
     if request.method=='POST':
         if not form.validate_on_submit(): abort(400)
         try:
-            if request.form.get('action')=='preview': plan,token=service.review(product)
-            elif request.form.get('action')=='confirm':
-                service.authorise(product,request.form.get('review',''),request.form.get('acknowledge')=='yes')
-                flash('Sale authorisation saved. Only due transitions may execute; no Shopify price was written by this confirmation.','success')
-                return redirect(url_for('commerce.sale_review',product_id=product.id))
+            if request.form.get('action') in {'preview','confirm'}:
+                raise ShopifyError('Open Review Sale in the Product Editor. Save current JSON and complete its scan before reviewing or authorising.')
             elif request.form.get('action')=='pause':
                 row=db.get_or_404(ShopifySaleSchedule,request.form.get('schedule_id',''))
                 if row.product_id!=product.id or request.form.get('acknowledge')!='yes': abort(400)
@@ -536,6 +533,31 @@ def sale_review(product_id):
             else: abort(400)
         except (ShopifyError,ValueError,config.CommerceConfigError,CatalogueOperationActive) as exc: error=str(exc)
     return render_template('shopify_stage_review.html',product=product,form=form,plan=plan,token=token,error=error,stage='sale',sale=service.summary(product)),400 if error else 200
+
+
+@commerce.route('/products/<int:product_id>/shopify/sale/editor',methods=['POST'])
+@login_required
+def sale_editor_review(product_id):
+    """Admin/CSRF saved-editor handoff. Status/Preview perform no Shopify writes."""
+    if not current_user.is_admin: abort(403)
+    from app import db, sale_editor as service
+    from app.models import Product
+    from app.utils.operation_control import CatalogueOperationActive
+    from sqlalchemy.exc import SQLAlchemyError
+    product=db.get_or_404(Product,product_id)
+    payload=request.get_json(silent=True)
+    if not isinstance(payload,dict) or payload.get('action') not in {'status','preview','confirm'}:
+        return jsonify(ready=False,error='Choose a saved-editor sale action.'),400
+    try:
+        handler={'status':service.status,'preview':service.review,'confirm':service.authorise}[payload['action']]
+        return jsonify(handler(product,payload)),200,{'Cache-Control':'no-store'}
+    except (ValueError,ShopifyError,CatalogueOperationActive) as exc:
+        return jsonify(ready=False,error=str(exc)),409,{'Cache-Control':'no-store'}
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify(ready=False,error='Database temporarily unavailable. Inspect saved schedule status before retrying an authorisation.'),503,{'Cache-Control':'no-store'}
+    except OSError:
+        return jsonify(ready=False,error='Saved source is unavailable. Restore the catalogue and complete its scan before Review Sale.'),409,{'Cache-Control':'no-store'}
 
 
 def guard_platform():

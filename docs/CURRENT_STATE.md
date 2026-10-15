@@ -1,5 +1,29 @@
 # Current State
 
+## M3A.9.3.1 — UK schedule controls and saved-editor modal review
+
+Combined UK date/time controls, London GMT/BST validation, live device clock and
+safe Now/Clear actions replace ambiguous ISO text entry. Untouched stored schedules
+retain their exact semantics. Sale Review is modal and unavailable until the saved
+current source is valid and its projection completes; admin/CSRF backend revision,
+draft equality, markers and scan evidence enforce this independently of the button.
+Existing signed sale authority is wrapped with the saved editor revision, not replaced.
+Closing leaves editor context and persisted work intact; no automatic confirmation retry.
+
+No new migration (head remains 0014_shopify_sales), Shopify scope/API change, scheduler,
+pricing/modifier/receipt/recovery/Discord change, source rewrite or mount/template edit.
+The dedicated schedule page retains status/pause but cannot bypass editor review guards.
+Controlled Unraid acceptance remains; no live Shopify write/Discord message is used
+in automated verification. See PRODUCT_EDITOR_CONTRACT and SHOPIFY_INTEGRATION.
+
+Verification: 134 focused/bounded-regression Python cases and 33 JavaScript cases
+passed, including the existing 63-case publication/scheduled-sale lifecycle module.
+Coverage includes all three layouts, real local save/rescan, stale/invalid/draft and
+pending projection rejection, source edits during remote comparison, saved-bound
+signed authorisation, UK GMT/BST/DST, original date precision/inclusive end retention,
+live clock, modal close/scroll preservation and no automatic confirmation retries.
+Python/template/JavaScript syntax and whitespace checks pass. No schema migration.
+
 ## M3A.9.3 — publication/defaults and separately authorised scheduled sales
 
 Implemented on develop for controlled Unraid acceptance: discovered real channel

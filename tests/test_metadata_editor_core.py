@@ -214,7 +214,7 @@ def test_form_coverage_source_and_readonly_images(core):
         assert key in page
     assert "Indexed effective variations" in page and "No retained media" in page
     assert "Review Woo state" not in page and 'data-field="shipping_class"' not in page
-    assert 'data-field="sale_start_date"' in page and "Review / Authorise Sale" in page
+    assert 'data-field="sale_start_date"' in page and 'data-review-sale disabled' in page and 'id="saleReviewModal"' in page
     assert "metadata-section-nav" in page and "data-acknowledge-shared" not in page  # this collection has one child
 
 

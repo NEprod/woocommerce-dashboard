@@ -1,5 +1,35 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.3.1 — sale editor and modal handoff
+
+Use Product Editor → Pricing. Combined UK date/time controls display Europe/London
+with GMT/BST, a live device clock, Set to Now and Clear authored value. Browser/system
+clock accuracy still matters. Untouched stored schedules are not normalised: original
+precision/offsets and inclusive legacy date-only ends remain unchanged. Editing an end
+creates an exclusive exact time. Clear may restore an inherited value; it is not Pause.
+
+Edit → Save Locally → wait for local scan completion → Review Sale → Authorise.
+Unsaved edits, failed/pending projection, stale source, conflicts and invalid JSON
+block review. The backend enforces the signed saved revision and current draft/source
+equality before reads, and again after comparison and before authorisation. Review
+shows product/SKU, per-variant regular/sale/restoration amounts, UK boundaries, current
+status, intended approval and warnings in a modal. Closing preserves editor context
+and does not authorise/cancel/retry work. Unknown confirmation responses are never
+automatically resubmitted; check the saved schedule before a new explicit review.
+
+No changes to 0014 migration, credentials/scopes, 2026-10 product APIs, opt-in 2027-01
+native dimensions, existing sale maths, worker execution, receipts or Discord.
+The separate schedule page retains status/pause; new reviews originate in the editor.
+
+Controlled Unraid acceptance: deploy the new immutable test image with unchanged
+mounts; open a retained verified Draft's editor, confirm UK time and existing boundary
+values without saving. Make a future-date edit and confirm Review disables. Save and
+wait for scan completion, then open the modal. Inspect times/variants, close and check
+tab/scroll/values remain. Reopen, deliberately authorise only if desired, and verify
+the retained schedule. Test the repeated 25/10/2026 01:30 hour with GMT/BST, or spring
+29/03/2026 01:30 rejection, without approving those historical examples. Opening or
+saving must never itself publish prices. Live acceptance remains user-initiated.
+
 ## M3A.9.3 — status/channels, defaults and authorised sale transitions
 
 Normal Shopify transport stays on **2026-10**. Only the existing opt-in native

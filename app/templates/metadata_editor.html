@@ -10,6 +10,17 @@
   <p class="field-helper">{{ helper }} <span data-inherited-value="{{ key }}"></span>{% if key in workspace.defaults %}<br>Effective: {{ workspace.defaults[key].value if workspace.defaults[key].value is not none else 'Unknown / unmanaged' }} · Source: {{ workspace.defaults[key].source }}. Remove the authored key / disable override to use inherited/default value.{% endif %}</p><p class="field-error" data-field-error="{{ key }}" hidden></p>
 </div>
 {% endmacro %}
+{% macro sale_datetime(key, label) %}
+<div class="guided-field" data-field-wrapper="{{ key }}" data-sale-date-field="{{ key }}">
+  <div class="guided-field-label"><label for="sale-{{ key }}">{{ label }} · UK date and time</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}">Override this value</label>{% endif %}</div>
+  <input type="hidden" data-field="{{ key }}">
+  <input id="sale-{{ key }}" class="form-control" type="text" data-sale-datetime inputmode="text" maxlength="16" placeholder="DD/MM/YYYY HH:mm" autocomplete="off" aria-describedby="sale-{{ key }}-help sale-{{ key }}-error">
+  <label for="sale-{{ key }}-offset">UK clock selection</label><select id="sale-{{ key }}-offset" class="form-select" data-sale-offset><option value="">Automatic GMT/BST</option><option value="GMT">GMT (UTC+00:00)</option><option value="BST">BST (UTC+01:00)</option></select>
+  <div class="page-actions"><button type="button" class="btn btn-sm btn-outline-primary" data-sale-now>Set to Now</button><button type="button" class="btn btn-sm btn-ghost" data-sale-clear>Clear authored value</button></div>
+  <p class="field-helper" id="sale-{{ key }}-help">DD/MM/YYYY HH:mm · Europe/London. Choose GMT/BST if the autumn hour repeats. Clear restores inheritance where applicable; it does not cancel existing approval. <span data-sale-date-note></span></p>
+  <p class="field-error" id="sale-{{ key }}-error" data-sale-date-error role="alert" hidden></p><p class="field-error" data-field-error="{{ key }}" hidden></p>
+</div>
+{% endmacro %}
 {% block content %}
 <nav class="workspace-breadcrumb" aria-label="Breadcrumb">
   <a href="{{ url_for('main.collections') if is_shared else url_for('main.products') }}">{{ 'Collections' if is_shared else 'Catalogue' }}</a><span aria-hidden="true">/</span><a href="{{ url_for('main.collection_detail', collection_id=product.collection_id) if is_shared else url_for('main.product_detail', product_id=product.id) }}">{{ workspace.collection_display_name if is_shared else product.title }}</a><span aria-hidden="true">/</span><span aria-current="page">{{ 'Collection metadata' if is_shared else 'Product override' }}</span>
@@ -73,8 +84,10 @@
       <section class="editor-workspace-section" aria-labelledby="pricing-title">
         <header><h2 id="pricing-title">Pricing</h2><p>Regular price and optional date-aware sale. Indexed regular price: {{ product.regular_price }}. A future sale is not today's customer price; Review calculates the effective price. Validate and scan before reviewing changes.</p></header>
         <div class="editor-field-grid">{{ extra_field('price','Regular price','Store currency; existing modifiers remain unchanged.') }}{{ extra_field('sale_price','Sale price','Optional; reviewed Shopify sale must be below regular price. Clear to remove this authored value.') }}</div>
-        <div class="editor-field-grid">{{ extra_field('sale_start_date','Sale start (Europe/London)','Optional ISO date or date-time. Date-only starts at local midnight. Use explicit offset for ambiguous BST/GMT times.') }}{{ extra_field('sale_end_date','Sale end (Europe/London)','Optional; no end means ongoing. Date-only includes the whole day; a date-time is an exclusive end.') }}</div>
-        <p class="field-helper">Future sale metadata stays local until effective. Current sale status: {{ workspace.sale.state }}. JSON saving never authorises background writes. Shared edits do not authorise children.</p><a class="btn btn-outline-primary" href="{{ url_for('commerce.sale_review',product_id=product.id) }}">Review / Authorise Sale</a>
+        <p class="field-helper">UK time now (device clock): <time data-sale-clock aria-live="off">Loading Europe/London clock…</time></p>
+        <div class="editor-field-grid">{{ sale_datetime('sale_start_date','Sale start') }}{{ sale_datetime('sale_end_date','Sale end') }}</div>
+        <p class="field-helper">Future sale metadata stays local until effective. Current sale status: <span data-sale-status>{{ workspace.sale.state }}</span>. Saving never authorises background writes. Shared edits do not authorise children. Existing date-only ends remain inclusive until deliberately edited; new date/time ends are exclusive.</p>
+        <div class="page-actions"><button class="btn btn-outline-primary" type="button" data-review-sale disabled>Review Sale</button><button class="btn btn-sm btn-ghost" type="button" data-sale-check>Check review availability</button></div><p data-sale-readiness role="status" aria-live="polite">Checking saved JSON and scanner projection…</p>
       </section>
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="categories-tags-title">
         <header><div><h2 id="categories-tags-title">Organisation</h2><p>Ordered authored values. The protected override merge remains additive and set-based.</p></div></header>
@@ -186,6 +199,7 @@
 {% if is_shared and workspace.affected_total > 1 %}<label class="metadata-shared-confirmation"><input type="checkbox" data-acknowledge-shared> I confirm this saves shared data affecting up to {{ workspace.affected_total }} products; child overrides remain intact.</label>{% endif %}
 <div class="metadata-mobile-savebar"><span data-save-state>Saved</span><button class="btn btn-primary" type="button" data-save-metadata>Save Metadata</button></div>
 {% include 'includes/_scan_modal.html' %}
+{% include 'includes/_sale_review_modal.html' %}
 
 <script id="metadata-editor-bootstrap" type="application/json">{{ {
   'kind': workspace.kind,
@@ -199,6 +213,7 @@
   'resolved': workspace.resolved,
   'channels':workspace.channels,
   'discover_channels_url':url_for('commerce.discover_publications'),
+  'sale_editor_url':url_for('commerce.sale_editor_review',product_id=product.id),
   'taxonomy_options': workspace.taxonomy_options,
   'taxonomy_options_url': url_for('taxonomy.assignment_options'),
   'taxonomy_term_url': url_for('taxonomy.edit', kind='terms'),
@@ -215,4 +230,4 @@
 {% endblock %}
 
 {% block stylesheets %}<link rel="stylesheet" href="{{ url_for('static', filename='assets/css/metadata-taxonomy.css') }}">{% endblock %}
-{% block javascripts %}<script src="{{ url_for('static', filename='assets/js/metadata-editor.js') }}"></script>{% endblock %}
+{% block javascripts %}<script src="{{ url_for('static', filename='assets/js/sale-editor.js') }}"></script><script src="{{ url_for('static', filename='assets/js/metadata-editor.js') }}"></script>{% endblock %}
