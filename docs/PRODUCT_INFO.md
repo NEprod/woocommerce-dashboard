@@ -1,5 +1,9 @@
 # product_info.json Contract
 
+For the current Shopify field/editor audit, save foundation and planned extensions,
+see [M3A.9 editor contract](PRODUCT_EDITOR_CONTRACT.md). The pure patch helper is not
+yet used by save endpoints; inherited/marker contracts below remain unchanged.
+
 This is the definitive Phase 1 contract for authored catalogue metadata. The
 filesystem remains authoritative. Collection metadata supplies shared defaults;
 Simple and Variable Collection product folders may supply partial overrides.

@@ -474,3 +474,61 @@ def test_retention_protects_active_runs(preview_app):
         active=tasks.enqueue(manual=True)
         tasks.prune_history()
         assert ScheduledTaskRun.query.count()==1 and db.session.get(ScheduledTaskRun,active)
+
+
+def test_scoped_manual_check_preserves_catalogue_sweep_cursor(preview_app):
+    with preview_app.app_context():
+        task=db.session.get(ScheduledTask,tasks.KEY)
+        product=Product.query.first()
+        task.selection_cursor=product.id+1000
+        db.session.commit()
+        data={"scope":[product.id],"counts":{k:0 for k in tasks.COUNTERS}}
+        tasks.select_products(task,data)
+        assert data["queue"]==[product.id]
+        assert task.selection_cursor==product.id+1000
+
+
+def test_scoped_partial_failure_cannot_rewind_catalogue_sweep(preview_app):
+    with preview_app.app_context():
+        product=Product.query.first()
+        task=db.session.get(ScheduledTask,tasks.KEY)
+        task.selection_cursor=product.id+1000;db.session.commit()
+        run_id=tasks.enqueue(manual=True,product_ids=[product.id]);tasks.claim("owner")
+        run=db.session.get(ScheduledTaskRun,run_id);data=json.loads(run.data_json)
+        data.update(queue=[product.id],initialized=True)
+        tasks.save_progress(tasks.KEY,run_id,"owner",data,terminal="partially_completed")
+        assert db.session.get(ScheduledTask,tasks.KEY).selection_cursor==product.id+1000
+
+
+def test_selection_windows_reach_more_than_one_thousand_parents_and_wrap(preview_app):
+    with preview_app.app_context():
+        Product.query.update({Product.catalogue_status:"missing"})
+        db.session.add_all([Product(sku=f"FAIR-{i:04d}",title="Fictional",product_type="simple",
+            catalogue_status="active",source_relpath=f"Fair/Product {i}") for i in range(1005)])
+        db.session.commit()
+        task=db.session.get(ScheduledTask,tasks.KEY);task.selection_cursor=0
+        def selected():
+            data={"scope":None,"counts":{k:0 for k in tasks.COUNTERS}}
+            tasks.select_products(task,data);db.session.commit();return data
+        first=selected();second=selected();third=selected()
+        assert len(first["queue"])==1000 and first["overflow"]==5
+        assert len(second["queue"])==5 and second["overflow"]==0
+        assert set(first["queue"]).isdisjoint(second["queue"])
+        assert third["queue"]==first["queue"]
+
+
+def test_partial_run_resumes_lowest_unfinished_product_after_restart(preview_app):
+    with preview_app.app_context():
+        task=db.session.get(ScheduledTask,tasks.KEY)
+        ids=[p.id for p in Product.query.filter_by(catalogue_status="active").order_by(Product.id)]
+        assert len(ids)>=2
+        run_id=tasks.enqueue(manual=True);tasks.claim("owner")
+        data=json.loads(db.session.get(ScheduledTaskRun,run_id).data_json)
+        tasks.select_products(task,data)
+        data["queue"]=ids[1:];data["counts"]["checked"]=1
+        tasks.save_progress(tasks.KEY,run_id,"owner",data,terminal="partially_completed")
+        db.session.remove()
+        task=db.session.get(ScheduledTask,tasks.KEY)
+        next_data={"scope":None,"counts":{k:0 for k in tasks.COUNTERS}}
+        tasks.select_products(task,next_data)
+        assert next_data["queue"][0]==ids[1]

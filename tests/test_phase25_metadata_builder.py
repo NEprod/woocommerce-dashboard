@@ -1,5 +1,6 @@
 import hashlib
 import json
+import threading
 import time
 from datetime import datetime
 from html.parser import HTMLParser
@@ -126,6 +127,12 @@ def _wait(app, operation_id, timeout=8):
         with app.app_context():
             row = db.session.get(CatalogueOperation, operation_id)
             if row and row.status in {"succeeded", "partial", "failed", "interrupted"}:
+                # Receipt commit precedes worker lease cleanup. Do not let fixture
+                # teardown close that lease while the worker is still finishing.
+                for worker in threading.enumerate():
+                    if worker.name == f"intake-metadata-{operation_id[:8]}":
+                        worker.join(max(0, deadline-time.monotonic()))
+                        assert not worker.is_alive(), "metadata worker did not release its lease"
                 return row
         time.sleep(0.02)
     raise AssertionError("metadata operation did not finish")
@@ -144,6 +151,8 @@ def test_eligibility_uses_durable_workflow_state(metadata_app):
 def test_supported_inventory_and_collection_types_match_contract():
     assert COLLECTION_TYPES == ("Simple", "Variable Collection", "Single Variable")
     assert SUPPORTED_FIELDS == (
+        "primary_category", "manage_stock", "backorders", "country_of_origin",
+        "requires_shipping", "customisation",
         "storefront_collections", "collection_type", "title", "sku_prefix", "price", "sale_price",
         "sale_start_date", "sale_end_date", "weight", "dimensions", "categories",
         "tags", "live", "short_description", "description", "attributes",

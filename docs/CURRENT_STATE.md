@@ -1,5 +1,25 @@
 # Current State
 
+## M3A.9.1 — Product Creator & Editor foundations
+
+The dedicated [editor contract](PRODUCT_EDITOR_CONTRACT.md) records the field/layout/UI
+audit and sequenced implementation. Code is limited to a pure bounded conflict-aware
+metadata patch helper (not yet integrated into saves) and a reproduced scheduler fix:
+scoped manual checks no longer reset whole-catalogue sweep progress. Existing JSON,
+inheritance, SKU, scanner, image and publishing behaviour remains unchanged. Migration
+head is still `0013_scheduled_tasks`; no source-data edit or API change. Complete forms,
+customisation extensions/templates, scheduled sales, storefront/charges/uploads/orders
+remain design-only. Next: M3A.9.2 safe shared/override saves and supported field forms.
+
+Verification: 266 distinct mocked/isolated Python cases passed across one bounded
+compatibility regression and focused corrective follow-ups; 18 JavaScript cases
+passed. Two new tests reproduced the scoped cursor defect before correction. An
+obsolete intake field-list assertion was updated to the existing six extra fields;
+its test wait now joins the finishing worker before fixture lease cleanup. No
+application intake refactor. Compilation, existing editor/detail template parsing
+and diff checks passed. No live Shopify/Discord action or production catalogue access.
+The three unrelated Unraid/template files remain excluded and byte-for-byte intact.
+
 ## M3A.8.6 — persistent Scheduled Tasks
 
 Implemented and focused regression verified; live Unraid acceptance remains. Settings →

@@ -1,5 +1,16 @@
 # Roadmap
 
+## M3A.9 — staged Product Creator & Editor
+
+M3A.9.1 establishes the [compatibility/implementation contract](PRODUCT_EDITOR_CONTRACT.md),
+pure source-token/patch foundation and scoped scheduler cursor isolation. Next M3A.9.2
+integrates safe shared/override saves (admin/CSRF, conflict checks, unknown/empty
+preservation, backup/atomic-write/scoped rescan) and currently supported Shopify field
+forms. Then separately accept customisation authoring/preset copies, local creation
+and media associations. Sales and theme/order/upload/paid inputs require explicit
+implementation/acceptance; reuse existing inheritance/tasks, no second authority.
+No complete editor or storefront functionality is claimed. Historical records remain.
+
 ## M3A.8.6 — persistent Scheduled Tasks
 
 Implemented for focused verification and Unraid acceptance: browser-independent,

@@ -1,5 +1,14 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.1 — editor foundations (no new remote functionality)
+
+The [editor contract](PRODUCT_EDITOR_CONTRACT.md) audits authored fields, reusable
+controls and all three layouts. Pure edit preparation and scoped scheduler cursor
+isolation need no new scopes, credentials, migration or API version. Theme forms,
+customisation definition publishing/order capture and date-aware sales remain
+proposals; current scheduled-sale blockers remain. No unattended writes or source
+JSON changes are introduced.
+
 ## M3A.8.6 — browser-independent product reconciliation
 
 Settings → Scheduled Tasks exposes Shopify Product Reconciliation, enabled by default

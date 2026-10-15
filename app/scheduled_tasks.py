@@ -150,7 +150,7 @@ def save_progress(key,run_id,owner,data,*,pause=False,terminal=None,error=None):
         values.update(state=terminal,last_outcome=terminal,last_completed=stamp,
             duration_seconds=max(0,(stamp-run.started_at).total_seconds()),active_run_id=None,owner=None,lease_until=None,resume_at=None)
         if terminal=="completed": values["last_successful"]=stamp
-        elif data.get("queue"):
+        elif data.get("queue") and data.get("scope") is None:
             values["selection_cursor"]=max(0,min(data["queue"])-1)
         run.completed_at=stamp;run.duration_seconds=values["duration_seconds"]
         if not db.session.get(ScheduledTask,key).enabled:values["state"]="disabled"
@@ -230,7 +230,10 @@ def select_products(task,data):
     data.update(queue=ids, initialized=True, overflow=max(0,total-len(ids)))
     data["counts"]["considered"]=total
     data["counts"]["deferred"]=data["overflow"]
-    task.selection_cursor=ids[-1] if ids and data["overflow"] else 0
+    # A one-product/manual scope must not reset the persistent whole-catalogue
+    # sweep. Frequent scoped checks otherwise repeatedly restart at product one.
+    if data["scope"] is None:
+        task.selection_cursor=ids[-1] if ids and data["overflow"] else 0
     return data
 
 
