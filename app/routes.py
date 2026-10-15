@@ -960,6 +960,28 @@ def api_products():
     return jsonify(payload)
 
 
+@main.route('/api/products/pricing')
+@login_required
+def api_product_pricing():
+    """Bounded local presentation revalidation at a known sale boundary. No API writes/reads."""
+    from app.sale_pricing import catalogue
+    from app.shopify_products import states_for
+    try:
+        ids = [int(value) for value in request.args.get('ids', '').split(',')]
+        if not 1 <= len(ids) <= 100 or len(set(ids)) != len(ids) or any(i < 1 for i in ids):
+            raise ValueError()
+    except ValueError:
+        return jsonify(error='Choose one to 100 distinct local products.'), 400
+    from sqlalchemy.orm import selectinload
+    from app.models import Variation
+    products = Product.query.filter(Product.id.in_(ids)).options(
+        selectinload(Product.variations).selectinload(Variation.attributes),
+        selectinload(Product.variations).selectinload(Variation.images),
+        selectinload(Product.images), selectinload(Product.assets), selectinload(Product.tags)).all()
+    states = states_for(products)
+    return jsonify(items=[{'id':p.id, 'price':catalogue(p), 'shopify':states[p.id]} for p in products]), 200, {'Cache-Control':'no-store'}
+
+
 @main.route("/api/products/<int:product_id>/variations")
 @login_required
 def api_product_variations(product_id):

@@ -10,9 +10,9 @@ const saveCode = source.slice(source.indexOf('  async function save('), source.i
 function editor({shared = false, acknowledged = true, status = 200, response = null} = {}) {
   const before = {price: 6.5, future: {empty: [], private: 'preserve'}, image_attributes: ['Style']};
   const after = {...before, description: 'Reviewed local copy'};
-  const calls = [], feedback = [], children = [], progress = [];
+  const calls = [], feedback = [], children = [], progress = [], events = [];
   let dirty = true;
-  const context = vm.createContext({structuredClone, busy: false, activeMode: 'guided', originalDocument: before,
+  const context = vm.createContext({structuredClone, Event, busy: false, activeMode: 'guided', originalDocument: before,
     boot: {kind: shared ? 'shared' : 'override', can_save: true, revision: 'signed-source', save_url: '/edit_products/TEST-0001/save'},
     guidedDocument: () => after, validateDocument: async () => true,
     setBusy: (value) => {context.busy = value;}, setDirty: (value) => {dirty = value;}, populate: () => {},
@@ -21,13 +21,13 @@ function editor({shared = false, acknowledged = true, status = 200, response = n
     feedback: {appendChild: (child) => children.push(child)},
     document: {querySelector: (selector) => selector === '[data-acknowledge-shared]' ? shared ? {checked: acknowledged} : null : {content: 'test-csrf'},
       createElement: (name) => ({name, addEventListener(event, callback) {this.callback = callback;}})},
-    window: {location: {href: 'http://localhost/editor'}},
+    window: {location: {href: 'http://localhost/editor'},dispatchEvent:event=>events.push(event.type)},
     fetch: async (url, options) => {
       calls.push({url, options, payload: JSON.parse(options.body)});
       return {ok: status < 400, status, json: async () => response || {ok: true, authored: after, revision: 'new-source', run_id: 'local-run'}};
     }});
   vm.runInContext(patchCode + saveCode, context);
-  return {context, calls, feedback, children, progress, dirty: () => dirty};
+  return {context, calls, feedback, children, progress, events, dirty: () => dirty};
 }
 
 test('guided save submits a CSRF-protected signed patch without hidden-field replacement', async () => {
@@ -42,6 +42,7 @@ test('guided save submits a CSRF-protected signed patch without hidden-field rep
   assert.equal('replace' in request.payload, false);
   assert.equal(e.dirty(), false);
   assert.deepEqual(e.progress, ['local-run']);
+  assert.deepEqual(e.events,['tlc:local-metadata-saved']);
 });
 
 test('shared scope must be acknowledged before any save request', async () => {

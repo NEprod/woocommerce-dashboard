@@ -1,5 +1,16 @@
 # Roadmap
 
+## M3A.9.3.2 — corrective sale lifecycle checkpoint
+
+Corrected local configured-versus-effective prices and stale native-evidence badge
+projection without changing scanner/source contracts or sale authority/execution.
+Bounded known-boundary local UI revalidation and comparison/identity commit fences
+protect open pages and newer evidence. Accept 16bit-0001 before/during/after a
+deliberately approved window, then an unchanged affected scan and independent
+Shopify reconciliation. Historical 17:08 task identity remains unverified without
+Unraid history. No new migration, polling cadence, worker or Shopify mutation type.
+M3A.9.4/editor extensions and larger-catalogue scheduling remain separate milestones.
+
 ## M3A.9.3 — publication, product defaults and scheduled sales
 
 Implemented for controlled acceptance: status/discovered-channel review, explicit

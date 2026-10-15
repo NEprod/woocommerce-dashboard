@@ -17,6 +17,7 @@
   const selectedReviews = new Map();
   let visibleProducts = [];
   let refreshRunning = false;
+  let priceWatch = null;
 
   function renderSelection() {
     browser.querySelector("[data-shopify-selection-count]").textContent = selectedReviews.size;
@@ -105,6 +106,13 @@
     if (!price || price.minimum == null) return "Not set";
     if (price.maximum != null && price.maximum !== price.minimum) return `£${price.minimum}–£${price.maximum}`;
     return `£${price.minimum}`;
+  }
+
+  function productPrice(product) {
+    const node=text('span','product-price','');node.dataset.localPrice=product.id;
+    node.appendChild(text('span','',formatPrice(product.price)));
+    if (product.price?.state && product.price.state !== 'none') node.appendChild(text('small','shopify-status-context',`Sale: ${product.price.label}`));
+    return node;
   }
 
   function sourceLabel(source) {
@@ -245,7 +253,7 @@
     row.appendChild(identity);
     row.appendChild(text("code", "product-sku", product.sku || "Not set"));
     row.appendChild(pill(product.type === "variable" ? "Variable" : "Simple", "neutral"));
-    row.appendChild(text("span", "product-price", formatPrice(product.price)));
+    row.appendChild(productPrice(product));
     const stateCell = document.createElement("div");
     stateCell.className = "product-state-stack";
     stateCell.appendChild(shopifyState(product));
@@ -283,7 +291,7 @@
     const facts = document.createElement("dl");
     facts.className = "product-mobile-facts";
     facts.appendChild(labelledFact("Type", pill(product.type === "variable" ? "Variable" : "Simple", "neutral")));
-    facts.appendChild(labelledFact("Price", text("span", "product-price", formatPrice(product.price))));
+    facts.appendChild(labelledFact("Price", productPrice(product)));
     facts.appendChild(labelledFact("Shopify sync / publication", shopifyState(product)));
     facts.appendChild(labelledFact("Metadata", pill(sourceLabel(product.metadata_source), product.metadata_source)));
     facts.appendChild(labelledFact("Updated", text("time", "product-updated", formatDate(product.updated_at))));
@@ -434,6 +442,15 @@
     payload.groups.forEach(function (group, index) { groupsTarget.appendChild(collectionGroup(group, index)); });
     renderSelection();
     renderPagination(payload.pagination);
+    priceWatch?.stop();
+    priceWatch=window.TLCSalePrices?.watch(visibleProducts,items=>items.forEach(item=>{
+      const product=visibleProducts.find(p=>p.id===item.id);
+      if (!product) return;
+      product.price=item.price;product.shopify=item.shopify;
+      browser.querySelectorAll(`[data-local-price="${item.id}"]`).forEach(node=>node.replaceWith(productPrice(product)));
+      browser.querySelectorAll(`[data-shopify-state="${item.id}"]`).forEach(node=>node.replaceWith(shopifyState(product)));
+      item.price.variants.forEach(v=>browser.querySelectorAll(`[data-sale-variant="${v.id}"]`).forEach(node=>{node.textContent=`£${v.price}`;}));
+    }));
   }
 
   async function loadProducts() {

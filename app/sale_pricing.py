@@ -74,3 +74,54 @@ def variant_sale(authored, attributes, fallback):
     from app.utils.json_utils import apply_variation_modifiers
     selected = apply_variation_modifiers(authored, attributes, log=lambda *a,**k:None)
     return selected.get('sale_price', fallback)
+
+
+def catalogue(product, *, authored=None, at=None):
+    """Read-only current local prices, NOT Shopify verification or write authority.
+
+    Indexed sale amounts are configuration, never a permanently effective price.
+    Reuse project()/the existing modifier selector at request time. Raw indexed
+    dates are a display fallback only when the authored source is unavailable.
+    """
+    import json
+    from app.shopify_drafts import now
+    from app.taxonomy_assignments import product_document
+    at = at or now()
+    if at.tzinfo:
+        at = at.astimezone(UTC).replace(tzinfo=None)
+    authored = product_document(product) if authored is None else authored
+    if 'collection_type' not in authored:
+        raw = json.loads(product.resolved_row_json or '{}')
+        authored = {**authored, **{key: raw[column] for key, column in (
+            ('sale_start_date', 'Date sale price starts'), ('sale_end_date', 'Date sale price ends'))
+            if raw.get(column) not in (None, '')}}
+    variants = []
+    try:
+        start, end = schedule(authored, partial=True)
+        children = [v for v in product.variations if v.catalogue_status == 'active'] if product.product_type == 'variable' else []
+        for item in children or [product]:
+            regular = authored.get('price', item.regular_price) if item is product else item.regular_price
+            if regular is None:
+                continue
+            sale = authored.get('sale_price', item.sale_price) if item is product else variant_sale(
+                authored, {a.name:a.value for a in item.attributes}, item.sale_price)
+            pricing = project(dict(authored, sale_price=sale), regular, at=at)
+            variants.append({'id':item.id, 'sku':item.sku, 'regular':money(regular),
+                'configured_sale':money(sale) if sale not in (None, '') else None, **pricing})
+        def bounds(key):
+            values = [Decimal(v[key]) for v in variants if v[key] is not None]
+            return [format(fn(values), '.2f') if values else None for fn in (min, max)]
+        states = {v['state'] for v in variants}
+        state = next((s for s in ('active', 'scheduled', 'expired') if s in states), 'none')
+        pending = [t for t in (start, end) if t and t > at] if states - {'none'} else []
+        return {'minimum':bounds('price')[0], 'maximum':bounds('price')[1],
+            'regular_minimum':bounds('regular')[0], 'regular_maximum':bounds('regular')[1],
+            'configured_sale_minimum':bounds('configured_sale')[0], 'configured_sale_maximum':bounds('configured_sale')[1],
+            'state':state, 'label':{'none':'No Sale', 'scheduled':'Scheduled', 'active':'Active', 'expired':'Ended'}[state],
+            'next_transition':min(pending).isoformat()+'Z' if pending else None,
+            'as_of':at.isoformat()+'Z', 'variants':variants, 'error':None}
+    except (ValueError, TypeError, ArithmeticError) as exc:
+        return {'minimum':None, 'maximum':None, 'regular_minimum':None, 'regular_maximum':None,
+            'configured_sale_minimum':None, 'configured_sale_maximum':None, 'state':'invalid',
+            'label':'Needs Attention', 'next_transition':None, 'as_of':at.isoformat()+'Z',
+            'variants':[], 'error':'Resolve local pricing/schedule metadata before relying on effective prices.'}

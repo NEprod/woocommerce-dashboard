@@ -250,6 +250,8 @@ def product_state(product, rows, comparisons=(), mappings=None):
         state["native"] = native
         if native["state"] == "uncertain":
             state.update(state="recovery_required", label="Recovery Required", message=native["message"])
+        elif native['state'] == 'stale' and state['state'] == 'no_change':
+            state.update(evidence_stale=True, label='Last check matched', message=native['message'])
         elif native["state"] not in {"disabled", "verified"} and state["state"] == "no_change":
             state.update(state="update" if native["state"] == "update" else "attention", label="Update Available" if native["state"] == "update" else "Needs Attention", message="Metadata evidence matches; " + native["message"])
     except ShopifyError as exc:

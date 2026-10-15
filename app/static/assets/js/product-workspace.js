@@ -40,7 +40,9 @@
         attributes.textContent = variation.attributes.map((item) => `${item.name}: ${item.value}`).join(" · ");
         identity.append(sku, attributes);
         const state = document.createElement("span");
-        state.textContent = `${variation.sale_price || variation.regular_price ? `£${variation.sale_price || variation.regular_price}` : "Price not set"} · ${variation.status || "Unknown"}`;
+        const price=document.createElement('span');price.dataset.saleVariant=variation.id;
+        price.textContent=variation.effective_price != null ? `£${variation.effective_price}` : 'Price not set';
+        state.appendChild(price);state.appendChild(document.createTextNode(` · ${variation.status || 'Unknown'}`));
         summary.append(identity, state);
         const body = document.createElement("div");
         body.className = "variation-detail-body";

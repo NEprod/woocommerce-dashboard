@@ -32,6 +32,7 @@ from app.models import (
 from app.product_info import FIELD_BY_KEY, FIELD_INVENTORY, validate_product_info
 from app.publishing import resolved_publishing_intent
 from app.utils.json_utils import merge_product_json
+from app.sale_pricing import catalogue as catalogue_prices
 
 
 MAX_METADATA_BYTES = 1024 * 1024
@@ -220,7 +221,7 @@ def _public_image_rows(rows, route_name, owner_id):
     return result
 
 
-def _variation_view(variation):
+def _variation_view(variation, pricing=None):
     attributes = sorted(
         variation.attributes,
         key=lambda item: (
@@ -229,12 +230,15 @@ def _variation_view(variation):
         ),
     )
     diagnostics = variation_image_diagnostics(variation)
+    from app.sale_pricing import catalogue
+    pricing = pricing or catalogue(variation.product)
     return {
         "id": variation.id,
         "sku": variation.sku,
         "status": variation.catalogue_status,
         "regular_price": _money(variation.regular_price),
         "sale_price": _money(variation.sale_price),
+        "effective_price": next((v['price'] for v in pricing['variants'] if v['id'] == variation.id), None),
         "weight_g": variation.weight,
         "dimensions_mm": {"length": variation.length, "width": variation.width, "height": variation.height},
         "stock_quantity": variation.stock_quantity,
@@ -262,13 +266,16 @@ def variation_page(product_id: int, page=1, per_page=24):
             selectinload(Variation.assets),
             selectinload(Variation.product).selectinload(Product.assets),
             selectinload(Variation.product).selectinload(Product.images),
+            selectinload(Variation.product).selectinload(Product.variations).selectinload(Variation.attributes),
         )
         .offset((page - 1) * per_page)
         .limit(per_page)
         .all()
     )
+    from app.sale_pricing import catalogue
+    pricing = catalogue(records[0].product) if records else None
     return {
-        "items": [_variation_view(item) for item in records],
+        "items": [_variation_view(item, pricing) for item in records],
         "pagination": {
             "page": page,
             "pages": pages,
@@ -290,12 +297,8 @@ def product_workspace(product: Product):
         shared_source["data"], override_data, resolved
     )
     variation_data = variation_page(product.id)
-    minimum, maximum = db.session.query(
-        func.min(func.coalesce(Variation.sale_price, Variation.regular_price)),
-        func.max(func.coalesce(Variation.sale_price, Variation.regular_price)),
-    ).filter(Variation.product_id == product.id).one()
-    if minimum is None and (product.sale_price is not None or product.regular_price is not None):
-        minimum = maximum = product.sale_price or product.regular_price
+    from app.sale_pricing import catalogue
+    pricing = catalogue(product, authored=resolved)
     operations = (
         db.session.query(CatalogueOperationItem, CatalogueOperation)
         .join(CatalogueOperation, CatalogueOperation.id == CatalogueOperationItem.operation_id)
@@ -358,8 +361,9 @@ def product_workspace(product: Product):
         "primary_preview": primary_preview,
         "variations": variation_data["items"],
         "variation_pagination": variation_data["pagination"],
-        "price_min": _money(minimum),
-        "price_max": _money(maximum),
+        "price_min": pricing['minimum'],
+        "price_max": pricing['maximum'],
+        "pricing": pricing,
         "operations": [
             {
                 "id": operation.id,
@@ -486,6 +490,7 @@ def editor_workspace(product: Product, kind: str):
         "kind": kind,
         "revision": token,
         'defaults':defaults,'channels':cached_channels(),'sale':sale_summary(product),
+        'pricing':catalogue_prices(product),
         "save_error": save_error,
         "can_override": can_override,
         "remote_media": remote_media,

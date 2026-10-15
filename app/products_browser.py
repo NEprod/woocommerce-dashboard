@@ -138,10 +138,6 @@ def _money(value):
     return f"{Decimal(value):.2f}"
 
 
-def _effective_price(regular, sale):
-    return sale if sale is not None else regular
-
-
 def _metadata_source(product, assets):
     labels = {asset.label for asset in assets if asset.kind == "info"}
     if product.override_json_path or "override" in labels:
@@ -155,7 +151,7 @@ def _asset_presence(assets, label):
     return any(asset.kind == "info" and asset.label == label for asset in assets)
 
 
-def _product_view(product, variation_count, minimum_price, maximum_price, shopify):
+def _product_view(product, variation_count, shopify):
     assets = list(product.assets)
     shared_present = _asset_presence(assets, "shared")
     override_present = _asset_presence(assets, "override")
@@ -164,10 +160,8 @@ def _product_view(product, variation_count, minimum_price, maximum_price, shopif
         override_present = False
         shared_present = shared_present or bool(product.shared_json_path or product.shared_json_relpath)
         source = "shared" if shared_present else "none"
-    minimum = minimum_price
-    maximum = maximum_price
-    if variation_count == 0:
-        minimum = maximum = _effective_price(product.regular_price, product.sale_price)
+    from app.sale_pricing import catalogue
+    pricing = catalogue(product)
 
     edit_label = "override" if override_present else "shared" if shared_present else None
     thumbnail = product_thumbnail_url(product)
@@ -191,7 +185,7 @@ def _product_view(product, variation_count, minimum_price, maximum_price, shopif
         "publishing_intent": publishing_intent["state"],
         "publishing_intent_label": publishing_intent["compact_label"],
         "variation_count": int(variation_count or 0),
-        "price": {"minimum": _money(minimum), "maximum": _money(maximum)},
+        "price": {k:v for k,v in pricing.items() if k != 'variants'},
         "metadata_source": source,
         "shared_present": shared_present,
         "override_present": override_present,
@@ -250,20 +244,6 @@ def build_products_data(filters):
         .correlate(Product)
         .scalar_subquery()
     )
-    effective_variation_price = func.coalesce(Variation.sale_price, Variation.regular_price)
-    minimum_price = (
-        select(func.min(effective_variation_price))
-        .where(Variation.product_id == Product.id)
-        .correlate(Product)
-        .scalar_subquery()
-    )
-    maximum_price = (
-        select(func.max(effective_variation_price))
-        .where(Variation.product_id == Product.id)
-        .correlate(Product)
-        .scalar_subquery()
-    )
-
     base = db.session.query(Product)
     filtered = _apply_filters(base, filters)
     total = filtered.count()
@@ -274,8 +254,6 @@ def build_products_data(filters):
             db.session.query(
                 Product,
                 variation_count.label("variation_count"),
-                minimum_price.label("minimum_price"),
-                maximum_price.label("maximum_price"),
             ),
             filters,
         )
@@ -323,7 +301,7 @@ def build_products_data(filters):
     )
     collection_by_id = {
         product.collection_id: product.collection
-        for product, _count, _minimum, _maximum in rows
+        for product, _count in rows
         if product.collection_id and product.collection
     }
     stats = {
@@ -361,8 +339,8 @@ def build_products_data(filters):
     flat_items = []
     from app.shopify_products import states_for
     shopify = states_for([row[0] for row in rows])
-    for product, count, minimum, maximum in rows:
-        item = _product_view(product, count, minimum, maximum, shopify[product.id])
+    for product, count in rows:
+        item = _product_view(product, count, shopify[product.id])
         flat_items.append(item)
         key = product.collection_id
         if key not in group_lookup:
@@ -404,8 +382,10 @@ def build_variation_data(product, *, include_all=False):
     variations = query.all() if include_all else query.limit(VARIATION_PREVIEW_LIMIT).all()
     parent_source = _metadata_source(product, list(product.assets))
     items = []
+    from app.sale_pricing import catalogue
+    pricing = catalogue(product)
     for variation in variations:
-        price = _effective_price(variation.regular_price, variation.sale_price)
+        price = next((v['price'] for v in pricing['variants'] if v['id'] == variation.id), None)
         items.append(
             {
                 "id": variation.id,

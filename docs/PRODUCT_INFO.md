@@ -1,5 +1,22 @@
 # product_info.json Contract
 
+## M3A.9.3.2 price meanings (no authored format change)
+
+`price` is regular price; `sale_price` is configured promotional price, including
+after expiry. Dates select the current effective price through the existing exact
+Decimal Europe/London resolver. SQLite regular/sale/date columns and lossless emitted
+rows retain configuration; sale presence alone never proves an active discount.
+Products, details, editor summaries and variant APIs now compute current presentation
+at read time using that same resolver and existing modifier selection, not SQL
+sale-or-regular coalescing. Before start/at-or-after end returns regular/no compare-at;
+active returns sale/regular compare-at. Authored JSON is never rewritten as time passes.
+
+Original precision, offsets and inclusive date-only end semantics remain. Source
+files supply inherited metadata; raw indexed dates are a display fallback only when
+authored sources are unavailable. Invalid pricing is shown as unavailable/attention,
+not an invented selling price. This local intention does not establish Shopify price:
+independent readback, complete comparison and retained receipts remain authoritative.
+
 ## M3A.9.3 authored intent and effective defaults
 
 Existing files, three physical layouts, sparse merging, SKU/modifier/image/marker

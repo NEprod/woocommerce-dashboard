@@ -319,6 +319,7 @@ def test_failed_native_read_cannot_renew_success_checkpoint(world, monkeypatch):
     plan,_=drafts.preview(world[0],adapter)
     before=json.loads(saved.summary_json)
     plan['native']={'enabled':True,'classification':'blocked','reason':'Native inventory read timed out'}
+    plan['comparison_started_at']=drafts.now().isoformat()  # this fixture simulates a NEW failed required read
     from app.shopify_comparison import record
     record(world[0],plan,row)
     after=json.loads(saved.summary_json)

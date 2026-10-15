@@ -84,9 +84,10 @@
       <section class="editor-workspace-section" aria-labelledby="pricing-title">
         <header><h2 id="pricing-title">Pricing</h2><p>Regular price and optional date-aware sale. Indexed regular price: {{ product.regular_price }}. A future sale is not today's customer price; Review calculates the effective price. Validate and scan before reviewing changes.</p></header>
         <div class="editor-field-grid">{{ extra_field('price','Regular price','Store currency; existing modifiers remain unchanged.') }}{{ extra_field('sale_price','Sale price','Optional; reviewed Shopify sale must be below regular price. Clear to remove this authored value.') }}</div>
+        {% include 'includes/_local_pricing.html' %}
         <p class="field-helper">UK time now (device clock): <time data-sale-clock aria-live="off">Loading Europe/London clock…</time></p>
         <div class="editor-field-grid">{{ sale_datetime('sale_start_date','Sale start') }}{{ sale_datetime('sale_end_date','Sale end') }}</div>
-        <p class="field-helper">Future sale metadata stays local until effective. Current sale status: <span data-sale-status>{{ workspace.sale.state }}</span>. Saving never authorises background writes. Shared edits do not authorise children. Existing date-only ends remain inclusive until deliberately edited; new date/time ends are exclusive.</p>
+        <p class="field-helper">Future sale metadata stays local until effective. Authorisation / execution status: <span data-sale-status>{{ workspace.sale.state }}</span>. Saving never authorises background writes. Shared edits do not authorise children. Existing date-only ends remain inclusive until deliberately edited; new date/time ends are exclusive.</p>
         <div class="page-actions"><button class="btn btn-outline-primary" type="button" data-review-sale disabled>Review Sale</button><button class="btn btn-sm btn-ghost" type="button" data-sale-check>Check review availability</button></div><p data-sale-readiness role="status" aria-live="polite">Checking saved JSON and scanner projection…</p>
       </section>
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="categories-tags-title">

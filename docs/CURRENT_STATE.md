@@ -1,5 +1,44 @@
 # Current State
 
+## M3A.9.3.2 — current sale prices and honest verification freshness
+
+Two defects reproduced independently: Products used sale-or-regular unconditionally
+and Product Detail used the same SQL coalesce, ignoring date boundaries. Scanner
+ingestion correctly retains configured sale amounts/dates; those columns are not a
+permanent current selling price. Both workspaces, variant APIs and editor summaries
+now reuse sale_pricing.project and the existing modifier selector at read time.
+JSON/markers/SKUs, scan modes and authorised Shopify transitions remain unchanged.
+
+Separately, native packed-dimension proof ageing past ten minutes was projected as
+Needs Attention despite an unchanged matching target. A stale match is now explicitly
+Last check matched, never current equality or a confirmed mismatch. Real missing,
+blocked, changed and uncertain evidence retains its existing warning/recovery policy.
+Product Detail now honours the status service's freshness-qualified label too.
+
+The supplied 15 October BST timeline (17:03:11 comparison; 17:04 matched; reported
+17:08 scan; 17:14 attention) is reproduced with fictional data and an actual unchanged
+scan. The scan does not change the managed fingerprint. This explains a concrete
+ten-minute status path, NOT proof of the historical run: Unraid history/receipts were
+not available here (the local development DB predates Shopify and has no such SKU).
+The built-in worker defines Shopify Products reconciliation and Sale Transitions,
+not a scheduled catalogue scanner; identifying the reported run requires its history.
+
+Open pages revalidate only bounded visible local prices at known sale boundaries (or
+when returning to an overdue tab), without Shopify polling, whole-catalogue refresh,
+or browser write authority. Compare-and-swap evidence commits plus read-start/identity
+fences prevent older reads/failures replacing newer completed comparison/operation
+evidence. Existing worker leases/capacity, Discord deduplication and recovery remain.
+No migration/API/scope/configuration/mount change. Live acceptance remains required.
+
+Verification: 336 distinct isolated/mocked Python cases across the bounded regression
+and focused corrective reruns, plus 59 JavaScript cases, passed. The initial regression
+identified an obsolete stale-status assertion, fixture clock rollback/reused-read
+assumptions and hidden variant seed data bypassing UI pagination; corrected cases
+passed the final affected reruns. Coverage includes the exact BST timeline, actual
+unchanged scans, all layouts, retained source/images/identities, genuine drift,
+cross-connection comparison races, native failure/freshness, UK DST and open-page
+local revalidation. No live Shopify/Discord verification or production-data edit.
+
 ## M3A.9.3.1 — UK schedule controls and saved-editor modal review
 
 Combined UK date/time controls, London GMT/BST validation, live device clock and

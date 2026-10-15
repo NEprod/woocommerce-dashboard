@@ -581,6 +581,7 @@
       populate(originalDocument);
       setDirty(false);
       window.TLCSaleEditor?.saved(payload);
+      window.dispatchEvent(new Event('tlc:local-metadata-saved'));
       showFeedback("success", payload.unchanged ? "No changes to save" : "JSON saved — scanning",
         payload.unchanged ? "Source and scan history are unchanged." : "Local source saved with backup. Scanner/database update is pending; Shopify has not been published.");
       startProgress(payload.run_id);

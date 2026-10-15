@@ -327,12 +327,15 @@ def native_review(plan, row, data, config, shop, adapter):
         plan["warnings"].append(str(exc))
 
 
-def preview(product, adapter=None, *, context=None, seed=None, scope="full"):
+def preview(product, adapter=None, *, context=None, seed=None, scope="full", started=None):
     adapter = adapter or ShopifyAdapter()
     plan = local_plan(product)
+    plan['comparison_started_at'] = started or drafts.now().isoformat()
     config = drafts.configuration()
     shop = context["shop"] if context and context["config"] == config.fingerprint() else adapter.test_connection(config)
     row = drafts.matching_identity(shop["shop_id"],product)
+    from app.shopify_comparison import identity_revision
+    plan['read_identity_digest'] = identity_revision(row)
     if row and any(p.get("state") in {"pending","uncertain"} for p in drafts.evidence(row).get("variant_native",{}).values()):
         raise ShopifyError("Recovery required for retained native measurements; reconcile before another write.")
     if scope == "inventory" and (not row or row.state not in {"verified","scoped_verified"}):
@@ -620,7 +623,7 @@ def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attri
             collections=[dict(c,action="Already assigned") for c in plan["collections"]])
         product = db.session.get(Product,row.product_id)
         from app.shopify_publication import comparison_after_write
-        record(product,comparison_after_write(product,result,row,adapter),row)
+        record(product,comparison_after_write(product,result,row,adapter),row,post_write=True)
     return row
 
 
@@ -835,6 +838,7 @@ def native_status(product,row=None,compared=None):
     try:
         wanted=projection(product)
         plans=(compared or {}).get("variants",{})
+        stale = False
         for v in wanted:
             proof=proofs.get(v["identity"],{})
             read=plans.get(v["identity"],{})
@@ -844,8 +848,14 @@ def native_status(product,row=None,compared=None):
                 continue
             blocked=read.get("reason") or proof.get("state")=="blocked" or v["native"].get("reason")
             changed=(proof.get("state")=="verified" and proof.get("desired")!=v["native"]["desired"]) or (read.get("classification")=="update" and recent((compared or {}).get("checked_at"),MAX_AGE))
+            if not blocked and not changed and ((proof.get('state')=='verified' and proof.get('desired')==v['native']['desired']) or
+                    (read.get('classification')=='no_change' and read.get('desired')==v['native']['desired'])):
+                stale = True
+                continue
             return {"state":"blocked" if blocked else "update" if changed else "unavailable",
                 "message":"Per-variant packed dimensions need independent review/readback; no Product.updatedAt equality assumed."}
+        if stale:
+            return {'state':'stale','message':'Last per-variant packed-dimension checks matched; freshness expired. Bounded readback is due, not a confirmed mismatch.'}
         return {"state":"verified","message":"All managed variants have fresh, identity-bound packed-dimension comparison evidence."}
     except (ValueError,ShopifyError):
         return {"state":"blocked","message":"Per-variant packed source/projection needs validation."}

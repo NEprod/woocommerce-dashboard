@@ -6,6 +6,27 @@ claim that complete creator forms or storefront customisation exist. Historical
 design-only sections below describe their checkpoint; this section supersedes the
 earlier scheduled-sale/publication deferrals only.
 
+## M3A.9.3.2 — local sale lifecycle presentation
+
+Pricing now separates saved regular amount, configured promotional amount, current
+effective local price, and separately verified remote evidence. The compact saved
+local summary shows No Sale / Scheduled / Active / Ended and regular/configured
+amounts; an Ended sale retains authored JSON. Approval/execution status is separate:
+an authorised/paused/failed/recovery row is not the local date lifecycle or proof of
+remote price. Existing guided sale inputs remain authored values, not a live price.
+
+The shared exact-decimal project()/modifier selector drives browser, detail, variant
+JSON and editor summaries; no scan-time effective-price column is introduced. A page
+revalidates bounded local data at its next known boundary, with visibility/focus
+catch-up and no Shopify requests. It does not authorise or run a transition. Saving
+retains the existing local save/scan/review sequence and signed authority. A failed
+local revalidation is visible and does not invent remote equality.
+
+Native evidence freshness expiry is labelled historical matching evidence, not Needs
+Attention solely due to age. Missing/blocked/uncertain/different evidence remains
+protected. Live acceptance and historical Unraid task identification are separate
+from the fictional scan/timeline regression; see CURRENT_STATE.
+
 ## M3A.9.3.1 — saved-source sale review UX
 
 The Pricing section uses one combined UK `DD/MM/YYYY HH:mm` control per boundary,

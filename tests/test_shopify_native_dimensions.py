@@ -303,7 +303,7 @@ def test_native_freshness_is_independent_of_product_revision(world, monkeypatch)
     proof = drafts.evidence(row)["native_dimensions"]
     proof["checked_at"] = (drafts.now() - timedelta(minutes=11)).isoformat()
     native.persist(row, proof)
-    assert native.local_status(world[0], row)["state"] == "unavailable"
+    assert native.local_status(world[0], row)["state"] == "stale"
     with current_app.test_request_context():
         assert states_for([world[0]])[world[0].id]["label"] != "Up to Date"
 

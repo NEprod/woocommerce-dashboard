@@ -29,8 +29,19 @@ def store_summary(row, data):
         raise ShopifyError("Comparison exceeds its evidence bound.")
     from app.shopify_capacity import fence_owner
     fence_owner()
-    row.summary_json = encoded
-    db.session.add(row)
+    if row.id is not None:
+        from sqlalchemy import update
+        original = row.summary_json
+        updated = db.session.execute(update(ShopifyProductComparison).where(
+            ShopifyProductComparison.id == row.id, ShopifyProductComparison.summary_json == original).values(
+                summary_json=encoded), execution_options={'synchronize_session':False}).rowcount
+        if not updated:
+            db.session.rollback()
+            return False  # a newer comparison/transition won; never overwrite it
+        db.session.expire(row)
+    else:
+        row.summary_json = encoded
+        db.session.add(row)
     db.session.commit()
 
 
@@ -52,10 +63,26 @@ def fingerprint(product, images):
     return digest({"local": source_fingerprint(product, images), "taxonomy": taxonomy_fingerprint(product)})
 
 
-def record(product, plan, identity=None):
+def identity_revision(identity):
+    from app.shopify_drafts import digest
+    return digest([identity.media_evidence_json, identity.state, identity.verification_state,
+        identity.operation_id, identity.shopify_product_id]) if identity else None
+
+
+def record(product, plan, identity=None, *, post_write=False):
     from app.shopify_capacity import guard_owner
     guard_owner()
     from app.shopify_drafts import now, digest
+    from sqlalchemy import select, update
+    from app.models import ShopifyProductIdentity
+    if not post_write and identity and plan.get('read_identity_digest'):
+        # A read started against an earlier operation/identity cannot attest the
+        # newer one (or erase its recovery state), even if prices match again.
+        actual = db.session.execute(select(ShopifyProductIdentity.media_evidence_json, ShopifyProductIdentity.state,
+            ShopifyProductIdentity.verification_state, ShopifyProductIdentity.operation_id, ShopifyProductIdentity.shopify_product_id).where(
+            ShopifyProductIdentity.id == identity.id)).one()
+        if digest(list(actual)) != plan['read_identity_digest']:
+            return False
     from app.shopify_attributes import CAPABILITY_POLICY_VERSION
     if plan.get("attributes") and plan.get("attribute_capability_policy") != CAPABILITY_POLICY_VERSION:
         return False  # reconciling an old signed plan proves only its historical scope
@@ -66,7 +93,10 @@ def record(product, plan, identity=None):
         # A source edit during remote reads cannot borrow equality from the older plan.
         # Verified remote write evidence still stands; a fresh Review is required locally.
         return False
-    row = ShopifyProductComparison.query.filter_by(store_id=plan["store_id"], source_identity=product.source_relpath).first()
+    row = ShopifyProductComparison.query.filter_by(store_id=plan["store_id"], source_identity=product.source_relpath).populate_existing().first()
+    original = row.summary_json if row else None
+    if not post_write and row and plan.get('comparison_started_at') and row.compared_at <= now() and row.compared_at.isoformat() > plan['comparison_started_at']:
+        return False
     if row is None:
         row = ShopifyProductComparison(store_id=plan["store_id"], source_identity=product.source_relpath)
     def summary_value(value):
@@ -130,8 +160,17 @@ def record(product, plan, identity=None):
         raise ShopifyError("Comparison exceeds its evidence bound. Reduce reviewed data.")
     from app.shopify_capacity import fence_owner
     fence_owner()
-    row.summary_json, row.compared_at = encoded, now()
-    db.session.add(row)
+    if row.id is not None:
+        updated = db.session.execute(update(ShopifyProductComparison).where(
+            ShopifyProductComparison.id == row.id, ShopifyProductComparison.summary_json == original).values(
+                summary_json=encoded, compared_at=now()), execution_options={'synchronize_session':False}).rowcount
+        if not updated:
+            db.session.rollback()
+            return False
+        db.session.expire(row)
+    else:
+        row.summary_json, row.compared_at = encoded, now()
+        db.session.add(row)
     db.session.commit()
 
 
@@ -142,18 +181,19 @@ def invalidate(store_id, source):
     db.session.commit()
 
 
-def failed(product, message):
+def failed(product, message, *, started=None):
     """Preserve last-known comparison, but never reuse equality after a failed check."""
     from app.shopify_drafts import configuration, now
     from app.shopify_capacity import guard_owner
     guard_owner()
-    for row in ShopifyProductComparison.query.filter_by(source_identity=product.source_relpath).all():
+    for row in ShopifyProductComparison.query.filter_by(source_identity=product.source_relpath).populate_existing().all():
+        if started and row.compared_at.isoformat() > started:
+            continue
         data = json.loads(row.summary_json)
         if data.get("config") == configuration().fingerprint():
             data["refresh_failure"] = {"at": now().isoformat(), "message": message[:500]}
-            encoded = json.dumps(data, sort_keys=True)
-            if len(encoded.encode()) <= 32768:
-                row.summary_json = encoded
+            if len(json.dumps(data, sort_keys=True).encode()) <= 32768:
+                store_summary(row, data)
     from app.shopify_capacity import fence_owner
     fence_owner()
     db.session.commit()

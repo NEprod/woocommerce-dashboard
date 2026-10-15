@@ -344,6 +344,8 @@ def local_status(product, row=None, compared=None):
         return {"state": "blocked", "message": value.get("message") or plan["reason"]}
     if state == "verified" and fresh and plan.get("desired") == wanted["desired"]:
         return {"state": "verified", "message": "Native packed dimensions independently checked " + value["checked_at"]}
+    if state == "verified" and not fresh and plan.get("desired") == wanted["desired"]:
+        return {"state": "stale", "message": "Last packed-dimension check matched; its ten-minute freshness expired. A bounded read is due, not a confirmed mismatch."}
     if not value or state == "verified" and not fresh:
         return {"state": "unavailable", "message": "Native packed-dimension evidence is absent/stale; a targeted read is required independently of Product.updatedAt. Metadata evidence remains separate."}
     return {"state": "update", "message": value.get("message") or plan.get("reason") or "Native packed dimensions need a fresh reviewed comparison (independent of Product.updatedAt)."}

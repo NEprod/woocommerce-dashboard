@@ -208,27 +208,31 @@ def require_absent_sku(adapter, config, sku):
 
 
 def preview(product, adapter=None, *, context=None, scope="full"):
+    started = now().isoformat()
     try:
-        return _preview(product, adapter, context=context, scope=scope)
+        return _preview(product, adapter, context=context, scope=scope, started=started)
     except ShopifyError as exc:
         from app.shopify_comparison import failed
-        failed(product, str(exc))
+        failed(product, str(exc), started=started)
         raise
 
 
-def _preview(product, adapter=None, *, context=None, scope="full"):
+def _preview(product, adapter=None, *, context=None, scope="full", started=None):
     if scope not in {"full","inventory"}:
         raise ShopifyError("Choose a supported review scope.")
     if product.product_type == "variable":
         from app.shopify_variables import preview as variable_preview
-        return variable_preview(product, adapter, context=context, scope=scope)
+        return variable_preview(product, adapter, context=context, scope=scope, started=started)
     plan = local_plan(product)
+    plan['comparison_started_at'] = started or now().isoformat()
     config = configuration()
     adapter = adapter or ShopifyAdapter()
     shop = context["shop"] if context and context["config"] == config.fingerprint() else adapter.test_connection(config)
     can_write = "write_products" in shop["scopes"]
     store_key = digest({"id": shop["shop_id"]})
     row = matching_identity(shop["shop_id"], product)
+    from app.shopify_comparison import identity_revision
+    plan['read_identity_digest'] = identity_revision(row)
     if scope == "inventory" and (not row or row.state not in {"verified","scoped_verified"}):
         raise ShopifyError("Inventory-only Review requires a trusted retained product; reconcile unresolved operations first.")
     plan["scope"] = scope
@@ -895,7 +899,7 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
                 "remote_id": row.shopify_product_id, "remote_digest": digest(remote), "actual_status": remote["status"],
                 "remote_updated_at": remote.get("updatedAt")}
             from app.shopify_publication import comparison_after_write
-            record(product, comparison_after_write(product, result, row, adapter or ShopifyAdapter()), row)
+            record(product, comparison_after_write(product, result, row, adapter or ShopifyAdapter()), row, post_write=True)
 
 
 def reconcile(row, candidate_id=None, adapter=None, approval=None):

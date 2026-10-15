@@ -1,5 +1,55 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.3.2 — sale lifecycle and verification reconciliation
+
+Products previously selected the configured sale whenever non-null, and details used
+SQL coalesce without dates. The publisher/sale worker already used the canonical
+date-aware price: this was a local presentation defect, not a reason for another
+Shopify mutation. Configured sale/dates remain indexed/authored; current browser,
+detail, editor and variant JSON prices now reuse project()/existing modifiers.
+
+Independently, a matching native packed-dimension check older than ten minutes was
+converted into Needs Attention. It now remains explicitly historical (Last check
+matched), with its original timestamp and pending background read. No freshness is
+renewed by rendering. Missing/failed/blocked/changed/recovery proof remains distinct;
+an unrelated difference is never hidden. Detail respects the service's qualified
+label rather than substituting Up to Date for every no_change state.
+
+Sale transitions still commit pending receipts before mutation, independently read
+every required domain, and record full comparison only when the current resolved
+fingerprint still matches. Price-only success or Discord delivery cannot create
+full equality. Old in-flight reads bind their starting identity and comparison time;
+conditional SQLite summary updates prevent concurrent evidence replacement. Existing
+task ownership/commit fences and uncertain read-only recovery remain unchanged.
+
+Open pages schedule one bounded local GET for visible product IDs at a known price
+boundary and catch up after suspension. No Shopify request, browser scheduler or
+write occurs. On failure the page asks for revalidation rather than silently inventing
+a price; a later focus can retry. Background Shopify reconciliation retains its
+existing interval, ten-minute successful-proof rule, fairness and capacity policy.
+The local scanner has no Shopify verification side effect. The reported 17:08 BST
+run cannot be identified without Unraid history; a fictional 17:03 → 17:08 unchanged
+scan → 17:14 expiry-of-proof regression establishes the corrected interaction only.
+
+Unraid acceptance for 16bit-0001: back up persistent appdata and use the immutable
+sale-lifecycle image without changing mounts, credentials or API versions. Confirm
+the retained Draft/variant/InventoryItem IDs and unpublished channels. Before an
+explicitly approved test window, expect regular £3.50 / configured £1.50 / Scheduled;
+after due activation expect local/Shopify £1.50 and remote compare-at £3.50. At expiry
+local becomes £3.50 / Ended; after the authorised worker verifies restoration Shopify
+is £3.50 with null compare-at. Worker cadence/capacity can delay remote execution;
+the local schedule is not proof it ran. Keep a page open to check boundary refresh.
+Run the established identity-preserving affected scan and verify £3.50 remains,
+source £1.50/dates/IDs remain, and no extra price write or discovery/publish notice.
+Let Shopify Products reconciliation run independently: stale proof should be labelled
+historical, then become Up to Date only after complete readback. Inspect a genuine
+changed field/uncertain receipt without clearing it. Record scanner operation IDs,
+Shopify task IDs, UTC/BST timestamps and redacted blockers if anything differs.
+
+No new migration (0014_shopify_sales), permissions, defaults or API-version change.
+No real Shopify/Discord acceptance is implied by automated tests. No batch, collection
+authority, editor expansion or catalogue-scheduler redesign is included.
+
 ## M3A.9.3.1 — sale editor and modal handoff
 
 Use Product Editor → Pricing. Combined UK date/time controls display Europe/London
