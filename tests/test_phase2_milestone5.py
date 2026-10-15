@@ -264,6 +264,30 @@ def milestone5_client(milestone5_app):
     with client.session_transaction() as session:
         session["_user_id"] = str(user_id)
         session["_fresh"] = True
+    original_post = client.post
+    def post(path, *args, **kwargs):
+        # Historical tests express a complete desired source. Translate that
+        # explicit intent to the new signed patch protocol, never a replacement.
+        if path.startswith("/edit_products/") and path.endswith("/save"):
+            from app.metadata_save import review_token, source
+            payload = dict(kwargs["json"])
+            with app.app_context():
+                product = Product.query.filter_by(sku=path.split("/")[2]).one()
+                payload["revision"] = review_token(product, payload["kind"])
+                _, text, _ = source(product, payload["kind"])
+                if payload.pop("replace", False):
+                    def removals(before, after, path=()):
+                        result = []
+                        for key in before:
+                            if key not in after: result.append([*path,key])
+                            elif isinstance(before[key],dict) and isinstance(after[key],dict):
+                                result.extend(removals(before[key],after[key],(*path,key)))
+                        return result
+                    payload["remove_paths"] = removals(json.loads(text), payload["data"])
+            payload["acknowledge_shared"] = True
+            kwargs["json"] = payload
+        return original_post(path, *args, **kwargs)
+    client.post = post
     return client
 
 
@@ -615,7 +639,8 @@ def test_advanced_editor_and_guided_editor_expose_required_client_safety_hooks()
         / "app/static/assets/js/metadata-editor.js"
     ).read_text(encoding="utf-8")
     assert "beforeunload" in source
-    assert "replace: true" in source
+    assert "replace: true" not in source
+    assert "documentPatch(originalDocument" in source and "X-CSRFToken" in source
     assert "data-override-toggle" in source
     assert "setBusy(true)" in source
     assert "JSON.parse" in source

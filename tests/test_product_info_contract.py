@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app import create_app, db
-from app.models import Product, ProductAsset, Settings
+from app.models import Product, ProductAsset, Settings, Collection, User
 from app.product_info import (
     CANONICAL_FIELDS,
     EXAMPLE_NAMES,
@@ -195,9 +195,17 @@ def editor_app(tmp_path):
     Config.SQLALCHEMY_DATABASE_URI = f"sqlite:///{database}"
     try:
         app = create_app()
-        app.config.update(TESTING=True, LOGIN_DISABLED=True, WTF_CSRF_ENABLED=False)
+        app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
         with app.app_context():
-            product = Product(sku="FIC-EDITOR-0001", title="Fictional Product")
+            shared = product_folder.parent / "product_info.json"
+            shared.write_text(json.dumps({"collection_type":"Simple","sku_prefix":"FIC-EDITOR-"}))
+            collection = Collection(name="Fictional Collection", root_path=str(product_folder.parent), source_relpath="Fictional Collection",
+                sku_prefix="FIC-EDITOR-", collection_type="Simple", shared_json_path=str(shared),
+                shared_json_relpath="Fictional Collection/product_info.json")
+            product = Product(sku="FIC-EDITOR-0001", title="Fictional Product", collection=collection,
+                source_relpath="Fictional Collection/Fictional Product",
+                shared_json_relpath="Fictional Collection/product_info.json")
+            db.session.add(User(email="editor@example.test", username="editor-admin", password="unused", is_admin=True))
             db.session.add_all(
                 [
                     product,
@@ -223,6 +231,22 @@ def editor_app(tmp_path):
         with app.app_context():
             db.session.remove()
         Config.SQLALCHEMY_DATABASE_URI = original_uri
+
+
+def _editor_client(app):
+    client = app.test_client()
+    with app.app_context():
+        user_id = User.query.one().id
+    with client.session_transaction() as session:
+        session["_user_id"] = str(user_id)
+        session["_fresh"] = True
+    return client
+
+
+def _revision(app):
+    from app.metadata_save import review_token
+    with app.app_context():
+        return review_token(Product.query.filter_by(sku="FIC-EDITOR-0001").one(), "override")
 
 
 @pytest.mark.parametrize(
@@ -265,7 +289,11 @@ def test_invalid_editor_save_has_no_filesystem_or_scan_side_effects(
         ),
     )
 
-    response = app.test_client().post(
+    if not body.endswith(":"):
+        payload = json.loads(body)
+        payload["revision"] = _revision(app)
+        body = json.dumps(payload)
+    response = _editor_client(app).post(
         "/edit_products/FIC-EDITOR-0001/save",
         data=body,
         content_type=content_type,
@@ -273,10 +301,7 @@ def test_invalid_editor_save_has_no_filesystem_or_scan_side_effects(
 
     assert response.status_code == 400
     payload = response.get_json()
-    if body.endswith(":"):
-        assert payload["submitted_content"] == body
-    else:
-        assert payload["submitted_data"] == json.loads(body)["data"]
+    assert payload["error"] in {"invalid_json", "metadata_validation_failed"}
     assert target.read_bytes() == before
     assert not list(target.parent.glob("product_info.json.bak.*"))
     assert not (target.parent / ".update").exists()
@@ -296,10 +321,11 @@ def test_valid_editor_save_retains_backup_marker_scan_and_warning_behavior(
         lambda *args, **kwargs: calls.append((args, kwargs)),
     )
 
-    response = app.test_client().post(
+    response = _editor_client(app).post(
         "/edit_products/FIC-EDITOR-0001/save",
         json={
             "kind": "override",
+            "revision": _revision(app),
             "data": {
                 "title": "Updated override",
                 "upsell_ids": ["FIC-UP-1"],
@@ -322,22 +348,22 @@ def test_valid_editor_save_retains_backup_marker_scan_and_warning_behavior(
 
 def test_in_app_reference_and_templates_are_available(editor_app):
     app, _target = editor_app
-    page = app.test_client().get("/metadata-reference")
+    page = _editor_client(app).get("/metadata-reference")
     assert page.status_code == 200
     text = page.get_data(as_text=True)
     assert "product_info.json Metadata Reference" in text
     assert "Inherited / override behaviour" in text
     assert "variation modifier sale_price" in text
 
-    template = app.test_client().get("/api/metadata-reference/template/minimal-override")
+    template = _editor_client(app).get("/api/metadata-reference/template/minimal-override")
     assert template.status_code == 200
     assert template.get_json() == {"name": "minimal-override", "data": {}}
 
-    schema = app.test_client().get("/api/metadata-reference/schema/collection")
+    schema = _editor_client(app).get("/api/metadata-reference/schema/collection")
     assert schema.status_code == 200
     assert schema.get_json()["required"] == ["collection_type", "sku_prefix"]
 
-    editor = app.test_client().get("/edit_products/1/edit/override")
+    editor = _editor_client(app).get("/edit_products/1/edit/override")
     assert editor.status_code == 200
     editor_text = editor.get_data(as_text=True)
     assert "Metadata reference" in editor_text

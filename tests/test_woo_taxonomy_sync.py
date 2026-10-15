@@ -11,7 +11,7 @@ from app.models import WooTaxonomyIdentity
 from app.woocommerce_connection import WooConfiguration, WooConnectionError
 from app.taxonomy_assignments import resolve, options
 from app.utils.json_utils import merge_product_json
-from app.routes import _prune
+from app.metadata_edit import prepare_edit, source_digest
 from test_taxonomy_workspace import registry_app, entry, field
 from test_phase3_woo_publish_preview import FakePublisherClient
 from test_phase2_milestone5 import milestone5_app, milestone5_client
@@ -216,7 +216,9 @@ def test_local_ranges_resolution_replacement_and_offline_workspace(world, monkey
     shared = {"storefront_collections": ["Paper-Garden", "Legacy range"]}
     assert merge_product_json(shared, {})["storefront_collections"] == shared["storefront_collections"]
     assert merge_product_json(shared, {"storefront_collections": []})["storefront_collections"] == []
-    assert _prune({"storefront_collections": []}) == {"storefront_collections": []}
+    text = json.dumps(shared)
+    assert prepare_edit(text, {"storefront_collections": []},
+                        expected_digest=source_digest(text), kind="override").data["storefront_collections"] == []
     with app.app_context():
         resolved = resolve(shared)
         assert resolved["storefront_collections"][0]["definition"]

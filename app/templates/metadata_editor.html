@@ -3,6 +3,13 @@
 {% set product = workspace.product %}
 {% set is_shared = workspace.kind == 'shared' %}
 {% block title %}{{ 'Edit Collection Metadata' if is_shared else 'Edit Product Override' }}{% endblock %}
+{% macro extra_field(key, label, helper, choices=None) %}
+<div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}>
+  <div class="guided-field-label"><label for="metadata-{{ key }}">{{ label }}</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override this value</span></label>{% endif %}</div>
+  {% if choices %}<select id="metadata-{{ key }}" data-field="{{ key }}"><option value="">Not set</option>{% for value, text in choices %}<option value="{{ value }}">{{ text }}</option>{% endfor %}</select>{% else %}<input id="metadata-{{ key }}" data-field="{{ key }}">{% endif %}
+  <p class="field-helper">{{ helper }} <span data-inherited-value="{{ key }}"></span></p><p class="field-error" data-field-error="{{ key }}" hidden></p>
+</div>
+{% endmacro %}
 {% block content %}
 <nav class="workspace-breadcrumb" aria-label="Breadcrumb">
   <a href="{{ url_for('main.collections') if is_shared else url_for('main.products') }}">{{ 'Collections' if is_shared else 'Catalogue' }}</a><span aria-hidden="true">/</span><a href="{{ url_for('main.collection_detail', collection_id=product.collection_id) if is_shared else url_for('main.product_detail', product_id=product.id) }}">{{ workspace.collection_display_name if is_shared else product.title }}</a><span aria-hidden="true">/</span><span aria-current="page">{{ 'Collection metadata' if is_shared else 'Product override' }}</span>
@@ -24,24 +31,33 @@
 <section class="metadata-scope-notice" role="note">{{ icon('file') }}<div><strong>Product-only scope</strong><p>This override affects only this product. Fields without an active override continue to inherit the collection value.</p></div></section>
 {% endif %}
 
+<nav class="metadata-section-nav" aria-label="Editor sections">
+{% for id, name in [('basic-information-title','General'),('pricing-title','Pricing'),('attributes-title','Variations & attributes'),('image-attributes-title','Images'),('categories-tags-title','Organisation'),('shipping-title','Shipping'),('seo-title','SEO'),('advanced-fields-title','Advanced')] %}<a href="#{{ id }}">{{ name }}</a>{% endfor %}
+</nav>
+<div class="metadata-owner-actions">
+{% if is_shared and workspace.can_override %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='override') }}">Edit Product Overrides</a>{% elif not is_shared %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='shared') }}">Edit Shared Collection Data</a>{% endif %}
+<p>SKU <code>{{ product.sku }}</code> · Source <code>{{ workspace.authored.reference }}</code> · {{ 'Shared defaults' if is_shared else 'Sparse product overrides' }}</p>
+</div>
+{% if workspace.save_error %}<p class="metadata-scope-warning" role="alert">{{ workspace.save_error }}</p>{% endif %}
 <div class="metadata-feedback" id="validationMessages" data-metadata-feedback role="status" aria-live="polite" hidden></div>
 
 <div class="metadata-editor-layout" data-metadata-editor data-kind="{{ workspace.kind }}">
   <div class="metadata-editor-main">
     <form data-guided-editor novalidate>
       <section class="editor-workspace-section" aria-labelledby="basic-information-title">
-        <header><div><h2 id="basic-information-title">Basic Information</h2><p>Core authored metadata used by the scanner.</p></div></header>
+        <header><div><h2 id="basic-information-title">General</h2><p>Core authored metadata used by the scanner.</p></div></header>
         <div class="editor-field-grid">
           {% for key, label, helper in [
             ('sku_prefix','SKU prefix','Identity prefix used only when allocating a new SKU.'),
             ('collection_type','Collection type','Selects the protected scanner collection mode.'),
             ('title','Shared product title' if is_shared else 'Title','Shared product-title default or intentional product-specific title contribution.'),
-            ('short_description','Short description','Concise catalogue description.')
+            ('short_description','Short description','Concise catalogue description.'),
+            ('description','Full description','Main Shopify description. SEO copy is separate; no automatic substitution.')
           ] %}
           {% if is_shared or key not in ['sku_prefix','collection_type'] %}
           <div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}>
             <div class="guided-field-label"><label for="metadata-{{ key }}">{{ label }}</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override this value</span></label>{% endif %}</div>
-            {% if key == 'collection_type' %}<select id="metadata-{{ key }}" data-field="{{ key }}"><option value="">Select a collection type</option><option>Simple</option><option>Variable Collection</option><option>Single Variable</option></select>{% elif key == 'short_description' %}<textarea id="metadata-{{ key }}" data-field="{{ key }}" rows="3"></textarea>{% else %}<input id="metadata-{{ key }}" data-field="{{ key }}" type="text">{% endif %}
+            {% if key == 'collection_type' %}<select id="metadata-{{ key }}" data-field="{{ key }}" {% if key in workspace.authored.data %}disabled{% endif %}><option value="">Select a collection type</option><option>Simple</option><option>Variable Collection</option><option>Single Variable</option></select>{% elif key in ['short_description','description'] %}<textarea id="metadata-{{ key }}" data-field="{{ key }}" rows="3"></textarea>{% else %}<input id="metadata-{{ key }}" data-field="{{ key }}" type="text" {% if key == "sku_prefix" and key in workspace.authored.data %}readonly{% endif %}>{% endif %}
             <p class="field-helper" id="metadata-{{ key }}-helper">{{ helper }}{% if not is_shared %} <span data-inherited-value="{{ key }}"></span>{% endif %}</p><p class="field-error" data-field-error="{{ key }}" hidden></p>
           </div>
           {% endif %}
@@ -59,16 +75,26 @@
         </div>
       </section>
 
+      <section class="editor-workspace-section" aria-labelledby="pricing-title">
+        <header><h2 id="pricing-title">Pricing</h2><p>Regular price and optional unscheduled sale. Current indexed price: {{ product.sale_price if product.sale_price is not none else product.regular_price }}. Validate and scan before relying on a changed price.</p></header>
+        <div class="editor-field-grid">{{ extra_field('price','Regular price','Store currency; existing modifiers remain unchanged.') }}{{ extra_field('sale_price','Sale price','Optional; reviewed Shopify sale must be below regular price. Clear to remove this authored value.') }}</div>
+        <p class="field-helper">Scheduled sales are not implemented. Existing sale dates remain preserved in Advanced JSON and block scheduled publishing; no date/time scheduling controls are enabled.</p>
+      </section>
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="categories-tags-title">
-        <header><div><h2 id="categories-tags-title">Categories and Tags</h2><p>Ordered authored values. The protected override merge remains additive and set-based.</p></div></header>
+        <header><div><h2 id="categories-tags-title">Organisation</h2><p>Ordered authored values. The protected override merge remains additive and set-based.</p></div></header>
         <div class="editor-field-grid">
           {% for key, label, singular_label in [('categories','Categories','Category'),('tags','Tags','Tag')] %}<div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}><div class="guided-field-label"><span id="metadata-{{ key }}-label">{{ label }}</span>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override this value</span></label>{% endif %}</div><div class="repeatable-list" data-list-editor="{{ key }}" role="group" aria-labelledby="metadata-{{ key }}-label"></div><button class="btn btn-sm btn-outline-primary" type="button" data-add-list="{{ key }}">Add {{ singular_label }}</button><p class="field-error" data-field-error="{{ key }}" hidden></p></div>{% endfor %}
+        </div>
+        <div class="editor-field-grid">
+          {{ extra_field('vendor','Vendor / brand','Only authored/configured brand is published.') }}
+          {{ extra_field('shopify_product_type','Shopify product type','Explicit merchandising label; not the folder layout or entire category path.') }}
+          {{ extra_field('primary_category','Primary TLC category key','Optional assigned stable registry key. Standard Shopify category remains a reviewed Taxonomy mapping.') }}
         </div>
         {% with picker_kind='categories' %}{% include 'includes/_metadata_taxonomy_choices.html' %}{% endwith %}
       </section>
 
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="ranges-title">
-        <header><h2 id="ranges-title">Storefront Collections</h2><p>Named ranges, separate from dashboard catalogue groups. Reviewed explicit-contract publication assigns their verified Woo Brands.</p></header>
+        <header><h2 id="ranges-title">Storefront Collections</h2><p>Named ranges, separate from dashboard catalogue groups. Assignments use the existing reviewed Shopify collection mappings; saving locally creates no remote collection.</p></header>
         <div class="guided-field" data-field-wrapper="storefront_collections" {% if not is_shared %}data-override-field="storefront_collections"{% endif %}>
           {% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="storefront_collections" {% if 'storefront_collections' in workspace.override.data %}checked{% endif %}>Override inherited ranges</label>{% endif %}
           <div class="repeatable-list" data-list-editor="storefront_collections" aria-label="Assigned Storefront Collections"></div>
@@ -82,22 +108,33 @@
       </section>
 
       <section class="editor-workspace-section" aria-labelledby="seo-title">
-        <header><div><h2 id="seo-title">SEO</h2><p>Authored metadata projected into the stored Woo-style row.</p></div></header>
+        <header><div><h2 id="seo-title">SEO</h2><p>Native Shopify SEO; retained authored keys remain unchanged.</p></div></header>
         <div class="editor-field-grid">
-          {% for key, label, limit in [('meta_title','Meta title',60),('meta_description','Meta description',160)] %}<div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}><div class="guided-field-label"><label for="metadata-{{ key }}">{{ label }}</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override this value</span></label>{% endif %}</div>{% if key == 'meta_description' %}<textarea id="metadata-{{ key }}" data-field="{{ key }}" rows="4" maxlength="{{ limit }}"></textarea>{% else %}<input id="metadata-{{ key }}" data-field="{{ key }}" maxlength="{{ limit }}">{% endif %}<p class="field-helper"><span data-character-count="{{ key }}">0</span> / {{ limit }} characters of practical guidance.</p><p class="field-error" data-field-error="{{ key }}" hidden></p></div>{% endfor %}
+          {% for key, label, limit in [('meta_title','SEO title',70),('meta_description','SEO description',320),('handle','URL handle',255)] %}<div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}><div class="guided-field-label"><label for="metadata-{{ key }}">{{ label }}</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override this value</span></label>{% endif %}</div>{% if key == 'meta_description' %}<textarea id="metadata-{{ key }}" data-field="{{ key }}" rows="4" maxlength="{{ limit }}"></textarea>{% else %}<input id="metadata-{{ key }}" data-field="{{ key }}" maxlength="{{ limit }}">{% endif %}<p class="field-helper"><span data-character-count="{{ key }}">0</span> / {{ limit }} characters of practical guidance.</p><p class="field-error" data-field-error="{{ key }}" hidden></p></div>{% endfor %}
         </div>
       </section>
 
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="attributes-title">
-        <header><div><h2 id="attributes-title">Attributes</h2><p>Assign each attribute once. Choose its terms and whether it drives variations in the same row.</p></div><button class="btn btn-sm btn-outline-primary" type="button" data-add-attribute>Add attribute</button></header>
+        <header><div><h2 id="attributes-title">Variations & informational attributes</h2><p>Assign each attribute once. Choose its terms and whether it drives variations in the same row.</p></div><button class="btn btn-sm btn-outline-primary" type="button" data-add-attribute>Add attribute</button></header>
         {% if not is_shared %}<label class="override-switch section-override"><input type="checkbox" data-override-toggle="attributes" {% if 'attributes' in workspace.override.data %}checked{% endif %}><span>Override the attributes object</span></label>{% endif %}
         <div class="structured-editor-list" data-attributes-editor></div><p class="field-error" data-field-error="attributes" hidden></p>
         <div class="attribute-contract-note"><p data-variation-contract-status></p><button type="button" class="btn btn-sm btn-ghost" data-adopt-variation>Use explicit attribute contract</button><p class="field-helper">Changing a “Use for variations” control adopts the explicit contract. Publishing then requires verified controlled taxonomy and a fresh Preview. No checked rows means an intentional empty driver list. Viewing legacy metadata changes nothing. Advanced JSON remains available for source-level contract changes.</p><p class="field-error" data-field-error="variation_attributes" hidden></p></div>
         {% with picker_kind='attributes' %}{% include 'includes/_metadata_taxonomy_choices.html' %}{% endwith %}
       </section>
 
+      {% if workspace.variation_image_preview %}
+      <section class="editor-workspace-section"><header><h2>Indexed effective variations</h2><p>Read-only values from the established scanner. An unsaved draft is not a verified recalculation.</p></header><div class="editor-effective-variations">
+      {% for variation in workspace.variation_image_preview %}<article><strong>{{ variation.sku }}</strong><p>{{ variation.attributes|map(attribute='value')|join(' · ') }}</p><p>Regular {{ variation.regular_price }}{% if variation.sale_price is not none %} · Sale {{ variation.sale_price }}{% endif %}</p><p>Weight {{ variation.weight_g if variation.weight_g is not none else 'Not set' }} g · Dimensions {{ variation.dimensions_mm.length or '—' }} × {{ variation.dimensions_mm.width or '—' }} × {{ variation.dimensions_mm.height or '—' }} mm</p></article>{% endfor %}
+      </div><a href="{{ url_for('main.product_detail', product_id=product.id) }}#variations-title">View all {{ workspace.variation_count }} variations</a></section>
+      {% endif %}
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="image-attributes-title">
-        <header><div><h2 id="image-attributes-title">Image attributes</h2><p>Source-folder image routing, separate from taxonomy assignments. Keep the existing Single Variable image axes and folder names unchanged.</p></div></header>
+        <header><div><h2 id="image-attributes-title">Images</h2><p>Source-folder image routing, separate from taxonomy assignments. Keep the existing Single Variable image axes and folder names unchanged.</p></div></header>
+        <div class="editor-image-context">
+        {% for image in workspace.product_images %}<article>{% if image.preview_url %}<img src="{{ image.preview_url }}" alt="{{ image.alt_text or product.title }}" loading="lazy">{% endif %}<div><strong>{{ image.role|title }} · Position {{ image.position + 1 }}</strong><span>{{ image.state|replace('_',' ')|title }}</span><code>{{ image.source_reference or 'Local source unavailable' }}</code><span>Alt: {{ image.alt_text or 'Not set' }}</span></div></article>{% else %}<p>No parent images currently indexed.</p>{% endfor %}
+        {% for variation in workspace.variation_image_preview %}{% for image in variation.images %}<article>{% if image.preview_url %}<img src="{{ image.preview_url }}" alt="{{ image.alt_text or variation.sku }}" loading="lazy">{% endif %}<div><strong>{{ variation.sku }} · {{ image.role }}</strong><span>{{ image.state|replace('_',' ')|title }}</span><code>{{ image.source_reference or 'Local source unavailable' }}</code></div></article>{% endfor %}{% endfor %}
+        </div>
+        <p class="field-helper">Gallery/featured/variant associations are read-only here. Adding files, changing gallery order and replacing remote media are deferred. Original files are never changed by this form.</p>
+        <details><summary>Retained Shopify media (cached evidence)</summary>{% for media in workspace.remote_media %}<p><code>{{ media.id }}</code> · {{ media.source }} · {{ media.status }}{% if media.url %}<br><a href="{{ media.url }}" target="_blank" rel="noopener noreferrer">Returned CDN image</a>{% endif %}</p>{% else %}<p>No retained media evidence available.</p>{% endfor %}</details>
         <div class="guided-field image-attribute-field" data-field-wrapper="image_attributes" {% if not is_shared %}data-override-field="image_attributes"{% endif %}><div class="guided-field-label"><span id="image-attributes-label">Image attributes</span>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="image_attributes" {% if 'image_attributes' in workspace.override.data %}checked{% endif %}><span>Override this value</span></label>{% endif %}</div><div class="repeatable-list" data-list-editor="image_attributes" role="group" aria-labelledby="image-attributes-label"></div><button class="btn btn-sm btn-outline-primary" type="button" data-add-list="image_attributes">Add Image Attribute</button><p class="field-helper">Exact attribute names used by Single Variable source-image folders.</p><p class="field-error" data-field-error="image_attributes" hidden></p></div>
       </section>
 
@@ -108,17 +145,24 @@
       </section>
 
       <section class="editor-workspace-section" aria-labelledby="shipping-title">
-        <header><div><h2 id="shipping-title">Shared Dimensions and Shipping</h2><p>Base values inherited by the parent and variations unless a matching modifier replaces them.</p></div></header>
+        <header><div><h2 id="shipping-title">Shipping & product dimensions</h2><p>Base values inherited by the parent and variations unless a matching modifier replaces them.</p></div></header>
         <div class="editor-field-grid dimensions-grid">
-          {% for key, label, unit in [('price','Price','store currency'),('sale_price','Sale price','store currency'),('weight','Weight','grams'),('shipping_class','Shipping class','currently preserved but not emitted')] %}<div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}><div class="guided-field-label"><label for="metadata-{{ key }}">{{ label }}</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override</span></label>{% endif %}</div><input id="metadata-{{ key }}" data-field="{{ key }}"><p class="field-helper">{{ unit }}</p><p class="field-error" data-field-error="{{ key }}" hidden></p></div>{% endfor %}
+          {% for key, label, unit in [('weight','Weight','grams; no quantity/location changes')] %}<div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}><div class="guided-field-label"><label for="metadata-{{ key }}">{{ label }}</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override</span></label>{% endif %}</div><input id="metadata-{{ key }}" data-field="{{ key }}"><p class="field-helper">{{ unit }}</p><p class="field-error" data-field-error="{{ key }}" hidden></p></div>{% endfor %}
           {% if not is_shared %}<label class="override-switch section-override"><input type="checkbox" data-override-toggle="dimensions" {% if 'dimensions' in workspace.override.data %}checked{% endif %}><span>Override dimensions</span></label>{% endif %}
           {% for key, label in [('length','Length'),('width','Width'),('height','Height')] %}<div class="guided-field"><label for="metadata-{{ key }}">{{ label }} (mm)</label><input id="metadata-{{ key }}" data-dimension="{{ key }}"><p class="field-error" data-field-error="dimensions.{{ key }}" hidden></p></div>{% endfor %}
         </div>
       </section>
 
+      <section class="editor-workspace-section"><div class="editor-field-grid">
+        {{ extra_field('country_of_origin','Country of origin','Uppercase ISO code, only when accurate. No automatic GB assignment.') }}
+        {{ extra_field('requires_shipping','Requires shipping','Missing remains unspecified.', [('true','Yes'),('false','No')]) }}
+        {{ extra_field('manage_stock','Track finished-product inventory','No quantity or location changes.', [('true','Tracked'),('false','Untracked')]) }}
+        {{ extra_field('backorders','Out-of-stock selling policy','Existing reviewed Shopify policy; notify does not send customer alerts.', [('no','Do not allow'),('yes','Allow'),('notify','Allow (legacy notify policy)')]) }}
+      </div><p>Product millimetres are not parcel dimensions. Native packed dimensions retain their separate opt-in measurement policy.</p></section>
       <section class="editor-workspace-section advanced-fields-section" aria-labelledby="advanced-fields-title">
-        <header><div><h2 id="advanced-fields-title">Advanced Authored Fields</h2><p>Supported contract fields that do not belong to the primary catalogue workflow.</p><p>Shipping origin, requires-shipping and customisation definitions are available in Advanced JSON with server validation. Customisation fields inherit by stable ID: adding one does not replace the others. Use enabled: false to disable, or remove: true to remove an inherited field. These definitions do not create Shopify options, upload customer files or send proofs.</p></div></header>
-        <div class="editor-field-grid">{% for key in ['description','sale_start_date','sale_end_date','grouped_ids','grouped_products','upsell_ids','cross_sell_ids','upsells','crosssells'] %}<div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}><div class="guided-field-label"><label for="metadata-{{ key }}">{{ key|replace('_',' ')|title }}</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override</span></label>{% endif %}</div>{% if key == 'description' %}<textarea id="metadata-{{ key }}" data-field="{{ key }}" rows="5"></textarea>{% else %}<input id="metadata-{{ key }}" data-field="{{ key }}" data-array-field="{{ 'true' if key in ['grouped_ids','grouped_products','upsell_ids','cross_sell_ids','upsells','crosssells'] else 'false' }}">{% endif %}<p class="field-error" data-field-error="{{ key }}" hidden></p></div>{% endfor %}</div>
+        <header><h2 id="advanced-fields-title">Advanced</h2><p>Unknown, internal and historical fields remain preserved. Use Advanced JSON for explicit complex changes, customisation definitions and existing sale-date metadata. No customer forms, uploads, proofs or scheduled sale execution are implemented.</p></header>
+        <button class="btn btn-outline-primary" type="button" data-open-advanced>Inspect / edit authored JSON</button>
+        <details><summary>Authored, inherited and effective values</summary><div class="compact-comparison-list">{% for row in workspace.comparison %}<div><strong>{{ row.label }}</strong><span>{{ row.state }} · Effective {{ row.resolved_display }}</span></div>{% endfor %}</div></details>
       </section>
     </form>
 
@@ -132,7 +176,7 @@
   </div>
 
   <aside class="metadata-editor-sidebar">
-    <section class="side-summary-card"><h2>Publishing context</h2><p>Saving preserves sparse overrides and inheritance. Viewing never adopts the explicit variation contract.</p><dl><div><dt>Last local update</dt><dd>{{ product.local_updated_at or 'Not recorded' }}</dd></div></dl><a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.woo_sync', q=product.sku) }}">Review Woo state</a></section>
+    <section class="side-summary-card"><h2>Publishing context</h2><p>Saving preserves sparse overrides and inheritance. Viewing never adopts the explicit variation contract.</p><p>Shopify: {{ workspace.shopify.label }} · {{ workspace.shopify.remote_status }} (retained evidence)</p><p>{{ workspace.shopify.message }}</p><p>{{ workspace.local_save.message }}</p><dl><div><dt>Last local update</dt><dd>{{ product.local_updated_at or 'Not recorded' }}</dd></div></dl><a class="btn btn-sm btn-outline-primary" href="{{ url_for('commerce.drafts', product_id=product.id) }}">Review Shopify Changes</a><p>Saving locally never publishes. Complete ingestion before reviewing Shopify.</p></section>
     <section class="side-summary-card"><div class="side-summary-heading"><span>{{ icon('file') }}</span><div><h2>Metadata Source</h2><span class="catalogue-pill is-{{ 'shared' if is_shared else 'override' }}">{{ 'Collection metadata' if is_shared else 'Product override' }}</span></div></div><dl><div><dt>Collection</dt><dd>{{ workspace.collection_display_name }}</dd></div><div><dt>Shared product title</dt><dd>{{ workspace.shared_product_title or 'Not set' }}</dd></div><div><dt>Source file</dt><dd><code>{{ workspace.authored.reference or 'Not registered' }}</code></dd></div><div><dt>Scope</dt><dd>{{ workspace.affected_total ~ ' products' if is_shared else 'This product only' }}</dd></div><div><dt>Current state</dt><dd>{{ 'Unsaved draft — no source write or scan yet' if workspace.authored.draft else 'Available' if workspace.authored.exists else 'Unavailable' }}</dd></div></dl></section>
     <section class="side-summary-card"><div class="side-summary-heading"><span>{{ icon('check') }}</span><div><h2>Validation</h2><span class="catalogue-pill is-{{ 'active' if workspace.authored.validation.valid else 'missing' }}">{{ 'Valid' if workspace.authored.validation.valid else 'Needs attention' }}</span></div></div><p>Validation uses the existing product_info.json schema and field inventory.</p><a href="{{ url_for('main.metadata_reference') }}">Metadata reference</a></section>
     <section class="side-summary-card"><h2>Authoring Template</h2><label for="templateSelect">Load a fictional template into this unsaved draft</label><select id="templateSelect"><option value="">Choose a template</option>{% if not is_shared %}<option value="minimal-override">Minimal partial override</option>{% endif %}<option value="minimal-collection">Minimal collection</option><option value="simple">Simple collection</option><option value="variable-collection">Variable Collection</option><option value="single-variable">Single Variable</option><option value="complete">Complete reference</option></select><button class="btn btn-sm btn-outline-primary" id="loadTemplateBtn" type="button">Load Template</button><p class="field-helper">Loading never saves automatically. The normal override template remains <code>{}</code>.</p></section>
@@ -143,11 +187,14 @@
   </aside>
 </div>
 
+{% if is_shared and workspace.affected_total > 1 %}<label class="metadata-shared-confirmation"><input type="checkbox" data-acknowledge-shared> I confirm this saves shared data affecting up to {{ workspace.affected_total }} products; child overrides remain intact.</label>{% endif %}
 <div class="metadata-mobile-savebar"><span data-save-state>Saved</span><button class="btn btn-primary" type="button" data-save-metadata>Save Metadata</button></div>
 {% include 'includes/_scan_modal.html' %}
 
 <script id="metadata-editor-bootstrap" type="application/json">{{ {
   'kind': workspace.kind,
+  'revision': workspace.revision,
+  'can_save': workspace.revision is not none,
   'product_id': product.id,
   'sku': product.sku,
   'authored': workspace.authored.data,

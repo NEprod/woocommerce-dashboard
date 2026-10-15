@@ -1,5 +1,13 @@
 # Roadmap
 
+## M3A.9.2 — core editor implemented; Unraid acceptance next
+
+Accept supported forms, all three owners, sparse/shared scope, conflict/backup/write
+handling and scoped rescans before extension. No new migration or automatic Shopify
+write. Single Variable resolution follows the scanner's one-owner contract. Next:
+M3A.9.3 customisation definition authoring/preset copies with v1 inheritance compatibility,
+not storefront uploads/charges or sale execution. Creator/media associations stay later.
+
 ## M3A.9 — staged Product Creator & Editor
 
 M3A.9.1 establishes the [compatibility/implementation contract](PRODUCT_EDITOR_CONTRACT.md),

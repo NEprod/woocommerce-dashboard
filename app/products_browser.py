@@ -160,6 +160,10 @@ def _product_view(product, variation_count, minimum_price, maximum_price, shopif
     shared_present = _asset_presence(assets, "shared")
     override_present = _asset_presence(assets, "override")
     source = _metadata_source(product, assets)
+    if product.collection_type == "Single Variable":
+        override_present = False
+        shared_present = shared_present or bool(product.shared_json_path or product.shared_json_relpath)
+        source = "shared" if shared_present else "none"
     minimum = minimum_price
     maximum = maximum_price
     if variation_count == 0:
@@ -191,6 +195,8 @@ def _product_view(product, variation_count, minimum_price, maximum_price, shopif
         "metadata_source": source,
         "shared_present": shared_present,
         "override_present": override_present,
+        "can_override": product.collection_type != "Single Variable",
+        "override_edit_url": url_for("main.product_edit", product_id=product.id, label="override") if product.collection_type != "Single Variable" else None,
         "shared_path": next(
             (asset.path for asset in assets if asset.kind == "info" and asset.label == "shared"),
             product.shared_json_path or "",

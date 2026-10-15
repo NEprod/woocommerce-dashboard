@@ -138,27 +138,26 @@ def test_create_override_is_authenticated_and_reaches_editor(override_workflow):
     )
     assert response.status_code == 200
     body = response.get_json()
-    assert body["created"] is True
-    assert body["run_id"]
+    assert body["created"] is False and body["draft"] is True
+    assert body["run_id"] is None
     assert body["edit_url"] == f"/edit_products/{product_id}/edit/override"
 
     target = workflow["collection_root"] / "Product 1" / "product_info.json"
-    assert json.loads(target.read_text(encoding="utf-8")) == {}
+    assert not target.exists()
     editor = workflow["client"].get(body["edit_url"])
     assert editor.status_code == 200
     editor_html = editor.get_data(as_text=True)
     assert "Fictional Collection/Product 1/product_info.json" in editor_html
     assert str(target) not in editor_html
     raw = workflow["client"].get(f"/assets/info/{product_id}/override")
-    assert raw.status_code == 200
-    assert raw.get_json() == {}
+    assert raw.status_code == 404
 
     with workflow["app"].app_context():
-        assert CatalogueOperation.query.count() == 1
+        assert CatalogueOperation.query.count() == 0
         assert ProductAsset.query.filter_by(
             product_id=product_id, kind="info", label="override"
-        ).count() == 1
-    assert len(workflow["calls"]) == 1
+        ).count() == 0
+    assert len(workflow["calls"]) == 0
 
 
 def test_duplicate_create_override_is_idempotent(override_workflow):
@@ -174,18 +173,19 @@ def test_duplicate_create_override_is_idempotent(override_workflow):
         assert duplicate.get_json() == {
             "ok": True,
             "created": False,
+            "draft": True,
             "run_id": None,
             "edit_url": f"/edit_products/{product_id}/edit/override",
         }
 
     folder = workflow["collection_root"] / "Product 1"
-    assert list(folder.glob("product_info.json")) == [folder / "product_info.json"]
+    assert list(folder.glob("product_info.json")) == []
     with workflow["app"].app_context():
-        assert CatalogueOperation.query.count() == 1
+        assert CatalogueOperation.query.count() == 0
         assert ProductAsset.query.filter_by(
             product_id=product_id, kind="info", label="override"
-        ).count() == 1
-    assert len(workflow["calls"]) == 1
+        ).count() == 0
+    assert len(workflow["calls"]) == 0
 
 
 def test_multiple_isolated_override_creations_have_only_valid_destinations(
@@ -200,12 +200,11 @@ def test_multiple_isolated_override_creations_have_only_valid_destinations(
         )
         statuses.append(response.status_code)
         assert workflow["client"].get(response.get_json()["edit_url"]).status_code == 200
-        _finish_current_creation(workflow["app"])
 
     assert statuses == [200, 200, 200, 200]
     with workflow["app"].app_context():
-        assert CatalogueOperation.query.count() == 4
-    assert len(workflow["calls"]) == 4
+        assert CatalogueOperation.query.count() == 0
+    assert len(workflow["calls"]) == 0
 
 
 def test_meaningful_override_save_preserves_existing_update_contract(
@@ -217,25 +216,26 @@ def test_meaningful_override_save_preserves_existing_update_contract(
         f"/api/override/create/{product_id}", json={"rel": "Product 1"}
     )
     assert create.status_code == 200
-    creation_operation = _finish_current_creation(workflow["app"])
+    from app.metadata_save import review_token
+    with workflow["app"].app_context():
+        revision = review_token(db.session.get(Product, product_id), "override")
 
     target = workflow["collection_root"] / "Product 1" / "product_info.json"
     response = workflow["client"].post(
         "/edit_products/FIX-001/save",
-        json={"kind": "override", "data": {"title": "Meaningful override"}},
+        json={"kind": "override", "revision": revision, "data": {"title": "Meaningful override"}},
     )
     assert response.status_code == 200
     assert json.loads(target.read_text(encoding="utf-8")) == {
         "title": "Meaningful override"
     }
     assert (target.parent / ".update").exists()
-    assert len(list(target.parent.glob("product_info.json.bak.*"))) == 1
+    assert len(list(target.parent.glob("product_info.json.bak.*"))) == 0  # first source creation has no previous file
     with workflow["app"].app_context():
         operations = CatalogueOperation.query.order_by(CatalogueOperation.started_at).all()
-        assert len(operations) == 2
-        assert operations[0].id == creation_operation
-        assert operations[1].operation_type == "product_update"
-    assert len(workflow["calls"]) == 2
+        assert len(operations) == 1
+        assert operations[0].operation_type == "product_update"
+    assert len(workflow["calls"]) == 1
 
 
 def test_override_create_template_prevents_duplicate_browser_submission():
@@ -270,7 +270,7 @@ def test_override_create_404_does_not_create_a_file_or_operation(override_workfl
     assert workflow["calls"] == []
 
 
-def test_override_create_conflict_does_not_duplicate_file_or_operation(
+def test_override_draft_handoffs_do_not_compete_or_create_files_or_operations(
     override_workflow,
 ):
     workflow = override_workflow
@@ -280,15 +280,15 @@ def test_override_create_conflict_does_not_duplicate_file_or_operation(
     )
     assert first.status_code == 200
 
-    conflict = workflow["client"].post(
+    second = workflow["client"].post(
         f"/api/override/create/{second_id}", json={"rel": "Product 2"}
     )
-    assert conflict.status_code == 409
-    assert conflict.get_json()["error"] == "catalogue_operation_active"
+    assert second.status_code == 200
+    assert second.get_json()["draft"] is True
     with workflow["app"].app_context():
-        assert CatalogueOperation.query.count() == 1
+        assert CatalogueOperation.query.count() == 0
         assert ProductAsset.query.filter_by(
             product_id=second_id, kind="info", label="override"
         ).count() == 0
     assert not (workflow["collection_root"] / "Product 2" / "product_info.json").exists()
-    assert len(workflow["calls"]) == 1
+    assert workflow["calls"] == []

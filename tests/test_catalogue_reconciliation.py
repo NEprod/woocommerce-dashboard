@@ -418,6 +418,9 @@ def test_shared_refresh_reuses_all_parent_and_variation_skus(
 def test_shared_editor_starts_explicit_exhaustive_collection_refresh(
     reconciliation_app, monkeypatch
 ):
+    from types import SimpleNamespace
+    from app.metadata_save import review_token
+    monkeypatch.setattr("app.routes.current_user", SimpleNamespace(is_admin=True))
     app, catalogue = reconciliation_app
     shared_path = catalogue / "Fictional Collection" / "product_info.json"
     captured = {}
@@ -450,13 +453,15 @@ def test_shared_editor_starts_explicit_exhaustive_collection_refresh(
         )
         db.session.commit()
 
+        revision = review_token(product, "shared")
+
     def capture_start(*args, **kwargs):
         captured.update(kwargs)
 
     monkeypatch.setattr("app.routes.start_scan", capture_start)
     response = app.test_client().post(
         "/edit_products/FIC-R-0001/save",
-        json={"kind": "shared", "data": {"regular_price": "12.00"}},
+        json={"kind": "shared", "revision": revision, "data": {"regular_price": "12.00"}},
     )
     assert response.status_code == 200
     assert captured["scan_mode"] == "shared_collection"
@@ -464,6 +469,8 @@ def test_shared_editor_starts_explicit_exhaustive_collection_refresh(
     assert captured["scope"] == {
         "sku": "FIC-R-0001",
         "kind": "shared",
+        "source": "product_info.json",
+        "local_save": True,
         "scope_kind": "collection",
         "collection_relpath": "Fictional Collection",
         "exhaustive": True,

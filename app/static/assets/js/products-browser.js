@@ -187,22 +187,20 @@
       collectionEdit.href = product.collection_edit_url;
       tools.appendChild(collectionEdit);
     }
-    if (product.override_present && product.edit_url) {
+    if (product.override_present && product.edit_url && product.can_override !== false) {
       const overrideEdit = text("a", "btn btn-sm btn-outline-primary", "Edit Product Override");
       overrideEdit.href = product.edit_url;
       tools.appendChild(overrideEdit);
     }
-    if (!product.override_present) {
+    if (!product.override_present && product.override_edit_url) {
+      const create = text("a", "btn btn-sm btn-ghost", "Edit Product Overrides");
+      create.href = product.override_edit_url;
+      tools.appendChild(create);
+    } else if (!product.override_present && product.can_override !== false) {
       const create = button("Create override", "btn btn-sm btn-ghost");
       create.dataset.action = "create-override";
       create.dataset.productId = product.id;
       tools.appendChild(create);
-    } else {
-      const remove = button("Delete override", "btn btn-sm btn-ghost product-delete-action");
-      remove.dataset.action = "delete-override";
-      remove.dataset.productId = product.id;
-      remove.dataset.sku = product.sku;
-      tools.appendChild(remove);
     }
     return actions;
   }

@@ -21,9 +21,12 @@
     "tags", "storefront_collections", "live", "short_description", "description", "attributes",
     "image_attributes", "variation_attributes", "variation_modifiers", "shipping_class", "grouped_ids",
     "grouped_products", "upsell_ids", "cross_sell_ids", "upsells", "crosssells",
-    "meta_title", "meta_description"
+    "meta_title", "meta_description", "vendor", "handle", "shopify_product_type",
+    "country_of_origin", "requires_shipping", "manage_stock", "backorders", "primary_category"
   ]);
   let authored = structuredClone(boot.authored || {});
+  let originalDocument = structuredClone(boot.authored || {});
+  let initialValues = {};
   let dirty = false;
   let busy = false;
   let activeMode = "guided";
@@ -311,7 +314,7 @@
     guided.querySelectorAll("[data-field]").forEach((control) => {
       const field = control.dataset.field;
       let value = valueFor(field);
-      if (field === "live") value = value === true ? "true" : value === false ? "false" : "";
+      if (["live", "requires_shipping", "manage_stock"].includes(field)) value = value === true ? "true" : value === false ? "false" : "";
       if (control.dataset.arrayField === "true") value = Array.isArray(value) ? value.join(", ") : "";
       control.value = value == null ? "" : String(value);
     });
@@ -324,7 +327,13 @@
     renderAttributes(valueFor("attributes"));
     renderModifiers(valueFor("variation_modifiers"));
     guided.querySelectorAll("[data-override-toggle]").forEach((toggle) => setControlState(toggle.dataset.overrideToggle));
+    guided.querySelectorAll("[data-inherited-value]").forEach((node) => {
+      const key = node.dataset.inheritedValue;
+      const value = boot.collection?.[key];
+      node.textContent = isShared ? "" : "Inherited: " + (value == null ? "Not set" : typeof value === "object" ? JSON.stringify(value) : String(value));
+    });
     updateCharacterCounts();
+    initialValues = structuredClone(guidedValues());
   }
 
   function prune(value) {
@@ -342,14 +351,14 @@
     return value;
   }
 
-  function guidedDocument() {
+  function guidedValues() {
     const result = {};
     Object.entries(authored).forEach(([key, value]) => { if (!knownFields.has(key)) result[key] = value; });
     guided.querySelectorAll("[data-field]").forEach((control) => {
       const field = control.dataset.field;
       if (!overrideEnabled(field)) return;
       let value = control.value.trim();
-      if (field === "live") value = value === "true" ? true : value === "false" ? false : "";
+      if (["live", "requires_shipping", "manage_stock"].includes(field)) value = value === "true" ? true : value === "false" ? false : "";
       if (control.dataset.arrayField === "true") value = value.split(",").map((item) => item.trim()).filter(Boolean);
       result[field] = value;
     });
@@ -370,7 +379,38 @@
       delete result.collection_type;
       delete result.sku_prefix;
     }
-    return prune(result);
+    Object.keys(result).forEach((key) => {
+      if (result[key] === "" && !["description", "short_description", "meta_title", "meta_description"].includes(key)) delete result[key];
+    });
+    if (!explicitVariation && !Object.hasOwn(authored, "attributes") && !Object.keys(result.attributes || {}).length) delete result.attributes;
+    if (!Object.hasOwn(authored, "variation_modifiers") && !Object.keys(result.variation_modifiers || {}).length) delete result.variation_modifiers;
+    return result;
+  }
+
+  function guidedDocument() {
+    const values = guidedValues();
+    const result = structuredClone(authored);
+    for (const key of new Set([...Object.keys(initialValues), ...Object.keys(values)])) {
+      if (JSON.stringify(values[key]) === JSON.stringify(initialValues[key])) continue;
+      if (Object.hasOwn(values, key)) result[key] = structuredClone(values[key]);
+      else delete result[key];
+    }
+    return result;
+  }
+
+  function documentPatch(before, after, path = []) {
+    const data = Object.create(null), remove_paths = [];
+    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      if (!Object.hasOwn(after, key)) { remove_paths.push([...path, key]); continue; }
+      if (JSON.stringify(before[key]) === JSON.stringify(after[key])) continue;
+      if (before[key] && after[key] && typeof before[key] === "object" && typeof after[key] === "object" &&
+          !Array.isArray(before[key]) && !Array.isArray(after[key])) {
+        const nested = documentPatch(before[key], after[key], [...path, key]);
+        if (Object.keys(nested.data).length) data[key] = nested.data;
+        remove_paths.push(...nested.remove_paths);
+      } else data[key] = after[key];
+    }
+    return {data, remove_paths};
   }
 
   function clearErrors() {
@@ -459,24 +499,66 @@
     const documentValue = activeMode === "advanced" ? advancedDocument() : guidedDocument();
     if (!documentValue) return;
     if (!(await validateDocument(documentValue))) return;
+    if (!boot.can_save) return showFeedback("error", "Read-only source", "Restore the authorised metadata owner and reload.");
+    const acknowledgement = document.querySelector("[data-acknowledge-shared]");
+    if (acknowledgement && !acknowledgement.checked) return showFeedback("warning", "Confirm shared scope", "Confirm the affected shared products before saving.");
+    const patch = documentPatch(originalDocument, documentValue);
     setBusy(true);
     try {
-      const response = await fetch(boot.save_url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: boot.kind, data: documentValue, replace: true }) });
+      const response = await fetch(boot.save_url, { method: "POST", headers: { "Content-Type": "application/json",
+        "X-CSRFToken": document.querySelector('meta[name="csrf-token"]')?.content || "" },
+        body: JSON.stringify({ kind: boot.kind, ...patch, revision: boot.revision, acknowledge_shared: !!acknowledgement?.checked }) });
       const payload = await response.json().catch(() => ({ error: "The save response could not be read." }));
       if (!response.ok || payload.error) {
         if (payload.errors) showErrors(payload.errors);
-        else showFeedback("error", "Metadata was not saved", payload.message || payload.error || "The established update operation could not be started.");
+        else {
+          showFeedback(payload.json_saved ? "warning" : "error", payload.json_saved ? "JSON saved — scan needs recovery" : response.status === 409 ? "Reload and review your draft" : "Metadata was not saved",
+            payload.message || payload.error || "The established update operation could not be started.");
+          const link = document.createElement("a");
+          link.href = payload.json_saved ? payload.scanner_url : window.location.href;
+          link.textContent = payload.json_saved ? "Open Scanner for recovery" : "Reload editor (copy your draft first)";
+          feedback.appendChild(link);
+          if (payload.json_saved && payload.revision) {
+            boot.revision = payload.revision;
+            const retry = document.createElement("button");
+            retry.type = "button"; retry.className = "btn btn-sm btn-outline-primary";
+            retry.textContent = "Retry local scan only";
+            retry.addEventListener("click", retryScan);
+            feedback.appendChild(retry);
+          }
+        }
         return;
       }
-      authored = structuredClone(documentValue);
+      boot.revision = payload.revision;
+      originalDocument = structuredClone(payload.authored || documentValue);
+      populate(originalDocument);
       setDirty(false);
-      showFeedback("success", payload.unchanged ? "No changes to save" : "Metadata saved", payload.unchanged ? "Source and scan history are unchanged." : "The authoritative source was replaced atomically and the established catalogue update operation has started.");
+      showFeedback("success", payload.unchanged ? "No changes to save" : "JSON saved — scanning",
+        payload.unchanged ? "Source and scan history are unchanged." : "Local source saved with backup. Scanner/database update is pending; Shopify has not been published.");
       startProgress(payload.run_id);
     } catch (_error) {
-      showFeedback("error", "Metadata was not saved", "A network error interrupted the request. Your draft remains available.");
+      showFeedback("warning", "Save outcome unavailable", "Copy your draft and reload to check the source and scanner history before retrying. A lost response does not prove the source was unchanged.");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function retryScan() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const response = await fetch(boot.save_url, { method: "POST", headers: {
+        "Content-Type": "application/json", "X-CSRFToken": document.querySelector('meta[name="csrf-token"]')?.content || "" },
+        body: JSON.stringify({kind: boot.kind, data: {}, revision: boot.revision, retry_scan: true, acknowledge_shared: true}) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || "Reload the editor and inspect scanner history.");
+      boot.revision = payload.revision;
+      originalDocument = structuredClone(payload.authored); populate(originalDocument); setDirty(false);
+      showFeedback("success", "Local scan queued", "No JSON or Shopify values were rewritten. Check scanner completion before publishing.");
+      startProgress(payload.run_id);
+    } catch (error) {
+      showFeedback("warning", "Local scan needs attention", error.message);
+    } finally { setBusy(false); }
   }
 
   function startProgress(runId) {
@@ -487,14 +569,37 @@
     new window.bootstrap.Modal(modalElement).show();
     const stream = new EventSource(boot.stream_url_tpl.replace("__RUNID__", runId));
     stream.onmessage = (event) => view.appendLog(event.data);
+    let polls = 0, failures = 0;
     const interval = window.setInterval(async () => {
+      if (++polls > 300) {
+        window.clearInterval(interval); stream.close();
+        showFeedback("warning", "Scan continues independently", "Polling stopped. Check Scanner history before reviewing Shopify.");
+        return;
+      }
+      try {
       const response = await fetch(boot.progress_url_tpl.replace("__RUNID__", runId));
       const progress = await response.json();
       view.update(progress);
       if (["done", "error"].includes(progress.status)) {
         window.clearInterval(interval);
         stream.close();
+        const incomplete = progress.status === "error" || progress.errors > 0 || ["failed", "partial"].includes(progress.outcome);
+        showFeedback(incomplete ? "warning" : "success", incomplete ? "Local JSON retained — check scan results" : "Local scan completed",
+          incomplete ? "Some projection work needs recovery. Inspect Scanner history; do not assume Shopify is ready." : "The scanner completed its local projection. Review Shopify Changes separately; no Shopify mutation was submitted.");
+        if (incomplete) {
+          const retry = document.createElement("button");
+          retry.type = "button"; retry.className = "btn btn-sm btn-outline-primary";
+          retry.textContent = "Retry local scan only"; retry.addEventListener("click", retryScan);
+          feedback.appendChild(retry);
+        }
         fetch(boot.done_url_tpl.replace("__RUNID__", runId)).catch(() => {});
+      }
+      failures = 0;
+      } catch (_error) {
+        if (++failures >= 3) {
+          window.clearInterval(interval); stream.close();
+          showFeedback("warning", "Scan progress unavailable", "Your saved JSON is retained. The server may still be scanning; check Scanner history before publishing.");
+        }
       }
     }, 1000);
   }
@@ -557,9 +662,9 @@
       const response = await fetch(boot.template_url_tpl.replace("__NAME__", encodeURIComponent(select.value)));
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Template unavailable");
-      populate(payload.data);
+      populate({...payload.data, ...authored});
       setDirty(true);
-      showFeedback("warning", "Template loaded", "The fictional template is now an unsaved draft. Review its scope before saving.");
+      showFeedback("warning", "Template proposal loaded", "Only missing fields were proposed; existing and unrepresented data was preserved. This fictional example is an unsaved draft—review every added field before saving.");
     } catch (error) {
       showFeedback("error", "Template unavailable", error.message);
     }
@@ -609,6 +714,7 @@
   window.addEventListener("beforeunload", (event) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } });
 
   populate(authored);
+  if (!boot.can_save) saveButtons.forEach((button) => { button.disabled = true; });
   registryChoices();
   guided.querySelector("[data-assign-range]").addEventListener("click", () => {
     if (!overrideEnabled("storefront_collections")) return showFeedback("error", "Enable range override", "Enable the Storefront Collection override before replacing inherited assignments.");
@@ -644,7 +750,7 @@
       registryChoices();
       renderAttributes(attributeValues()); renderList("categories", listValues("categories"));
       renderList("storefront_collections", listValues("storefront_collections"));
-      showFeedback("success", "Registry choices refreshed", "Select a verified definition, then save metadata separately. No product assignment was automatically changed.");
+      showFeedback("success", "Registry choices refreshed", "No assignment was changed. If the registry was edited since this page opened, copy your Advanced JSON draft and reload before saving; the source review protects the original registry revision.");
     } catch (error) { showFeedback("error", "Refresh failed", error.message); }
   }));
   guided.querySelector("[data-adopt-variation]").addEventListener("click", () => {

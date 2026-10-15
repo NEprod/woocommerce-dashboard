@@ -10,7 +10,7 @@ function extract(name, next) {
 }
 function draft({explicit = false, names = [], shared = true, authored = {}, ranges = []} = {}) {
   const context = vm.createContext({
-    authored, isShared: shared, explicitVariation: explicit, driverNames: names,
+    authored, isShared: shared, explicitVariation: false, driverNames: names, structuredClone,
     knownFields: new Set(["attributes", "variation_attributes", "categories", "storefront_collections"]),
     guided: {
       querySelectorAll: () => [],
@@ -20,7 +20,11 @@ function draft({explicit = false, names = [], shared = true, authored = {}, rang
     attributeValues: () => ({}), modifierValues: () => ({}),
     listValues: (field) => field === "variation_attributes" ? names : field === "storefront_collections" ? ranges : [],
   });
-  vm.runInContext(extract("prune", "guidedDocument") + extract("guidedDocument", "clearErrors"), context);
+  vm.runInContext(extract("guidedValues", "guidedDocument") + extract("guidedDocument", "documentPatch"), context);
+  context.listValues = (field) => authored[field] || [];
+  context.initialValues = vm.runInContext("guidedValues()", context);
+  context.explicitVariation = explicit;
+  context.listValues = (field) => field === "storefront_collections" ? ranges : [];
   return JSON.parse(JSON.stringify(vm.runInContext("guidedDocument()", context)));
 }
 test("missing field stays legacy; explicit empty is not pruned", () => {
@@ -62,7 +66,7 @@ test("terms containing commas remain exact during an unrelated guided save", () 
 test("returning from Advanced JSON updates sparse override toggles from the actual draft", () => {
   const toggles = [{dataset: {overrideToggle: "attributes"}, checked: false}, {dataset: {overrideToggle: "categories"}, checked: true}];
   const context = vm.createContext({
-    authored: {}, structuredClone, explicitVariation: false, resolvedVariation: false, driverNames: [],
+    authored: {}, structuredClone, explicitVariation: false, resolvedVariation: false, driverNames: [], guidedValues: () => ({}),
     guided: {querySelectorAll: (selector) => selector === "[data-override-toggle]" ? toggles : []},
     valueFor: () => [], renderList: () => {}, renderAttributes: () => {}, renderModifiers: () => {}, setControlState: () => {}, updateCharacterCounts: () => {},
   });
@@ -71,6 +75,35 @@ test("returning from Advanced JSON updates sparse override toggles from the actu
   assert.equal(toggles[0].checked, true);
   assert.equal(toggles[1].checked, false);
   assert.equal(context.explicitVariation, true);
+});
+
+test("unrelated form edit preserves numeric types, modifiers, images and hidden metadata", () => {
+  const authored = {price: 6.5, dimensions: {length: 100}, variation_modifiers: {"Size=Large": {price: 9.5}},
+    image_attributes: ["Size"], future: {empty: [], value: null}, shipping_class: "old", description: "Before"};
+  const view = {price: "6.5", dimensions: {length: "100"}, description: "Before"};
+  const context = vm.createContext({authored, initialValues: view, structuredClone,
+    guidedValues: () => ({...view, description: "After"})});
+  vm.runInContext(extract("guidedDocument", "documentPatch") + extract("documentPatch", "clearErrors"), context);
+  const result = JSON.parse(JSON.stringify(vm.runInContext("guidedDocument()", context)));
+  assert.deepEqual(result, {...authored, description: "After"});
+  context.after = result; context.before = authored;
+  assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext("documentPatch(before, after)", context))),
+    {data: {description: "After"}, remove_paths: []});
+});
+
+test("explicit empty and nested removals remain intentional patch operations", () => {
+  const context = vm.createContext({before: {tags: ["old"], customisation: {fields: {name: {type: "text", label: "Old"}}}},
+    after: {tags: [], customisation: {fields: {name: {remove: true}}}}});
+  vm.runInContext(extract("documentPatch", "clearErrors"), context);
+  assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext("documentPatch(before, after)", context))),
+    {data: {tags: [], customisation: {fields: {name: {remove: true}}}},
+      remove_paths: [["customisation","fields","name","type"],["customisation","fields","name","label"]]});
+});
+
+test("unknown literal prototype key survives a reviewed JSON patch", () => {
+  const context = vm.createContext({before: {}, after: JSON.parse('{"__proto__":{"retained":true}}')});
+  vm.runInContext(extract("documentPatch", "clearErrors"), context);
+  assert.equal(JSON.stringify(vm.runInContext("documentPatch(before, after).data", context)), '{"__proto__":{"retained":true}}');
 });
 
 function variationContext({explicit = false, resolved = false, drivers = [], simple = false} = {}) {

@@ -114,7 +114,8 @@ def test_actual_metadata_save_preserves_explicit_contract_and_sparse_override(mi
     assert json.loads(override.read_text()) == document
     assert shared.read_bytes() == before
     page = milestone5_client.get(f"/products/{ids['variable']}")
-    assert b"Legacy value" in page.data and b"requires verified controlled taxonomy identities" in page.data
+    assert b"Legacy value" in page.data and b"Not in taxonomy registry" in page.data
+    assert b"Scanning never adds definitions to the registry" in page.data
     editor = milestone5_client.get(f"/edit_products/{ids['variable']}/edit/override")
     assert editor.status_code == 200
     assert b"Refresh registry choices" in editor.data and b"Add new category to registry" in editor.data
@@ -175,10 +176,11 @@ def test_explicit_reviewed_adoption_uses_existing_writer(registry_app, kind):
 def test_grouped_taxonomy_and_scoped_terms(registry_app):
     _, client, _, _ = registry_app
     page = client.get("/taxonomy").get_data(as_text=True)
-    assert page.index("<h3>Cards</h3>") < page.index("<h3>Notelets</h3>")
-    assert "taxonomy-child" in page and "Cards &gt; Notelets" in page
+    assert page.index("<strong>Cards</strong>") < page.index("<strong>Notelets</strong>")
+    assert "taxonomy-tree-children" in page and "cards &gt; notelets" in page
     page = client.get("/taxonomy?kind=attributes").get_data(as_text=True)
-    assert "<h3>Finish</h3>" in page and '<details open>' in page and 'taxonomy-term-list' in page
+    assert "<summary>Finish · 1 registered terms</summary>" in page and 'taxonomy-term-list' in page
+    assert "<strong>Matte</strong>" in page
 
 
 @pytest.mark.parametrize("failure", ["registry", "metadata"])

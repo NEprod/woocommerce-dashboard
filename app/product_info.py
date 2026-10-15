@@ -14,6 +14,11 @@ RESOURCE_ROOT = Path(__file__).parent / "resources" / "product_info"
 SCHEMA_ROOT = RESOURCE_ROOT / "schemas"
 EXAMPLE_ROOT = RESOURCE_ROOT / "examples"
 TEMPLATE_ROOT = RESOURCE_ROOT / "templates"
+SHOPIFY_EDITOR_FIELDS = {
+    "vendor": {"type": "string", "maxLength": 255},
+    "handle": {"type": "string", "maxLength": 255, "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "shopify_product_type": {"type": "string", "maxLength": 255},
+}
 
 SCHEMA_NAMES = ("collection", "override")
 EXAMPLE_NAMES = (
@@ -46,6 +51,7 @@ def load_schema(name):
     from app.catalogue_fields import CUSTOMISATION_SCHEMA
     schema = _load_json(SCHEMA_ROOT / f"{name}.schema.json")
     schema["properties"]["customisation"] = CUSTOMISATION_SCHEMA
+    schema["properties"].update(SHOPIFY_EDITOR_FIELDS)
     return schema
 
 
@@ -132,6 +138,8 @@ def _warnings(data, kind):
     for key in data:
         field = FIELD_BY_KEY.get(key)
         if not field:
+            if key in SHOPIFY_EDITOR_FIELDS:
+                continue
             warnings.append(
                 ValidationIssue(
                     f"$.{key}",

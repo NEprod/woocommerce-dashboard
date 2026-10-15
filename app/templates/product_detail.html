@@ -16,9 +16,9 @@
   </div>
   <div class="page-actions">
     {% if product.collection_id %}<a class="btn btn-outline-primary" href="{{ url_for('main.collection_detail', collection_id=product.collection_id) }}">View Collection</a><a class="btn btn-outline-primary" href="{{ url_for('main.collection_metadata_edit', collection_id=product.collection_id) }}">Edit Collection Metadata</a>{% endif %}
-    {% if workspace.override.exists %}
+    {% if workspace.can_override and workspace.override.exists %}
     <a class="btn btn-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='override') }}">Edit Product Override</a>
-    {% else %}
+    {% elif workspace.can_override %}
     <a class="btn btn-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='override') }}">Create Override</a>
     {% endif %}
   </div>

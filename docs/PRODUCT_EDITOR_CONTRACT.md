@@ -1,8 +1,73 @@
 # M3A.9 Product Creator & Editor contract
 
-Status: M3A.9.1 foundations, 2026-10-15. TLCDashboard is Shopify-first and private to
+Status: M3A.9.2 core forms implemented, 2026-10-15. TLCDashboard is Shopify-first and private to
 Tender Loving Creations. This is the staged editor implementation contract, not a
 claim that complete forms, storefront customisation or scheduled sales exist.
+
+## M3A.9.2 — implemented core editor
+
+Normal Products tools/detail open the existing metadata workspace. General, Pricing,
+Variations/informational attributes, Images, Organisation, Shipping, SEO and Advanced
+reuse current components/tokens and mobile save controls. Shared/override links show
+the source, inherited/effective values and affected children. Single Variable has one
+JSON owner: a reproduced fallback previously merged its root as shared AND override,
+doubling its title instead of matching scanner folder/shared-title resolution. Source
+selection now matches the scanner; no calculations, source files or identities change.
+
+Guided fields: title, full/short descriptions, publishing intent, regular/unscheduled
+sale price, grams/mm dimensions, origin, requires-shipping, tracking/backorders policy
+(not quantities/locations), vendor, explicit Shopify product type, categories/tags,
+storefront collections, primary TLC key, attributes/variation drivers/modifiers/image
+axes, native SEO title/description and handle. Vendor/handle/type now have schema
+validation. Existing layout/prefix are visible but cannot change in ordinary edits.
+Sale dates, customisation definitions, relationships and unknown/private/legacy keys
+remain in Advanced; no scheduling or customer-field designer is claimed.
+
+Images show original relative source, authenticated preview, featured/gallery role,
+position/alt, missing source, variant associations and cached retained Shopify IDs/CDN
+URLs. Gallery/order/uploads/replacement are read-only; image-axis controls keep current
+validation. Six indexed effective variants are previewed, with detail access to the
+remainder; these are scanner results, not an unsaved recalculation.
+
+Live saving now uses metadata_edit through metadata_save:
+
+- Admin and CSRF required. Four-hour signed reviews bind product/layer, exact source,
+  existence, shared/child dependencies and registry digest. Ownership/root checks reject
+  traversal, escaped symlinks, wrong-owner and stale/altered submissions.
+- Browser sends changed fields plus explicit object-key removals, not full replacement.
+  Unchanged numeric representations, modifiers/images and unknown/private/legacy/empty
+  values remain. Advanced uses the same patch protocol; template proposals only fill
+  missing keys, preserving existing and unrepresented data.
+- Validate authored/effective inherited data before side effects and again under the
+  catalogue-operation lock. Shared edits require acknowledgement for multiple children;
+  max 1000 per review, no child JSON duplication.
+- Mandatory validated 0600 backup precedes same-directory temp write/flush/fsync and
+  atomic replacement. Final source/dependency guard runs after temp flush; conflicts
+  clean up the temp without overwriting newer source. Uncooperative external writers
+  still cannot participate in an atomic filesystem/SQLite CAS: avoid external editing
+  during an active save; this is not a distributed transaction.
+- Only successful JSON writes precede product .update content1/update scan; shared
+  saves use existing exhaustive own-collection refresh. No new marker/SKU protocol.
+  UI distinguishes JSON saved from scanning/projection completion. Post-write failure
+  has durable json_saved/scan_pending evidence and explicit signed scan-only retry,
+  without rewriting JSON, another backup or duplicate editor notice.
+- No-op has no write/marker/scan/Discord event. Real edits retain one configured editor
+  notice, with existing scanner discovery/logging. No Shopify writes on save/retry,
+  validation or page opening; signed Review/Confirm remains separate.
+- Existing effective managed fingerprints invalidate actual per-product changes, not
+  private notes or all catalogue comparisons. Scheduled-sale blockers remain; no future
+  price/date is newly sent early. Normal `2026-10` and opt-in packed `2027-01` remain separate.
+
+Legacy override-create POST is a confined unsaved-draft handoff, not arbitrary-folder
+creation. Normal Products no longer offers direct override deletion; the retained
+compatibility endpoint now needs admin/CSRF, signed ownership and backup. Full creator,
+uploads, customisation designer/storefront, paid charges and sale scheduling remain
+deferred. Migration head remains `0013_scheduled_tasks`. Registry choices can refresh
+read-only, but a changed registry invalidates the original review: copy the Advanced
+draft, reload and review against current choices before saving.
+
+The historical M3A.9.1 audit below records pre-M3A.9.2 UI/save behaviour and future
+contracts; statements that its helper was not integrated describe that checkpoint.
 
 ## Authority and implemented boundary
 
@@ -20,7 +85,7 @@ New implementation:
   bound, exact-source SHA-256 conflict check, independent patches, explicit key-path
   removals, unknown/legacy/internal/empty-value preservation and existing validation.
   No file/database writes, locks, scan, SKU allocation, notification or publishing.
-  Existing save endpoints **do not yet use this helper**.
+  At M3A.9.1 save endpoints did not use this helper; M3A.9.2 integrates it above.
 - Scoped manual reconciliation no longer resets the whole-catalogue selection
   cursor, including partial failure. No scheduler schema or safety-limit change.
 

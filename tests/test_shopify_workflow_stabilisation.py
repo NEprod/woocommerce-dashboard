@@ -31,7 +31,9 @@ def test_completed_async_create_finalizes_on_refresh_without_new_write(world):
     plan, token = drafts.preview(world[0], adapter)
     assert plan["classification"] == "no_change" and token is None
     assert row.shopify_product_id == original_id
-    assert db.session.get(CatalogueOperation, operation_id).status == "partial"  # history not rewritten
+    operation = db.session.get(CatalogueOperation, operation_id)
+    assert operation.status == "succeeded"
+    assert json.loads(operation.scope)["resolved_previous_outcome"]["status"] == "partial"
     assert not any(c in adapter.calls for c in ("product_create", "binary_upload", "variant_write"))
 
 
@@ -91,7 +93,9 @@ def test_genuine_override_save_only_then_scans_and_unchanged_save_is_noop(overri
     with wf["app"].test_request_context():
         from flask import url_for
         endpoint = url_for("main.product_save_json", sku=sku)
-    result = wf["client"].post(endpoint, json={"kind": "override", "data": {"description": "Actual authored change"}, "replace": True})
+    from app.metadata_save import review_token
+    with wf["app"].app_context():revision = review_token(db.session.get(Product, product_id), "override")
+    result = wf["client"].post(endpoint, json={"kind": "override", "data": {"description": "Actual authored change"}, "revision": revision})
     assert result.status_code == 200, result.get_json()
     target = wf["collection_root"] / "Product 1" / "product_info.json"
     assert json.loads(target.read_text()) == {"description": "Actual authored change"}
@@ -100,6 +104,6 @@ def test_genuine_override_save_only_then_scans_and_unchanged_save_is_noop(overri
         from app.utils.operation_control import finish_catalogue_operation
         operation = CatalogueOperation.query.filter_by(status="running").one()
         finish_catalogue_operation(operation.id, status="succeeded")
-    result = wf["client"].post(endpoint, json={"kind": "override", "data": {"description": "Actual authored change"}, "replace": True})
+    result = wf["client"].post(endpoint, json={"kind": "override", "data": {"description": "Actual authored change"}, "revision": result.json["revision"]})
     assert result.status_code == 200 and result.get_json()["unchanged"] is True
     assert len(wf["calls"]) == 1

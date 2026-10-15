@@ -18,7 +18,7 @@ def _sync_directory(path):
         os.close(descriptor)
 
 
-def atomic_write_text(path, text):
+def atomic_write_text(path, text, *, before_replace=None):
     destination = os.fspath(path)
     directory = os.path.dirname(destination) or "."
     basename = os.path.basename(destination)
@@ -30,6 +30,8 @@ def atomic_write_text(path, text):
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
+        if before_replace is not None:
+            before_replace()
         os.replace(temporary_path, destination)
         _sync_directory(directory)
     except Exception:

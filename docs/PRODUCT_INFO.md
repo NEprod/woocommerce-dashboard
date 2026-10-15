@@ -1,8 +1,11 @@
 # product_info.json Contract
 
 For the current Shopify field/editor audit, save foundation and planned extensions,
-see [M3A.9 editor contract](PRODUCT_EDITOR_CONTRACT.md). The pure patch helper is not
-yet used by save endpoints; inherited/marker contracts below remain unchanged.
+see [M3A.9 editor contract](PRODUCT_EDITOR_CONTRACT.md). M3A.9.2 integrates signed,
+admin/CSRF-protected source patches, backups and guarded atomic saving with scoped
+rescans; unknown/legacy/empty values survive. Inheritance/SKU/marker contracts remain;
+Single Variable source selection no longer merges its root twice. Vendor, handle
+and explicit shopify_product_type now have guided/schema controls.
 
 This is the definitive Phase 1 contract for authored catalogue metadata. The
 filesystem remains authoritative. Collection metadata supplies shared defaults;
@@ -111,9 +114,9 @@ The scanner starts from the collection object and applies the product override:
   display name is separate;
 - partial overrides remain valid and inherited fields need not be repeated.
 
-The web editor deep-merges a submitted partial form into the existing file before
-pruning empty values. This same-file editor merge is distinct from scanner
-shared/override resolution and does not change it.
+The editor patches reviewed changed properties into the same authored file, with
+explicit removal paths and no empty pruning. This is distinct from scanner
+shared/override resolution; unrepresented keys stay untouched.
 
 ## Field classification
 

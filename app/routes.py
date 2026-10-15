@@ -1171,6 +1171,8 @@ def api_product_detail_variations(product_id):
 @main.route("/collections/<int:collection_id>/metadata")
 @login_required
 def collection_metadata_edit(collection_id):
+    if not current_user.is_admin:
+        abort(403)
     collection = db.get_or_404(Collection, collection_id)
     product = (
         Product.query.options(joinedload(Product.collection))
@@ -1301,6 +1303,8 @@ def product_edit(product_id, label):
     Open the web JSON editor (shared|override) for a product based on stored ProductAsset.
     Renders 'editor.html'.
     """
+    if not current_user.is_admin:
+        abort(403)
     label = (label or "").lower()
     if label not in ("shared", "override"):
         return "invalid label", 400
@@ -1316,6 +1320,9 @@ def product_edit(product_id, label):
         .first_or_404()
     )
     workspace = editor_workspace(p, label)
+    if label == "override" and not workspace["can_override"]:
+        flash("This product has one shared JSON owner. Edit its shared metadata here.", "info")
+        return redirect(url_for("main.product_edit", product_id=p.id, label="shared"))
     return render_template("metadata_editor.html", workspace=workspace)
 
 
@@ -1336,308 +1343,104 @@ def metadata_validate():
     return jsonify(result.to_dict()), 200 if result.valid else 400
 
 
-def _deep_merge(dst, src):
-    """
-    Recursively merge src into dst (dst mutated and returned).
-    Scalars/arrays in src overwrite dst, dicts merge by key.
-    """
-    if not isinstance(dst, dict) or not isinstance(src, dict):
-        return src
-    for k, v in src.items():
-        if isinstance(v, dict) and isinstance(dst.get(k), dict):
-            _deep_merge(dst[k], v)
-        else:
-            dst[k] = v
-    return dst
-
-
-def _prune(o):
-    """Remove empty strings/containers and None."""
-    if isinstance(o, dict):
-        out = {}
-        for k, v in o.items():
-            pv = _prune(v)
-            if (k in {"variation_attributes", "storefront_collections"} and isinstance(pv, list)) or (k == "attributes" and "variation_attributes" in o and isinstance(pv, dict)) or pv not in ("", None, [], {}):
-                out[k] = pv
-        return out
-    if isinstance(o, list):
-        out = []
-        for v in o:
-            pv = _prune(v)
-            if pv not in ("", None, [], {}):
-                out.append(pv)
-        return out
-    return o
-
-
 @main.route("/edit_products/<sku>/save", methods=["POST"])
 @login_required
-@csrf.exempt
 def product_save_json(sku):
-    """
-    Editor POST target.
-    Body: { kind: "shared"|"override", data: {...} }
-
-    - Loads and validates existing JSON from disk (if present)
-    - Deep‑merges new data into existing (so required fields like collection_type survive)
-    - Prunes empties
-    - Validates before acquiring the operation lock or creating side effects
-    - Writes a timestamped .bak backup
-    - Writes atomically
-    - Uses existing override-update or shared-collection refresh orchestration
-    """
+    """Apply a signed local patch, then hand off to existing scanner ingestion."""
+    from app.metadata_save import prepare_request, verify_revision, review_token
+    from app.metadata_edit import MetadataEditConflict
+    if not current_user.is_admin:
+        abort(403)
     p = Product.query.filter_by(sku=sku).first_or_404()
-    try:
-        payload = request.get_json(force=True)
-    except BadRequest:
-        return (
-            jsonify(
-                {
-                    "error": "invalid_json",
-                    "errors": [
-                        {
-                            "path": "$",
-                            "code": "invalid_json",
-                            "message": "The submitted content is not valid JSON.",
-                        }
-                    ],
-                    "submitted_content": request.get_data(
-                        cache=True, as_text=True
-                    ),
-                }
-            ),
-            400,
-        )
+    payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
-        return jsonify({"error": "request body must be a JSON object"}), 400
-    kind = (payload.get("kind") or "").lower()
-    new_data = payload.get("data", {})
-    replace_document = payload.get("replace") is True
-
-    if kind not in ("shared", "override"):
-        return jsonify({"error": "invalid kind"}), 400
-
-    active_operation = get_active_operation()
-    if active_operation is not None:
-        return (
-            jsonify(
-                {
-                    "error": "catalogue_operation_active",
-                    "message": (
-                        f"Another catalogue operation ({active_operation['operation_type']}) "
-                        "is already active."
-                    ),
-                    "active_operation": active_operation,
-                }
-            ),
-            409,
-        )
-
-    submitted_validation = validate_product_info(new_data, "override")
-    if not submitted_validation.valid:
-        result = submitted_validation.to_dict()
-        result.update(
-            {
-                "error": "metadata_validation_failed",
-                "submitted_data": new_data,
-            }
-        )
-        return jsonify(result), 400
-
-    asset = (
-        ProductAsset.query.filter_by(product_id=p.id, kind="info", label=kind)
-        .order_by(ProductAsset.id.desc())
-        .first()
-    )
-    if (not asset or not asset.path) and kind != "override":
-        return jsonify({"error": f"{kind} JSON not present for this product"}), 400
-
-    source = metadata_source(p, kind)
-    if source["path"]:
-        target = str(source["path"])
-    elif kind == "override" and p.source_relpath:
-        settings = Settings.query.first()
-        target = os.path.realpath(os.path.join(settings.product_folder, p.source_relpath, "product_info.json")) if settings else ""
-    else:
-        return jsonify({"error": "metadata source is unavailable; restore the catalogue mount"}), 400
-    folder = os.path.dirname(target)
-    if kind == "override":
-        shared_source = metadata_source(p, "shared")
-        if shared_source["path"] and os.path.realpath(target) == os.path.realpath(shared_source["path"]):
-            return jsonify(error="No distinct product override file is possible in this folder. Use the shared metadata editor; shared JSON was not changed."), 409
-        if not os.path.isdir(folder):
-            return jsonify(error="Product source folder is unavailable. Restore the catalogue mount; no folder was created."), 400
-
-    settings = Settings.query.first()
-    catalogue_root = os.path.realpath(settings.product_folder or "") if settings else ""
-    target_real = os.path.realpath(target)
+        return jsonify(error="invalid_json", message="Submit a metadata object."), 400
+    kind = payload.get("kind")
+    if not isinstance(kind, str) or kind not in {"shared", "override"}:
+        return jsonify(error="invalid_kind"), 400
+    active = get_active_operation()
+    if active is not None:
+        return jsonify(error="catalogue_operation_active", message="Another catalogue operation is active. Wait for completion before saving.", active_operation=active), 409
     try:
-        target_allowed = (
-            catalogue_root
-            and os.path.commonpath([catalogue_root, target_real]) == catalogue_root
-        )
-    except ValueError:
-        target_allowed = False
-    if not target_allowed:
-        return jsonify({"error": "metadata source path not allowed"}), 403
-
-    cleanup_metadata_temporaries(
-        target, operation_active=lambda: get_active_operation() is not None
-    )
-
-    # Load existing JSON (if any)
-    existing = {}
-    if os.path.exists(target):
-        try:
-            with open(target, "r", encoding="utf-8") as f:
-                existing = json.load(f)
-            if not isinstance(existing, dict):
-                raise ValueError("existing metadata root is not an object")
-        except Exception:
-            return (
-                jsonify(
-                    {
-                        "error": "existing_metadata_invalid",
-                        "errors": [
-                            {
-                                "path": "$",
-                                "code": "existing_metadata_invalid",
-                                "message": (
-                                    "The existing product_info.json must be corrected "
-                                    "before it can be saved through the editor."
-                                ),
-                            }
-                        ],
-                        "submitted_data": new_data,
-                    }
-                ),
-                400,
-            )
-
-    # Merge + prune
-    merged = new_data.copy() if replace_document else _deep_merge(existing.copy(), new_data)
-    merged = _prune(merged)
-    # Validate explicit drivers against inherited attributes before any source write.
-    from app.taxonomy_assignments import variation_drivers
+        target, edit = prepare_request(p, kind, payload)
+    except MetadataEditConflict as error:
+        return jsonify(error="metadata_conflict", message=str(error)), 409
+    except (OSError, ValueError, RuntimeError) as error:
+        message = str(error) if isinstance(error, ValueError) else "Metadata source unavailable; restore the catalogue mount."
+        return jsonify(error="metadata_validation_failed", message=message), 400
+    if not edit.validation.valid:
+        return jsonify(error="metadata_validation_failed", **edit.validation.to_dict()), 400
+    retry_scan = payload.get("retry_scan") is True
+    if not edit.changed and not retry_scan:
+        return jsonify(ok=True, unchanged=True, run_id=None, revision=review_token(p, kind),
+                       authored=edit.data, warnings=[i.to_dict() for i in edit.validation.warnings])
+    affected = Product.query.filter_by(collection_id=p.collection_id).count() if p.collection_id else 1
+    if kind == "shared" and affected > 1 and payload.get("acknowledge_shared") is not True:
+        return jsonify(error="shared_confirmation_required", message=f"Confirm the shared scope affecting up to {affected} products."), 400
+    scope = {"sku": p.sku, "kind": kind, "source": target.name, "local_save": True}
+    collection_relpath = None
+    if kind == "shared":
+        from app.metadata_workspace import _catalogue_root
+        collection_relpath = target.parent.relative_to(_catalogue_root()).as_posix()
+        scope.update(scope_kind="collection", collection_relpath=collection_relpath, exhaustive=True)
     try:
-        effective = merged
-        if kind == "override":
-            from app.metadata_workspace import resolved_metadata
-            effective = resolved_metadata(p, metadata_source(p, "shared")["data"], merged)
-        variation_drivers(effective)
-    except ValueError as error:
-        return jsonify({"error": "metadata_validation_failed", "errors": [{"path": "$.variation_attributes", "message": str(error)}], "submitted_data": new_data}), 400
-    validation = validate_product_info(
-        merged, "collection" if kind == "shared" else "override"
-    )
-    if not validation.valid:
-        result = validation.to_dict()
-        result.update(
-            {
-                "error": "metadata_validation_failed",
-                "submitted_data": new_data,
-            }
-        )
-        return jsonify(result), 400
-
-    if merged == existing:
-        return jsonify(ok=True, unchanged=True, run_id=None, warnings=[issue.to_dict() for issue in validation.warnings])
-
-    try:
-        collection_relpath = None
-        operation_scope = {"sku": p.sku, "kind": kind}
-        if kind == "shared":
-            settings = Settings.query.first()
-            catalogue_root = (
-                os.path.realpath(settings.product_folder or "") if settings else ""
-            )
-            collection_folder = os.path.realpath(folder)
-            try:
-                inside_catalogue = (
-                    catalogue_root
-                    and os.path.commonpath([catalogue_root, collection_folder])
-                    == catalogue_root
-                )
-            except ValueError:
-                inside_catalogue = False
-            if not inside_catalogue:
-                return jsonify({"error": "shared collection path not allowed"}), 403
-            collection_relpath = os.path.relpath(
-                collection_folder, catalogue_root
-            ).replace(os.sep, "/")
-            operation_scope.update(
-                {
-                    "scope_kind": "collection",
-                    "collection_relpath": collection_relpath,
-                    "exhaustive": True,
-                }
-            )
         operation = acquire_catalogue_operation(
-            "shared_collection_update" if kind == "shared" else "product_update",
-            operation_scope,
-        )
+            "shared_collection_update" if kind == "shared" else "product_update", scope)
     except CatalogueOperationActive as error:
         return _operation_conflict(error)
-
+    json_saved = False
     try:
-        os.makedirs(folder, exist_ok=True)
-
-        # Backup
-        try:
-            if os.path.exists(target):
-                create_metadata_backup(target)
-        except Exception:
-            pass
-
-        # Atomic write
-        atomic_write_text(
-            target, json.dumps(merged, ensure_ascii=False, indent=4)
-        )
-        if kind == "override" and not asset:
-            db.session.add(ProductAsset(product_id=p.id, variation_id=None, path=target,
-                source_relpath=os.path.relpath(target, catalogue_root).replace(os.sep, "/"),
-                kind="info", label="override", is_primary=False))
-            db.session.commit()
-
-        # Product overrides retain ordinary marker selection. Shared metadata is
-        # handled by an explicit exhaustive collection refresh instead.
+        # Validate again inside the existing operation lock, including effective
+        # children. No stale browser draft is allowed to overwrite a newer file.
+        locked_target, edit = prepare_request(p, kind, payload)
+        if locked_target != target:
+            raise MetadataEditConflict("Metadata owner changed. Reload before saving.")
+        if not edit.validation.valid:
+            raise ValueError("Metadata changed or is invalid; reload and validate before saving.")
+        if target.exists() and edit.changed:
+            create_metadata_backup(target)  # mandatory, never silently bypassed
+        verify_revision(p, kind, payload.get("revision"))
+        if edit.changed:
+            atomic_write_text(target, edit.text, before_replace=lambda: verify_revision(p, kind, payload.get("revision")))
+        json_saved = True
         if kind == "override":
-            try:
-                with open(os.path.join(folder, ".update"), "w") as f:
-                    f.write("1")
-            except Exception:
-                pass
-
-        # Kick update scan
+            if not ProductAsset.query.filter_by(product_id=p.id, kind="info", label="override").first():
+                from app.metadata_workspace import _catalogue_root
+                db.session.add(ProductAsset(product_id=p.id, kind="info", label="override",
+                    path=str(target), source_relpath=target.relative_to(_catalogue_root()).as_posix(), is_primary=False))
+                db.session.commit()
+            atomic_write_text(target.parent / ".update", "1")
         run_id = uuid.uuid4().hex
-        start_scan(
-            current_app._get_current_object(),
-            run_id,
+        start_scan(current_app._get_current_object(), run_id,
             scan_mode="shared_collection" if kind == "shared" else "update",
-            operation_id=operation.id,
-            scope=operation_scope,
-            collection_relpath=collection_relpath,
-        )
-        try:
-            collection_name = collection_display_name(p.collection) if p.collection else None
-            if kind == "override":
-                notify_override_created(p.sku, product=p.title, collection=collection_name)
-            else:
-                affected = Product.query.filter_by(collection_id=p.collection_id).count()
-                notify_editor_saved("collection metadata", p.sku, collection=collection_name, affected=affected)
-        except Exception:
-            current_app.logger.warning("Discord metadata notification failed safely")
+            operation_id=operation.id, scope=scope, collection_relpath=collection_relpath)
     except Exception as error:
-        finish_catalogue_operation(operation.id, status="failed", error=error)
-        return jsonify({"error": "failed to save product metadata"}), 500
-
-    return jsonify(
-        {
-            "ok": True,
-            "run_id": run_id,
-            "warnings": [issue.to_dict() for issue in validation.warnings],
-        }
-    )
+        db.session.rollback()
+        finish_catalogue_operation(operation.id, status="failed",
+            error="Local JSON saved; scanner/projection handoff requires recovery." if json_saved else "Local metadata was not saved.",
+            operation_summary={"json_saved":json_saved, "scan_pending":json_saved, "source":scope["source"]})
+        retry_revision = None
+        if json_saved:
+            try:
+                retry_revision = review_token(p, kind)
+            except (OSError, ValueError):
+                pass
+        return jsonify(error="metadata_saved_scan_pending" if json_saved else "metadata_save_failed",
+            message=("JSON saved, but scanner/projection has not completed. Open Scanner and run the affected update; do not publish until ingestion succeeds."
+                     if json_saved else str(error) if isinstance(error, MetadataEditConflict) else "Source was not changed. Check catalogue/backup permissions and retry."),
+            json_saved=json_saved, operation_id=operation.id, scan_pending=json_saved,
+            revision=retry_revision,
+            scanner_url=url_for("main.scanner")), 409 if isinstance(error, MetadataEditConflict) else 500
+    try:
+        if edit.changed:
+            notify_editor_saved("collection metadata" if kind == "shared" else "product override",
+                p.sku, collection=collection_display_name(p.collection) if p.collection else None,
+                affected=affected if kind == "shared" else 1)
+    except Exception:
+        current_app.logger.warning("Discord metadata notification failed safely")
+    return jsonify(ok=True, json_saved=True, scan_pending=True, run_id=run_id, operation_id=operation.id,
+                   revision=review_token(p, kind), authored=edit.data,
+                   warnings=[i.to_dict() for i in edit.validation.warnings])
 
 
 @main.route("/metadata-reference")
@@ -1681,7 +1484,6 @@ def metadata_reference_example(name):
 
 @main.route("/api/delete-override/<int:product_id>", methods=["POST"])
 @login_required
-@csrf.exempt
 def api_delete_override(product_id):
     """
     Deletes the override product_info.json (if present) for a product,
@@ -1689,6 +1491,15 @@ def api_delete_override(product_id):
     and kicks an 'update' scan. Returns { run_id }.
     """
     p = Product.query.get_or_404(product_id)
+    if not current_user.is_admin:
+        abort(403)
+    from app.metadata_save import verify_revision, source
+    from app.metadata_edit import MetadataEditConflict
+    try:
+        verify_revision(p, "override", (request.get_json(silent=True) or {}).get("revision"))
+        owned_path, _, _ = source(p, "override")
+    except (ValueError, OSError) as error:
+        return jsonify(error="metadata_conflict", message="Reload the product override editor before removing its source."), 409
 
     asset = (
         ProductAsset.query.filter_by(product_id=p.id, kind="info", label="override")
@@ -1700,7 +1511,7 @@ def api_delete_override(product_id):
 
     settings = Settings.query.first()
     root = (settings.product_folder or "").rstrip("/")
-    real_path = os.path.realpath(asset.path)
+    real_path = str(owned_path)
     if not root or not real_path.startswith(os.path.realpath(root) + os.sep):
         return jsonify({"error": "path not allowed"}), 403
 
@@ -1715,6 +1526,8 @@ def api_delete_override(product_id):
 
     try:
         if os.path.exists(real_path):
+            verify_revision(p, "override", request.get_json()["revision"])
+            create_metadata_backup(real_path)
             os.remove(real_path)
 
         ProductAsset.query.filter_by(
@@ -1818,118 +1631,22 @@ def api_override_folders(product_id):
 
 @main.route("/api/override/create/<int:product_id>", methods=["POST"])
 @login_required
-@csrf.exempt
 def api_override_create(product_id):
-    """
-    Create a new override product_info.json in a subfolder under the collection root.
-    Body: { rel: "sub/folder" }
-    - Writes empty {} JSON if not present
-    - Registers ProductAsset(kind='info', label='override')
-    - Touches .update
-    - Kicks update scan
-    Returns: { ok, run_id, edit_url }
-    """
-    p = Product.query.get_or_404(product_id)
-    data = request.get_json(force=True) or {}
-    rel = (data.get("rel") or "").strip()
-
-    root = _collection_root_for_product(product_id)
-    if not root or not os.path.isdir(root):
-        return jsonify({"error": "collection root not found"}), 400
-
-    abs_path = os.path.realpath(os.path.join(root, rel))
-    root_real = os.path.realpath(root)
-    if not abs_path.startswith(root_real + os.sep) and abs_path != root_real:
-        return jsonify({"error": "invalid folder"}), 400
-    if not os.path.isdir(abs_path):
-        return jsonify({"error": "folder does not exist"}), 400
-
-    existing_override = (
-        ProductAsset.query.filter_by(
-            product_id=p.id, kind="info", label="override"
-        )
-        .order_by(ProductAsset.id.desc())
-        .first()
-    )
-    if existing_override and existing_override.path:
-        existing_path = os.path.realpath(existing_override.path)
-        try:
-            existing_is_safe = os.path.commonpath(
-                [root_real, existing_path]
-            ) == root_real
-        except ValueError:
-            existing_is_safe = False
-        if existing_is_safe and os.path.isfile(existing_path):
-            return jsonify(
-                {
-                    "ok": True,
-                    "created": False,
-                    "run_id": None,
-                    "edit_url": url_for(
-                        "main.product_edit", product_id=p.id, label="override"
-                    ),
-                }
-            )
-
+    """Compatibility handoff to an unsaved draft, never an arbitrary folder write."""
+    from app.metadata_save import source
+    if not current_user.is_admin:
+        abort(403)
+    p = db.get_or_404(Product, product_id)
     try:
-        operation = acquire_catalogue_operation(
-            "product_update", {"sku": p.sku, "kind": "override_create"}
-        )
-    except CatalogueOperationActive as error:
-        return _operation_conflict(error)
-
-    json_path = os.path.join(abs_path, "product_info.json")
-    try:
-        if not os.path.exists(json_path):
-            os.makedirs(abs_path, exist_ok=True)
-            atomic_write_json(json_path, {})
-
-        ProductAsset.query.filter_by(
-            product_id=p.id, kind="info", label="override"
-        ).delete()
-        db.session.add(
-            ProductAsset(
-                product_id=p.id,
-                variation_id=None,
-                path=json_path,
-                kind="info",
-                label="override",
-                is_primary=False,
-            )
-        )
-        db.session.commit()
-
-        # Touch .update
-        try:
-            atomic_write_text(os.path.join(abs_path, ".update"), "1")
-        except Exception:
-            pass
-
-        # Kick update scan
-        run_id = uuid.uuid4().hex
-        start_scan(
-            current_app._get_current_object(),
-            run_id,
-            scan_mode="update",
-            operation_id=operation.id,
-        )
-        try:
-            notify_override_created(
-                p.sku,
-                product=p.title,
-                collection=collection_display_name(p.collection) if p.collection else None,
-            )
-        except Exception:
-            current_app.logger.warning("Discord override notification failed safely")
-        edit_url = url_for("main.product_edit", product_id=p.id, label="override")
-    except Exception as error:
-        db.session.rollback()
-        finish_catalogue_operation(operation.id, status="failed", error=error)
-        return jsonify({"error": "failed to create override"}), 500
-
-    return jsonify(
-        {"ok": True, "created": True, "run_id": run_id, "edit_url": edit_url}
-    )
+        target, _, _ = source(p, "override")
+        supplied = (request.get_json(silent=True) or {}).get("rel")
+        root = _collection_root_for_product(product_id)
+        if supplied is not None and (not root or os.path.realpath(os.path.join(root, supplied)) != str(target.parent)):
+            raise ValueError("Choose this product's own folder. Shared metadata is edited separately.")
+    except (ValueError, OSError) as error:
+        return jsonify(error="invalid_metadata_owner", message=str(error) if isinstance(error, ValueError) else "Restore the catalogue mount."), 400
+    return jsonify(ok=True, created=False, draft=not target.exists(), run_id=None,
+                   edit_url=url_for("main.product_edit", product_id=p.id, label="override"))
 
 
 # ---------- Raw file open (debug / preview) ----------

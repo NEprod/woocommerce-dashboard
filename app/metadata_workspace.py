@@ -68,6 +68,8 @@ def _inside(path: Path, root: Path):
 
 
 def _source_candidate(product: Product, kind: str):
+    if kind == "override" and product.collection_type == "Single Variable":
+        return None  # this layout owns one root JSON, never a second override
     if kind == "shared":
         values = (
             product.shared_json_relpath,
@@ -97,7 +99,7 @@ def metadata_source(product: Product, kind: str, *, catalogue_root=...):
         raise ValueError("Unsupported metadata source")
     reference = _source_candidate(product, kind)
     root = _catalogue_root() if catalogue_root is ... else catalogue_root
-    if root and not reference:
+    if root and not reference and not (kind == "override" and product.collection_type == "Single Variable"):
         asset = next(
             (
                 item
@@ -233,6 +235,8 @@ def _variation_view(variation):
         "status": variation.catalogue_status,
         "regular_price": _money(variation.regular_price),
         "sale_price": _money(variation.sale_price),
+        "weight_g": variation.weight,
+        "dimensions_mm": {"length": variation.length, "width": variation.width, "height": variation.height},
         "stock_quantity": variation.stock_quantity,
         "updated_at": variation.local_updated_at,
         "attributes": [{"name": item.name, "value": item.value} for item in attributes],
@@ -345,6 +349,7 @@ def product_workspace(product: Product):
         ),
         "shared": shared_source,
         "override": override_source,
+        "can_override": product.collection_type != "Single Variable" and shared_source["reference"] != override_source["reference"],
         "resolved": resolved,
         "taxonomy": resolve(resolved),
         "publishing_intent": publishing_intent,
@@ -418,6 +423,54 @@ def editor_workspace(product: Product, kind: str):
         }
         for item in preview_products
     ]
+    from app.metadata_save import review_token
+    token, save_error = None, None
+    try:
+        token = review_token(product, kind)
+    except (OSError, ValueError, RuntimeError):
+        save_error = "This metadata owner is unavailable or unsupported. Restore the catalogue mount or use the shared editor."
+    can_override = product.collection_type != "Single Variable" and shared["reference"] != override["reference"]
+    from app.models import ShopifyProductIdentity
+    from app.shopify_products import states_for
+    shopify = states_for([product])[product.id]
+    local_save = {"state": "unknown", "message": "No recent editor scan receipt recorded."}
+    shared_scope = PurePosixPath(shared["reference"]).parent.as_posix() if shared["reference"] else None
+    from sqlalchemy import or_
+    clauses = [CatalogueOperation.scope.contains(json.dumps(product.sku))]
+    if shared_scope:
+        clauses.append(CatalogueOperation.scope.contains(json.dumps(shared_scope)))
+    for operation in CatalogueOperation.query.filter(CatalogueOperation.scope.contains('"local_save"'), or_(*clauses)).order_by(CatalogueOperation.started_at.desc()).limit(50):
+        try:
+            scope = json.loads(operation.scope)
+        except ValueError:
+            continue
+        if scope.get("sku") != product.sku and scope.get("collection_relpath") != shared_scope:
+            continue
+        complete = operation.status == "succeeded"
+        if not complete:
+            repaired = CatalogueOperationItem.query.join(CatalogueOperation).filter(
+                CatalogueOperationItem.sku == product.sku,
+                CatalogueOperationItem.database_state == "committed",
+                CatalogueOperationItem.marker_state == "finalized",
+                CatalogueOperation.started_at >= operation.started_at).first()
+            complete = repaired is not None
+        if scope.get("operation_summary", {}).get("json_saved") is False:
+            local_save = {"state": "unchanged", "message": "Last save did not change the source; your draft may be retried."}
+            break
+        local_save = {"state": "complete" if complete else "pending",
+            "message": "Last editor scan completed locally." if complete else "Local scan/projection needs completion or recovery. Inspect Scanner history before publishing."}
+        break
+    remote_media = []
+    for identity in ShopifyProductIdentity.query.filter_by(product_id=product.id).all():
+        try:
+            from app.shopify_drafts import evidence
+            for media in evidence(identity).get("media", [])[:20]:
+                url = media.get("url")
+                remote_media.append({"source": media.get("source"), "id": media.get("id"),
+                    "status": media.get("status", "Unverified"),
+                    "url": url if isinstance(url, str) and url.startswith("https://") else None})
+        except ValueError:
+            pass
     return {
         "product": product,
         "collection_display_name": (
@@ -427,6 +480,12 @@ def editor_workspace(product: Product, kind: str):
         ),
         "shared_product_title": shared["data"].get("title"),
         "kind": kind,
+        "revision": token,
+        "save_error": save_error,
+        "can_override": can_override,
+        "remote_media": remote_media,
+        "shopify": shopify,
+        "local_save": local_save,
         "authored": authored,
         "shared": shared,
         "override": override,

@@ -126,8 +126,10 @@ def test_scan_start_route_reports_active_operation_conflict(operation_app):
 
 
 def test_editor_rejects_active_operation_before_changing_json(
-    operation_app, tmp_path
+    operation_app, tmp_path, monkeypatch
 ):
+    from types import SimpleNamespace
+    monkeypatch.setattr("app.routes.current_user", SimpleNamespace(is_admin=True))
     metadata = tmp_path / "product_info.json"
     metadata.write_text('{"title": "Original"}', encoding="utf-8")
     with operation_app.app_context():

@@ -1,8 +1,8 @@
-"""Pure edit preparation for the future editor; no file, scan or database writes.
+"""Pure edit preparation for the catalogue editor; no file, scan or database writes.
 
 This is a same-document patch, NOT collection/override inheritance. Existing
-routes do not use it yet; callers must recheck source_digest under the catalogue
-operation lock immediately before their atomic write.
+routes use it through metadata_save; they recheck source/dependency evidence under
+the catalogue operation lock and immediately before atomic replacement.
 """
 from copy import deepcopy
 from dataclasses import dataclass

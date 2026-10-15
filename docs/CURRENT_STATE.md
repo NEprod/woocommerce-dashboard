@@ -1,5 +1,32 @@
 # Current State
 
+## M3A.9.2 — core editor and safe local saving
+
+Implemented guided Shopify metadata sections, shared/sparse ownership, reused
+variation/modifier/image-axis controls, read-only local/remote media, indexed effective
+variants and inherited-source indicators. Signed four-hour reviews, admin/CSRF,
+source/dependency conflicts, mandatory backups and guarded atomic patches replace
+full-form replacement/pruning. Shared confirmation/own-collection refresh preserves
+child overrides; products retain .update/update scanning. Saved/pending/failed outcomes
+and scan-only recovery are distinct. No-op is silent. Single Variable double-root
+merging was reproduced and corrected to match scanner title resolution.
+
+No new migration, API/auth configuration, directory organisation or remote writes.
+Head remains `0013_scheduled_tasks`. Existing managed fingerprints recognise effective
+changes only; scanner/SKU/Shopify evidence remains. Full creator, gallery association
+editing/uploads, customisation designer/storefront, paid options and sales stay deferred.
+See PRODUCT_EDITOR_CONTRACT for fields, limits and remaining stages.
+
+Verification: 357 distinct isolated/mocked Python cases passed across one bounded
+299-case regression and focused follow-ups; the final affected-save/editor pass was
+86/86. All 42 selected JavaScript cases passed. Older tests were adapted to signed
+patches, unsaved override handoffs and already-established taxonomy/operation receipt
+presentation, not new publishing semantics. Changed-Python syntax, affected templates,
+JavaScript syntax and whitespace checks passed. Fictional local desktop/mobile browser
+checks confirmed working controls, no narrow-screen horizontal overflow and clearance
+above fixed navigation. No live Shopify/Discord action or production catalogue edit;
+Unraid acceptance remains. Unrelated Unraid/template files remain excluded and intact.
+
 ## M3A.9.1 — Product Creator & Editor foundations
 
 The dedicated [editor contract](PRODUCT_EDITOR_CONTRACT.md) records the field/layout/UI

@@ -1,5 +1,17 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.2 — local core editor
+
+Normal shared/override editing covers supported merchandising/shipping/SEO/taxonomy,
+variant modifiers and image axes. Admin/CSRF and signed source/dependency patches
+protect local saving; scanner completion remains separate from Shopify publication.
+Existing fingerprints invalidate effective managed differences, not private notes or
+the entire catalogue. Single Variable no longer reads its shared root as an override,
+aligning titles with scanner output; retained remote titles may need reviewed Update,
+never recreation. No new scopes/migration/auth configuration. Normal2026-10 and opt-in
+packed2027-01 remain unchanged. Scheduled writes, customer forms/uploads, paid charges,
+creator and media replacements stay deferred. See PRODUCT_EDITOR_CONTRACT.
+
 ## M3A.9.1 — editor foundations (no new remote functionality)
 
 The [editor contract](PRODUCT_EDITOR_CONTRACT.md) audits authored fields, reusable
