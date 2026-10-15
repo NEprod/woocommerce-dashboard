@@ -1,4 +1,4 @@
-"""Persistent bounded task execution. Only the registered read-only handler runs."""
+"""Existing durable worker: routine reads and separately authorised sale prices."""
 import json
 import uuid
 from datetime import timedelta
@@ -20,6 +20,16 @@ MAX_SLICES = 60
 FULL_PER_SLICE = 8
 DEFINITION = {"name":"Shopify Product Reconciliation",
     "description":"Read-only verification of product, variant, inventory, media, taxonomy and attribute evidence."}
+SALE_KEY='shopify_sales'
+SALE_DEFINITION={'name':'Scheduled Sale Transitions','description':'Only explicitly authorised due price transitions; no due sale means no Shopify request.'}
+
+
+def definition(key):
+    return SALE_DEFINITION if key==SALE_KEY else DEFINITION
+
+
+def intervals(key):
+    return (5,10,20,30,60) if key==SALE_KEY else INTERVALS
 COUNTERS = ("considered", "skipped_recent", "checked", "up_to_date", "updates", "attention", "unavailable", "deferred", "api_requests", "throttled")
 
 
@@ -36,7 +46,8 @@ def encoded(data):
 
 def snapshot(task):
     run = db.session.get(ScheduledTaskRun, task.active_run_id) if task.active_run_id else ScheduledTaskRun.query.filter_by(task_key=task.key).order_by(ScheduledTaskRun.created_at.desc()).first()
-    return {"key":task.key, **DEFINITION, "enabled":task.enabled,"interval":task.interval_minutes,
+    return {"key":task.key, **definition(task.key), "enabled":task.enabled,"interval":task.interval_minutes,
+        'intervals':intervals(task.key),
         "state":task.state,"outcome":task.last_outcome,
         "duration":max(0,(now()-run.started_at).total_seconds()) if task.active_run_id and run and run.started_at else None if task.active_run_id else task.duration_seconds,
         **{key:getattr(task,key).isoformat()+"Z" if getattr(task,key) else None for key in
@@ -46,7 +57,7 @@ def snapshot(task):
 
 
 def configure(key, *, enabled, interval):
-    if key != KEY or type(enabled) is not bool or type(interval) is not int or interval not in INTERVALS:
+    if key not in {KEY,SALE_KEY} or type(enabled) is not bool or type(interval) is not int or interval not in intervals(key):
         raise ValueError("Choose an enabled state and 10, 20, 30 or 60 minutes.")
     task = db.session.get(ScheduledTask, key)
     changed = task.interval_minutes != interval or task.enabled != enabled
@@ -62,9 +73,9 @@ def configure(key, *, enabled, interval):
 
 
 def enqueue(key=KEY, *, manual=False, product_ids=None):
-    if key != KEY:
+    if key not in {KEY,SALE_KEY}:
         raise ValueError("Unknown task.")
-    if product_ids is not None and (not manual or not isinstance(product_ids,list) or not 1 <= len(product_ids) <= 25
+    if product_ids is not None and (key==SALE_KEY or not manual or not isinstance(product_ids,list) or not 1 <= len(product_ids) <= 25
             or any(type(i) is not int or i < 1 for i in product_ids) or len(set(product_ids)) != len(product_ids)):
         raise ValueError("An explicit manual scope accepts one to 25 distinct product IDs.")
     task = db.session.get(ScheduledTask,key)
@@ -99,7 +110,7 @@ def claim(owner):
     stamp=now()
     candidate=ScheduledTask.query.filter(ScheduledTask.active_run_id.isnot(None),
         or_(ScheduledTask.resume_at.is_(None),ScheduledTask.resume_at<=stamp),
-        or_(ScheduledTask.owner.is_(None),ScheduledTask.lease_until<=stamp)).order_by(ScheduledTask.next_due).first()
+        or_(ScheduledTask.owner.is_(None),ScheduledTask.lease_until<=stamp)).order_by((ScheduledTask.key==SALE_KEY).desc(),ScheduledTask.next_due).first()
     if not candidate:
         return None
     run_id,key=candidate.active_run_id,candidate.key
@@ -120,6 +131,12 @@ def claim(owner):
             if scope.get("scheduled_run")==run_id and scope.get("scheduled_owner")==previous_owner:
                 op.status="interrupted";op.finished_at=stamp;op.recovery_state="none"
                 op.error="Expired scheduled read-only owner; retained comparisons preserved."
+        if key==SALE_KEY:
+            for op in CatalogueOperation.query.filter_by(operation_type='shopify_draft_publish',status='running').all():
+                scope=json.loads(op.scope)
+                if scope.get('scheduled_run')==run_id and scope.get('scheduled_owner')==previous_owner:
+                    op.status='interrupted';op.finished_at=stamp;op.recovery_state='review_required'
+                    op.error='Scheduled price owner expired. Read-only reconciliation required; never replay the mutation.'
     run.started_at=run.started_at or stamp
     run.state="running";run.data_json=encoded(data)
     guarded=db.session.execute(update(ScheduledTask).where(ScheduledTask.key==key,ScheduledTask.active_run_id==run_id,
@@ -245,6 +262,8 @@ def item_result(data,product,state):
 
 
 def run_slice(key,run_id,owner,*,adapter=None):
+    if key==SALE_KEY:
+        return sale_slice(key,run_id,owner,adapter=adapter)
     from app.shopify_connection import ShopifyAdapter,ShopifyError
     from app import shopify_status
     from app.commerce_config import CommerceConfigError
@@ -335,7 +354,59 @@ def run_slice(key,run_id,owner,*,adapter=None):
 
 def tick(owner,*,adapter=None):
     enqueue()
+    enqueue(SALE_KEY)
     claimed=claim(owner)
     if claimed:
         run_slice(*claimed,owner,adapter=adapter)
     return claimed
+
+
+def sale_slice(key,run_id,owner,*,adapter=None):
+    from app import shopify_sales as sales
+    from app.models import ShopifySaleSchedule
+    from app.shopify_connection import ShopifyError
+    task=db.session.get(ScheduledTask,key);run=db.session.get(ScheduledTaskRun,run_id)
+    data=json.loads(run.data_json)
+    try:
+        renew(key,run_id,owner)
+        if not task.enabled and run.trigger=='scheduled':
+            data['reason']='Sale task disabled; existing remote prices are unchanged.'
+            return save_progress(key,run_id,owner,data,terminal='partially_completed')
+        due=ShopifySaleSchedule.query.filter(ShopifySaleSchedule.state.in_({'authorised','active','activating','ending'}),
+            ShopifySaleSchedule.next_due<=now()).order_by(ShopifySaleSchedule.next_due).limit(4).all()
+        data['counts']['considered']+=len(due)
+        if not due: return save_progress(key,run_id,owner,data,terminal='completed')
+        for schedule in due[:3]:
+            with background_work(lambda:renew(key,run_id,owner),fence=lambda:fence(key,run_id,owner),price_transitions=True) as budget:
+                try:
+                    state=sales.transition(schedule,adapter,run_id=run_id,owner=owner)
+                    data['counts']['checked']+=1
+                    if state in {'active','completed','reconciled'}: data['counts']['up_to_date']+=1
+                    else: data['counts']['attention']+=1
+                    data['items']=(data['items']+[{'id':schedule.product_id,'sku':json.loads(schedule.evidence_json)['sku'],'state':state}])[-100:]
+                except CatalogueOperationActive:
+                    data['reason']='Interactive catalogue operation owns the write slot; sale remains due.'
+                    data['counts']['deferred']+=1
+                    break
+                except ShopifyError as exc:
+                    # A failed recovery read cannot downgrade an accepted or
+                    # possibly accepted mutation to an ordinary validation issue.
+                    schedule.state='recovery_required' if schedule.state in {'activating','ending','recovery_required'} else 'needs_attention'
+                    schedule.error=str(exc)[:1000];schedule.updated_at=now()
+                    fence(key,run_id,owner);db.session.commit()
+                    data['counts']['attention']+=1
+                    data['items']=(data['items']+[{'id':schedule.product_id,'sku':json.loads(schedule.evidence_json)['sku'],'state':schedule.state}])[-100:]
+                finally:
+                    data['counts']['api_requests']+=budget['requests'];data['counts']['throttled']+=budget['throttled']
+        if len(due)>3: data['counts']['deferred']+=len(due)-3
+        save_progress(key,run_id,owner,data,terminal='partially_completed' if data['counts']['attention'] or data['counts']['deferred'] else 'completed')
+    except BackgroundYield:
+        db.session.rollback()
+        try:
+            data['reason']='Ownership/capacity deferred; pending writes are never retried.'
+            save_progress(key,run_id,owner,data,pause=True)
+        except BackgroundYield: db.session.rollback()
+    except Exception:
+        db.session.rollback()
+        try: save_progress(key,run_id,owner,data,terminal='failed',error='Scheduled sale requires investigation; retained write receipts remain authoritative.')
+        except BackgroundYield: db.session.rollback()

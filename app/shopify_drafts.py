@@ -120,14 +120,17 @@ def local_plan(product):
 
 
 def common_plan(product, *, variable=False):
-    snapshot = catalogue_snapshot(product)
+    try:
+        snapshot = catalogue_snapshot(product)
+    except ValueError as exc:
+        raise ShopifyError(str(exc)) from None
     if (not variable and (snapshot.product_type != "simple" or snapshot.data["variations"])) or product.catalogue_status != "active":
         raise ShopifyError("M3A supports one active Simple product with no child variations only.")
     if not product.source_relpath or not snapshot.sku:
         raise ShopifyError("Stable scanned source identity and SKU are required.")
     authored = snapshot.data["authored"]
-    if not isinstance(authored.get("live"), bool):
-        raise ShopifyError("Resolve the authored live field to true or false through collection metadata or product override before publishing.")
+    from app.shopify_publication import intent
+    publication_intent = intent(authored)
     title = authored.get("title") or snapshot.data["title"]
     body = authored.get("description", snapshot.data["description"]) or ""
     if not isinstance(title, str) or not title.strip() or len(title) > 255 or not isinstance(body, str) or len(body.encode()) > 262144:
@@ -157,12 +160,14 @@ def common_plan(product, *, variable=False):
     plan = {"product_id": product.id, "source_identity": snapshot.stable_identity, "sku": snapshot.sku,
             "title": title, "description": body, "price": format(price, ".2f"), "status": "DRAFT", "images": images}
     plan["managed"], plan["warnings"] = fields.contract(snapshot, plan)
-    plan["intent"] = "Live" if authored["live"] else "Draft"
-    plan["blockers"] = ["Live intent: Online Store publication is deferred. Comparison is available; publishing remains blocked."] if authored["live"] else []
+    plan["intent"] = publication_intent['status'].title()
+    plan["blockers"] = []
+    if publication_intent['status'] != 'DRAFT' or publication_intent['channels']:
+        plan['warnings'].append('This metadata workflow creates an unpublished Draft or preserves the existing status/channels. Review publication separately to apply authored availability.')
     from app.shopify_taxonomy import fingerprint as taxonomy_fingerprint
     plan["taxonomy_fingerprint"] = taxonomy_fingerprint(product)
     plan["price"] = plan["managed"]["variant"]["price"]
-    plan["unsupported"] = ["Online Store publication / navigation", "Customer-facing customisation",
+    plan["unsupported"] = ["Channel publication requires its separate signed review; navigation is deferred", "Customer-facing customisation",
         "Inventory quantities/locations", "Media replacement, addition or removal on existing drafts",
         "Native Shopify Shipping/package dimensions (product metafields only)"]
     from app.shopify_products import source_fingerprint
@@ -265,6 +270,8 @@ def _preview(product, adapter=None, *, context=None, scope="full"):
             result["native"] = {"enabled":False,"classification":"deferred","reason":"Native measurements are outside inventory-only policy correction."}
         else:
             attach_review(product, result, row, config, shop, adapter)
+            from app.shopify_publication import annotate
+            annotate(product,result,row,config,shop,adapter)
         if result["classification"] == "update":
             token = serializer().dumps({"mode": "update", "scope":scope, **{key: result[key] for key in (
                 "product_id", "digest", "identity_id", "remote_id", "store_id", "domain", "config_digest",
@@ -275,7 +282,8 @@ def _preview(product, adapter=None, *, context=None, scope="full"):
             result["blockers"].append("Remaining attributes now match; complete read-only identity reconciliation before claiming final publishing verification.")
         from app.shopify_comparison import record
         record(product, result, row)
-        return result, token if not result["blockers"] else None
+        from app.shopify_publication import has_metadata_changes
+        return result, token if not result["blockers"] and (scope=='inventory' or has_metadata_changes(result)) else None
     require_absent_sku(adapter, config, plan["sku"])
     plan.update(store_key=store_key, store_id=shop["shop_id"], domain=config.domain,
                 config_digest=config.fingerprint(),
@@ -346,6 +354,9 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
     if reviewed.get("scope") == "inventory":
         from app.shopify_inventory_review import confirm as inventory_confirm
         return inventory_confirm(reviewed,adapter)
+    if reviewed.get('mode') == 'publication':
+        from app.shopify_publication import confirm as publication_confirm
+        return publication_confirm(reviewed,adapter)
     if reviewed.get("mode") == "variable":
         from app.shopify_variables import confirm as variable_confirm
         return variable_confirm(reviewed, adapter)
@@ -567,7 +578,7 @@ def recovery_token(row):
 
 def simple_identity(row, data, remote):
     if (not isinstance(remote, dict) or remote.get("id") != row.shopify_product_id
-            or remote.get("status") != "DRAFT" or not isinstance(remote.get("metafield"), dict)
+            or remote.get("status") not in {"DRAFT","ACTIVE","ARCHIVED"} or not isinstance(remote.get("metafield"), dict)
             or remote["metafield"].get("value") != data["plan"]["nonce"]):
         raise ShopifyError("Recovery required: retained product ID, draft status or attempt correlation is not trusted. No create/update is allowed.")
     _gid(remote["id"], "Product")
@@ -808,6 +819,8 @@ def confirm_update(reviewed, adapter=None):
 
 def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_review=False):
     plan = data["plan"]
+    if remote.get('status') != plan.get('actual_status','DRAFT'):
+        raise ShopifyError('Product status changed during metadata operation; reconcile the reviewed state before another write.')
     variant = simple_identity(row, data, remote)
     managed = {"product": {**plan["managed"]["product"], "handle": plan["handle"]},
         "variant": plan["managed"]["variant"]}
@@ -877,10 +890,12 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
         from app.shopify_comparison import record
         product = db.session.get(Product, row.product_id)
         if product:
-            record(product, {**plan, "classification": "no_change", "fields": rows,
+            result = {**plan, "classification": "no_change", "fields": rows,
                 "collections": [{**i, "action": "Already assigned"} for i in plan.get("collections", [])],
                 "remote_id": row.shopify_product_id, "remote_digest": digest(remote), "actual_status": remote["status"],
-                "remote_updated_at": remote.get("updatedAt")}, row)
+                "remote_updated_at": remote.get("updatedAt")}
+            from app.shopify_publication import comparison_after_write
+            record(product, comparison_after_write(product, result, row, adapter or ShopifyAdapter()), row)
 
 
 def reconcile(row, candidate_id=None, adapter=None, approval=None):
@@ -931,6 +946,12 @@ def _reconcile(row, candidate_id=None, adapter=None, approval=None, *, allow_att
     if shop["shop_id"] != row.store_id:
         raise ShopifyError("Configured Shopify store does not match this identity. Restore its store configuration.")
     data = evidence(row)
+    if data.get('publication_update',{}).get('state') in {'pending','uncertain'}:
+        from app.shopify_publication import verify
+        return verify(row,data,adapter)
+    if data.get('sale_transition',{}).get('state') in {'pending','uncertain'}:
+        from app.shopify_sales import reconcile_identity
+        return reconcile_identity(row,adapter)
     if data.get("inventory_update",{}).get("state") in {"pending","uncertain"}:
         from app.shopify_inventory_review import verify
         return verify(row,data,adapter)

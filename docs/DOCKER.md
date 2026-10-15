@@ -1,5 +1,36 @@
 # Docker
 
+## M3A.9.3 publication/defaults and sale task
+
+The existing supervised web + scheduler runtime is unchanged. Startup upgrades to
+`0014_shopify_sales`, adding one current-authority table and an enabled five-minute
+Scheduled Sale Transitions task. No approval means no remote price work. Settings →
+Scheduled Tasks lets an administrator pause/change the interval or run due approved
+work now. Pausing does not restore an already-active price. Normal Shopify requests
+stay on 2026-10; native packed dimensions alone retain opt-in 2027-01.
+
+Existing `DEFAULT_COUNTRY_OF_ORIGIN` is reused. Optional new Compose/.env settings:
+`DEFAULT_REQUIRES_SHIPPING=true|false`, `DEFAULT_MANAGE_STOCK=true|false`,
+`DEFAULT_BACKORDERS=yes|no|notify`. Blank preserves previous fallback behaviour.
+Suggested made-to-order physical defaults are true/false/yes and GB **only where
+accurate**; these are not forced and authored child/shared values win. The unrelated
+Unraid templates are deliberately untouched: add these optional variables manually
+only if desired; no credential or mount changes are needed for the migration.
+
+Publication discovery requires read_publications, changing availability requires
+write_publications and corresponding Shopify user permissions; product status/price
+needs write_products. Keep existing product/inventory/files scopes. Do not supply new
+credentials merely for booting or local editing. Missing scope blocks its affected
+stage, not all local work.
+
+Before updating, stop the old container and consistently back up the complete
+existing appdata instance mount/site.db (including SQLite sidecars), catalogue and
+taxonomy. Preserve every volume mapping and previous immutable image. Verify
+`alembic_version` = 0014_shopify_sales after startup. Once authorisations or remote
+transitions exist, an old image/DB restore is not a safe undo: pause, retain current
+evidence and reconcile remote outcomes before any retry. Downgrade refuses retained
+authorities. See SHOPIFY_INTEGRATION for the single-Draft acceptance procedure.
+
 ## M3A.8.6 scheduler runtime
 
 The image's default CMD runs `python -m app.runtime`, supervising the existing

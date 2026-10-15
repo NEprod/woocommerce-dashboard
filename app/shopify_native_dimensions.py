@@ -96,7 +96,7 @@ def identity_read(row, adapter, config):
     try:
         variants = remote["variants"]
         nodes = variants["nodes"]
-        if (remote["id"] != row.shopify_product_id or remote.get("status") not in {"DRAFT", "ACTIVE"} or remote["metafield"]["value"] != data["plan"]["nonce"]
+        if (remote["id"] != row.shopify_product_id or remote.get("status") not in {"DRAFT", "ACTIVE", "ARCHIVED"} or remote["metafield"]["value"] != data["plan"]["nonce"]
                 or variants["pageInfo"]["hasNextPage"] is not False or len(nodes) != 1
                 or nodes[0]["sku"] != row.sku or nodes[0]["id"] != data["variant_id"]
                 or nodes[0]["inventoryItem"]["id"] != data["inventory_item_id"]):

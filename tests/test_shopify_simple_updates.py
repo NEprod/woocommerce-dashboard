@@ -224,7 +224,7 @@ def test_stale_update_confirmation_never_writes(world, monkeypatch, change_kind)
     assert row.state == "verified"
 
 
-@pytest.mark.parametrize("kind", ["missing", "id", "nonce", "variant", "inventory", "active", "incomplete"])
+@pytest.mark.parametrize("kind", ["missing", "id", "nonce", "variant", "inventory", "incomplete"])
 def test_untrusted_remote_never_becomes_create_or_update(world, kind):
     product, _, adapter = created(world)
     if kind == "missing": adapter.remote = None
@@ -259,8 +259,8 @@ def test_country_must_be_supported_by_shopify(world, value):
 
 
 @pytest.mark.parametrize("values", [{"sale_price": "3.50"}, {"sale_price": "4.00"},
-    {"sale_price": "-1"}, {"sale_price": "2.00", "sale_start_date": "2026-10-01"}])
-def test_invalid_or_scheduled_sale_is_not_published(world, values):
+    {"sale_price": "-1"}])
+def test_invalid_sale_is_not_published(world, values):
     product, _, adapter = created(world)
     change(world, **values)
     with pytest.raises(ShopifyError): drafts.preview(product, adapter)

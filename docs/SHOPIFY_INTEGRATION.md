@@ -1,5 +1,125 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.3 — status/channels, defaults and authorised sale transitions
+
+Normal Shopify transport stays on **2026-10**. Only the existing opt-in native
+packed-dimensions capability uses **2027-01**. No authentication, identity-table,
+media, taxonomy, variant-allocation or scanner contract has been replaced.
+
+### Publication review
+
+Product details → Shopify Actions → Publication & sale controls → Review status /
+channels (also linked from the editor and metadata review). Discover actual eligible
+APP-catalog publications and their Channel names/handles using 2026-10
+`publications`/`Publication.channels`. No hardcoded channel IDs or assumed Shop/POS.
+At most 40 publications/20 channels, complete bounded readback required. Existing
+future remote publication schedules are blocked, not overwritten or inferred public.
+
+`read_publications` enables discovery/readback; `write_publications` enables
+`publishablePublish` / `publishableUnpublish` (Shopify's corresponding user permission
+also applies). `write_products` is required for lifecycle status changes. Keep the
+existing product/inventory/files scopes for their existing operations; no menu scope
+is requested. See official [publications query](https://shopify.dev/docs/api/admin-graphql/2026-10/queries/publications),
+[publish](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/publishablePublish),
+[unpublish](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/publishableUnpublish).
+Missing scopes/readback do not mean unpublished. Shopify may reject channel-specific
+eligibility even with the scopes; no substitute publication is chosen.
+
+Only a fully verified retained product is eligible. Explicit signed admin/CSRF
+confirmation rechecks exact source, store/product correlation, current availability
+and plan. At most five channel changes plus status per operation, 60-second stage
+deadline, durable pending evidence before EACH mutation, independent readback after.
+Unselected/unchanged memberships remain untouched. ACTIVE is not channel publication.
+Draft/Archived cannot request selected channel publication. Metadata confirmation
+creates unpublished Drafts or preserves existing status/channels; it cannot execute
+publication-only rows. Shared JSON never authorises all children. Menu generation
+and collection publication remain separate/deferred.
+
+### Defaults and shipping-only correction
+
+See PRODUCT_INFO for exact four environment defaults and precedence. Unspecified
+origin/shipping remains unmanaged, explicit false survives inheritance, explicit
+backorders:no produces DENY even when untracked. Inventory-only review now includes
+supported weight/origin/requires-shipping as well as tracking/selling policy; unrelated
+attribute permissions cannot force attribute writes. Its scoped result never claims
+full synchronisation. No quantities, locations or fulfilment service change.
+
+### Scheduled prices and separate authority
+
+1. Save existing price/sale/date fields locally and finish the targeted scan. Current
+   effective pricing is shared by Preview/status/Simple/Variable publishing. Future
+   amounts and dates are not sent early; active discounts use sale/regular compare-at,
+   expiry restores regular/clears compare-at. Both Variable layouts retain IDs/modifiers.
+2. On ONE fully verified retained product, open Review / Authorise Sale. Review exact
+   variant IDs, SKU, regular/sale prices, dates, source/image/default/taxonomy revision.
+   Clear unrelated metadata, attributes or pending publication first. Authorise with
+   the separate signed, expiring, CSRF-protected confirmation. This saves authority,
+   not a Shopify write. JSON saving and ordinary metadata confirmation never approve
+   future unattended writes. A source/default/config/identity change requires re-review.
+3. Settings → Scheduled Tasks → Scheduled Sale Transitions uses the existing worker,
+   leases, history and API-capacity gate. Enabled at five minutes; intervals 5/10/20/30/60.
+   Run Now processes only due approved rows. No due rows means no Shopify requests.
+   Up to three parents per run (max 32 variants each); higher backlog/capacity/downtime
+   can delay transitions beyond an interval. Interactive work has priority.
+4. Each activation/expiry has a deterministic operation identity. Authority, pending
+   identity and exact inputs commit before mutation and are visible on other DB
+   connections. Background mutation allowlist contains ONLY existing variant-price
+   mutations. Full independent field/identity/media/attribute/membership verification
+   precedes terminal success. Future/remote changes outside approved price pairs hold
+   execution. A missed entire sale window never activates an expired discount.
+5. Timeout, lost response, interrupted finalisation or partial readback retains
+   Recovery Required. Reconcile the retained identity using READS ONLY; no blind
+   replay/automatic rollback. Known application/database/transport failures are
+   conservatively held when remote acceptance cannot be excluded. Worker restart can
+   finish a matching accepted outcome without repeating its mutation. A nonmatching
+   outcome stays blocked for operator review. Do not delete retained evidence.
+6. Existing durable Discord delivery sends Sale Activated / Sale Ended only after
+   persisted verified outcomes with an actual price mutation, and accurately reports
+   recovery/partial/failure. Silent catch-up/no due/Preview/authorisation stays silent.
+   Existing deduplication, controlled retry/uncertain delivery and missing-webhook
+   behaviour apply; webhook failure cannot undo Shopify success. No exactly-once
+   external-delivery claim is made.
+
+Pause stops future execution; it does **not** restore a current sale. For an early
+end, author a past end, save/scan, review and separately authorise regular-price
+restoration. Ongoing/no-end sales are supported. Dates use Europe/London; date-only
+end includes the entire day; ambiguous/nonexistent DST date-times need explicit
+offsets. No bulk authority, quantity scheduling, currency conversion or new discount
+mechanism is implemented.
+
+### Storage and controlled Unraid acceptance
+
+Migration head **0014_shopify_sales** adds one bounded table, current authority unique
+on `(store_id, source_identity)`, indexed due time, generation and existing operation/
+identity references. Old approvals/history remain in CatalogueOperation. It adds the
+sale task without backfilling/rewriting products, Woo/Shopify identities or JSON.
+Stop the previous container and back up the complete existing `/app/instance` mount
+(including SQLite sidecars if present) consistently, plus catalogue/taxonomy backups,
+before deploying. Startup applies the migration; inspect `alembic_version` and the
+new Settings task. Keep all existing paths/mounts. Automatic downgrade refuses retained
+authority. After remote writes, restoring an old local backup can lose write evidence:
+do not blindly resume old code/recreate/retry; preserve receipts and reconcile first.
+
+Acceptance is deliberately user-initiated and still required against the live store:
+- Deploy the immutable tested image, verify migration/task/normal 2026-10 and optional
+  2027-01 configuration. Begin with a retained verified Draft, not a new duplicate.
+- Inspect effective defaults/source and explicit false/DENY in all three layouts.
+  Save/scan; verify that this alone creates no Shopify operation/sale authority.
+- Discover channels explicitly; review status and one intended channel. Confirm only
+  if making that product customer-visible is intended. Readback and Shopify Admin must
+  agree; then review unpublication. Leave other memberships unchanged.
+- On a Draft, save a future discounted price/start/end, complete unrelated changes and
+  compare. Current remote price must remain regular. Separately review/authorise that
+  one product; inspect its task/receipt, activation readback and expiry restoration.
+  Expect one logical Discord outcome per actual verified transition when configured.
+- Refresh/restart and confirm retained identities/authority/receipts remain; stale
+  reviews fail and unknown outcomes offer read-only recovery, never an automatic retry.
+  Report any difference before authorising more products.
+
+No live Shopify mutation, Discord message or production database edit is part of
+automated verification. Customisation editor expansion, creator/media tools, menu
+publication, bulk scheduling and perfect real-time delivery remain deferred.
+
 ## M3A.9.2 — local core editor
 
 Normal shared/override editing covers supported merchandising/shipping/SEO/taxonomy,

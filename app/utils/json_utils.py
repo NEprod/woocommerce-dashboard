@@ -110,6 +110,14 @@ def merge_product_json(shared, override, path=None):
         else:
             result[key] = value
 
+    # New lifecycle intent must not override a child's explicit legacy intent.
+    # This is resolved data only; authored layers are never normalised on read.
+    if "live" in override and "shopify_status" not in override:
+        result.pop("shopify_status", None)
+    elif "shopify_status" in override and "live" not in override:
+        result["live"] = override["shopify_status"] == "ACTIVE"
+    elif "shopify_status" in shared and "live" not in shared:
+        result["live"] = shared["shopify_status"] == "ACTIVE"
     shared_title = _nonblank_title(shared.get("title"))
     override_title = _nonblank_title(override.get("title"))
     folder_name = os.path.basename(path) if path else ""

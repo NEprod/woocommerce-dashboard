@@ -77,6 +77,12 @@ def product_result(operation):
         "reason": operation.error or data.get("error")}
     if plan.get("scope") == "inventory" or scope.get("scope") == "inventory":
         result["deferred"].append("Inventory-only scope: other managed fields remain unverified.")
+    if scope.get('mode')=='publication':
+        result['operation']='Publication updated'
+        result['deferred'].append('Status/channel scope only; metadata verification is retained, not renewed.')
+    if scope.get('mode') in {'sale_activate','sale_end'}:
+        result['operation']='Sale Activated' if scope['mode']=='sale_activate' else 'Sale Ended'
+        result['sale_status']=('active' if data.get('sale_transition',{}).get('phase')=='activate' else 'completed') if outcome=='verified_success' else summary.get('sale_status') or ('Recovery Required' if outcome=='recovery_required' else 'Needs Attention')
     if outcome == "verified_success":
         result["shopify_status"] = data.get("observed_status")  # independently read, never intended status
         result.pop("reason", None)  # original uncertainty stays in history, not current-success warnings
@@ -105,6 +111,8 @@ def enqueue(operation):
     """Caller commits this event with its authoritative terminal transition."""
     if operation.operation_type != "shopify_draft_publish" or read_only(operation):
         return None
+    if scope_of(operation).get('mode') in {'sale_activate','sale_end'} and operation.status=='succeeded' and scope_of(operation).get('operation_summary',{}).get('write_attempted') is False:
+        return None  # catch-up already matches: no invented "newly activated" event
     product = product_result(operation)
     if not product:
         return None

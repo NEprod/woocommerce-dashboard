@@ -111,14 +111,16 @@ def projection(product):
             return None if value in (None, "") else Decimal(str(value))
         if any(decimal(left) != decimal(right) for left,right in pairs):
             raise ShopifyError("Resolved variant prices/measurements no longer match current inherited metadata/modifiers. Complete the targeted rescan before Review.")
-        if v.sale_start or v.sale_end:
-            raise ShopifyError("Scheduled variant sales are unsupported; review explicit unscheduled pricing.")
         dimensions = {"length": v.length, "width": v.width, "height": v.height}
         from app.catalogue_fields import shipping_details
         shipping = shipping_details(authored, product)
         shipping.update(weight_g=v.weight, dimensions_mm=dimensions)
-        variant_authored = dict(authored, sale_price=str(v.sale_price) if v.sale_price is not None else None)
-        variant_authored.pop("sale_start_date", None); variant_authored.pop("sale_end_date", None)
+        from app.sale_pricing import variant_sale
+        # Scanner identity/regular/measurement checks above stay authoritative.
+        # Sale modifiers previously omitted by legacy CSV are read explicitly
+        # through the existing modifier selector, not a new combination engine.
+        sale = variant_sale(authored, dict(selection), v.sale_price)
+        variant_authored = dict(authored, sale_price=sale)
         managed, warnings = fields.contract(SimpleNamespace(data={"authored": variant_authored,
             "sale_price": v.sale_price, "shipping": shipping}), {"title": product.title, "description": "",
             "price": fields.number(v.regular_price, "effective variant price", money=True), "sku": v.sku})
@@ -158,8 +160,8 @@ def local_plan(product):
         plan["options"].append({"name": name, "position": len(plan["options"])+1, "values": [{"name": value} for value in values]})
     plan["warnings"].append("Parent SKU is a local grouping identity; existing child SKUs belong to Shopify variants. Tracking/selling policy is explicitly reviewed; quantities and locations remain unmanaged. Remote-only variants are retained.")
     if any(isinstance(v,dict) and "sale_price" in v for v in product_document(product).get("variation_modifiers",{}).values()):
-        plan["warnings"].append("Existing scanner does not emit modifier sale_price; reviewed effective database sale prices are used, no alternate discount calculation is invented.")
-    plan["unsupported"] = ["Online Store publication / navigation", "Customer-facing customisation", "Inventory quantities/locations",
+        plan["warnings"].append("Per-variant sale amounts use existing exact/most-specific modifiers. The legacy scanner sale column is unchanged; Review shows the effective Shopify prices.")
+    plan["unsupported"] = ["Channel publication requires its separate signed review; navigation is deferred", "Customer-facing customisation", "Inventory quantities/locations",
         "Destructive option restructuring / variant deletion", "Existing gallery replacement/addition/removal", "Shopify package presets / labels"]
     plan["digest"] = drafts.digest({"base": plan["digest"], "variants": variants, "options": plan["options"]})
     return plan
@@ -167,7 +169,7 @@ def local_plan(product):
 
 def remote_identity(row, data, remote, *, native_only=False):
     from app.shopify_connection import ShopifyIdentityConflict, ShopifyVariantMissing
-    if (not isinstance(remote,dict) or remote.get("id") != row.shopify_product_id or remote.get("status") != "DRAFT"
+    if (not isinstance(remote,dict) or remote.get("id") != row.shopify_product_id or remote.get("status") not in {"DRAFT","ACTIVE","ARCHIVED"}
             or (remote.get("metafield") or {}).get("value") != data["plan"]["nonce"]):
         raise ShopifyError("Retained variable product/store/correlation/Draft identity is untrusted; no new Create or update allowed.")
     for connection, bound in (("variants", MAX_VARIANTS),) if native_only else (("variants", MAX_VARIANTS), ("media",20)):
@@ -398,6 +400,9 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full"):
     if scope == "inventory":
         from app.shopify_inventory_review import restrict
         restrict(plan)
+    else:
+        from app.shopify_publication import annotate
+        annotate(product,plan,row if remote_id else None,config,shop,adapter)
     if row and row.state=="attribute_review_required" and plan["classification"]=="no_change":
         plan["blockers"].append("Attributes now match; complete read-only identity reconciliation for final verification.")
     if "write_products" not in shop["scopes"] and plan["classification"] != "no_change":
@@ -425,7 +430,8 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full"):
     record(product,plan,row if remote_id else None)
     reviewed = {"mode":"variable", **{key:plan.get(key) for key in
         ("product_id","digest","store_id","config_digest","nonce","remote_id","remote_digest","identity_digest","taxonomy_review_digest","classification","identity_id","scope")}}
-    token = drafts.serializer().dumps(reviewed) if plan["classification"] != "no_change" and not plan["blockers"] else None
+    from app.shopify_publication import has_metadata_changes
+    token = drafts.serializer().dumps(reviewed) if plan["classification"] != "no_change" and not plan["blockers"] and (not remote_id or scope=='inventory' or has_metadata_changes(plan)) else None
     return plan,token
 
 
@@ -522,6 +528,8 @@ def _native_apply(row,data,config,adapter,operation_id):
 def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attribute_review=False):
     plan = data["plan"]
     remote = adapter.read_variable(config,row.shopify_product_id,plan["managed"]["namespace"])
+    if remote.get('status') != plan.get('actual_status','DRAFT') and plan.get('actual_status') != 'Not yet created':
+        raise ShopifyError('Product lifecycle changed during metadata verification; reconcile before another operation.')
     data["observed_status"] = remote.get("status")
     if recover:
         remote_identity(row,data,remote)
@@ -610,7 +618,9 @@ def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attri
         result.update(classification="no_change",fields=[dict(f,changed=False) for f in fields_found], remote_id=row.shopify_product_id,
             actual_status=remote["status"],remote_updated_at=remote.get("updatedAt"),remote_digest=drafts.digest(remote),
             collections=[dict(c,action="Already assigned") for c in plan["collections"]])
-        record(db.session.get(Product,row.product_id),result,row)
+        product = db.session.get(Product,row.product_id)
+        from app.shopify_publication import comparison_after_write
+        record(product,comparison_after_write(product,result,row,adapter),row)
     return row
 
 

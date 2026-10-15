@@ -703,3 +703,25 @@ class Service(db.Model):
     renewal_date = db.Column(db.Date)
     auto_renew = db.Column(db.Boolean, default=True)
     notes = db.Column(db.String(255))
+
+
+class ShopifySaleSchedule(db.Model):
+    """One current reviewed authorisation per store/source; history is operations."""
+    __tablename__ = 'shopify_sale_schedule'
+    id = db.Column(db.String(32), primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id',ondelete='SET NULL'), index=True)
+    store_id = db.Column(db.String(128), nullable=False)
+    source_identity = db.Column(db.String(1024), nullable=False)
+    identity_id = db.Column(db.Integer, db.ForeignKey('shopify_product_identity.id'), nullable=False)
+    generation = db.Column(db.String(32), nullable=False)
+    state = db.Column(db.String(32), nullable=False)
+    start_at = db.Column(db.DateTime)
+    end_at = db.Column(db.DateTime)
+    next_due = db.Column(db.DateTime, index=True)
+    authorised_at = db.Column(db.DateTime, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False)
+    operation_id = db.Column(db.String(32), db.ForeignKey('catalogue_operation.id'))
+    evidence_json = db.Column(db.Text, nullable=False)
+    error = db.Column(db.String(1000))
+    __table_args__ = (db.UniqueConstraint('store_id','source_identity',name='uq_shopify_sale_store_source'),
+                     db.CheckConstraint('length(evidence_json) <= 65536',name='ck_shopify_sale_bound'))

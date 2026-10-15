@@ -22,7 +22,7 @@
     "image_attributes", "variation_attributes", "variation_modifiers", "shipping_class", "grouped_ids",
     "grouped_products", "upsell_ids", "cross_sell_ids", "upsells", "crosssells",
     "meta_title", "meta_description", "vendor", "handle", "shopify_product_type",
-    "country_of_origin", "requires_shipping", "manage_stock", "backorders", "primary_category"
+    "country_of_origin", "requires_shipping", "manage_stock", "backorders", "primary_category", "shopify_status", "shopify_channels"
   ]);
   let authored = structuredClone(boot.authored || {});
   let originalDocument = structuredClone(boot.authored || {});
@@ -34,6 +34,36 @@
   let explicitVariation = false;
   let resolvedVariation = false;
   let driverNames = [];
+  let channels = boot.channels || [];
+  let channelDraft = {};
+
+  function channelValues() {
+    const result = structuredClone(channelDraft);
+    guided.querySelectorAll("[data-channel-intent]").forEach(control => {
+      if (control.value === "") delete result[control.dataset.channelIntent];
+      else result[control.dataset.channelIntent] = control.value === "true";
+    });
+    return result;
+  }
+
+  function renderChannels(values) {
+    const target = guided.querySelector("[data-channel-choices]");
+    if (!target) return;
+    channelDraft = structuredClone(values || {});
+    target.replaceChildren();
+    channels.forEach(channel => {
+      const label = document.createElement("label"); label.textContent = channel.name;
+      const select = document.createElement("select"); select.className = "form-select";
+      select.dataset.channelIntent = channel.key;
+      select.add(new Option("Unmanaged — preserve remote membership", ""));
+      select.add(new Option("Publish through reviewed confirmation", "true"));
+      select.add(new Option("Unpublish through reviewed confirmation", "false"));
+      select.value = Object.hasOwn(channelDraft,channel.key) ? String(channelDraft[channel.key]) : "";
+      label.appendChild(select); target.appendChild(label);
+    });
+    if (!channels.length) target.textContent = "No discovered channel choices. Discover explicitly; no Shopify request was made to render this page.";
+    setControlState("shopify_channels");
+  }
 
   function registryChoices() {
     const category = guided.querySelector("[data-registry-category]");
@@ -84,6 +114,12 @@
   }
 
   function valueFor(field) {
+    if (field === "shopify_status") {
+      if (Object.hasOwn(authored,field)) return authored[field];
+      if (typeof authored.live === "boolean") return authored.live ? "ACTIVE" : "DRAFT";
+      if (!isShared) return boot.collection?.shopify_status || (typeof boot.collection?.live === "boolean" ? boot.collection.live ? "ACTIVE" : "DRAFT" : "");
+      return "";
+    }
     if (Object.prototype.hasOwnProperty.call(authored, field)) return authored[field];
     if (!isShared && Object.prototype.hasOwnProperty.call(boot.collection || {}, field)) return boot.collection[field];
     return "";
@@ -103,6 +139,7 @@
     if (wrapper) {
       wrapper.classList.toggle("is-inherited", !enabled);
       wrapper.querySelectorAll("input:not([data-override-toggle]), textarea, select, button").forEach((control) => {
+        if (control.matches("[data-discover-channels]")) return;
         control.disabled = !enabled;
       });
     }
@@ -309,7 +346,7 @@
   function populate(documentValue) {
     authored = structuredClone(documentValue || {});
     guided.querySelectorAll("[data-override-toggle]").forEach((toggle) => {
-      toggle.checked = Object.prototype.hasOwnProperty.call(authored, toggle.dataset.overrideToggle);
+      toggle.checked = Object.prototype.hasOwnProperty.call(authored, toggle.dataset.overrideToggle) || toggle.dataset.overrideToggle === "shopify_status" && Object.hasOwn(authored,"live");
     });
     guided.querySelectorAll("[data-field]").forEach((control) => {
       const field = control.dataset.field;
@@ -319,6 +356,7 @@
       control.value = value == null ? "" : String(value);
     });
     const dimensions = valueFor("dimensions");
+    renderChannels(valueFor("shopify_channels"));
     guided.querySelectorAll("[data-dimension]").forEach((control) => { control.value = dimensions && dimensions[control.dataset.dimension] != null ? dimensions[control.dataset.dimension] : ""; });
     ["categories", "tags", "storefront_collections", "image_attributes"].forEach((field) => renderList(field, valueFor(field)));
     explicitVariation = Object.prototype.hasOwnProperty.call(authored, "variation_attributes");
@@ -379,6 +417,7 @@
       delete result.collection_type;
       delete result.sku_prefix;
     }
+    if (overrideEnabled("shopify_channels") && (Object.keys(channelValues()).length || Object.hasOwn(authored,"shopify_channels"))) result.shopify_channels = channelValues();
     Object.keys(result).forEach((key) => {
       if (result[key] === "" && !["description", "short_description", "meta_title", "meta_description"].includes(key)) delete result[key];
     });
@@ -394,6 +433,10 @@
       if (JSON.stringify(values[key]) === JSON.stringify(initialValues[key])) continue;
       if (Object.hasOwn(values, key)) result[key] = structuredClone(values[key]);
       else delete result[key];
+    }
+    if (JSON.stringify(values.shopify_status) !== JSON.stringify(initialValues.shopify_status)) {
+      if (values.shopify_status) result.live = values.shopify_status === "ACTIVE";
+      else { delete result.shopify_status; delete result.live; }
     }
     return result;
   }
@@ -654,6 +697,16 @@
     if (value) validateDocument(value);
   }));
   saveButtons.forEach((button) => button.addEventListener("click", save));
+  guided.querySelector("[data-discover-channels]")?.addEventListener("click", async () => {
+    try {
+      const values = channelValues();
+      const response = await fetch(boot.discover_channels_url,{method:"POST",headers:{"X-CSRFToken":document.querySelector('meta[name="csrf-token"]')?.content || ""}});
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Channel discovery unavailable; existing intent is unchanged.");
+      channels = payload.channels; renderChannels(values);
+      showFeedback("success","Available Shopify channels discovered","Read-only discovery only. Review actual remote status/publication separately before confirming. No product visibility changed.");
+    } catch (error) { showFeedback("error","Channel discovery unavailable",error.message); }
+  });
   const loadTemplateButton = document.getElementById("loadTemplateBtn");
   if (loadTemplateButton) loadTemplateButton.addEventListener("click", async () => {
     const select = document.getElementById("templateSelect");

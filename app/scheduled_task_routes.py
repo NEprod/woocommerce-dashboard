@@ -18,12 +18,16 @@ def administrator():
 
 @tasks.route("/settings/tasks")
 def index():
-    return render_template("scheduled_tasks.html",task=service.snapshot(db.session.get(ScheduledTask,service.KEY)),form=FlaskForm())
+    key=request.args.get('task',service.KEY)
+    if key not in {service.KEY,service.SALE_KEY}: abort(404)
+    return render_template("scheduled_tasks.html",task=service.snapshot(db.session.get(ScheduledTask,key)),form=FlaskForm())
 
 
 @tasks.route("/settings/tasks/status")
 def status():
-    return jsonify(service.snapshot(db.session.get(ScheduledTask,service.KEY))),200,{"Cache-Control":"no-store"}
+    key=request.args.get('task',service.KEY)
+    if key not in {service.KEY,service.SALE_KEY}: abort(404)
+    return jsonify(service.snapshot(db.session.get(ScheduledTask,key))),200,{"Cache-Control":"no-store"}
 
 
 @tasks.route("/settings/tasks/<key>",methods=["POST"])
@@ -33,10 +37,10 @@ def settings(key):
         if not data:raise ValueError("Task settings are required.")
         enabled=data.get("enabled") if request.is_json else data.get("enabled")=="yes"
         raw=data.get("interval")
-        interval=raw if request.is_json and type(raw) is int else int(raw) if not request.is_json and isinstance(raw,str) and raw in {"10","20","30","60"} else None
+        interval=raw if request.is_json and type(raw) is int else int(raw) if not request.is_json and isinstance(raw,str) and raw in {"5","10","20","30","60"} else None
         result=service.configure(key,enabled=enabled,interval=interval)
     except (ValueError,TypeError):
-        return jsonify(error="Choose an enabled state and 10, 20, 30 or 60 minutes."),400
+        return jsonify(error="Choose an enabled state and a supported interval (sale tasks also allow five minutes)."),400
     return jsonify(result) if request.is_json else redirect(url_for("tasks.index"))
 
 
@@ -51,9 +55,9 @@ def run_now(key):
 
 @tasks.route("/settings/tasks/<key>/history")
 def history(key):
-    if key!=service.KEY:abort(404)
+    if key not in {service.KEY,service.SALE_KEY}:abort(404)
     runs=ScheduledTaskRun.query.filter_by(task_key=key).order_by(ScheduledTaskRun.created_at.desc()).limit(100).all()
-    return render_template("scheduled_task_history.html",runs=runs,detail=None,definition=service.DEFINITION)
+    return render_template("scheduled_task_history.html",runs=runs,detail=None,definition=service.definition(key))
 
 
 @tasks.route("/settings/tasks/runs/<run_id>")
@@ -64,4 +68,4 @@ def run_detail(run_id):
     if request.accept_mimetypes.best=="application/json":
         return jsonify(id=run.id,state=run.state,counts=data.get("counts",{}),reason=data.get("reason"),
             error=run.error,outstanding=len(data.get("queue",[])),items=data.get("items",[])),200,{"Cache-Control":"no-store"}
-    return render_template("scheduled_task_history.html",runs=[run],detail=data,definition=service.DEFINITION)
+    return render_template("scheduled_task_history.html",runs=[run],detail=data,definition=service.definition(run.task_key))

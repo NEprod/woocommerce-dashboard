@@ -1,5 +1,42 @@
 # Current State
 
+## M3A.9.3 — publication/defaults and separately authorised scheduled sales
+
+Implemented on develop for controlled Unraid acceptance: discovered real channel
+handles and exact publication IDs, Draft/Active/Archived intent, independent signed
+status/channel confirmation and readback, explicit shipping/inventory defaults with
+source display and false/unspecified preservation. Existing metadata publishing
+creates unpublished Drafts or preserves actual availability. Saving JSON never
+publishes, changes channel availability or authorises a future sale.
+
+Shared exact-decimal/Europe-London sale projection covers Simple and both Variable
+layouts, existing modifiers and retained variant/InventoryItem IDs. Future metadata
+does not change current managed fingerprints. Separate source-bound per-product sale
+approval uses the existing task worker and deterministic operation receipts for due
+activation/expiry. Pending evidence commits before mutations; uncertainty is held
+for read-only reconciliation, never replayed. Verified mutation outcomes reuse durable
+Discord notices; no due sale/Preview/Save/approval produces a publishing notification.
+
+Migration head is `0014_shopify_sales`: one bounded current-authority table and the
+existing scheduler's five-minute sale task. No product/identity/JSON backfill or
+persistent path change. Normal 2026-10 and opt-in packed 2027-01 stay unchanged.
+No live Shopify/Discord action is part of verification. See SHOPIFY_INTEGRATION for
+permissions, backup/rollback limits, bounded timing and user-initiated acceptance.
+
+Verification covered 369 distinct isolated/mocked Python cases across one bounded
+366-case regression and focused corrective follow-ups (final affected pass: 206/206),
+plus 21 selected JavaScript cases. Regression exposed and corrected incomplete
+publication evidence on new Variable creation; obsolete blanket-Live-block assertions
+now verify safe unpublished creation and separately reviewed channel availability.
+Migration fresh/upgrade/uniqueness/downgrade refusal, cross-connection pending receipts,
+restart recovery, UK DST, all-layout local saves and due activation/expiry are covered.
+Python/template/JavaScript syntax and whitespace checks pass. Live acceptance remains.
+
+Pause does not restore an active price; early restoration requires revised end and
+new reviewed approval. Shared-child/bulk authority, customisation designer, creator,
+media tools, menus and quantity scheduling remain deferred. Historical records below
+remain checkpoint-specific; their former sale/channel deferrals are superseded here.
+
 ## M3A.9.2 — core editor and safe local saving
 
 Implemented guided Shopify metadata sections, shared/sparse ownership, reused

@@ -1,5 +1,21 @@
 # Roadmap
 
+## M3A.9.3 — publication, product defaults and scheduled sales
+
+Implemented for controlled acceptance: status/discovered-channel review, explicit
+default/source precedence, current Simple/Variable effective sales and separate
+future-write approval in the existing scheduler. Migration 0014 retains authorities
+and deterministic receipts, with read-only uncertain-write recovery and existing
+durable Discord outcomes. Saving JSON remains local and never approves publishing.
+No new creator, customisation, bulk, image or navigation functionality.
+
+Accept one retained Draft's effective defaults, local future sale → explicit approval
+→ due activation → expiry/restoration, restart/history and scoped channel publish/
+unpublish only when visibility is intended. See SHOPIFY_INTEGRATION for limitations.
+Then return to the separately scoped customisation-definition/editor stage after
+acceptance; previous M3A.9.2 numbering proposals below are historical, not an
+instruction to implement that work in this milestone.
+
 ## M3A.9.2 — core editor implemented; Unraid acceptance next
 
 Accept supported forms, all three owners, sparse/shared scope, conflict/backup/write

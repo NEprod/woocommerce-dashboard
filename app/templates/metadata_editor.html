@@ -7,7 +7,7 @@
 <div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}>
   <div class="guided-field-label"><label for="metadata-{{ key }}">{{ label }}</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override this value</span></label>{% endif %}</div>
   {% if choices %}<select id="metadata-{{ key }}" data-field="{{ key }}"><option value="">Not set</option>{% for value, text in choices %}<option value="{{ value }}">{{ text }}</option>{% endfor %}</select>{% else %}<input id="metadata-{{ key }}" data-field="{{ key }}">{% endif %}
-  <p class="field-helper">{{ helper }} <span data-inherited-value="{{ key }}"></span></p><p class="field-error" data-field-error="{{ key }}" hidden></p>
+  <p class="field-helper">{{ helper }} <span data-inherited-value="{{ key }}"></span>{% if key in workspace.defaults %}<br>Effective: {{ workspace.defaults[key].value if workspace.defaults[key].value is not none else 'Unknown / unmanaged' }} · Source: {{ workspace.defaults[key].source }}. Remove the authored key / disable override to use inherited/default value.{% endif %}</p><p class="field-error" data-field-error="{{ key }}" hidden></p>
 </div>
 {% endmacro %}
 {% block content %}
@@ -32,7 +32,7 @@
 {% endif %}
 
 <nav class="metadata-section-nav" aria-label="Editor sections">
-{% for id, name in [('basic-information-title','General'),('pricing-title','Pricing'),('attributes-title','Variations & attributes'),('image-attributes-title','Images'),('categories-tags-title','Organisation'),('shipping-title','Shipping'),('seo-title','SEO'),('advanced-fields-title','Advanced')] %}<a href="#{{ id }}">{{ name }}</a>{% endfor %}
+{% for id, name in [('basic-information-title','General'),('publishing-title','Publishing'),('pricing-title','Pricing'),('attributes-title','Variations & attributes'),('image-attributes-title','Images'),('categories-tags-title','Organisation'),('shipping-title','Shipping'),('seo-title','SEO'),('advanced-fields-title','Advanced')] %}<a href="#{{ id }}">{{ name }}</a>{% endfor %}
 </nav>
 <div class="metadata-owner-actions">
 {% if is_shared and workspace.can_override %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='override') }}">Edit Product Overrides</a>{% elif not is_shared %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='shared') }}">Edit Shared Collection Data</a>{% endif %}
@@ -62,23 +62,19 @@
           </div>
           {% endif %}
           {% endfor %}
-          <div class="guided-field" data-field-wrapper="live" {% if not is_shared %}data-override-field="live"{% endif %}>
-            <div class="guided-field-label"><label for="metadata-live">Publishing intent</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="live" {% if 'live' in workspace.override.data %}checked{% endif %}><span>Override collection intent</span></label>{% endif %}</div>
-            <select id="metadata-live" data-field="live"><option value="">Not set — resolve before Shopify publishing</option><option value="true">Live intended — channel publication deferred</option><option value="false">Draft — reviewed Shopify publishing</option></select>
-            {% if is_shared %}
-            <p class="field-helper">Sets Live or Draft intent for reviewed Shopify publishing. Saving metadata does not publish. Live channel transitions are deferred. This affects all products that inherit this collection value.</p>
-            {% else %}
-            <p class="field-helper">Inherited collection intent: {{ workspace.collection_publishing_intent.label }}. Leave “Override collection intent” disabled to inherit. Removing this override restores the collection intent. This is authored publishing intent, not current remote status.</p>
-            {% endif %}
-            <p class="field-error" data-field-error="live" hidden></p>
-          </div>
         </div>
       </section>
 
+      <section class="editor-workspace-section" aria-labelledby="publishing-title"><header><h2 id="publishing-title">Publishing</h2><p>Actual cached Shopify state: {{ workspace.shopify.remote_status }}. Saving locally does not change remote visibility. Shared intent requires a separate per-product review for every affected child.</p></header>
+        {{ extra_field('shopify_status','Desired Shopify status','Draft is not public. Active status and channel publication are separate. Explicit status edits keep legacy live intent consistent; resetting the product override restores inherited intent.', [('DRAFT','Draft'),('ACTIVE','Active'),('ARCHIVED','Archived')]) }}
+        <div class="guided-field" data-field-wrapper="shopify_channels"><div class="guided-field-label"><strong>Sales-channel intent</strong>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="shopify_channels" {% if 'shopify_channels' in workspace.override.data %}checked{% endif %}>Override channel-intent object</label>{% endif %}</div><div data-channel-choices></div><button type="button" class="btn btn-outline-primary" data-discover-channels>Discover available Shopify channels (read-only)</button><p class="field-helper">Only discovered eligible channels are selectable. Unmanaged is not unpublished. Channel handles, not remote GIDs, are authored; mappings stay operational. A product override replaces this intent object. Unchanged remote memberships are preserved.</p></div>
+        <a class="btn btn-outline-primary" href="{{ url_for('commerce.publication_review',product_id=product.id) }}">Review status &amp; channel publication</a>
+      </section>
       <section class="editor-workspace-section" aria-labelledby="pricing-title">
-        <header><h2 id="pricing-title">Pricing</h2><p>Regular price and optional unscheduled sale. Current indexed price: {{ product.sale_price if product.sale_price is not none else product.regular_price }}. Validate and scan before relying on a changed price.</p></header>
+        <header><h2 id="pricing-title">Pricing</h2><p>Regular price and optional date-aware sale. Indexed regular price: {{ product.regular_price }}. A future sale is not today's customer price; Review calculates the effective price. Validate and scan before reviewing changes.</p></header>
         <div class="editor-field-grid">{{ extra_field('price','Regular price','Store currency; existing modifiers remain unchanged.') }}{{ extra_field('sale_price','Sale price','Optional; reviewed Shopify sale must be below regular price. Clear to remove this authored value.') }}</div>
-        <p class="field-helper">Scheduled sales are not implemented. Existing sale dates remain preserved in Advanced JSON and block scheduled publishing; no date/time scheduling controls are enabled.</p>
+        <div class="editor-field-grid">{{ extra_field('sale_start_date','Sale start (Europe/London)','Optional ISO date or date-time. Date-only starts at local midnight. Use explicit offset for ambiguous BST/GMT times.') }}{{ extra_field('sale_end_date','Sale end (Europe/London)','Optional; no end means ongoing. Date-only includes the whole day; a date-time is an exclusive end.') }}</div>
+        <p class="field-helper">Future sale metadata stays local until effective. Current sale status: {{ workspace.sale.state }}. JSON saving never authorises background writes. Shared edits do not authorise children.</p><a class="btn btn-outline-primary" href="{{ url_for('commerce.sale_review',product_id=product.id) }}">Review / Authorise Sale</a>
       </section>
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="categories-tags-title">
         <header><div><h2 id="categories-tags-title">Organisation</h2><p>Ordered authored values. The protected override merge remains additive and set-based.</p></div></header>
@@ -141,7 +137,7 @@
       <section class="editor-workspace-section" aria-labelledby="modifiers-title">
         <header><div><h2 id="modifiers-title">Variation Modifiers</h2><p>Exact or most-specific expressions such as <code>Size=A5</code> or <code>Size=A3|Style=Hero C</code>.</p></div><button class="btn btn-sm btn-outline-primary" type="button" data-add-modifier>Add Modifier</button></header>
         {% if not is_shared %}<label class="override-switch section-override"><input type="checkbox" data-override-toggle="variation_modifiers" {% if 'variation_modifiers' in workspace.override.data %}checked{% endif %}><span>Override the variation modifiers object</span></label>{% endif %}
-        <div class="structured-editor-list" data-modifiers-editor></div><p class="field-helper">Modifier sale price remains a documented protected scanner discrepancy and is not silently corrected here.</p><p class="field-error" data-field-error="variation_modifiers" hidden></p>
+        <div class="structured-editor-list" data-modifiers-editor></div><p class="field-helper">Shopify Review resolves effective regular/sale amounts using the existing modifier selector and sale dates. Legacy scanner columns and SKU allocation remain unchanged.</p><p class="field-error" data-field-error="variation_modifiers" hidden></p>
       </section>
 
       <section class="editor-workspace-section" aria-labelledby="shipping-title">
@@ -160,7 +156,7 @@
         {{ extra_field('backorders','Out-of-stock selling policy','Existing reviewed Shopify policy; notify does not send customer alerts.', [('no','Do not allow'),('yes','Allow'),('notify','Allow (legacy notify policy)')]) }}
       </div><p>Product millimetres are not parcel dimensions. Native packed dimensions retain their separate opt-in measurement policy.</p></section>
       <section class="editor-workspace-section advanced-fields-section" aria-labelledby="advanced-fields-title">
-        <header><h2 id="advanced-fields-title">Advanced</h2><p>Unknown, internal and historical fields remain preserved. Use Advanced JSON for explicit complex changes, customisation definitions and existing sale-date metadata. No customer forms, uploads, proofs or scheduled sale execution are implemented.</p></header>
+        <header><h2 id="advanced-fields-title">Advanced</h2><p>Unknown, internal and historical fields remain preserved. Customisation remains definitions only. Scheduled prices require separate explicit per-product authorisation; there are no customer forms, uploads or proof workflows here.</p></header>
         <button class="btn btn-outline-primary" type="button" data-open-advanced>Inspect / edit authored JSON</button>
         <details><summary>Authored, inherited and effective values</summary><div class="compact-comparison-list">{% for row in workspace.comparison %}<div><strong>{{ row.label }}</strong><span>{{ row.state }} · Effective {{ row.resolved_display }}</span></div>{% endfor %}</div></details>
       </section>
@@ -201,6 +197,8 @@
   'collection': workspace.shared.data,
   'override': workspace.override.data,
   'resolved': workspace.resolved,
+  'channels':workspace.channels,
+  'discover_channels_url':url_for('commerce.discover_publications'),
   'taxonomy_options': workspace.taxonomy_options,
   'taxonomy_options_url': url_for('taxonomy.assignment_options'),
   'taxonomy_term_url': url_for('taxonomy.edit', kind='terms'),

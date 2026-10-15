@@ -460,7 +460,7 @@ def test_fresh_and_upgrade_migration_preserves_existing_data(tmp_path):
         conn.execute("INSERT INTO shopify_attribute_identity (store_id,source_key,state,evidence_json) VALUES ('shop','attribute:test','verified','{}')")
     ensure_database(url)
     with sqlite3.connect(path) as conn:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]=="0013_scheduled_tasks"
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]=="0014_shopify_sales"
         assert conn.execute("SELECT source_key,state FROM shopify_attribute_identity").fetchone()==('attribute:test','verified')
         assert conn.execute("SELECT enabled,interval_minutes FROM scheduled_task").fetchone()==(1,20)
     fresh=tmp_path/"fresh.db";ensure_database("sqlite:///"+str(fresh))

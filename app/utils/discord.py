@@ -178,7 +178,7 @@ def publishing_message(summary):
         fields = [{"name": label, "value": value, "inline": True} for label, value in
             [("Product", product["title"]), ("SKU", product["sku"]), ("Operation", product["operation"]),
              ("Result", labels[product["outcome"]]), ("Completed (UTC)", product["completed_at"])]]
-        for key, label in [("variants", "Variants"), ("images", "Images synchronised/retained"), ("shopify_status", "Shopify status")]:
+        for key, label in [("variants", "Variants"), ("images", "Images synchronised/retained"), ("shopify_status", "Shopify status"), ('sale_status','Sale status')]:
             if key in product:
                 fields.append({"name": label, "value": str(product[key]), "inline": True})
         notes = product.get("deferred", []) + ([product["reason"]] if product.get("reason") else [])

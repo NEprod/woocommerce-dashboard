@@ -478,6 +478,66 @@ def taxonomy_step():
         return jsonify(error=str(exc)), 409
 
 
+@commerce.route('/shopify/publications/discover',methods=['POST'])
+@login_required
+def discover_publications():
+    if not current_user.is_admin: abort(403)
+    from app.shopify_publication import discover
+    try: return jsonify(channels=discover())
+    except (ShopifyError,config.CommerceConfigError) as exc: return jsonify(error=str(exc)),400
+
+
+@commerce.route('/products/<int:product_id>/shopify/publication',methods=['GET','POST'])
+@login_required
+def publication_review(product_id):
+    if not current_user.is_admin: abort(403)
+    from app import db, shopify_drafts as drafts, shopify_publication as service
+    from app.models import Product
+    from app.utils.operation_control import CatalogueOperationActive
+    product=db.get_or_404(Product,product_id)
+    form=FlaskForm();plan=token=error=None
+    if request.method=='POST':
+        if not form.validate_on_submit(): abort(400)
+        try:
+            if request.form.get('action')=='preview': plan,token=service.preview(product)
+            elif request.form.get('action')=='confirm':
+                from app.shopify_progress import accept,finalise_unfinished
+                review=request.form.get('review','')
+                accepted=accept(product.id,review,request.form.get('acknowledge')=='yes')
+                try: row=drafts.confirm(review,True,expected_product_id=product.id)
+                finally: finalise_unfinished(accepted.id)
+                return redirect(url_for('commerce.draft_identity',identity_id=row.id))
+            else: abort(400)
+        except (ShopifyError,config.CommerceConfigError,CatalogueOperationActive) as exc: error=str(exc)
+    return render_template('shopify_stage_review.html',product=product,form=form,plan=plan,token=token,error=error,stage='publication'),400 if error else 200
+
+
+@commerce.route('/products/<int:product_id>/shopify/sale',methods=['GET','POST'])
+@login_required
+def sale_review(product_id):
+    if not current_user.is_admin: abort(403)
+    from app import db,shopify_sales as service
+    from app.models import Product,ShopifySaleSchedule
+    from app.utils.operation_control import CatalogueOperationActive
+    product=db.get_or_404(Product,product_id);form=FlaskForm();plan=token=error=None
+    if request.method=='POST':
+        if not form.validate_on_submit(): abort(400)
+        try:
+            if request.form.get('action')=='preview': plan,token=service.review(product)
+            elif request.form.get('action')=='confirm':
+                service.authorise(product,request.form.get('review',''),request.form.get('acknowledge')=='yes')
+                flash('Sale authorisation saved. Only due transitions may execute; no Shopify price was written by this confirmation.','success')
+                return redirect(url_for('commerce.sale_review',product_id=product.id))
+            elif request.form.get('action')=='pause':
+                row=db.get_or_404(ShopifySaleSchedule,request.form.get('schedule_id',''))
+                if row.product_id!=product.id or request.form.get('acknowledge')!='yes': abort(400)
+                service.pause(row)
+                return redirect(url_for('commerce.sale_review',product_id=product.id))
+            else: abort(400)
+        except (ShopifyError,ValueError,config.CommerceConfigError,CatalogueOperationActive) as exc: error=str(exc)
+    return render_template('shopify_stage_review.html',product=product,form=form,plan=plan,token=token,error=error,stage='sale',sale=service.summary(product)),400 if error else 200
+
+
 def guard_platform():
     """Do not execute Woo workflows on a Shopify installation. Woo path is untouched."""
     endpoint = request.endpoint or ""

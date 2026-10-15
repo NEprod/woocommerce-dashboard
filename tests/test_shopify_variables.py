@@ -328,10 +328,14 @@ def test_uncertain_native_stops_remaining_writes_and_reconciles_without_retry(va
     assert drafts.preview(variable_world[0],adapter)[0]["classification"]=="update"
 
 
-def test_live_intent_blocks_writes_but_preview_and_offline_pages_work(variable_world,monkeypatch):
+def test_live_intent_allows_unpublished_draft_creation_and_offline_pages(variable_world,monkeypatch):
     rescan(variable_world,live=True)
-    plan,token=drafts.preview(variable_world[0],VariableAdapter())
-    assert token is None and any("Live intent" in b for b in plan["blockers"])
+    adapter=VariableAdapter()
+    plan,token=drafts.preview(variable_world[0],adapter)
+    assert token and plan['intent']=='Active' and plan['publication']['pending']
+    row=drafts.confirm(token,True,adapter)
+    assert row.state=='verified' and adapter.remote['status']=='DRAFT'
+    assert not any('publication_write' in call for call in adapter.calls)
     from app.shopify_connection import ShopifyAdapter
     monkeypatch.setattr(ShopifyAdapter,"test_connection",lambda *a:pytest.fail("GET contacted Shopify"))
     client=_client(current_app._get_current_object())

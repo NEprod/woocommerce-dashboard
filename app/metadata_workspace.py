@@ -424,6 +424,10 @@ def editor_workspace(product: Product, kind: str):
         for item in preview_products
     ]
     from app.metadata_save import review_token
+    from app.product_defaults import display as default_display
+    defaults=default_display(shared['data'],override['data'],resolved_metadata(product,shared['data'],override['data']))
+    from app.shopify_publication import cached_channels
+    from app.shopify_sales import summary as sale_summary
     token, save_error = None, None
     try:
         token = review_token(product, kind)
@@ -481,6 +485,7 @@ def editor_workspace(product: Product, kind: str):
         "shared_product_title": shared["data"].get("title"),
         "kind": kind,
         "revision": token,
+        'defaults':defaults,'channels':cached_channels(),'sale':sale_summary(product),
         "save_error": save_error,
         "can_override": can_override,
         "remote_media": remote_media,

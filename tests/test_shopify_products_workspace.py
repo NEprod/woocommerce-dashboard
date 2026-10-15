@@ -57,7 +57,7 @@ def test_intent_is_explicit_and_live_transition_deferred(world, value):
     product, _, _ = world
     change(world, live=value)
     adapter = FakeDraftAdapter()
-    with pytest.raises(ShopifyError, match="live field|Live intent"):
+    with pytest.raises(ShopifyError, match="intent before publication"):
         drafts.preview(product, adapter)
     assert not adapter.calls and ShopifyProductIdentity.query.count() == 0
 

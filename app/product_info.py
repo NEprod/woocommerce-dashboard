@@ -52,6 +52,11 @@ def load_schema(name):
     schema = _load_json(SCHEMA_ROOT / f"{name}.schema.json")
     schema["properties"]["customisation"] = CUSTOMISATION_SCHEMA
     schema["properties"].update(SHOPIFY_EDITOR_FIELDS)
+    for key in ('sale_start_date','sale_end_date'):
+        schema['properties'][key] = {'type':'string','anyOf':[{'format':'date'},{'format':'date-time'}, {'pattern':r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$'}]}
+    schema['properties']['shopify_status'] = {'enum':['DRAFT','ACTIVE','ARCHIVED']}
+    schema['properties']['shopify_channels'] = {'type':'object','maxProperties':20,
+        'propertyNames':{'pattern':r'^[a-z0-9][a-z0-9_-]{0,95}$'},'additionalProperties':{'type':'boolean'}}
     return schema
 
 
@@ -138,7 +143,7 @@ def _warnings(data, kind):
     for key in data:
         field = FIELD_BY_KEY.get(key)
         if not field:
-            if key in SHOPIFY_EDITOR_FIELDS:
+            if key in SHOPIFY_EDITOR_FIELDS or key in {'shopify_status','shopify_channels'}:
                 continue
             warnings.append(
                 ValidationIssue(
@@ -251,6 +256,13 @@ def validate_product_info(data, kind):
             (),
         )
     errors = tuple(_schema_errors(data, kind))
+    if not errors and 'shopify_status' in data and 'live' in data and data['live'] != (data['shopify_status']=='ACTIVE'):
+        errors += (ValidationIssue('$.shopify_status','conflicting_publication_intent','Shopify status and legacy live must agree within this authored layer.'),)
+    if not errors:
+        from app.sale_pricing import schedule
+        try: schedule(data, partial=kind == 'override')
+        except ValueError as exc:
+            errors += (ValidationIssue('$.sale_start_date','invalid_sale_schedule',str(exc)),)
     if not errors:
         from app.catalogue_fields import validate_extensions
         try:

@@ -72,12 +72,11 @@ def merge_customisation(shared, override):
 
 def shipping_details(authored, product):
     validate_extensions(authored)
-    default = os.environ.get("DEFAULT_COUNTRY_OF_ORIGIN", "")
-    if default:
-        validate_extensions({"country_of_origin": default})
+    from app.product_defaults import effective
+    defaults, sources = effective(authored)
     return {"weight_g": authored.get("weight", product.weight),
         "dimensions_mm": authored.get("dimensions", {
             "length": product.length, "width": product.width, "height": product.height}),
-        "country_of_origin": authored.get("country_of_origin", default or None),
-        "origin_source": "authored" if "country_of_origin" in authored else "deployment_default" if default else "unset",
-        "requires_shipping": authored.get("requires_shipping")}
+        "country_of_origin": defaults['country_of_origin'],
+        "origin_source": sources['country_of_origin'],
+        "requires_shipping": defaults['requires_shipping']}

@@ -67,3 +67,27 @@ test('post-save scan failure is not labelled unsaved and offers explicit retry o
   assert.equal(e.children.at(-1).textContent, 'Retry local scan only');
   assert.equal(e.calls.length, 1); assert.equal(e.progress.length, 0);
 });
+
+const guidedCode = source.slice(source.indexOf('  function guidedDocument('), source.indexOf('  function documentPatch('));
+test('unchanged legacy live and explicit false survive guided roundtrip without authorisation', () => {
+  const authored = {live: false, requires_shipping: false, future: {private: true}};
+  const context=vm.createContext({structuredClone,authored,initialValues: {shopify_status:'DRAFT',requires_shipping:false},
+    guidedValues:()=>({shopify_status:'DRAFT',requires_shipping:false})});
+  vm.runInContext(guidedCode,context);
+  assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(guidedDocument())',context)),authored);
+});
+test('explicit status edit keeps legacy intent consistent and reset restores inheritance', () => {
+  const context=vm.createContext({structuredClone,authored:{live:true,shopify_status:'ACTIVE'},
+    initialValues:{shopify_status:'ACTIVE'},guidedValues:()=>({shopify_status:'ARCHIVED'})});
+  vm.runInContext(guidedCode,context);
+  assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(guidedDocument())',context)),{live:false,shopify_status:'ARCHIVED'});
+  context.guidedValues=()=>({});
+  assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(guidedDocument())',context)),{});
+});
+test('channel intent preserves explicit false and removes only deliberately unmanaged handles', () => {
+  const context=vm.createContext({structuredClone,channelDraft:{'online-store':false,unavailable:true},
+    guided:{querySelectorAll:()=>[{dataset:{channelIntent:'online-store'},value:'false'}]}});
+  const code=source.slice(source.indexOf('  function channelValues('),source.indexOf('  function renderChannels('));
+  vm.runInContext(code,context);
+  assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(channelValues())',context)),{'online-store':false,unavailable:true});
+});

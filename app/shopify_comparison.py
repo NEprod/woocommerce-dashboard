@@ -78,7 +78,7 @@ def record(product, plan, identity=None):
     prior = json.loads(row.summary_json) if row.summary_json else {}
     # A diagnostic for a failed required attribute read is not successful
     # comparison evidence. Keep its previous success checkpoint, if any.
-    read_failed = bool(plan.get("attribute_diagnostics")) and not scoped or bool(
+    read_failed = bool(plan.get('publication')) and plan['publication'].get('read_complete') is not True or bool(plan.get("attribute_diagnostics")) and not scoped or bool(
         (plan.get("native") or {}).get("enabled") and (plan.get("native") or {}).get("classification") == "blocked")
     incomplete = scoped or read_failed
     changes = [{"field": r["field"], "after": summary_value(r["after"])} for r in plan["fields"] if r["changed"] and not r.get("deferred")]
@@ -98,6 +98,7 @@ def record(product, plan, identity=None):
         for a in plan.get("attributes",[]) for r in a["resources"]}
     summary["attribute_capability_policy"] = plan.get("attribute_capability_policy")
     summary["native"] = plan.get("native")
+    summary['publication'] = plan.get('publication')
     summary["conflicting_changes"] = bool(plan.get("conflicting_changes")) and plan["classification"] == "update"
     stamp = now().isoformat()
     summary.update(sku=product.sku, remote_updated_at=plan.get("remote_updated_at"),

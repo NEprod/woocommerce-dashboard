@@ -27,8 +27,9 @@ def background():
 
 
 @contextmanager
-def background_work(guard, *, fence=None, requests=120, seconds=120):
-    state = {"guard": guard, "fence":fence or guard, "remaining": requests, "deadline": monotonic()+seconds, "requests": 0, "throttled": 0}
+def background_work(guard, *, fence=None, requests=120, seconds=120, price_transitions=False):
+    state = {"guard": guard, "fence":fence or guard, "remaining": requests, "deadline": monotonic()+seconds, "requests": 0, "throttled": 0,
+             "price_transitions":price_transitions}
     token = _background.set(state)
     try:
         yield state
@@ -67,7 +68,7 @@ def signal_priority(priority=2):
         current_app.logger.warning("Shopify priority signal unavailable; durable operation locking remains active.")
 
 
-def before(config, *, writing=False):
+def before(config, *, writing=False, query=None):
     state = background()
     if not state:
         if writing or has_request_context():
@@ -75,6 +76,10 @@ def before(config, *, writing=False):
         return
     guard_owner()
     if writing:
+        from app.shopify_connection import PRICE_QUERY, VARIANTS_UPDATE
+        permitted = state.get('price_transitions') is True and query in {PRICE_QUERY,VARIANTS_UPDATE}
+    else: permitted = True
+    if not permitted:
         raise BackgroundYield("Background Shopify mutations are forbidden.")
     if state["remaining"] <= 0 or monotonic() >= state["deadline"]:
         raise BackgroundYield("Bounded API/time budget reached; outstanding products retained.")

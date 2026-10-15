@@ -1,5 +1,46 @@
 # Existing Architecture
 
+## M3A.9.3 — bounded publication and authorised price transitions
+
+`shopify_publication` extends the existing allowlisted GraphQL transport/publisher,
+signed review, CSRF/admin routes, operation leases and retained product evidence.
+It discovers actual APP-catalog publications/channels and applies reviewed lifecycle/
+membership differences, with a durable per-stage pending record and independent reads.
+Metadata writes remain separate and never alter availability implicitly. Channel
+evidence does not renew unrelated metadata verification; incomplete publication
+reads cannot establish full equality. Receipt finalisation recognises the new stages.
+
+`product_defaults` resolves four effective policies AFTER existing JSON inheritance;
+no source rewrite, second merge engine or credentials store. `sale_pricing` is the
+shared Decimal/UK-boundary projection for current Shopify prices/fingerprints and
+the approved task. The existing variation modifier selector remains authoritative;
+scanner identity/regular/measurement compatibility checks still precede publishing.
+
+`0014_shopify_sales` / ShopifySaleSchedule stores one bounded current authority per
+store/source, source generation, exact dates, next due, identity and operation reference.
+Original approval snapshots/history remain in CatalogueOperation. A deterministic
+operation PK per authority generation/activation-or-end prevents duplicate execution
+after restart. Existing product/variant/media identities and source metadata are not
+changed by the migration; current-authority evidence is constrained to 64 KiB.
+
+The existing scheduler registers a second KNOWN handler, `shopify_sales`, at five
+minutes. Atomic claims/leases/fencing, task history and API capacity are reused. The
+sale handler is selected before routine reconciliation and yields to interactive
+priority. Its background allowlist permits only existing variant-price mutation
+documents; routine work remains read-only. At most three due parents, 32 variants
+each per run; no due rows construct an API request. Source/default/config/identity/
+image changes hold execution, as do unrelated remote changes. No new scheduler,
+generic plugins, order worker or bulk publishing engine.
+
+Pending authority/identity/receipt commits before mutation; full independent readback
+finalises price, required identity, media, taxonomy and attribute evidence. Sale proof
+is finalised BEFORE the verifier indexes equality, preventing an immediate stale
+comparison digest. Timeout/interruption never implies remote failure or authorises a
+retry. Existing worker/startup interruption recovery can reconcile a matching outcome
+using reads; mismatches stay Recovery Required. Pause cannot erase uncertainty or
+restore a price. Durable Discord terminal events reuse existing operation deduplication
+outside write transactions; absent/failed webhook delivery does not undo publication.
+
 ## M3A.8.6 — durable scheduling and API coordination
 
 `app.runtime` performs existing migration/interruption recovery once before supervising

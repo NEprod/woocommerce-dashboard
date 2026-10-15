@@ -1,5 +1,48 @@
 # product_info.json Contract
 
+## M3A.9.3 authored intent and effective defaults
+
+Existing files, three physical layouts, sparse merging, SKU/modifier/image/marker
+contracts remain unchanged. New optional keys are `shopify_status`
+(`DRAFT`, `ACTIVE`, `ARCHIVED`) and `shopify_channels` (discovered handle → boolean).
+Status and legacy live must agree when both occur in one authored layer. A child's
+legacy live overrides an inherited new status; a child's status overrides inherited
+live. A channel object is replaced, not merged; missing inherits, `{}` unmanages,
+explicit false requests reviewed unpublication. No remote ID belongs in this JSON.
+
+Effective precedence is child → shared → nonblank deployment default → fallback:
+
+| Authored key | Deployment setting | Unconfigured fallback |
+| --- | --- | --- |
+| country_of_origin | DEFAULT_COUNTRY_OF_ORIGIN | Unknown/unmanaged; no invented GB |
+| requires_shipping | DEFAULT_REQUIRES_SHIPPING (`true`/`false`) | Unknown/unmanaged |
+| manage_stock | DEFAULT_MANAGE_STOCK (`true`/`false`) | false |
+| backorders | DEFAULT_BACKORDERS (`yes`/`no`/`notify`) | yes when untracked; no when tracked (existing behaviour) |
+
+Explicit JSON booleans and `backorders:no` win, including DENY on an untracked
+variant. Tracking and selling policy are distinct; Shopify availability also depends
+on channel/status rules. No stock quantity is fabricated. Null is not inheritance
+for these fields: remove the authored key through the editor to inherit. GB is
+appropriate only when the actual origin qualifies, not simply because TLC ships it.
+Blank new environment settings preserve existing installations. The editor displays
+effective value/source without saving defaults merely because it was opened.
+
+Existing `price`, `sale_price`, `sale_start_date`, `sale_end_date` now share one
+date-aware Shopify projection: before start/at-or-after end → regular price and no
+compare-at; active → sale price and regular compare-at. Prices use exact Decimal,
+at most two decimals; sale must be strictly below each affected regular amount.
+Existing modifier selection determines per-variant absolute regular/sale amounts.
+Legacy scanner CSV remains unchanged; the publisher explicitly reads a selected
+sale modifier that the old CSV did not emit. It still checks indexed regular price,
+measurements, identities and existing scanner sale projection before writing.
+
+Date-only values use Europe/London; end date includes the whole day. Date-times
+are exclusive boundaries; provide an explicit offset during a DST ambiguity.
+No end means ongoing. Dates/amounts for a future sale remain local and do not
+invalidate current-price equality. They DO invalidate separate future-write
+authorisation. Saving JSON never creates that authorisation or publishes prices.
+See SHOPIFY_INTEGRATION for reviewed execution/recovery and limitations.
+
 For the current Shopify field/editor audit, save foundation and planned extensions,
 see [M3A.9 editor contract](PRODUCT_EDITOR_CONTRACT.md). M3A.9.2 integrates signed,
 admin/CSRF-protected source patches, backups and guarded atomic saving with scoped

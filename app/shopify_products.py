@@ -50,11 +50,22 @@ def source_fingerprint(product, images):
         # proof/customisation/production notes. Actual publishing still validates
         # projection() against scanner results before allowing a write.
         parts["authored"] = {key: parts["authored"][key] for key in (
-            "attributes", "variation_attributes", "variation_modifiers", "price", "sale_price",
-            "sale_start_date", "sale_end_date", "weight", "length", "width", "height",
+            "attributes", "variation_attributes", "weight", "length", "width", "height",
             "manage_stock", "backorders", "stock_quantity", "harmonized_system_code",
             "country_of_origin", "requires_shipping") if key in parts["authored"]}
         data["variable"] = parts
+        from app.sale_pricing import project, variant_sale
+        data['managed'] = managed['product']
+        data['inventory_policy']={key:value for key,value in managed['variant'].items() if key=='inventoryPolicy'}
+        data['inventory_policy']['inventoryItem']={key:value for key,value in managed['variant']['inventoryItem'].items() if key in {'tracked','requiresShipping','countryCodeOfOrigin'}}
+        for child in parts['variations']:
+            from app.utils.json_utils import apply_variation_modifiers
+            calculated=apply_variation_modifiers(authored,dict(child['attributes']),log=lambda *a,**k:None)
+            child['pricing'] = project(dict(authored, sale_price=variant_sale(authored, dict(child['attributes']),child['sale'])),calculated.get('price',child['price']))
+            child['pricing'].pop('state',None)
+            for key in ('price','sale','dates'): child.pop(key,None)
+    from app.shopify_publication import intent
+    data['publication_intent'] = intent(authored, required=False)
     from app.shopify_native_dimensions import desired
     native_policy = desired(product)
     if native_policy["enabled"]:
@@ -98,8 +109,11 @@ def product_state(product, rows, comparisons=(), mappings=None):
              "change_count": None, "change_summary": [], "blockers": [], "revision_checked_at": None}
     try:
         live = product_document(product).get("live")
+        from app.shopify_publication import intent
+        try: desired_publication=intent(product_document(product))
+        except ShopifyError: desired_publication={'status':None,'channels':{}}
         state["intent_value"] = live if isinstance(live, bool) else None
-        state["intent"] = "Live intended · channel publication deferred" if live is True else "Draft intended" if live is False else "Unresolved · edit metadata"
+        state['intent']=desired_publication['status'].title()+' intended' if desired_publication['status'] else 'Unresolved · edit metadata'
         if len(rows) > 1:
             state.update(state="recovery_required", label="Recovery Required",
                          message="Multiple retained store identities require administrator review; automatic migration is not supported.")
@@ -118,7 +132,11 @@ def product_state(product, rows, comparisons=(), mappings=None):
                 state["shopify_url"] = f"https://{domain}/admin/products/{row.shopify_product_id.rsplit('/', 1)[-1]}"
             state.update(remote_id=row.shopify_product_id, store_id=row.store_id, identity_url=url_for("commerce.draft_identity", identity_id=row.id),
                          verified_at=row.verified_at.isoformat() + "Z" if row.verified_at else None,
-                         remote_status="Draft (last verified)" if row.verification_state == "verified" else "Not currently verified")
+                         remote_status=(data.get('observed_status') or 'Draft').title()+" (last verified)" if row.verification_state == "verified" else "Not currently verified")
+            observed_publication=data.get('publication_update',{}).get('observed')
+            if observed_publication:
+                state['channel_evidence']=observed_publication
+                state['publication']='Channel-specific cached evidence; inspect publication review'
             state["can_delete"] = row.state == "verified" and row.verification_state == "verified" and not any(p.get("state") in {"pending","uncertain"} for p in data.get("variant_native",{}).values()) and data.get("native_dimensions",{}).get("state") not in {"pending","uncertain"}
             if row.state == "processing":
                 state.update(state="processing", label="Processing", message="Read-only reconciliation is required to check media processing.")
@@ -142,8 +160,10 @@ def product_state(product, rows, comparisons=(), mappings=None):
         if product.product_type not in {"simple","variable"} or product.catalogue_status != "active":
             state["review_url"] = None
             state["message"] += " Only active Simple/Variable parents can be reviewed."
-        if live is not False:
-            state["message"] += " Publishing requires explicit Draft intent; Live transitions are deferred."
+        from app.shopify_publication import proof_matches
+        publication_pending=(desired_publication['status']!='DRAFT' or bool(desired_publication['channels'])) and not (rows and proof_matches(product,evidence(rows[0])))
+        if publication_pending:
+            state["message"] += " Publication intent needs separate signed channel/status review."
             if state["state"] == "no_change":
                 state.update(state="attention", label="Needs Attention",
                     message="Managed metadata matches cached verification, but intended publication is unresolved. " + state["message"])
@@ -173,7 +193,7 @@ def product_state(product, rows, comparisons=(), mappings=None):
                         state.update(evidence_stale=True,
                             label="Last check matched" if classification == "no_change" else "Update Available (last check)",
                             message="Verification is due. Saved comparison only; the background Scheduled Task refreshes it independently. Manual Refresh remains available.")
-                    if classification == "no_change" and (data["blockers"] or live is not False):
+                    if classification == "no_change" and (data["blockers"] or (data.get('publication') or {}).get('pending') or publication_pending and not data.get('publication')):
                         state.update(state="attention", label="Needs Attention", message="Metadata matches, but publication or taxonomy blockers remain.")
                     if data.get("refresh_failure"):
                         state.update(state="unavailable", label="Verification Unavailable", change_count=None,

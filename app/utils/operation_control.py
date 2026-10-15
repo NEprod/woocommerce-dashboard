@@ -118,6 +118,8 @@ def prune_operation_history(*, now=None, protected_ids=None):
         if _active_operation:
             protected.add(_active_operation["id"])
     protected.update(protected_ids or ())
+    from app.models import ShopifySaleSchedule
+    protected.update(row.operation_id for row in ShopifySaleSchedule.query.all() if row.operation_id)
 
     completed = CatalogueOperation.query.filter(
         CatalogueOperation.finished_at.isnot(None),
@@ -141,6 +143,8 @@ def prune_operation_history(*, now=None, protected_ids=None):
     candidates = []
     for row in completed:
         from app.shopify_notifications import KEY, scope_of
+        if scope_of(row).get('mode')=='read_only_sale_authorisation':
+            continue  # original approved prices/revision are recoverable audit evidence
         if any(e.get("state") != "sent" for e in scope_of(row).get(KEY, {}).values()):
             continue  # pending/failed/uncertain delivery remains recoverable
         if row.operation_type == "shopify_product_lifecycle":
@@ -190,7 +194,7 @@ def get_active_operation() -> dict | None:
         return dict(_active_operation) if _active_operation else None
 
 
-def acquire_catalogue_operation(operation_type: str, scope=None) -> OperationLease:
+def acquire_catalogue_operation(operation_type: str, scope=None, *, transition_id=None) -> OperationLease:
     global _active_operation
 
     # Confirm has already committed the same authoritative operation before
@@ -201,6 +205,8 @@ def acquire_catalogue_operation(operation_type: str, scope=None) -> OperationLea
 
     if operation_type not in ALLOWED_OPERATION_TYPES:
         raise ValueError(f"Unsupported catalogue operation type: {operation_type}")
+    if transition_id is not None and (operation_type != 'shopify_draft_publish' or not __import__('re').fullmatch('[0-9a-f]{32}',transition_id)):
+        raise ValueError('Invalid durable transition identity.')
     from app.shopify_capacity import signal_priority
     if operation_type.startswith("shopify_"):
         signal_priority(1 if operation_type == "shopify_status_refresh" else 2)
@@ -210,7 +216,7 @@ def acquire_catalogue_operation(operation_type: str, scope=None) -> OperationLea
             or {"id": "unknown", "operation_type": "unknown"}
         )
 
-    operation_id = uuid.uuid4().hex
+    operation_id = transition_id or uuid.uuid4().hex
     active = {
         "id": operation_id,
         "operation_type": operation_type,

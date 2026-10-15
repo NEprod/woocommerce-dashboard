@@ -70,6 +70,19 @@ ORDER_QUERY = """mutation SimpleOrder($id: ID!, $moves: [MoveInput!]!) {
 READ_QUERIES = READ_QUERIES | frozenset((SIMPLE_QUERY, COUNTRIES_QUERY, SKU_QUERY))
 REVISIONS_QUERY = '''query TLCRevisions($ids: [ID!]!) { nodes(ids: $ids) { id ... on Product { updatedAt status } } }'''
 READ_QUERIES = READ_QUERIES | frozenset((REVISIONS_QUERY,))
+PUBLICATIONS_QUERY = '''query TLCChannels($after: String) { publications(first: 20, after: $after, catalogType: APP) {
+ nodes { id autoPublish channels(first: 20) { nodes { id name handle } pageInfo { hasNextPage } } }
+ pageInfo { hasNextPage endCursor } } }'''
+PUBLICATION_STATE = '''query TLCPublicationState($id: ID!) { product(id: $id) { id status
+ metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
+ resourcePublicationsV2(first: 100, onlyPublished: false) { nodes { isPublished publishDate publication { id } } pageInfo { hasNextPage } }
+} }'''
+PUBLICATION_PUBLISH = '''mutation TLCChannelPublish($id: ID!, $input: [PublicationInput!]!) {
+ publishablePublish(id: $id, input: $input) { publishable { __typename } userErrors { field message } } }'''
+PUBLICATION_UNPUBLISH = '''mutation TLCChannelUnpublish($id: ID!, $input: [PublicationInput!]!) {
+ publishableUnpublish(id: $id, input: $input) { publishable { __typename } userErrors { field message } } }'''
+READ_QUERIES |= frozenset((PUBLICATIONS_QUERY, PUBLICATION_STATE))
+WRITE_QUERIES |= frozenset((PUBLICATION_PUBLISH, PUBLICATION_UNPUBLISH))
 COLLECTION_LOOKUP = '''query CollectionCandidates($query: String!) { collections(first: 20, query: $query) { nodes { id title handle ruleSet { appliedDisjunctively } metafield(namespace: "tlc_dashboard", key: "collection_attempt") { value } } pageInfo { hasNextPage endCursor } } }'''
 COLLECTION_STATE = '''query CollectionState($id: ID!, $product: ID!, $check: Boolean!) { collection(id: $id) { id title handle ruleSet { appliedDisjunctively } sources { __typename ... on CollectionConditionsSource { targetType shareable inclusion { conditions { __typename } } exclusion { conditions { __typename } selections(first: 1) { nodes { product { id } } } } } } hasProduct(id: $product) @include(if: $check) metafield(namespace: "tlc_dashboard", key: "collection_attempt") { value } } }'''
 COLLECTION_CREATE = '''mutation TLCCollection($input: CollectionInput!) { collectionCreate(input: $input) { collection { id } userErrors { field message } } }'''
@@ -450,7 +463,7 @@ class ShopifyAdapter:
         writing = query in WRITE_QUERIES
         config = configuration.validated()
         from app.shopify_capacity import before
-        before(config, writing=writing)
+        before(config, writing=writing, query=query)
         if api_version is not None and (api_version != "2027-01" or query not in NATIVE_QUERIES):
             raise ShopifyError("Only packed-dimension operations may use the release-candidate API.")
         version = api_version or config.api_version
@@ -712,6 +725,25 @@ class ShopifyAdapter:
 
     def update_simple_product(self, configuration, product):
         return self._write(configuration, UPDATE_QUERY, {"product": product})
+
+    def publications(self, config):
+        after, seen, rows = None, set(), []
+        for _ in range(3):
+            connection = _connection(self._read(config, PUBLICATIONS_QUERY, {'after':after}).get('publications'))
+            rows.extend(connection['nodes'])
+            if len(rows)>40: raise ShopifyError('Channel discovery exceeds the forty-publication safety bound.')
+            if not connection['pageInfo']['hasNextPage']: return rows
+            after = connection['pageInfo'].get('endCursor')
+            if not after or after in seen: break
+            seen.add(after)
+        raise ShopifyError('Channel discovery is incomplete; no unavailable channel is assumed unpublished.')
+
+    def publication_state(self, config, product_id):
+        return self._read(config, PUBLICATION_STATE, {'id':_gid(product_id,'Product')}).get('product')
+
+    def set_publication(self, config, product_id, publication_id, published):
+        return self._write(config, PUBLICATION_PUBLISH if published else PUBLICATION_UNPUBLISH,
+            {'id':_gid(product_id,'Product'),'input':[{'publicationId':_gid(publication_id,'Publication')}]})
 
     def update_simple_variant(self, configuration, product_id, variant):
         return self._write(configuration, PRICE_QUERY, {"id": product_id, "variants": [variant]})

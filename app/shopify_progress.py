@@ -21,6 +21,8 @@ STAGES = {
     "media_verification":"Verifying image identities", "media_processing":"Media processing",
     "media_reordering":"Media order processing", "inventory_update":"Updating reviewed inventory policy",
     "inventory_verified":"Inventory verified; other fields deferred", "verified":"Verified",
+    "publication_update":"Applying reviewed status/channel changes",
+    "sale_transition":"Applying authorised due sale prices",
     "required_collection_create":"Registering required collection",
     "collection_membership":"Assigning collection memberships", "variant_create":"Adding reviewed variants",
     "original_image_uploads":"Original image uploads accepted", "independent_readback":"Verifying independent Shopify readback",
@@ -59,7 +61,8 @@ def finalise_unfinished(operation_id, error=None):
     if not operation or operation.status not in {"running","pending"}: return
     row=ShopifyProductIdentity.query.filter_by(operation_id=operation_id).first()
     data=drafts.evidence(row) if row else {}
-    attempted=bool(data.get("create_attempted") or data.get("update_attempted") or data.get("inventory_update"))
+    attempted=bool(data.get("create_attempted") or data.get("update_attempted") or data.get("inventory_update")
+        or data.get('publication_update',{}).get('attempted') or data.get('sale_transition',{}).get('write_attempted'))
     finish_catalogue_operation(operation_id,status="partial" if attempted else "failed",
         error=error or ("Publishing finalisation was interrupted. Inspect retained stages and reconcile read-only; no retry." if attempted else "Confirmation validation did not finish; no Shopify product write was attempted."),
         recovery_state="review_required" if attempted else "none")

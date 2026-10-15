@@ -1,8 +1,54 @@
 # M3A.9 Product Creator & Editor contract
 
-Status: M3A.9.2 core forms implemented, 2026-10-15. TLCDashboard is Shopify-first and private to
+Status: M3A.9.3 publication/defaults/scheduled sales implemented, 2026-10-15. TLCDashboard is Shopify-first and private to
 Tender Loving Creations. This is the staged editor implementation contract, not a
-claim that complete forms, storefront customisation or scheduled sales exist.
+claim that complete creator forms or storefront customisation exist. Historical
+design-only sections below describe their checkpoint; this section supersedes the
+earlier scheduled-sale/publication deferrals only.
+
+## M3A.9.3 — publication, defaults and separately approved sales
+
+- Publishing section: `shopify_status` DRAFT/ACTIVE/ARCHIVED; legacy `live` still
+  resolves false → DRAFT, true → ACTIVE when status is absent. Same-layer conflicts
+  fail validation. Editing status keeps legacy live consistent; removing a child
+  intent restores the shared intent. Local catalogue active/inactive is separate.
+- `shopify_channels` is an optional object of discovered channel handles → explicit
+  booleans, NOT Shopify IDs. Missing object inherits; a child object replaces the
+  inherited object, including `{}` to leave channels unmanaged. Unknown authored
+  handles survive editing but block publication until resolved. Actual publications
+  are discovered explicitly; page rendering makes no remote request. Publication
+  review shows actual/desired membership and permission blockers. Shared edits
+  show their existing impact review and never authorise child publication.
+- Product > shared > nonblank environment > documented fallback supplies effective
+  origin, requires-shipping, tracking and backorders. Explicit false/no survives.
+  No defaults are backfilled into JSON. See PRODUCT_INFO for exact settings.
+- Sale date/date-time controls retain local definitions. The shared exact-decimal
+  effective price resolver applies existing variation-modifier selection. Future
+  dates/amounts do not change current Shopify-managed fingerprints until effective.
+  JSON Save/Validate/Scan does **not** authorise any Shopify mutation or schedule.
+- Product → Shopify Actions → Publication & sale controls exposes separate signed
+  status/channel confirmation and per-product future-price authorisation. Both
+  require admin + CSRF + unexpired (15-minute) review and current source/identities.
+  Metadata confirmation still creates Drafts or preserves existing availability.
+- Sale approval binds store, ProductVariant/InventoryItem IDs, exact prices, source,
+  effective defaults, taxonomy, image hashes and dates. Revised inputs hold execution
+  for review, not automatic re-authorisation. No bulk/shared-child approval.
+- Migration `0014_shopify_sales` retains current authority per store/source; original
+  approvals and deterministic transition receipts use CatalogueOperation. The existing
+  worker gets a five-minute sale task, not another scheduling engine. Future-only
+  approvals stay local; no due authority means no Shopify API request.
+
+UK time: date-only start is midnight Europe/London; date-only end includes that
+entire day (next midnight exclusive). Offset-less ambiguous/nonexistent DST times
+are rejected; explicit offset resolves them. Ongoing sale/no end is supported.
+Pause stops future execution, **not** a remote active price. To restore early, set a
+past end, save/scan, and review/authorise the displayed regular-price restoration.
+Uncertain writes require read-only recovery and cannot be paused away or replayed.
+
+Limits: max 32 sale variants, three due parents per task run, shared capacity/lease
+and interactive-priority controls. Normal latency is up to the task interval plus
+capacity/backlog/downtime; not a hard real-time promise. No quantities, locations,
+fulfilment, bulk authorisation, customisation forms or menu publication are added.
 
 ## M3A.9.2 — implemented core editor
 

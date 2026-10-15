@@ -214,7 +214,7 @@ def test_form_coverage_source_and_readonly_images(core):
         assert key in page
     assert "Indexed effective variations" in page and "No retained media" in page
     assert "Review Woo state" not in page and 'data-field="shipping_class"' not in page
-    assert 'data-field="sale_start_date"' not in page and "Scheduled sales are not implemented" in page
+    assert 'data-field="sale_start_date"' in page and "Review / Authorise Sale" in page
     assert "metadata-section-nav" in page and "data-acknowledge-shared" not in page  # this collection has one child
 
 
@@ -313,11 +313,24 @@ def test_scheduled_dates_and_customisation_remain_definitions_not_remote_actions
           "customisation":{"fields":{"name":{"type":"text","label":"Dog's Name","required":True}}}}
     assert save(core,data=data).status_code==200
     with core[0].app_context():
+        from app.models import ShopifySaleSchedule
+        assert ShopifySaleSchedule.query.count()==0  # Saving never authorises a worker.
+        assert not CatalogueOperation.query.filter(CatalogueOperation.scope.contains('sale_authorisation')).count()
         p=db.session.get(Product,core[4]["Simple Collection/Blue Token"])
         snap=catalogue_snapshot(p)
-        with pytest.raises(ShopifyError,match="Scheduled sale"):
-            contract(snap,{"title":p.title,"description":"","price":"9.25","sku":p.sku})
+        managed,_=contract(snap,{"title":p.title,"description":"","price":"9.25","sku":p.sku})
+        assert managed['variant']['price']=='9.25' and managed['variant']['compareAtPrice'] is None
         assert snap.data["customisation"]["fields"]["name"]["type"]=="text"
+
+
+@pytest.mark.parametrize('name,kind',[('Simple Collection/Blue Token','override'),('Variable Collection/Badge One','shared'),('Single Variable','shared')])
+def test_status_channels_and_sale_save_cannot_authorise_shopify(core,monkeypatch,name,kind):
+    monkeypatch.setattr('app.shopify_connection.ShopifyAdapter._request',lambda *a,**k:pytest.fail('Local edit invoked Shopify'))
+    result=save(core,name,kind=kind,data={'shopify_status':'ARCHIVED','live':False,'shopify_channels':{'online-store':False},
+        'requires_shipping':False,'sale_price':'1.00','sale_start_date':'2027-12-01','sale_end_date':'2027-12-31'})
+    assert result.status_code==200,result.json
+    from app.models import ShopifySaleSchedule
+    with core[0].app_context(): assert ShopifySaleSchedule.query.count()==0
 
 
 def test_existing_layout_or_prefix_change_is_blocked(core):

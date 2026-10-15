@@ -56,28 +56,31 @@ def contract(snapshot, base):
     authored = snapshot.data["authored"]
     product = {"title": base["title"], "descriptionHtml": base["description"]}
     variant = {"price": base["price"], "compareAtPrice": None, "inventoryItem": {"sku": base["sku"]}}
-    warnings = ["DRAFT only. No inventory quantities, locations or fulfilment configuration will change."]
-    tracking = authored.get("manage_stock", False)
+    warnings = ["Metadata publishing preserves existing status/channels; new products start as unpublished Drafts. No inventory quantities, locations or fulfilment configuration will change."]
+    from app.product_defaults import effective
+    try:
+        policy, _ = effective(authored)
+    except ValueError as exc:
+        raise ShopifyError(str(exc)) from None
+    tracking = policy['manage_stock']
     if type(tracking) is not bool or authored.get("stock_quantity") is not None and "manage_stock" not in authored:
         raise ShopifyError("Resolve the explicit finished-product tracking policy before publishing; quantities never imply an invented policy.")
-    backorders = authored.get("backorders", "no")
+    backorders = policy['backorders']
     if backorders not in ("no", "yes", "notify", None):
         raise ShopifyError("Unsupported authored backorder policy.")
     variant["inventoryItem"]["tracked"] = tracking
-    variant["inventoryPolicy"] = "CONTINUE" if not tracking or backorders in ("yes", "notify") else "DENY"
-    warnings.append("Reviewed finished-product inventory: " + ("tracking enabled; existing quantities unchanged" if tracking else "untracked / continue selling; no artificial stock quantity"))
+    variant["inventoryPolicy"] = "CONTINUE" if backorders in ("yes", "notify") else "DENY"
+    warnings.append("Reviewed finished-product inventory: " + ("tracking enabled; existing quantities unchanged" if tracking else "untracked; no artificial stock quantity") + "; out-of-stock policy " + variant["inventoryPolicy"])
     if not base["description"]:
         warnings.append("Main product description is empty; confirming a reviewed description change may clear existing main copy. SEO description is separate and will not be substituted.")
     if "tags" not in authored:
         warnings.append("Tags are unspecified; existing remote tags are not managed.")
-    sale = authored.get("sale_price", snapshot.data["sale_price"])
-    if sale not in (None, ""):
-        if authored.get("sale_start_date") or authored.get("sale_end_date"):
-            raise ShopifyError("Scheduled sale dates are unsupported; review an explicit unscheduled sale before publishing.")
-        sale = number(sale, "sale price", money=True)
-        if Decimal(sale) >= Decimal(base["price"]):
-            raise ShopifyError("Sale price must be below the regular price; misleading compare-at pricing is refused.")
-        variant.update(price=sale, compareAtPrice=base["price"])
+    from app.sale_pricing import project
+    try:
+        pricing = project(authored, base['price'], snapshot.data['sale_price'])
+    except ValueError as exc:
+        raise ShopifyError(str(exc)) from None
+    variant.update(price=pricing['price'], compareAtPrice=pricing['compareAtPrice'])
     shipping = snapshot.data["shipping"]
     if shipping["weight_g"] not in (None, ""):
         grams = number(shipping["weight_g"], "weight")
