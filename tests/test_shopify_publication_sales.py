@@ -346,7 +346,8 @@ def test_migration_0014_upgrade_and_scoped_uniqueness(tmp_path):
         connection.execute("INSERT INTO shopify_attribute_identity (store_id,source_key,state,evidence_json) VALUES ('shop','retained','verified','{}')")
     ensure_database('sqlite:///'+str(path))
     with sqlite3.connect(path) as connection:
-        assert connection.execute('select version_num from alembic_version').fetchone()[0]=='0014_shopify_sales'
+        from app.database import migration_head
+        assert connection.execute('select version_num from alembic_version').fetchone()[0]==migration_head()
         assert connection.execute('select source_key from shopify_attribute_identity').fetchone()[0]=='retained'
         assert connection.execute("select enabled,interval_minutes from scheduled_task where key='shopify_sales'").fetchone()==(1,5)
         assert connection.execute('select count(*) from shopify_sale_schedule').fetchone()[0]==0

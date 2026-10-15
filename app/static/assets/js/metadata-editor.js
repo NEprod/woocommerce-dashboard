@@ -36,6 +36,7 @@
   let driverNames = [];
   let channels = boot.channels || [];
   let channelDraft = {};
+  let customisationDesigner = null;
 
   function channelValues() {
     const result = structuredClone(channelDraft);
@@ -347,6 +348,17 @@
 
   function populate(documentValue) {
     authored = structuredClone(documentValue || {});
+    if (!customisationDesigner && window.TLCCustomisations && guided.querySelector('[data-customisation-designer]')) {
+      customisationDesigner = new window.TLCCustomisations.Designer(guided.querySelector('[data-customisation-designer]'), {
+        value: authored.customisation, shared: isShared ? {} : boot.collection?.customisation || {},
+        base: boot.customisation_template || {},
+        reference: Object.hasOwn(authored.customisation || {}, 'template') ? authored.customisation.template : boot.collection?.customisation?.template,
+        templatesURL: boot.customisation_templates_url, onChange: () => setDirty(true)
+      });
+    } else if (customisationDesigner) {
+      customisationDesigner.value = structuredClone(authored.customisation);
+      customisationDesigner.restoreBase(); customisationDesigner.render();
+    }
     guided.querySelectorAll("[data-override-toggle]").forEach((toggle) => {
       toggle.checked = Object.prototype.hasOwnProperty.call(authored, toggle.dataset.overrideToggle) || toggle.dataset.overrideToggle === "shopify_status" && Object.hasOwn(authored,"live");
     });
@@ -396,6 +408,10 @@
     window.TLCSaleDates?.sync(guided);
     const result = {};
     Object.entries(authored).forEach(([key, value]) => { if (!knownFields.has(key)) result[key] = value; });
+    if (customisationDesigner) {
+      const definition = customisationDesigner.get();
+      if (definition === undefined) delete result.customisation; else result.customisation = definition;
+    }
     guided.querySelectorAll("[data-field]").forEach((control) => {
       const field = control.dataset.field;
       if (!overrideEnabled(field)) return;

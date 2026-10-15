@@ -1,5 +1,49 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.4 — customer input definitions remain local
+
+Product and shared collection editors now offer a Customer Customisation Designer
+and a versioned reusable library. This does not add a Shopify mutation, metafield,
+variant option or theme renderer. Existing managed comparison fingerprints exclude
+customisation/proof/private metadata; local-only edits and targeted rescans must not
+invent Shopify drift. Signed publishing reviews still bind their current source and
+may become stale after a source edit, without claiming a remote difference exists.
+Existing Simple/Variable publishing, images/IDs, availability, authorised sales,
+Discord, startup tasks and API policy (2026-10; opt-in native 2027-01) are unchanged.
+
+Future storefront contract: publish only a reviewed, whitelisted, versioned public
+resolved definition. Stable field/choice IDs survive label changes. Capture answers
+as line-item properties/customAttributes with a definition revision/configuration
+identifier, keeping separate cart/order lines for otherwise identical variants with
+different answers. Order import must snapshot labels and values by order **line-item**
+identity, not resolve historical answers against today's mutable product definition.
+No theme/order/cart writes or live customer input handling are implemented here.
+
+Photo/file definitions express allowed categories/extensions/size/count only. Future
+uploads require server-side MIME/magic/size validation, authentication/rate controls,
+private persistent storage, opaque order-associated IDs, expiring authorised access,
+retention/deletion policy and production access. Never public product galleries or
+internal Unraid paths. Local preview intentionally has no file input or upload route.
+Line-item properties alone are neither private file storage nor checkout surcharges.
+Paid extras require a separately tested checkout-compatible non-Plus-only strategy;
+no customisation charges or variant-price changes are introduced now.
+
+Migration 0015_customisation_templates adds one local library revision table in the
+existing database. Preserve /data and catalogue mounts; no XML/environment/scope change.
+Back up DB/catalogue together because JSON references pinned revisions. Rollback to a
+pre-library DB after assigning templates can orphan references; no destructive automatic
+downgrade of a nonempty library. Archive retains existing pinned assignments.
+
+Unraid acceptance: deploy the immutable customisations image after backup, confirm
+migration 0015, then open Products → Edit Shared/Override → Customer Customisations.
+Create a fictional reusable template in Manage reusable templates, assign one pinned
+revision, Preview locally, save with existing shared-scope acknowledgement, and wait
+for the targeted scan. Check inherited field, a child's sparse constraint override,
+extra field, exclusion and reset; siblings and SKUs/images must stay unchanged. Editing
+the library must not upgrade the saved pin; restart must retain it without a broad
+scan. Compare the existing Shopify product: local-only definitions must not generate
+managed changes, sale authority, remote writes or publishing-success notices.
+
 ## M3A.9.3.4 — startup means Shopify Products reconciliation, not a scan
 
 The managed runtime supervisor queues the existing Shopify Products task after

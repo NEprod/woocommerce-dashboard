@@ -1,0 +1,22 @@
+<section class="editor-workspace-section customisation-designer" data-customisation-designer aria-label="Customer Customisations">
+  <header><div><h2 id="customisations-title">Customer Customisations</h2><p>Local definitions only — not yet published to Shopify. Names, messages and photographs are not variants.</p></div></header>
+  <div class="customisation-template-controls" data-custom-template-controls>
+    <label>Reusable template <select class="form-select" data-custom-template><option value="">Choose a pinned template revision</option></select></label>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-custom-apply-template>Assign selected revision</button>
+    <button type="button" class="btn btn-sm btn-ghost" data-custom-no-template>Exclude template</button>
+    <button type="button" class="btn btn-sm btn-ghost" data-custom-inherit-template>Use inherited template</button>
+    <a href="{{ url_for('customisations.index') }}" target="_blank" rel="noopener">Manage reusable templates</a>
+  </div>
+  <p class="field-helper" data-custom-template-status>No template assigned.</p>
+  <label>Proof policy <select class="form-select" data-custom-proof><option value="">Inherited / unspecified</option><option value="none">None</option><option value="optional">Optional</option><option value="required">Required</option></select></label>
+  <p class="field-helper">Proof policy is a definition, not an implemented email/approval workflow. Internal production notes are separate and must not be entered as customer help.</p>
+  <div data-custom-fields class="structured-editor-list"></div>
+  <div class="customisation-actions"><button type="button" class="btn btn-sm btn-outline-primary" data-custom-add>Add Field</button><button type="button" class="btn btn-sm btn-ghost" data-custom-reset>Reset customisations to inherited</button><button type="button" class="btn btn-sm btn-outline-primary" data-custom-preview>Preview Customer Form</button></div>
+  <p class="field-error" data-field-error="customisation" data-custom-error hidden role="alert"></p>
+  <dialog data-custom-field-dialog class="customisation-dialog" aria-label="Edit customisation field"><div data-custom-field-form>
+    <h3>Edit Field</h3><p data-custom-field-source class="field-helper"></p><div class="editor-field-grid" data-custom-field-inputs></div>
+    <p class="field-helper">Opaque/legacy keys remain preserved. Inspect Advanced JSON for unsupported extensions; they have no customer-facing behaviour.</p>
+    <div class="customisation-actions"><button type="button" class="btn btn-primary" data-custom-apply-field>Apply to local draft</button><button type="button" class="btn btn-ghost" data-custom-close>Cancel</button></div><p data-custom-dialog-error role="alert"></p>
+  </div></dialog>
+  <dialog data-custom-preview-dialog class="customisation-dialog" aria-label="Local customer form preview"><h3>Local preview — not yet published to Shopify</h3><p>No files, answers, orders or payments are sent or stored.</p><div data-custom-preview-form></div><button type="button" class="btn btn-ghost" data-custom-preview-close>Close preview</button></dialog>
+</section>

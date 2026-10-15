@@ -105,6 +105,9 @@ def prepare_request(product, kind, payload):
         raise ValueError("Use a bounded list of explicit removal paths.")
     edit = prepare_edit(text, changes, expected_digest=saved["digest"],
                         kind="collection" if kind == "shared" else "override", remove_paths=removals)
+    if edit.validation.valid:
+        from app.customisation_templates import check_assignments
+        check_assignments(json.loads(text), edit.data)
     if kind == "override" and any(key in edit.data for key in ("sku_prefix", "collection_type")):
         # Existing historic keys are preserved but cannot be introduced/changed.
         before = json.loads(text)

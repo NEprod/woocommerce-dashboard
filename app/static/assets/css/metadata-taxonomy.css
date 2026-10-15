@@ -1,3 +1,13 @@
+/* Local customisation designer; central semantic tokens only. */
+.customisation-field-row { display:flex; flex-wrap:wrap; justify-content:space-between; gap:var(--space-3); border:1px solid var(--color-border); border-radius:var(--radius-card-small); padding:var(--space-4); }
+.customisation-field-row > div:first-child { display:grid; gap:var(--space-2); min-width:0; overflow-wrap:anywhere; }
+.customisation-actions, .customisation-template-controls { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-3); margin-block:var(--space-3); }
+.customisation-dialog { background:var(--color-surface-primary); color:var(--color-text-primary); border:1px solid var(--color-border); border-radius:var(--radius-card-small); padding:var(--space-5); width:min(840px,94vw); max-height:80dvh; overflow:auto; }
+.customisation-dialog::backdrop { background:var(--color-surface-dark); opacity:.75; }
+.customisation-dialog label, .customisation-designer > label, [data-customisation-library] label { display:grid; gap:var(--space-2); margin-block:var(--space-3); }
+.customisation-dialog fieldset { border:1px solid var(--color-border); padding:var(--space-3); margin-block:var(--space-3); }
+.customisation-dialog legend { font-size:inherit; font-weight:600; }
+@media (max-width:767px) { .customisation-dialog { max-height:calc(100dvh - 145px); margin-bottom:calc(110px + env(safe-area-inset-bottom)); } .customisation-field-row .customisation-actions { width:100%; } [data-customisation-library] { padding-bottom:calc(120px + env(safe-area-inset-bottom)); } }
 /* Scoped metadata-editor polish; existing dashboard tokens only. */
 #saleReviewModal .sale-review-footer { align-items: stretch; gap: var(--space-3); }
 #saleReviewModal .check-row { flex-basis: 100%; }

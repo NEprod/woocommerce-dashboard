@@ -1,5 +1,34 @@
 # M3A.9 Product Creator & Editor contract
 
+## M3A.9.4 implementation contract — local customisation designer
+
+Extend the existing `customisation` object, never introduce a second customer-field
+root. Unversioned fields remain valid; new definitions may declare `schema_version: 2`.
+Stable field IDs, flat per-field constraint patches, `enabled:false`, `remove:true`
+and proof policy retain the existing merge contract. `order` sorts fields with ID
+as a deterministic tie-break. Labels never determine identity. Unknown keys are
+preserved as opaque, non-executed metadata and visible in Advanced JSON.
+
+Optional `template: {id, revision}` pins an immutable database revision; explicit
+`template:null` excludes an inherited template. The chosen template supplies base
+fields, then shared authored fields, then sparse child patches. A child's explicit
+template replaces only the inherited template base, not shared authored patches.
+Template edits/renames create new revisions; existing assignments never auto-upgrade.
+Archived templates cannot receive new assignments but pinned revisions still resolve.
+No template deletion: archive preserves dependencies without scanning the catalogue.
+The library lists pinned revision semantics; source-level assignments, not a second
+product mapping table, remain authoritative. One revision table in existing SQLite
+provides persistence and database-enforced optimistic concurrency.
+
+Supported types extend legacy text/multiline/number/choice/checkbox/photo with radio,
+checkbox_group/date/colour; textarea/dropdown/file_upload aliases are accepted.
+Choices may retain legacy strings or use stable `{id,label,value?}` records. Local
+preview tests constraints only; it uploads nothing and is not Shopify theme code.
+File constraints describe future enforcement; they do not secure an upload service.
+Paid inputs, conditional visibility, per-variant customisations and customer answers
+are deferred. Existing safe source reviews, shared acknowledgement, atomic backups,
+targeted rescans and managed-only Shopify fingerprints remain the integration boundary.
+
 ## M3A.9.3.4 — one review entry after local editing
 
 Product Override and Shared Collection Metadata retain Publishing status, discovered

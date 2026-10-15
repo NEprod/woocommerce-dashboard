@@ -1,0 +1,20 @@
+{% extends 'layouts/base.html' %}
+{% block title %}Customer Customisation Templates{% endblock %}
+{% block content %}
+<header class="page-header"><div><h1>Customer Customisation Templates</h1><p>Reusable local definitions, pinned by revision. Library changes never silently update assigned products.</p></div><a href="{{ url_for('main.products') }}" class="btn btn-ghost">Products</a></header>
+<div data-customisation-library data-url="{{ url_for('customisations.templates') }}">
+  <section class="editor-workspace-section"><label>Existing templates <select class="form-select" data-library-select><option value="">New template</option></select></label>
+    <div class="customisation-actions"><button type="button" class="btn btn-sm btn-ghost" data-library-new>New template</button><button type="button" class="btn btn-sm btn-ghost" data-library-duplicate>Duplicate as new template</button></div>
+    <label>Template name <input class="form-control" maxlength="191" data-library-name required></label>
+    <label>Internal description (not customer help) <textarea class="form-control" maxlength="4000" data-library-description></textarea></label>
+    <label><input type="checkbox" data-library-archived> Archive: prevent new assignments; retain all pinned revisions</label>
+    <p class="field-helper" data-library-revision>New template. Not saved.</p>
+    <p class="field-helper">Assignments remain in authored catalogue JSON. No catalogue-wide source traversal is done here. Exact usage cannot be inferred from a partial index: revisions are therefore never deleted, even if usage appears empty. Open the product/shared editor to assign, exclude or reset a template; a new revision requires explicit reassignment.</p>
+  </section>
+  {% include 'includes/_customisation_designer.html' %}
+  <details class="editor-workspace-section"><summary>Advanced template definition (unknown keys preserved)</summary><p>Use Load to replace this unsaved template draft after reviewing the JSON.</p><textarea class="form-control" rows="12" data-library-json aria-label="Template definition JSON"></textarea><button type="button" class="btn btn-sm btn-outline-primary" data-library-load-json>Load JSON into draft</button></details>
+  <div class="customisation-actions"><button type="button" class="btn btn-primary" data-library-save>Save local template revision</button><p data-library-message role="status"></p></div>
+</div>
+{% endblock %}
+{% block stylesheets %}<link rel="stylesheet" href="{{ url_for('static', filename='assets/css/metadata-taxonomy.css') }}">{% endblock %}
+{% block javascripts %}<script src="{{ url_for('static', filename='assets/js/customisation-designer.js') }}"></script><script src="{{ url_for('static', filename='assets/js/customisation-library.js') }}"></script>{% endblock %}

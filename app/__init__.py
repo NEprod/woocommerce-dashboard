@@ -34,7 +34,7 @@ def create_app(*, recover=None):
     @app.before_request
     def taxonomy_request_bounds():
         # Apply before CSRF parses multipart/form data; other workflows unchanged.
-        if request.blueprint == "taxonomy":
+        if request.blueprint in {"taxonomy", "customisations"}:
             request.max_content_length = 4 * 1024 * 1024
             request.max_form_memory_size = 2 * 1024 * 1024
             request.max_form_parts = 50
@@ -57,6 +57,8 @@ def create_app(*, recover=None):
     app.before_request(guard_platform)
     from .scheduled_task_routes import tasks
     app.register_blueprint(tasks)
+    from .customisation_routes import customisations
+    app.register_blueprint(customisations)
 
     @app.context_processor
     def commerce_context():

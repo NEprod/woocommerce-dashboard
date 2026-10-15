@@ -16,6 +16,20 @@ class User(db.Model, UserMixin):
     is_admin = db.Column(db.Boolean, default=True)
 
 
+class CustomisationTemplate(db.Model):
+    """Immutable pinned definitions. New revisions win by a SQLite PK fence."""
+    __tablename__ = "customisation_template"
+    template_id = db.Column(db.String(64), primary_key=True)
+    revision = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(191), nullable=False)
+    description = db.Column(db.Text, nullable=False, default="")
+    definition_json = db.Column(db.Text, nullable=False)
+    archived = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (db.CheckConstraint('revision > 0', name='ck_custom_template_revision'),
+        db.CheckConstraint('length(definition_json) <= 1048576', name='ck_custom_template_size'))
+
+
 class Settings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     _product_folder = db.Column("product_folder", db.String(512))

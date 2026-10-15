@@ -99,8 +99,7 @@ def merge_product_json(shared, override, path=None):
 
     for key, value in override.items():
         if key == "customisation":
-            from app.catalogue_fields import merge_customisation
-            result[key] = merge_customisation(shared.get(key, {}), value)
+            continue  # resolve the two authored layers once, below
         elif key in {"variation_attributes", "storefront_collections"}:
             result[key] = value  # explicit replacement, including []
         elif isinstance(value, list) and isinstance(shared.get(key), list):
@@ -110,6 +109,9 @@ def merge_product_json(shared, override, path=None):
         else:
             result[key] = value
 
+    if "customisation" in shared or "customisation" in override:
+        from app.catalogue_fields import merge_customisation
+        result["customisation"] = merge_customisation(shared.get("customisation", {}), override.get("customisation", {}))
     # New lifecycle intent must not override a child's explicit legacy intent.
     # This is resolved data only; authored layers are never normalised on read.
     if "live" in override and "shopify_status" not in override:

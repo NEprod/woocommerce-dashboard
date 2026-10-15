@@ -428,6 +428,12 @@ def editor_workspace(product: Product, kind: str):
         for item in preview_products
     ]
     from app.metadata_save import review_token
+    from app.customisation_templates import definition as template_definition
+    customisation_template = None
+    custom = authored['data'].get('customisation', {})
+    template_ref = custom.get('template', shared['data'].get('customisation', {}).get('template') if kind == 'override' else None)
+    if template_ref:
+        customisation_template = template_definition(template_ref)
     from app.product_defaults import display as default_display
     defaults=default_display(shared['data'],override['data'],resolved_metadata(product,shared['data'],override['data']))
     from app.shopify_publication import cached_channels
@@ -489,6 +495,7 @@ def editor_workspace(product: Product, kind: str):
         "shared_product_title": shared["data"].get("title"),
         "kind": kind,
         "revision": token,
+        "customisation_template": customisation_template,
         'defaults':defaults,'channels':cached_channels(),'sale':sale_summary(product),
         'pricing':catalogue_prices(product),
         "save_error": save_error,

@@ -96,7 +96,8 @@ def test_document_limit_and_invalid_kind():
         prepare({}, {}, kind="product")
 
 
-def test_future_schema_not_misrepresented_as_current_feature():
+def test_local_date_definition_now_supported_without_storefront_side_effects():
     edit = prepare({"customisation": {"fields": {}}},
                    {"customisation": {"fields": {"date": {"type": "date", "label": "Date"}}}})
-    assert not edit.validation.valid  # future contract is design-only
+    assert edit.validation.valid  # M3A.9.4 supports local date definitions only
+    assert edit.data['customisation']['fields']['date']=={'type':'date','label':'Date'}

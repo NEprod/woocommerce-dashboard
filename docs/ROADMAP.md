@@ -1,5 +1,21 @@
 # Roadmap
 
+## M3A.9.4 — local customisation designer and pinned template library
+
+Accept the existing Product/Shared Editor's typed customisation definitions, local
+preview, stable IDs/order, sparse child extensions/exclusions and pinned reusable
+template revisions. SQLite migration 0015 is local-only; template archive retains
+dependencies, library edits require explicit reassignment to affect products.
+Confirm no Shopify drift from local-only changes and normal targeted scan/startup/
+sales/Discord behaviour. Back up DB with catalogue; no storefront controls, uploads,
+paid prices, customer answers/orders or proof emails are implemented.
+
+Next bounded work after local acceptance: design and verify a whitelisted versioned
+public-definition/theme rendering contract and free text/choice line-item capture.
+Secure customer photo storage, order/production proof flows and checkout-compatible
+paid extras each require separate acceptance. Do not combine these with catalogue
+scalability, scanner rewrite, navigation, bulk publishing or repository renaming.
+
 ## M3A.9.3.4 — startup regression correction and editor cleanup
 
 Startup now queues the existing read-only Shopify Products task, not a new local

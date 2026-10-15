@@ -1,5 +1,84 @@
 # product_info.json Contract
 
+## M3A.9.4 — local customer customisations and reusable templates
+
+`customisation` remains the only authored root for customer input **definitions**.
+It is separate from variation-driving `attributes`, registry informational attributes
+and private production notes. Nothing is added to JSON merely by opening the editor.
+Legacy unversioned definitions and type names remain supported. New fields include:
+
+```json
+{"customisation":{"schema_version":2,"proof_policy":"optional","fields":{
+  "dog_name":{"type":"text","label":"Dog's Name","required":true,
+    "max_length":30,"placeholder":"Your dog's name","help_text":"Check spelling carefully.","order":0},
+  "memorial_date":{"type":"date","label":"Memorial Date","required":false,"order":1}
+}}}
+```
+
+Types: `text`, `multiline` (alias `textarea`), `number`, `choice` (alias `dropdown`),
+`radio`, `checkbox`, `checkbox_group`, `date`, `colour`, `photo` (alias `file_upload`).
+IDs match `[a-z][a-z0-9_]{0,63}` and never change on label edits. Ordering is ascending
+`order` (default 0), then stable ID; the designer's Move Up/Down writes deterministic
+order patches without changing identity. Required/enabled are booleans. Enabled
+resolved fields need type and a nonblank label. Disabled fields remain in definitions.
+
+Flat type-specific constraints: text `min_length/max_length`; number `minimum/maximum`
+and `whole_number`; date `min_date/max_date` in exact valid YYYY-MM-DD form; checkbox
+group `min_selections/max_selections`. Contradictory or wrong-type constraints fail.
+Choice/radio/group require `choices`: legacy unique strings remain valid; prefer
+`[{"id":"script","label":"Script"}]` so labels can change without changing answers.
+Colour optionally uses choices such as `{"id":"red","label":"Red","value":"#ff0000"}`;
+otherwise six-digit hex input is allowed. Defaults must have the correct type,
+match options and satisfy constraints. File defaults are forbidden.
+
+File definitions accept `allowed_media_categories` (`image`/`document`), dot-prefixed
+lowercase `allowed_extensions`, positive `max_file_size_bytes` and `max_files`.
+These are intended future requirements, not an operational upload security system.
+No arbitrary field-count limit is imposed; the existing 1 MiB JSON definition/source
+bound controls resource use. Unknown keys round-trip as opaque metadata in Advanced
+JSON; they are not executable validation, paid rules or public output.
+
+Inheritance still uses `merge_product_json`/`merge_customisation`. Shared fields are
+defined once; child patches merge by field ID then property. A child can add fields,
+override only max_length, disable with `enabled:false`, or exclude with the sole
+property `remove:true`. Reset removes its local patch, restoring inheritance. Missing
+keys and empty fields objects never delete inherited values. Proof policy overrides
+as a scalar (`none/required/optional`); variation-specific customisations remain deferred.
+
+Reusable templates live in the existing persistent SQLite database. Assign a pinned
+revision instead of copying the definition into every product:
+
+```json
+{"customisation":{"template":{"id":"t_example_stable_id","revision":1},
+  "fields":{"dog_name":{"max_length":20}}}}
+```
+
+The chosen template base is overlaid by shared authored patches, then child patches.
+A child template replaces the inherited template base only; shared authored patches
+remain. Explicit `template:null` excludes the inherited template; removing the key
+restores it. Resolved data contains effective fields, not a reference to re-expand
+after tombstones. Authored JSON retains the pinned reference. Editing/renaming a
+template creates an immutable new revision; existing assignments keep their revision.
+Archive blocks new assignments but old references continue resolving. No deletion
+endpoint exists because filesystem dependencies cannot be proven absent from a
+partial index. Missing pinned revisions block saves/scans rather than dropping fields.
+Back up the database **together with** the authored catalogue to retain dependencies.
+
+The editor offers field configuration, template CRUD/duplicate/archive, ordering,
+inheritance/overrides/exclusions and a local customer form preview. The preview stores
+no answers and provides no file input/upload. Local saves retain existing admin/CSRF,
+signed source/dependency reviews, shared acknowledgement, atomic backup/write, no-op
+and targeted scanner contracts. Template library saves do not scan products. Customisation
+changes do not affect Shopify-managed fingerprints or authorise publishing/sales.
+
+Migration `0015_customisation_templates` adds only the immutable revision table;
+no product/variant/identity rows or source files are migrated. Downgrade refuses to
+drop a nonempty library; restoring older DB backups may orphan newer authored references.
+
+The older M3A.4 field-count/Advanced-only descriptions below are historical and are
+superseded by this extension. Storefront rendering, conditional fields, actual file
+uploads, customer answers, proofs, paid extras and order capture remain deferred.
+
 ## M3A.9.3.2 price meanings (no authored format change)
 
 `price` is regular price; `sale_price` is configured promotional price, including

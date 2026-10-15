@@ -1,5 +1,34 @@
 # Current State
 
+## M3A.9.4 — local Customer Customisation Designer
+
+The Product/Shared Metadata editors extend the existing customisation stable-field
+schema, not variation or registry attribute semantics. Ten input types (and legacy
+aliases), type-aware constraints/default validation, ordering, inherited sparse
+patches, additions, disabling/exclusion/reset, proof policy and local-only form
+preview are implemented. Unknown/legacy keys are preserved; no production JSON is
+rewritten or template examples injected. Files are requirements only, never uploaded.
+
+An admin/CSRF template library at /customisations/templates stores immutable pinned
+revisions in existing SQLite persistence. Edits and renames create new revisions,
+duplicates receive a new template ID, archive prevents new assignments, existing
+revisions resolve unchanged. No hard deletion or catalogue-wide dependency scan;
+source JSON remains the assignment authority. Migration head is now
+0015_customisation_templates (one table, composite identity/revision PK and size/revision
+constraints). Back up DB and catalogue together; nonempty-library downgrade is refused.
+
+Existing source-review concurrency, shared acknowledgement, mandatory backups,
+atomic writes, targeted .update/scanner flow, markers, SKU/variation/image identities
+and Shopify managed-only fingerprints are reused. Template saves do not run scans.
+No publisher, sale, scheduler, Discord delivery or API-version semantics are changed.
+Local future customisations cannot create a false Shopify Update Available. Startup
+continues existing read-only Shopify reconciliation, not automatic local scanning.
+
+Storefront/theme deployment, uploads/private storage, paid charges, conditional and
+variation-specific fields, customer answer/order capture and proof emails are future
+milestones. Controlled local Unraid acceptance remains necessary; mocked/offline tests
+are not evidence of live storefront capability.
+
 ## M3A.9.3.4 — correct boot task and remove redundant editor review
 
 M3A.9.3.3 queued the wrong task from the managed runtime: catalogue_startup,
