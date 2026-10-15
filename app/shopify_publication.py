@@ -204,6 +204,10 @@ def verify(row,data,adapter):
         raise ShopifyError('Publication readback differs or is partial. Keep recovery; no automatic retry.')
     proof.update(state='verified',observed=remote,checked_at=drafts.now().isoformat())
     data['observed_status']=remote['status'];data['stage']='verified';data.pop('error',None)
+    if proof.get('unified'):
+        # Publication readback alone cannot verify metadata, variants or media.
+        drafts.save(row,data,'updating')
+        return row
     # Publication does not renew unrelated field verification timestamps.
     drafts.save(row,data,'verified')
     from app.shopify_comparison import invalidate
@@ -219,14 +223,42 @@ def proof_matches(product,data):
 
 
 def annotate(product,plan,row,config,shop,adapter):
-    """Full metadata review displays channel differences but never writes them."""
+    """Bind discovered availability and current memberships to the main review.
+
+    A blocked availability stage does not grant authority to change it. Metadata
+    can still be reviewed, with the deferred scope retained in the comparison.
+    """
     from app import shopify_drafts as drafts
     wanted=intent(product_document(product))
     if wanted['status']=='DRAFT' and (not row or plan.get('actual_status', 'DRAFT')=='DRAFT') and not wanted['channels'] and not (row and drafts.evidence(row).get('publication_update')):
         return
     result={'intent':wanted,'read_complete':False,'pending':True}
     if not row or not row.shopify_product_id:
-        result['reason']='Create and verify the unpublished draft first; channel publication requires its own signed review.'
+        try:
+            channels=discovered(adapter,config,shop)
+            keys={c['key']:c for c in channels}
+            if set(wanted['channels'])-set(keys): raise ShopifyError('An intended channel is unavailable; no replacement inferred.')
+            targets={}
+            for key,value in wanted['channels'].items():
+                pid=keys[key]['id']
+                if pid in targets and targets[pid]!=value: raise ShopifyError('Shared publication has conflicting channel selections.')
+                targets[pid]=value
+            if wanted['status']!='ACTIVE' and any(targets.values()): raise ShopifyError('Draft/Archived intent cannot request channel publication.')
+            blockers=[]
+            if wanted['status']=='ACTIVE' and any(c['auto_publish'] and c['key'] not in wanted['channels'] for c in channels):
+                blockers.append('Select explicit intent for every automatically assigned channel before activating a newly created product.')
+            if targets and 'write_publications' not in shop['scopes']: blockers.append('Missing write_publications for channel changes.')
+            if len(targets)>5: blockers.append('Review at most five channel changes in one operation.')
+            result.update(config=config.fingerprint(),store_id=shop['shop_id'],channels=channels,new_product=True,
+                observed={'status':'DRAFT','memberships':{}},actions=[{'id':pid,'before':None,'after':value,'changed':True} for pid,value in targets.items()],
+                blockers=blockers,read_complete=True,checked_at=drafts.now().isoformat())
+            plan['fields'].append({'field':'publication.status','label':'Status after independently verified draft creation',
+                'before':'Not yet created','after':wanted['status'],'changed':wanted['status']!='DRAFT','publication_only':True})
+            for key,value in wanted['channels'].items():
+                plan['fields'].append({'field':'publication.'+key,'label':keys[key]['name'],'before':'Not yet created',
+                    'after':value,'changed':True,'publication_only':True})
+            result['reason']='Create as Draft first. Apply these reviewed availability stages only after complete product/media readback; processing defers availability to a fresh main review.'
+        except ShopifyError as exc: result['reason']=str(exc)
     else:
         try:
             data=drafts.evidence(row)
@@ -234,21 +266,106 @@ def annotate(product,plan,row,config,shop,adapter):
             observed=read(row,data,adapter,config)
             keys={c['key']:c for c in channels}
             if set(wanted['channels'])-set(keys): raise ShopifyError('An intended channel is unavailable; no replacement inferred.')
-            rows=[{'field':'publication.status','label':'Shopify lifecycle status (separate publication review)',
+            rows=[{'field':'publication.status','label':'Shopify lifecycle status',
                    'before':observed['status'],'after':wanted['status'],'changed':observed['status']!=wanted['status'],'publication_only':True}]
+            targets={}
             for key,value in wanted['channels'].items():
                 channel=keys[key]
-                rows.append({'field':'publication.'+key,'label':channel['name']+' (separate publication review)',
+                if channel['id'] in targets and targets[channel['id']] != value:
+                    raise ShopifyError('Channels share a publication with conflicting intent; resolve the selections before publication.')
+                targets[channel['id']]=value
+                rows.append({'field':'publication.'+key,'label':channel['name'],
                     'before':observed['memberships'].get(channel['id'],False),'after':value,
                     'changed':observed['memberships'].get(channel['id'],False)!=value,'publication_only':True})
-            result.update(observed=observed,channels=channels,read_complete=True,pending=any(r['changed'] for r in rows),checked_at=drafts.now().isoformat())
+            if wanted['status']!='ACTIVE' and any(targets.values()):
+                raise ShopifyError('Draft/Archived intent cannot request channel publication.')
+            actions=[{'id':pid,'before':observed['memberships'].get(pid,False),'after':value,
+                'changed':observed['memberships'].get(pid,False)!=value} for pid,value in targets.items()]
+            blockers=[]
+            if rows[0]['changed'] and 'write_products' not in shop['scopes']: blockers.append('Missing write_products for status changes.')
+            if any(a['changed'] for a in actions) and 'write_publications' not in shop['scopes']: blockers.append('Missing write_publications for channel changes.')
+            if sum(a['changed'] for a in actions)>5: blockers.append('Review at most five channel changes in one bounded operation.')
+            result.update(config=config.fingerprint(),store_id=shop['shop_id'],observed=observed,channels=channels,actions=actions,
+                blockers=blockers,read_complete=True,pending=any(r['changed'] for r in rows),checked_at=drafts.now().isoformat())
             plan['fields']+=rows
             if result['pending']: plan['classification']='update'
         except ShopifyError as exc: result['reason']=str(exc)
     plan['publication']=result
     if result['pending']:
-        plan['warnings'].append('Publication is outstanding. Metadata confirmation does NOT change status/channels; use Review publication separately.')
-    # Fingerprint includes intent; dynamic observed state is only scoped authority.
+        if result.get('read_complete') and not result.get('blockers'):
+            plan['warnings'].append('This confirmation includes the displayed status/channel changes. Unmanaged channels are retained; Active status can expose already assigned channels.')
+        else:
+            plan['warnings'].append('Publication is deferred: '+(result.get('reason') or '; '.join(result.get('blockers',[]))))
+    plan['taxonomy_review_digest']=drafts.digest({'previous':plan['taxonomy_review_digest'],
+        'publication':review_binding(result)})
+
+
+def review_binding(result):
+    return {k:v for k,v in result.items() if k!='checked_at'}
+
+
+def has_reviewed_changes(plan):
+    publication=plan.get('publication') or {}
+    return has_metadata_changes(plan) or bool(publication.get('pending') and publication.get('read_complete') and not publication.get('blockers'))
+
+
+def apply_reviewed(row,data,config,adapter):
+    """Run only signed, eligible stages within the existing product operation."""
+    from app import shopify_drafts as drafts
+    plan=data['plan'].get('publication') or {}
+    if not plan.get('pending') or not plan.get('read_complete') or plan.get('blockers'):
+        return False
+    if plan.get('new_product'):
+        if row.state!='verified' or row.verification_state!='verified': return False
+        actual=read(row,data,adapter,config)
+        if actual['status']!='DRAFT': raise ShopifyError('Newly created draft changed status before reviewed availability; reconcile before another write.')
+        if plan['intent']['status']=='ACTIVE' and any(value and pid not in {a['id'] for a in plan['actions']} for pid,value in actual['memberships'].items()):
+            raise ShopifyError('New Draft has unreviewed assigned channels. Retain the Draft and reconcile, then review actual availability before activation.')
+    data['publication_review_operation_id']=row.operation_id
+    data['publication_update']={'state':'pending','unified':True,'plan':copy.deepcopy(plan),
+        'operation_id':row.operation_id,'completed':[]}
+    # Unknown/dropped channels never turn into unpublish requests. Unpublish
+    # before lowering status; activate before explicitly publishing a channel.
+    actions=[('publication.'+a['id'],a) for a in plan['actions'] if a['changed'] and not a['after']]
+    if plan['observed']['status']!=plan['intent']['status']:
+        actions.append(('publication.status',{'after':plan['intent']['status']}))
+    actions += [('publication.'+a['id'],a) for a in plan['actions'] if a['changed'] and a['after']]
+    from time import monotonic
+    deadline=monotonic()+60
+    for field,action in actions:
+        product=db.session.get(Product,row.product_id)
+        if monotonic()>deadline or drafts.local_plan(product)['digest']!=data['plan']['digest'] or config.fingerprint()!=drafts.configuration().fingerprint():
+            raise ShopifyError('Publication source/configuration or deadline changed; reconcile retained stages before another write.')
+        data['stage']='publication_update'
+        data['publication_update']['attempted']=field
+        data['update_attempted']=True
+        drafts.save(row,data,'updating')
+        if field=='publication.status':
+            result=adapter.update_simple_product(config,{'id':row.shopify_product_id,'status':action['after']})
+            drafts.payload_result(result,'productUpdate')
+        else:
+            result=adapter.set_publication(config,row.shopify_product_id,action['id'],action['after'])
+            drafts.payload_result(result,'publishablePublish' if action['after'] else 'publishableUnpublish')
+        data['publication_update']['completed'].append(field)
+        drafts.completed_step(row,data,field)
+    verify(row,data,adapter)
+    return True
+
+
+def expected_status(data):
+    proof=data.get('publication_update') or {}
+    if proof.get('unified') and data['plan'].get('publication') and proof.get('operation_id')==data.get('publication_review_operation_id'):
+        return proof['plan']['intent']['status']
+    actual=data['plan'].get('actual_status','DRAFT')
+    return 'DRAFT' if actual=='Not yet created' else actual
+
+
+def complete(data):
+    planned=data.get('plan',{}).get('publication') or {}
+    proof=data.get('publication_update') or {}
+    return not planned.get('pending') or bool(proof.get('state')=='verified' and
+        proof.get('plan',{}).get('intent')==planned.get('intent') and
+        proof.get('operation_id')==data.get('publication_review_operation_id') and proof.get('operation_id'))
 
 
 def has_metadata_changes(plan):

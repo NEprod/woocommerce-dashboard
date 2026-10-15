@@ -1,5 +1,74 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.3.3 — unified review, scanning and verification
+
+This supersedes earlier separate-publication-screen instructions. Products → Review
+& Sync includes eligible metadata, price/variants, status and discovered channels
+in one signed expiring admin/CSRF confirmation. Status-only or membership-only changes
+can produce Update when product values already match. Actual publication IDs, current
+memberships, explicit intent and configuration are signed; unmanaged memberships stay.
+Conflicting handles sharing a publication block availability. Unpublish precedes
+lowering status; activation precedes explicit publishing. At most five memberships
+plus status execute within the bounded stage deadline. No future publish date is inferred.
+
+The existing transport stays on 2026-10. Status writes require write_products;
+discovery/readback requires read_publications (or granted write_publications), and
+membership writes require write_publications plus Shopify product/catalog editing
+permission. See the official [publishablePublish contract](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/publishablePublish).
+Files, inventory and informational-attribute scopes remain required for their own
+stages. Opt-in native packed dimensions alone use 2027-01. No new environment variable,
+mount, authentication mechanism or database migration; head is 0014_shopify_sales.
+
+The original product operation owns all stages. Pending proof is committed before
+every mutation, targets use retained product/nonce identities, and completed stages
+remain durable. Independent availability and full managed readback establish immediate
+comparison evidence. Timeout/partial availability remains Recovery Required; reads
+can verify accepted changes but never replay a mutation. Valid metadata with blocked
+availability is partial/deferred, not full sync or a Discord success. New products
+start as Drafts, then verified product/variant/media state permits reviewed availability.
+If media still processes, availability waits for a fresh main review rather than an
+automatic recovery write. A new Active product requires explicit choices for its
+auto-assigned publications. Menus, collection publication and bulk remain deferred.
+
+Committed local scans queue affected products for the existing bounded read-only
+worker. No JSON save, scan, startup, page visit, Preview or recovery grants write
+authority. Ten-minute complete-proof caching, API priority, cursor fairness and
+lease/identity/CAS fences remain. An occupied run leaves the next fair sweep due;
+fresh unaffected rows are skipped. Historical comparison is retained on invalidation,
+never upgraded into fresh equality. Local revision pending comparison is Checking
+Changes; a stale matching check remains Last check matched. Genuine verified
+differences, incomplete verification and unresolved writes keep their distinct states.
+
+Unraid acceptance (operator-initiated only):
+
+1. Back up persistent appdata/SQLite with the container stopped. Retain the previous
+   immutable image. Replace the image only; keep database/catalogue/output mounts,
+   credentials and API/native settings. Do not run two containers against one database.
+2. Open Scheduled Tasks → Startup catalogue history. Check stable product/SKU/variant/
+   media IDs, unchanged authored JSON and the linked scanner operations. A first run
+   establishes the derived manifest; an unchanged restart should skip current sources.
+   Missing mount/source or invalid definition must be visible without deleting records.
+3. For a retained intentionally Draft product, edit a harmless supported field and
+   Save Locally. Let the affected scan finish; Checking Changes should resolve via
+   queued comparison to Update Available without opening the scanner or Build Preview.
+   Private-only/no-op changes must not invent pending managed updates.
+4. Use the main Review & Sync. Inspect metadata, status, each channel and blockers.
+   First keep Draft/unmanaged to verify metadata completion and immediate complete
+   comparison. Test visibility only deliberately: explicitly select Active and a
+   discovered intended channel, save/scan, review, confirm once. Verify Shopify Admin
+   and channel-specific readback; Active alone is not Live. Review explicit unpublish/
+   Draft if restoring the test state. Unmanaged memberships must remain unchanged.
+5. Check a Simple product and both Variable layouts, preserving existing identities,
+   modifiers, media, weights and packed settings. For a new product verify Draft-first
+   readback before availability, and that processing safely defers visibility.
+6. On uncertainty, open Identity & History and use read-only reconciliation. Never
+   resubmit automatically; partial completed stages remain visible. Compare receipts,
+   independent evidence and Discord outcome rather than treating a notification as proof.
+7. A banner links to its responsible task/run/error. Routine optional media/native
+   deferral, intentional Draft, stale matches and successful no-work must not raise the
+   generic alarm. Historical live run records were unavailable during development;
+   capture task/operation IDs and redacted UTC/BST details if the live case differs.
+
 ## M3A.9.3.2 — sale lifecycle and verification reconciliation
 
 Products previously selected the configured sale whenever non-null, and details used

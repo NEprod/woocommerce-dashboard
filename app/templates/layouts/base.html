@@ -17,7 +17,7 @@
           {{ brand() }}
         </a>
         <div class="app-account-summary">
-          {% if scheduled_activity and current_user.is_admin %}<a class="btn btn-ghost btn-sm" href="{{ url_for('tasks.index') }}">{{ 'Shopify check running' if scheduled_activity in ['queued','running'] else 'Scheduled task attention required' if scheduled_activity in ['failed','partially_completed','paused'] else 'Shopify check completed' if scheduled_activity == 'completed' else 'Scheduled Tasks' }}</a>{% endif %}
+          {% if scheduled_activity and current_user.is_admin %}<a class="btn btn-ghost btn-sm" href="{{ url_for('tasks.run_detail',run_id=scheduled_activity.run_id) }}" title="{{ scheduled_activity.reason or 'View durable task progress and outcome' }}">{{ scheduled_activity.label }}</a>{% endif %}
           <span>Signed in as <strong>{{ current_user.username }}</strong></span>
           <a class="btn btn-ghost btn-sm" href="{{ url_for('main.logout') }}">Sign out</a>
         </div>

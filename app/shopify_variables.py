@@ -161,7 +161,7 @@ def local_plan(product):
     plan["warnings"].append("Parent SKU is a local grouping identity; existing child SKUs belong to Shopify variants. Tracking/selling policy is explicitly reviewed; quantities and locations remain unmanaged. Remote-only variants are retained.")
     if any(isinstance(v,dict) and "sale_price" in v for v in product_document(product).get("variation_modifiers",{}).values()):
         plan["warnings"].append("Per-variant sale amounts use existing exact/most-specific modifiers. The legacy scanner sale column is unchanged; Review shows the effective Shopify prices.")
-    plan["unsupported"] = ["Channel publication requires its separate signed review; navigation is deferred", "Customer-facing customisation", "Inventory quantities/locations",
+    plan["unsupported"] = ["Storefront navigation publishing is deferred", "Customer-facing customisation", "Inventory quantities/locations",
         "Destructive option restructuring / variant deletion", "Existing gallery replacement/addition/removal", "Shopify package presets / labels"]
     plan["digest"] = drafts.digest({"base": plan["digest"], "variants": variants, "options": plan["options"]})
     return plan
@@ -418,8 +418,10 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
             matches = adapter.find_skus(config,additions)
             if not isinstance(matches,dict) or not isinstance(matches.get("nodes"),list) or matches.get("pageInfo",{}).get("hasNextPage") is not False or matches["nodes"]:
                 plan["blockers"].append("New variant SKU candidate already exists or discovery is incomplete; resolve before creation.")
+    from app.shopify_publication import review_binding
     plan["taxonomy_review_digest"] = drafts.digest({"collections":plan["collections"],"standard":standard,"attributes":plan["attribute_review_digest"],
-        "native":{k:v for k,v in plan["native"].items() if k!="checked_at"}})
+        "native":{k:v for k,v in plan["native"].items() if k!="checked_at"},
+        "publication":review_binding(plan.get('publication') or {})})
     # Leave room for durable media/maps/native receipts BEFORE any remote write.
     reserves={"version":1,"plan":plan,"media":[{"source":i["source"],"filename":i["filename"],"sha256":i["sha256"],"id":"x"*100,"url":"x"*1024,"status":"x"*24} for i in plan["images"]],
         "created_media":[{"id":"x"*100} for i in plan["images"]],
@@ -433,8 +435,8 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
     record(product,plan,row if remote_id else None)
     reviewed = {"mode":"variable", **{key:plan.get(key) for key in
         ("product_id","digest","store_id","config_digest","nonce","remote_id","remote_digest","identity_digest","taxonomy_review_digest","classification","identity_id","scope")}}
-    from app.shopify_publication import has_metadata_changes
-    token = drafts.serializer().dumps(reviewed) if plan["classification"] != "no_change" and not plan["blockers"] and (not remote_id or scope=='inventory' or has_metadata_changes(plan)) else None
+    from app.shopify_publication import has_reviewed_changes
+    token = drafts.serializer().dumps(reviewed) if plan["classification"] != "no_change" and not plan["blockers"] and (not remote_id or scope=='inventory' or has_reviewed_changes(plan)) else None
     return plan,token
 
 
@@ -531,7 +533,8 @@ def _native_apply(row,data,config,adapter,operation_id):
 def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attribute_review=False):
     plan = data["plan"]
     remote = adapter.read_variable(config,row.shopify_product_id,plan["managed"]["namespace"])
-    if remote.get('status') != plan.get('actual_status','DRAFT') and plan.get('actual_status') != 'Not yet created':
+    from app.shopify_publication import expected_status
+    if remote.get('status') != expected_status(data):
         raise ShopifyError('Product lifecycle changed during metadata verification; reconcile before another operation.')
     data["observed_status"] = remote.get("status")
     if recover:
@@ -704,7 +707,7 @@ def confirm(reviewed, adapter=None):
         else:
             previous={"data":copy.deepcopy(drafts.evidence(row)),"operation_id":row.operation_id,"reviewed_digest":row.reviewed_digest}
             data=drafts.evidence(row)
-            data.update(plan=plan,stage="reviewed_update",update_attempted=True,completed_steps=[])
+            data.update(plan=plan,stage="reviewed_update",update_attempted=True,completed_steps=[],publication_review_operation_id=lease.id)
             row.operation_id,row.reviewed_digest,row.verification_state=lease.id,plan["digest"],"unverified"
             drafts.save(row,data,"updating")
             metadata,_=drafts.update_inputs(dict(plan,variant_id="unused"))
@@ -769,6 +772,12 @@ def confirm(reviewed, adapter=None):
         if any(a["changed"] for a in plan.get("attributes",[])):
             attempted=True
         apply_attributes(row,data,config,adapter)
+        from app.shopify_publication import apply_reviewed
+        if creating and plan.get('publication'):
+            verify(row,data,config,adapter)
+        if (plan.get('publication') or {}).get('pending') and (plan.get('publication') or {}).get('read_complete') and not (plan.get('publication') or {}).get('blockers'):
+            attempted=True
+        apply_reviewed(row,data,config,adapter)
         verify(row,data,config,adapter)
         native_state="blocked" if row.state=="processing" and plan["native"]["enabled"] else _native_apply(row,data,config,adapter,lease.id) if row.state=="verified" else "disabled"
         if native_state=="uncertain":
@@ -780,7 +789,8 @@ def confirm(reviewed, adapter=None):
             if summary:
                 value=json.loads(summary.summary_json); value.update(identity=drafts.digest(row.media_evidence_json),native=plan["native"])
                 store_summary(summary,value)
-        finish_catalogue_operation(lease.id,status="succeeded" if row.state=="verified" and native_state in {"disabled","verified"} else "partial",
+        from app.shopify_publication import complete as publication_complete
+        finish_catalogue_operation(lease.id,status="succeeded" if row.state=="verified" and native_state in {"disabled","verified"} and publication_complete(data) else "partial",
             recovery_state="review_required" if row.state=="uncertain" else "none",
             products_attempted=1,products_succeeded=int(row.state=="verified"),
             operation_summary={"identity_id":row.id,"mode":"variable","stage":data["stage"],"variants":len(plan["variants"]),"native_dimensions":native_state})

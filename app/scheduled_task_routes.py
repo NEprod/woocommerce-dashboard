@@ -55,7 +55,7 @@ def run_now(key):
 
 @tasks.route("/settings/tasks/<key>/history")
 def history(key):
-    if key not in {service.KEY,service.SALE_KEY}:abort(404)
+    if key not in {service.KEY,service.SALE_KEY,'catalogue_startup'}:abort(404)
     runs=ScheduledTaskRun.query.filter_by(task_key=key).order_by(ScheduledTaskRun.created_at.desc()).limit(100).all()
     return render_template("scheduled_task_history.html",runs=runs,detail=None,definition=service.definition(key))
 

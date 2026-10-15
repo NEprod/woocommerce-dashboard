@@ -1,5 +1,24 @@
 # Scanner, Operations, and Discord
 
+## M3A.9.3.3 startup and post-save handoff
+
+The managed Docker runtime queues Startup Catalogue Reconciliation once per container
+lifetime, using the existing task tables/worker. Web startup does not wait for scanning.
+The durable job coalesces restarts and waits for the existing catalogue lease. Changed
+collections reuse scanner/ingestion, stable SKU/variation overlays and marker recovery.
+First-run projection ingests existing .scanned sources into a fresh DB. No full-mode
+SKU reset or missing-product deletion occurs. JSON is content-hashed; image membership/
+stat changes, .update, pending journals and missing DB parents also trigger work.
+Empty collections stay local. Missing mounts/sources and invalid JSON are visible
+in startup history. The 256-collection bound fails visibly rather than omitting scope.
+
+Only after scan finalisation are committed affected products without usable managed
+comparison evidence queued for bounded Shopify reads. Private/no-op projections keep
+equality; an occupied reconciliation run makes the next fair sweep due without
+overwriting active work. No JSON save, scan or startup grants publishing/sale authority.
+Existing scan/discovery Discord rules and detailed logs remain. Startup history links
+to each scanner operation; read-only comparison emits no publishing notification.
+
 M3A.8.5.3 notification clarification: per-product ingestion discovery notices are
 emitted only after committing a newly created local catalogue record. Existing-product
 upserts (unchanged or updated) retain detailed processing logs and scan summary counts,

@@ -123,19 +123,20 @@ def test_stale_comparison_and_source_override_invalidate(world):
     data["revision_checked_at"] = comparison.compared_at.isoformat()
     comparison.summary_json = json.dumps(data)
     db.session.commit()
-    assert status(world[0])["label"] == "Checking Changes"
+    assert status(world[0])["label"] == "Last check matched"
     drafts.preview(world[0], adapter)
     (world[1] / "product_info.json").write_text(json.dumps({"weight": 51}))
     assert status(world[0])["label"] != "Up to Date"
 
 
-def test_live_intent_can_compare_but_never_confirms(world):
+def test_missing_publication_scope_defers_availability_not_valid_metadata(world):
     row, adapter = created(world)
     change(world, live=True, weight=50)
     plan, token = drafts.preview(world[0], adapter)
-    assert token is None and plan["classification"] == "update"
-    assert status(world[0])["label"] == "Update Available"
-    assert any("Live intent" in b for b in status(world[0])["blockers"])
+    assert token and plan["classification"] == "update"
+    assert status(world[0])["label"] == "Verification Unavailable"
+    assert plan['publication']['read_complete'] is False
+    assert 'read_publications' in plan['publication']['reason']
     assert adapter.calls == ["connection_read", "product_read"]
 
 
@@ -248,7 +249,8 @@ def test_migration_preserves_existing_identities_and_uniqueness(tmp_path):
     with sqlite3.connect(path) as con:
         con.execute("insert into shopify_product_identity(source_identity,sku,store_key,store_id,store_domain,state,verification_state,reviewed_digest,media_evidence_json) values('source','SKU','key','store','fictional.myshopify.com','verified','verified','digest','{}')")
         before = con.execute("select * from shopify_product_identity").fetchall()
-    assert ensure_database(f"sqlite:///{path}").revision == "0012_shopify_attributes"
+    from app.database import migration_head
+    assert ensure_database(f"sqlite:///{path}").revision == migration_head()
     with sqlite3.connect(path) as con:
         assert before == con.execute("select * from shopify_product_identity").fetchall()
         assert con.execute("select count(*) from shopify_product_comparison").fetchone()[0] == 0

@@ -73,9 +73,8 @@ def create_app(*, recover=None):
 
     @app.context_processor
     def task_activity():
-        from .models import ScheduledTask
-        task = db.session.get(ScheduledTask, "shopify_products")
-        return {"scheduled_activity": task.state if task else None}
+        from .scheduled_tasks import activity
+        return {"scheduled_activity": activity()}
 
     with app.app_context():
         from .database import ensure_database

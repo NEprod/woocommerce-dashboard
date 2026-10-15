@@ -38,6 +38,8 @@ def read_only(operation):
 def complete(identity, data):
     if not identity or identity.state != "verified" or identity.verification_state != "verified":
         return False
+    from app.shopify_publication import complete as publication_complete
+    if not publication_complete(data): return False
     verification = data.get("verification", {})
     if any(verification.get(k) != "verified" for k in ("identity", "fields", "media", "memberships", "attributes")):
         return False
@@ -75,6 +77,10 @@ def product_result(operation):
         "completed_at": operation.finished_at.isoformat() + "Z",
         "deferred": [str(v)[:300] for v in plan.get("blockers", [])[:5]],
         "reason": operation.error or data.get("error")}
+    from app.shopify_publication import complete as publication_complete
+    publication=plan.get('publication') or {}
+    if not publication_complete(data):
+        result['deferred'] += (publication.get('blockers') or [publication.get('reason') or 'Reviewed availability remains unresolved.'])[:5]
     if plan.get("scope") == "inventory" or scope.get("scope") == "inventory":
         result["deferred"].append("Inventory-only scope: other managed fields remain unverified.")
     if scope.get('mode')=='publication':

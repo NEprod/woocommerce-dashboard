@@ -163,11 +163,11 @@ def common_plan(product, *, variable=False):
     plan["intent"] = publication_intent['status'].title()
     plan["blockers"] = []
     if publication_intent['status'] != 'DRAFT' or publication_intent['channels']:
-        plan['warnings'].append('This metadata workflow creates an unpublished Draft or preserves the existing status/channels. Review publication separately to apply authored availability.')
+        plan['warnings'].append('New products start as unpublished Drafts. Existing products include eligible reviewed status/channel changes; incomplete or blocked availability is explicitly deferred.')
     from app.shopify_taxonomy import fingerprint as taxonomy_fingerprint
     plan["taxonomy_fingerprint"] = taxonomy_fingerprint(product)
     plan["price"] = plan["managed"]["variant"]["price"]
-    plan["unsupported"] = ["Channel publication requires its separate signed review; navigation is deferred", "Customer-facing customisation",
+    plan["unsupported"] = ["Storefront navigation publishing is deferred", "Customer-facing customisation",
         "Inventory quantities/locations", "Media replacement, addition or removal on existing drafts",
         "Native Shopify Shipping/package dimensions (product metafields only)"]
     from app.shopify_products import source_fingerprint
@@ -286,8 +286,8 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
             result["blockers"].append("Remaining attributes now match; complete read-only identity reconciliation before claiming final publishing verification.")
         from app.shopify_comparison import record
         record(product, result, row)
-        from app.shopify_publication import has_metadata_changes
-        return result, token if not result["blockers"] and (scope=='inventory' or has_metadata_changes(result)) else None
+        from app.shopify_publication import has_reviewed_changes
+        return result, token if not result["blockers"] and (scope=='inventory' or has_reviewed_changes(result)) else None
     require_absent_sku(adapter, config, plan["sku"])
     plan.update(store_key=store_key, store_id=shop["shop_id"], domain=config.domain,
                 config_digest=config.fingerprint(),
@@ -306,6 +306,8 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
     attach(product, plan, config, shop, adapter)
     from app.shopify_native_dimensions import attach_review
     attach_review(product, plan, None, config, shop, adapter)
+    from app.shopify_publication import annotate
+    annotate(product,plan,None,config,shop,adapter)
     encode({"version": 1, "plan": plan, "reserve": "x" * 12000})
     token = serializer().dumps({k: plan[k] for k in ("product_id", "digest", "store_id", "store_key", "domain", "config_digest", "nonce", "taxonomy_review_digest")})
     from app.shopify_comparison import record
@@ -371,7 +373,7 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         raise ShopifyError("Local product is unavailable. Generate a fresh Preview.")
     plan = local_plan(product)
     if plan["blockers"]:
-        raise ShopifyError("Live intent is not publishable until Online Store publication is implemented.")
+        raise ShopifyError("Local product validation blockers remain. Resolve them and build a fresh reviewed plan.")
     config = configuration()
     adapter = adapter or ShopifyAdapter()
     shop = adapter.test_connection(config)
@@ -398,6 +400,8 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         raise ShopifyError("Required attribute/intent prerequisites are unresolved; rebuild Review.")
     from app.shopify_native_dimensions import attach_review
     attach_review(product, plan, None, config, shop, adapter)
+    from app.shopify_publication import annotate
+    annotate(product,plan,None,config,shop,adapter)
     if plan["taxonomy_review_digest"] != reviewed.get("taxonomy_review_digest"):
         raise ShopifyError("Collection mapping/membership changed after review. Review again.")
     plan["handle"] = plan["managed"]["product"].get("handle") or "tlc-draft-" + plan["nonce"]
@@ -487,10 +491,13 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         from app.shopify_attributes import apply
         apply(row, data, config, adapter)
         apply_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]), adapter)
+        from app.shopify_publication import apply_reviewed, complete as publication_complete
+        if apply_reviewed(row,data,config,adapter):
+            apply_readback(row,data,adapter.read_simple(config,row.shopify_product_id,plan['managed']['namespace']),adapter)
         state = row.state
         from app.shopify_native_dimensions import after_publish
         native_state = after_publish(row, plan, adapter, lease.id)
-        finish_catalogue_operation(lease.id, status="succeeded" if state == "verified" and native_state in {"disabled", "verified"} else "partial",
+        finish_catalogue_operation(lease.id, status="succeeded" if state == "verified" and native_state in {"disabled", "verified"} and publication_complete(evidence(row)) else "partial",
             products_attempted=1, products_succeeded=int(state == "verified"), recovery_state="none" if state == "verified" and native_state != "uncertain" else "review_required",
             operation_summary={"identity_id": row.id, "shopify_product_id": row.shopify_product_id, "stage": data["stage"], "state": state, "native_dimensions": native_state})
         return row
@@ -746,8 +753,9 @@ def confirm_update(reviewed, adapter=None):
         data.pop("reorder_job", None)
         data["completed_steps"] = []
         data["previous_verified"] = {"operation_id": row.operation_id, "reviewed_digest": row.reviewed_digest,
-            "verified_at": row.verified_at.isoformat() if row.verified_at else None, "plan": data["plan"]}
-        data.update(plan=plan, stage="update_pending", update_attempted=False,
+            "verified_at": row.verified_at.isoformat() if row.verified_at else None, "plan": data["plan"],
+            "publication_review_operation_id":data.get('publication_review_operation_id')}
+        data.update(plan=plan, stage="update_pending", update_attempted=False, publication_review_operation_id=lease.id,
             variant_id=plan["variant_id"], inventory_item_id=plan["inventory_item_id"])
         row.operation_id, row.reviewed_digest, row.verification_state = lease.id, plan["digest"], "unverified"
         save(row, data, "pending")
@@ -787,10 +795,15 @@ def confirm_update(reviewed, adapter=None):
         if any(a["changed"] for a in plan.get("attributes", [])):
             attempted = True
         apply(row, data, config, adapter)
+        from app.shopify_publication import apply_reviewed
+        if (plan.get('publication') or {}).get('pending') and (plan.get('publication') or {}).get('read_complete') and not (plan.get('publication') or {}).get('blockers'):
+            attempted=True
+        apply_reviewed(row,data,config,adapter)
         apply_simple_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]), adapter)
         from app.shopify_native_dimensions import after_publish
         native_state = after_publish(row, plan, adapter, lease.id)
-        finish_catalogue_operation(lease.id, status="succeeded" if row.state == "verified" and native_state in {"disabled", "verified"} else "partial",
+        from app.shopify_publication import complete as publication_complete
+        finish_catalogue_operation(lease.id, status="succeeded" if row.state == "verified" and native_state in {"disabled", "verified"} and publication_complete(evidence(row)) else "partial",
             products_attempted=1, products_succeeded=int(row.state == "verified"),
             recovery_state="none" if row.state == "verified" and native_state != "uncertain" else "review_required",
             operation_summary={"identity_id": row.id, "mode": "update", "stage": data["stage"], "completed_steps": data.get("completed_steps", []), "native_dimensions": native_state})
@@ -813,6 +826,7 @@ def confirm_update(reviewed, adapter=None):
             if data.get("stage") == "update_pending" and not data.get("update_attempted"):
                 previous = data.pop("previous_verified")
                 data.update(plan=previous["plan"], stage="verified", last_failed_review_operation_id=lease.id)
+                data['publication_review_operation_id']=previous.get('publication_review_operation_id')
                 row.operation_id = previous["operation_id"]
                 row.reviewed_digest = previous["reviewed_digest"]
                 row.verification_state = "verified"
@@ -823,7 +837,8 @@ def confirm_update(reviewed, adapter=None):
 
 def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_review=False):
     plan = data["plan"]
-    if remote.get('status') != plan.get('actual_status','DRAFT'):
+    from app.shopify_publication import expected_status
+    if remote.get('status') != expected_status(data):
         raise ShopifyError('Product status changed during metadata operation; reconcile the reviewed state before another write.')
     variant = simple_identity(row, data, remote)
     managed = {"product": {**plan["managed"]["product"], "handle": plan["handle"]},
@@ -952,7 +967,9 @@ def _reconcile(row, candidate_id=None, adapter=None, approval=None, *, allow_att
     data = evidence(row)
     if data.get('publication_update',{}).get('state') in {'pending','uncertain'}:
         from app.shopify_publication import verify
-        return verify(row,data,adapter)
+        verify(row,data,adapter)
+        if not data['publication_update'].get('unified'):
+            return row
     if data.get('sale_transition',{}).get('state') in {'pending','uncertain'}:
         from app.shopify_sales import reconcile_identity
         return reconcile_identity(row,adapter)

@@ -1,5 +1,22 @@
 # M3A.9 Product Creator & Editor contract
 
+## M3A.9.3.3 — one publishing review; local saving remains local
+
+Review & Sync now includes eligible discovered status/channel before/after changes
+with existing metadata and variants. It binds the store, retained product/nonce,
+actual publication/channel identities and memberships, source and configuration.
+Changed selections or memberships require a fresh signed confirmation. Unmanaged
+does not mean unpublish; Active does not mean Online Store-published. Blocked
+availability is displayed and deferred, never hidden behind metadata success.
+
+Save Locally retains atomic patch/backup, sparse inheritance and affected .update
+scanning. After committed projection, the existing worker receives bounded read-only
+comparison work. No-op saves do not scan, private-only metadata does not imply Update
+Available, and saving never authorises Shopify publication or scheduled sales.
+Review Sale remains a separate signed future-write approval. Editor conflict/unsaved
+and scanner guards remain intact. Legacy instructions below requiring a separate
+status/channel confirmation are superseded by this unified workflow.
+
 Status: M3A.9.3 publication/defaults/scheduled sales implemented, 2026-10-15. TLCDashboard is Shopify-first and private to
 Tender Loving Creations. This is the staged editor implementation contract, not a
 claim that complete creator forms or storefront customisation exist. Historical

@@ -118,7 +118,7 @@ def record(product, plan, identity=None, *, post_write=False):
         "local": expected_local, "images": [{"source": i["source"]} for i in plan["images"]],
         "remote_digest": plan.get("remote_digest"), "classification": plan["classification"],
         "changes": changes[:100], "change_count": len(changes), "scope":plan.get("scope","full"),
-        "blockers": plan.get("blockers", []) + (["Inventory-only comparison: metadata, attributes, collections and publication are not fully compared."] if scoped else []),
+        "blockers": plan.get("blockers", []) + (plan.get('publication') or {}).get('blockers',[]) + (["Inventory-only comparison: metadata, attributes, collections and publication are not fully compared."] if scoped else []),
         "identity": digest(identity.media_evidence_json) if identity else None,
         "mappings": {r["key"]: r.get("mapping_fingerprint") for r in plan.get("collections", [])},
         "actual_status": plan.get("actual_status", "Not yet created")}
@@ -177,8 +177,14 @@ def record(product, plan, identity=None, *, post_write=False):
 def invalidate(store_id, source):
     from app.shopify_capacity import fence_owner
     fence_owner()
-    ShopifyProductComparison.query.filter_by(store_id=store_id, source_identity=source).delete()
-    db.session.commit()
+    # Preserve historical comparison evidence, but never reuse equality after
+    # a new/uncertain mutation has begun. A new full read replaces this marker.
+    from app.shopify_drafts import now
+    row=ShopifyProductComparison.query.filter_by(store_id=store_id,source_identity=source).first()
+    if row:
+        data=json.loads(row.summary_json)
+        data.update(invalidated=True,invalidated_at=now().isoformat())
+        store_summary(row,data)
 
 
 def failed(product, message, *, started=None):
@@ -212,7 +218,7 @@ def current(product, row, identity, mappings, *, freshness=True):
     # Legacy summaries remain usable for their original ten-minute policy only.
     if not data.get("full_compared_at"):
         fresh = now() - row.compared_at <= MAX_AGE
-    if (data.get("version") != 1 or freshness and not fresh
+    if (data.get("invalidated") or data.get("version") != 1 or freshness and not fresh
             or data.get("config") != configuration().fingerprint()
             or data.get("product_id") != product.id or data.get("source") != product.source_relpath
             or data.get("identity") != (digest(identity.media_evidence_json) if identity else None)

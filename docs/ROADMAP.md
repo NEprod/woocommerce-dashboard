@@ -1,5 +1,16 @@
 # Roadmap
 
+## M3A.9.3.3 — unified workflow acceptance checkpoint
+
+Accept the unified signed metadata/status/discovered-channel review, committed
+scan-to-comparison handoff and managed startup reconciliation on Unraid. Historical
+comparison evidence is retained without borrowing freshness; task attention is
+attributed instead of inferred from every partial outcome. Verify one controlled
+product, explicit visibility/unpublish, processing/partial read-only recovery,
+unchanged restart, affected save and private/no-op changes. No migration or API/mount
+policy change. M3A.9.4, creator/gallery/customisation, larger-catalogue scheduling,
+collection-wide sale authority, bulk publishing and navigation remain separate.
+
 ## M3A.9.3.2 — corrective sale lifecycle checkpoint
 
 Corrected local configured-versus-effective prices and stale native-evidence badge

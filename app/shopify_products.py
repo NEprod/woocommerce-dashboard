@@ -136,7 +136,7 @@ def product_state(product, rows, comparisons=(), mappings=None):
             observed_publication=data.get('publication_update',{}).get('observed')
             if observed_publication:
                 state['channel_evidence']=observed_publication
-                state['publication']='Channel-specific cached evidence; inspect publication review'
+                state['publication']='Channel-specific cached evidence; inspect Review & Sync'
             state["can_delete"] = row.state == "verified" and row.verification_state == "verified" and not any(p.get("state") in {"pending","uncertain"} for p in data.get("variant_native",{}).values()) and data.get("native_dimensions",{}).get("state") not in {"pending","uncertain"}
             if row.state == "processing":
                 state.update(state="processing", label="Processing", message="Read-only reconciliation is required to check media processing.")
@@ -163,7 +163,7 @@ def product_state(product, rows, comparisons=(), mappings=None):
         from app.shopify_publication import proof_matches
         publication_pending=(desired_publication['status']!='DRAFT' or bool(desired_publication['channels'])) and not (rows and proof_matches(product,evidence(rows[0])))
         if publication_pending:
-            state["message"] += " Publication intent needs separate signed channel/status review."
+            state["message"] += " Publication intent must be included in a signed Review & Sync."
             if state["state"] == "no_change":
                 state.update(state="attention", label="Needs Attention",
                     message="Managed metadata matches cached verification, but intended publication is unresolved. " + state["message"])
@@ -220,7 +220,9 @@ def product_state(product, rows, comparisons=(), mappings=None):
                         if (comparison.store_id == identity.store_id and known.get("identity") == digest(identity.media_evidence_json)
                                 and known.get("config") == configuration().fingerprint()
                                 and known.get("local") != fingerprint(product, known["images"])):
-                            state.update(state="local_changes", label="Checking Changes", message="Local metadata or taxonomy evidence changed; pending remote comparison. The old change count is invalid.")
+                            state.update(state="local_changes", label="Checking Changes", message="Effective managed data changed; bounded comparison is queued. Historical differences are not current differences.",
+                                last_known_at=known.get('full_compared_at'),last_known_classification=known.get('classification'),
+                                last_known_change_count=known.get('change_count'))
                             break
                 if state["state"] == "no_change":
                     # Last publish fingerprints predate managed taxonomy and cannot prove it.

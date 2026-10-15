@@ -296,7 +296,7 @@ def build_scan_scope(scan_folder, scan_mode, *, collection_relpath=None):
         )
 
     try:
-        if scan_mode == "shared_collection":
+        if scan_mode in {"shared_collection", "startup"}:
             target = _safe_collection_path(scan_folder, collection_relpath or "")
             if not target or not os.path.isdir(target):
                 return ScanScopePlan(
@@ -674,8 +674,8 @@ def _scan_thread(
                 log(operation_error, level="ERROR")
                 return
 
-            force = scan_mode in {"full", "shared_collection"}
-            update = scan_mode in {"update", "shared_collection"}
+            force = scan_mode in {"full", "shared_collection", "startup"}
+            update = scan_mode in {"update", "shared_collection", "startup"}
 
             recovered = recover_committed_markers(scan_folder, log=log)
             if recovered["recovered"]:
@@ -686,7 +686,7 @@ def _scan_thread(
 
             plan = build_scan_scope(
                 scan_folder,
-                scan_mode,
+                'shared_collection' if scan_mode=='startup' else scan_mode,
                 collection_relpath=collection_relpath,
             )
             folders = [os.path.basename(path) for path in plan.collection_paths]
@@ -725,6 +725,8 @@ def _scan_thread(
                         log=log,
                         defer_markers=True,
                         operation_id=operation_id,
+                        **(__import__('app.catalogue_startup',fromlist=['scanner_options']).scanner_options(scan_folder)
+                            if scan_mode == 'startup' else {}),
                     )
                     all_rows.extend(rows)
                     image_counts = image_ownership_summary(rows)
@@ -818,6 +820,7 @@ def _scan_thread(
                 operation_error = "Authoritative catalogue scope did not resolve completely"
             if (
                 plan.authoritative
+                and scan_mode != 'startup'
                 and scan_complete
                 and products_failed == 0
                 and marker_failed == 0
@@ -963,6 +966,16 @@ def _scan_thread(
                 from app import db
                 db.session.rollback()
             _prune_completed_runs()
+            if products_succeeded and not scanner_execution_error:
+                # After the scan lease is terminal, queue reads only for rows
+                # actually projected. Source fingerprints retain no-op evidence.
+                try:
+                    from app.scheduled_tasks import queue_projected
+                    queue_projected(operation_id)
+                except Exception:
+                    from app import db
+                    db.session.rollback()
+                    make_logger(run_id)('Read-only Shopify comparison queue unavailable; scheduled reconciliation remains available.',level='WARN')
 
 
 def stream_lines(run_id, timeout=15):

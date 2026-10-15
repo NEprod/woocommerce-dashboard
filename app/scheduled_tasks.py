@@ -25,6 +25,8 @@ SALE_DEFINITION={'name':'Scheduled Sale Transitions','description':'Only explici
 
 
 def definition(key):
+    from app.catalogue_startup import KEY as local_key, DEFINITION as local_definition
+    if key==local_key: return local_definition
     return SALE_DEFINITION if key==SALE_KEY else DEFINITION
 
 
@@ -108,9 +110,10 @@ def renew(key, run_id, owner):
 
 def claim(owner):
     stamp=now()
+    from app.catalogue_startup import KEY as local_key
     candidate=ScheduledTask.query.filter(ScheduledTask.active_run_id.isnot(None),
         or_(ScheduledTask.resume_at.is_(None),ScheduledTask.resume_at<=stamp),
-        or_(ScheduledTask.owner.is_(None),ScheduledTask.lease_until<=stamp)).order_by((ScheduledTask.key==SALE_KEY).desc(),ScheduledTask.next_due).first()
+        or_(ScheduledTask.owner.is_(None),ScheduledTask.lease_until<=stamp)).order_by((ScheduledTask.key==SALE_KEY).desc(),(ScheduledTask.key==local_key).desc(),ScheduledTask.next_due).first()
     if not candidate:
         return None
     run_id,key=candidate.active_run_id,candidate.key
@@ -262,6 +265,8 @@ def item_result(data,product,state):
 
 
 def run_slice(key,run_id,owner,*,adapter=None):
+    from app.catalogue_startup import KEY as local_key, run_slice as local_slice
+    if key==local_key: return local_slice(key,run_id,owner)
     if key==SALE_KEY:
         return sale_slice(key,run_id,owner,adapter=adapter)
     from app.shopify_connection import ShopifyAdapter,ShopifyError
@@ -359,6 +364,52 @@ def tick(owner,*,adapter=None):
     if claimed:
         run_slice(*claimed,owner,adapter=adapter)
     return claimed
+
+
+def queue_projected(operation_id):
+    """Local projection handoff: retain evidence, queue bounded reads, no writes.
+
+    The existing single reconciliation lease coalesces concurrent requests. If
+    occupied, the next fair sweep is made due; valid unaffected rows are skipped.
+    """
+    from app.models import CatalogueOperationItem
+    try: config=drafts.configuration()
+    except (ValueError,RuntimeError): return None
+    sources=[r.source_path for r in CatalogueOperationItem.query.filter_by(operation_id=operation_id,database_state='committed').all()]
+    if not sources: return None
+    products=Product.query.filter(Product.source_relpath.in_(sources),Product.catalogue_status=='active').all()
+    affected=[p.id for p in products if not recent_success(p,config)]
+    if not affected: return None
+    task=db.session.get(ScheduledTask,KEY)
+    if not task: return None
+    if task.active_run_id or len(affected)>25:
+        # No active run is cancelled or rewritten. Fresh unaffected entries
+        # will not make API requests when the next durable sweep selects them.
+        db.session.execute(update(ScheduledTask).where(ScheduledTask.key==KEY).values(next_due=now()))
+        db.session.commit()
+    return enqueue(KEY,manual=True,product_ids=affected[:25])
+
+
+def activity():
+    """Attribute real task failures; routine deferral is not a global alarm."""
+    from app.catalogue_startup import KEY as local_key
+    values=[]
+    for key in (KEY,SALE_KEY,local_key):
+        task=db.session.get(ScheduledTask,key)
+        if not task: continue
+        view=snapshot(task)
+        run=ScheduledTaskRun.query.filter_by(task_key=key).order_by(ScheduledTaskRun.created_at.desc()).first()
+        data=json.loads(run.data_json) if run else {}
+        real_issue=bool(run and (run.state=='failed' or run.error or
+            key==SALE_KEY and data.get('counts',{}).get('attention') or
+            any('Recovery' in str(i.get('state','')) for i in data.get('items',[]))))
+        if real_issue:
+            values.append({'key':key,'run_id':run.id,'attention':True,'label':definition(key)['name']+' — needs attention',
+                'reason':run.error or data.get('reason') or 'Retained recovery/approved transition requires review.'})
+        elif task.active_run_id:
+            values.append({'key':key,'run_id':task.active_run_id,'attention':False,
+                'label':definition(key)['name']+' — '+task.state.replace('_',' '),'reason':view['reason']})
+    return next((v for v in values if v['attention']),values[0] if values else None)
 
 
 def sale_slice(key,run_id,owner,*,adapter=None):

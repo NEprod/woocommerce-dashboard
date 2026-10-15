@@ -391,7 +391,7 @@ def test_status_change_back_to_draft_is_compared_without_channel_selections(worl
     product,row,adapter,_=published
     adapter.remote['status']='ACTIVE'
     plan,token=drafts.preview(product,adapter)
-    assert plan['publication']['pending'] and plan['classification']=='update' and token is None
+    assert plan['publication']['pending'] and plan['classification']=='update' and token
     assert any(f['field']=='publication.status' and f['after']=='DRAFT' for f in plan['fields'])
     _,token=publication.preview(product,adapter)
     drafts.confirm(token,True,adapter)

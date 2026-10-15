@@ -426,10 +426,10 @@ def test_update_confirmation_auth_csrf_and_no_change_ui(world, monkeypatch, prev
     monkeypatch.setattr(drafts, "ShopifyAdapter", lambda: adapter)
     client = _client(preview_app)
     response = client.post("/shopify/drafts", data={"action": "preview", "product_id": product.id})
-    assert response.status_code == 200 and b"No Change" in response.data and b"Confirm reviewed update" not in response.data
+    assert response.status_code == 200 and b"No Change" in response.data and b"Confirm reviewed changes" not in response.data
     change(world, description="Changed")
     response = client.post("/shopify/drafts", data={"action": "preview", "product_id": product.id})
-    assert response.status_code == 200 and b"Confirm reviewed update" in response.data and TOKEN.encode() not in response.data
+    assert response.status_code == 200 and b"Confirm reviewed changes" in response.data and TOKEN.encode() not in response.data
     _, token = drafts.preview(product, adapter)
     with pytest.raises(ShopifyError, match="acknowledgement"): drafts.confirm(token, False, adapter)
     preview_app.config["WTF_CSRF_ENABLED"] = True

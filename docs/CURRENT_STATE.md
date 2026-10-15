@@ -1,5 +1,53 @@
 # Current State
 
+## M3A.9.3.3 — unified review, retained evidence and startup reconciliation
+
+The old split was explicit: publication.annotate made display-only rows and the main
+publisher withheld confirmation for publication-only changes. Eligible discovered
+status/channel changes now join the same signed main review, including availability-
+only updates. The existing operation/lease records pending proof before each mutation;
+readback verifies availability and all other managed fields independently. Unknown
+channels, conflicting shared-publication selections, missing permissions and incomplete
+discovery grant no availability authority. Valid metadata can finish with publication
+explicitly deferred: partial, not full success or unqualified Up to Date.
+
+New products start as Drafts and only reach reviewed availability after complete
+product/variant/media readback. Processing defers availability to a fresh main review;
+recovery never automatically publishes. Automatically assigned channels require explicit
+intent before a newly created product becomes Active. Normal Products/editor links use
+Review & Sync; legacy publication routes remain for historical compatibility. Scheduled
+sale authorisation remains separate. Existing Simple/Variable IDs are never recreated.
+
+Completed local scans queue bounded read-only comparison for committed affected rows
+without usable current managed evidence. Private/no-op data does not invent differences.
+An occupied run leaves its next fair sweep due; fresh unaffected rows are skipped.
+Invalidation retains the historical checkpoint rather than deleting it; historical
+equality cannot become current equality. Rendering does not renew freshness. Existing
+ten-minute proof, cursor fairness, capacity priority and read/identity/CAS fences remain.
+
+The generic banner mapped every partial/paused product run to attention, including
+ordinary deferral. It now attributes genuine execution errors, reported critical
+failures, approved-sale attention or retained recovery to the task/run and history.
+Optional deferrals, intentionally Draft products, aged matches and successful no-work
+runs do not create a global alarm. Historical Unraid records were unavailable: the
+code path is proven, not the particular live warning's task/reason. No acknowledgement
+silently suppresses real failure evidence.
+
+Managed Docker startup now queues a durable local task in existing scheduled_task/run
+tables. The existing worker scans behind the web server. Derived content/stat manifests
+select changed/new collections, .update/pending markers or absent DB projections.
+The existing scanner, catalogue lease, SKU/variant overlays, pending marker journal,
+ingestion, detailed logs and Discord rules are reused. No full-mode index reset or
+automatic missing-product deletion. First startup can ingest previously marked sources
+into a fresh database; unchanged later restarts skip checkpointed collections. Missing
+mounts/sources and invalid/interrupted work remain visible in startup history. Scope
+is bounded at 256 top-level collections, with a visible error beyond that limit. JSON
+is content-hashed; images use name/size/mtime evidence. No authored source is rewritten.
+
+No migration: head remains 0014_shopify_sales. No authentication, environment/mount,
+pricing/modifier/sale-authority/Discord-policy change. Normal API remains 2026-10;
+only opted-in packed dimensions use 2027-01. Live acceptance is still required.
+
 ## M3A.9.3.2 — current sale prices and honest verification freshness
 
 Two defects reproduced independently: Products used sale-or-regular unconditionally
