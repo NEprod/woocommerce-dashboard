@@ -1,5 +1,29 @@
 # Current State
 
+## M3A.9.5 Shopify CLI staging checkpoint — 16 October 2026
+
+CLI 4.9.4 is authenticated and the local shopify/ workspace is linked to the existing
+TLCDashboard app (Client ID f9498b5a7e0393d9cddbb49defb4cacd, App 434537660417,
+Tender Loving Creations organisation 240230265). No replacement app was created.
+Fresh remote import and Dev Dashboard readback preserved all 11 scopes, URLs, auth
+and webhook settings; only scope ordering can be normalised. This is a store-owned
+BusinessPlatform organisation app, installed on TLC's jrg9sr-yy store. The Partner
+distribution selector does not apply; no distribution change is proposed. The active
+tlcdashboard-5 version (1168958980097) contains configuration only, with no theme
+extensions to remove or replace. No installed app credentials/settings were changed.
+
+Local config validation and Theme Check/build pass. Packaging fixes add a default
+locale and minify the byte-identical original readable source into an 8778-byte asset,
+below Shopify's 10000-byte threshold. esbuild's install warning was not a failure.
+Focused checks: 20 Python, 22 JavaScript, 14 offline browser assertions passed.
+This setup checkpoint is intended for unreleased staging only, under version tag
+`tlc-customisations-m3a-9-5-20261016`, with the source commit attached by the CLI.
+The sole intended addition is TLC customer customisations, uid
+`32a543f0-9ad7-6dfe-9a1e-d4437bf366175766d7e5`. Staging must use --no-release;
+release remains a separate approval. Docker remains at 550c0e7. No app dev, theme
+upload, Unraid change or live product write is part of this checkpoint.
+See SHOPIFY_CUSTOMISATIONS.md for exact release and rollback procedures.
+
 ## M3A.9.5 — staged storefront customisation bridge
 
 Single Variable now uses `Root folder | Authored root title` (same two components,
@@ -21,9 +45,10 @@ replace variant/cart handling. File/photo fields fail closed at publication when
 enabled; no customer upload endpoint exists. Browser validation is not server-side
 checkout enforcement. See SHOPIFY_CUSTOMISATIONS.md for bypasses and purchase gates.
 
-Readiness is **staged/integration-ready**, not live storefront acceptance. Shopify CLI
-is not linked here, the merchant is considering Tinker, and the installed theme/version
-has not been verified. Extension build/deployment, draft-theme activation and a real
+The original Docker release was **staged/integration-ready**, not live storefront
+acceptance; CLI was not linked at that checkpoint. The local setup section above now
+records successful linking/build. The installed Tinker theme/version has not been
+verified. Extension deployment, draft-theme activation and a real
 test cart/order remain merchant-controlled separate steps. Docker publication does
 not deploy extension assets. No live theme, Shopify product or customer order was
 modified during development. API 2026-10 and opt-in native 2027-01 remain unchanged.

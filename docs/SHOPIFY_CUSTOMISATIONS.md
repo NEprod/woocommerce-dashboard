@@ -9,11 +9,13 @@ Four separate states must not be confused:
 3. Theme activation: merchant installs the Shopify-hosted app block on a chosen template.
 4. Purchase acceptance: actual cart, checkout and resulting order retain correct answers.
 
-This release implements/tests 1–2 and supplies staged theme-extension source/fixtures.
-It does **not** claim 3–4 have happened. The merchant has no linked CLI project yet and
-is considering Tinker; actual installed theme name/version and app-block placement
-remain unverified. No live Shopify writes, theme changes, checkout or Discord sends
-were performed during development. An offline order-shaped fixture is not a real order.
+The Docker milestone implements/tests 1–2 and supplies staged theme-extension source/fixtures.
+It does **not** claim 3–4 have happened. Local CLI linking and a clean extension build
+were subsequently verified on 16 October 2026, as recorded below. Actual installed
+Tinker name/version and app-block placement remain unverified. Unreleased extension
+staging is separate from release; no live product mutation, theme change, checkout
+or Discord send is part of the staging checkpoint.
+An offline order-shaped fixture is not a real order.
 
 Tinker is a Shopify Horizon-collection theme. Its current shared Horizon source uses
 `BuyButtons-ProductForm-SECTION` and native `FormData(form)` submission. The block
@@ -92,32 +94,114 @@ Other themes that escape again may show literal entities; check apostrophes, amp
 angle brackets, multiline values and cart drawer/full cart/checkout/order presentation.
 Do not weaken escaping or claim compatibility until that is checked on the chosen theme.
 
-## Shopify CLI and extension deployment (merchant-controlled; not performed here)
+## Shopify CLI setup verified locally — 16 October 2026
 
-Docker publication does not install Shopify-hosted assets. Do this locally on a machine
-with Shopify CLI 3+, its current supported Node runtime, Ruby/Bundler and app-development
-permission. Do not expose the Unraid admin port or send Client Secrets into Liquid.
+The existing app was linked using its merchant-confirmed Client ID, not by creating
+or replacing an app:
 
-1. Follow Shopify's existing Dev Dashboard app migration/link guide below. Create an
-   extension-only CLI workspace with `shopify app init`; link with `shopify app config link`
-   to the **existing installed TLC app**, not a replacement app. Inspect imported app
-   settings before deploying—do not change OAuth credentials/scopes/application URLs
-   accidentally. Keep generated local config/credentials outside Git here.
-2. In that linked workspace run `shopify app generate extension`, select **Theme app
-   extension**, and name it TLC customisations. Keep Shopify's generated extension
-   identity/uid; copy this repository's blocks/ and assets/ into it and use its theme
-   type/name/handle configuration. Remove only the generated demo block in that new
-   extension, not other existing extensions. Do not invent an app ID or extension uid.
-3. Run `shopify app build`. This repository validates source/schema/offline browser
-   behaviour; an authenticated CLI bundle/build was unavailable here and is a required
-   deployment gate. Resolve any Shopify theme-check errors before proceeding.
-4. If needed preview against a suitable test/dev store and explicitly chosen draft
-   theme using `shopify app dev --theme <verified-theme-id>`. Do not accept an implicit
-   theme replacement or automatically deploy to the live storefront.
-5. Run `shopify app deploy --no-release`; inspect the staged version in Dev Dashboard.
-   Record this repository's exact Git revision with that app version. Release the selected
-   extension app version only after explicit review. The Docker image revision is not
-   evidence of the deployed Shopify app version. Keep the previous app version for rollback.
+- App: TLCDashboard, `gid://shopify/App/434537660417`.
+- Client ID: `f9498b5a7e0393d9cddbb49defb4cacd` (public identifier, not a secret).
+- Organisation: Tender Loving Creations (`240230265`).
+- Local workspace: `shopify/`; imported configuration: `shopify/shopify.app.toml`.
+- CLI 4.9.4, Node 24.22.0, esbuild 0.28.1, npm workspaces.
+
+The initial import and a fresh read-only pull are semantically identical: 11 scopes,
+no optional scopes, legacy install flow false, app URL
+`https://shopify.dev/apps/default-app-home`, embedded false, no redirect URLs,
+webhook API 2026-10 and no configured webhook subscriptions. Scope ordering was
+normalised only. Do not replace these values with web-app scaffold defaults.
+Distribution is not represented in TOML. The fresh CLI organisation reports
+BusinessPlatform and Dev Dashboard shows the store-owned Tender Loving Creations
+organisation, with a single installed Basic-plan TLC store, jrg9sr-yy.myshopify.com.
+There is no Partner Distribution card. Shopify's [distribution documentation](https://shopify.dev/docs/apps/launch/distribution/select-distribution-method)
+confirms store-organisation apps use the Installs card rather than selecting Partner
+public/custom distribution. This existing installation model is preserved, not converted.
+No new scope, public Unraid endpoint, OAuth callback, webhook or app reinstall is needed.
+The store installation was matched to the Client ID supplied by the merchant; no
+Unraid Admin token was retrieved or rotated for an independent installed-token query.
+The preflight version list shows `tlcdashboard-5` as active, with four older inactive
+versions. Its exact version GID is `gid://shopify/Version/1168958980097`. Its Dev
+Dashboard detail lists app details, access scopes and webhook API only: no existing
+theme extensions. The intended staging difference is one new theme extension, not
+replacement/removal of another extension. Recheck this rollback reference immediately
+before release; another administrator may update it.
+
+esbuild's global install warning concerned npm's install-script allowlist; its
+postinstall exited 0 and the native compiler worked. No global npm-policy change or
+CLI reinstall was necessary. Actual Theme Check exposed two packaging issues: absent
+`locales/` and a 12043-byte script exceeding the 10000-byte app-block threshold.
+An empty default locale and a reproducible asset build correct those issues. Readable
+source is now `extensions/tlc-customisations/src/tlc-customer-fields.js`, byte-identical
+to the original implementation. The generated asset is 8778 bytes. Shopify CLI added
+the extension's local uid; preserve it, do not regenerate a duplicate extension.
+
+`npm run build -- --no-input` regenerates assets, enforces the byte limit and runs the
+Shopify app build/Theme Check. Configuration validation returned valid=true/issues=[];
+the corrected build had no Theme Check errors. Tests against the generated asset:
+22 JavaScript checks, 20 focused Python cases and 14 offline real-browser assertions.
+No live theme/cart/order acceptance is claimed. The setup/build checkpoint can be
+committed to develop independently of the Docker release, which remains at 550c0e7.
+The generated JavaScript SHA-256 is
+`809f841f5f3505449fc770244896ade3c44a9c6b574cd1d113306e5f3fb70e79`.
+
+Local `.shopify/` state and node_modules are ignored. Login credentials remain in
+Shopify CLI's normal protected user storage, not app TOML, Liquid or repository files.
+
+## Unreleased staging and subsequent release/rollback
+
+Docker publication does not install Shopify-hosted assets. The linked CLI workspace
+already exists; no `app init`, new app or replacement extension is needed. The tested
+CLI build succeeded using its bundled Theme Check; no Ruby/Bundler upgrade was required.
+Do not expose the Unraid admin port or send Client Secrets into Liquid.
+
+1. Review/checkpoint the local setup/build files first. In `shopify/`, run
+   `npm ci --ignore-scripts`, then `npm run build -- --no-input` with CLI 4.9.4 available
+   on PATH. Run `shopify app config validate --path . --no-input` as a final check.
+   Do not edit the generated asset; edit src/ and rebuild. Do not regenerate its uid.
+2. Re-read and review the existing app's current settings immediately before deployment.
+   Stop if scopes, URLs, auth, webhooks, distribution, existing extensions or definitions
+   would change or be removed unexpectedly. The CLI workspace is extension-only;
+   no shopify.web.toml or new server is required. No dev store or URL-update mode was set.
+3. Approved staging target: `tlc-customisations-m3a-9-5-20261016`. After committing
+   and pushing the verified setup, run from shopify/:
+
+   ```sh
+   shopify app deploy --path . --no-release --no-input \
+     --version tlc-customisations-m3a-9-5-20261016 \
+     --message "M3A.9.5 customisation extension staging; no release" \
+     --source-control-url "https://github.com/NEprod/woocommerce-dashboard/commit/<verified-source-commit>"
+   ```
+
+   Inspect the staged app version in Dev Dashboard; do not use force/allow-deletes or
+   accept unrelated changes. It must contain only the reviewed configuration and
+   TLC customer customisations extension, retaining its uid above. Confirm the staged
+   version is not Active and tlcdashboard-5 remains Active. If it reports configuration
+   changes other than adding the theme extension, stop before any release.
+4. Releasing that exact version is a second explicit approval step. Use Dev Dashboard
+   or the following **only after approval**, from shopify/:
+
+   ```sh
+   shopify app release --path . --version tlc-customisations-m3a-9-5-20261016
+   ```
+
+   Review the interactive configuration/extension diff; do not add force or bypass
+   flags. Verify the selected version is Active and product synchronisation still
+   connects read-only. App-version release is separate from Docker publication and
+   does not activate a theme block. Keep tlcdashboard-5 for rollback. If a rollback
+   is separately approved, release the prior version:
+
+   ```sh
+   shopify app release --path . --version tlcdashboard-5
+   ```
+
+   This removes the new extension from the active app version; Shopify may ask for
+   explicit confirmation of that removal. Do not bypass it. Verify tlcdashboard-5
+   is Active again. Rollback does not undo product metafield writes or cart/order
+   properties, and theme-block placement needs a separate merchant-controlled check.
+5. In Shopify Admin, use an unpublished Tinker copy and add one block to a supported
+   product template, as below. No `app dev`, theme push/publish or live-theme modification
+   is part of this plan. A future dev-session flow needs separately approved store and
+   URL-update settings; do not allow automatic URL changes to the installed TLC app.
 
 No app reinstall or new Admin API permissions are required for the JSON product
 metafield: read_products + write_products are used. CLI staff/app release permission
@@ -148,6 +232,8 @@ to TLCDashboard. Existing media/inventory/publication requirements remain unchan
    through merchant-reviewed theme settings. The block does not globally alter buttons.
    Preview that draft theme and verify mobile layout, labels/defaults/order/required
    constraints and all chosen field types. A connection error means do not sell it.
+   Use a separately approved storefront-eligible test product for cart/checkout tests;
+   do not silently make an existing Draft product Live or change channel assignments.
 6. Add Ellie, then Jack for the same SKU/variant. Verify separate cart lines, change
    quantities/remove one line and check the other is unchanged. Repeat for a Variable
    Collection and Single Variable pilot: switch variant, verify variant/SKU and answers

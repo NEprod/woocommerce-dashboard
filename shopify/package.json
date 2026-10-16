@@ -1,0 +1,16 @@
+{
+  "name": "tlcdashboard-shopify-extensions",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "shopify": "shopify",
+    "build:assets": "node scripts/build-assets.mjs",
+    "build": "npm run build:assets && shopify app build"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
+  },
+  "workspaces": [
+    "extensions/*"
+  ]
+}
