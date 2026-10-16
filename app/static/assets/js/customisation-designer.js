@@ -54,6 +54,37 @@
     if (type==="colour"&&(!/^#[0-9a-f]{6}$/i.test(value)||(ids.length&&!(field.choices||[]).some(c=>(typeof c==="string"?c:c.value)===value)))) return "Choose an approved colour.";
     return "";
   }
+  const constraints = new Set(['min_length','max_length','minimum','maximum','whole_number','min_date','max_date','min_selections','max_selections','choices','allowed_media_categories','allowed_extensions','max_file_size_bytes','max_files','default']);
+  function configurationError(field) {
+    if (!field.label?.trim()) return 'Customer-facing label is required.';
+    const type=aliases[field.type];
+    const allowed={min_length:['text','textarea'],max_length:['text','textarea'],minimum:['number'],maximum:['number'],whole_number:['number'],min_date:['date'],max_date:['date'],min_selections:['checkbox_group'],max_selections:['checkbox_group'],choices:['dropdown','radio','checkbox_group','colour'],allowed_extensions:['file_upload'],allowed_media_categories:['file_upload'],max_files:['file_upload'],max_file_size_bytes:['file_upload']};
+    for(const [key,kinds]of Object.entries(allowed))if(Object.hasOwn(field,key)&&!kinds.includes(type))return `${key.replaceAll('_',' ')} is not supported for this input type. If inherited, edit the shared/template owner or use a new field ID and exclude the old field.`;
+    for (const [low,high,label] of [['min_length','max_length','length'],['minimum','maximum','value'],['min_selections','max_selections','selections'],['min_date','max_date','date']]) {
+      if (field[low]!=null && field[high]!=null && field[low]>field[high]) return `Maximum ${label} must be greater than or equal to minimum ${label}.`;
+    }
+    for (const key of ['min_length','max_length','min_selections','max_selections','max_file_size_bytes','max_files']) {
+      if (field[key]!=null && (!Number.isInteger(field[key]) || field[key] < (['min_length','min_selections'].includes(key)?0:1))) return `${({max_file_size_bytes:'Maximum file size',max_files:'Maximum number of files'})[key]||key.replaceAll('_',' ')} must be ${['min_length','min_selections'].includes(key)?'zero or greater':'greater than zero'} and a whole number.`;
+    }
+    const options=field.choices||[], ids=options.map(optionID);
+    if (['dropdown','radio','checkbox_group'].includes(type) && !options.length) return 'Choose at least one option.';
+    if (new Set(ids).size!==ids.length) return 'Option IDs must be unique.';
+    for (const option of options) {
+      if (typeof option==='string' ? !option.trim() : !/^[a-z][a-z0-9_]{0,63}$/.test(option.id)) return 'Choose a valid, unique stable option ID.';
+      if (!(typeof option==='string'?option:option.label)?.trim()) return 'Every option needs a customer-facing label.';
+      if (type==='colour' && !/^#[0-9a-f]{6}$/i.test(typeof option==='string'?option:option.value)) return 'Choose a valid six-digit colour for every palette option.';
+    }
+    for (const key of ['min_date','max_date']) if (field[key] && validateAnswer({type:'date'},field[key])) return 'Please choose a valid date.';
+    if (type==='checkbox_group' && field.min_selections>options.length) return 'Minimum selections cannot exceed the number of options.';
+    if (Object.hasOwn(field,'default')) {
+      if (type==='number' && field.default!=null && field.default!=='' && (typeof field.default!=='number'||!Number.isFinite(field.default))) return 'Enter a valid numeric default or choose no default.';
+      if (type==='checkbox' && typeof field.default!=='boolean' && field.default!==null) return 'Choose checked or unchecked for the default.';
+      if (field.default!=null && validateAnswer({...field,required:false},field.default)) return ['dropdown','radio','checkbox_group'].includes(type)?'Default selection must match existing options and selection limits.':'Default value must satisfy this field’s validation rules.';
+    }
+    if (field.allowed_extensions?.some(extension=>!/^\.[a-z0-9]{1,10}$/.test(extension))) return 'Use extensions such as .png or .jpg, separated by commas.';
+    if(field.allowed_extensions && new Set(field.allowed_extensions).size!==field.allowed_extensions.length)return 'Choose each allowed file extension only once.';
+    return '';
+  }
   function element(tag, text, className) {
     const node=document.createElement(tag); if(text!=null) node.textContent=text;
     if(className) node.className=className; return node;
@@ -75,7 +106,13 @@
       root.querySelector("[data-custom-preview]").addEventListener("click",()=>this.preview());
       root.querySelector("[data-custom-close]").addEventListener("click",()=>this.fieldDialog.close());
       root.querySelector("[data-custom-preview-close]").addEventListener("click",()=>this.previewDialog.close());
-      root.querySelector("[data-custom-apply-field]").addEventListener("click",()=>{if(Object.values(this.inputs).every(input=>input.reportValidity()))this.applyField();});
+      root.querySelector("[data-custom-apply-field]").addEventListener("click",()=>this.applyField());
+      for (const dialog of [this.fieldDialog,this.previewDialog]) for (const event of ['input','change']) dialog.addEventListener(event,e=>e.stopPropagation());
+      this.fieldDialog.addEventListener('keydown',event=>{if(event.key==='Enter' && event.target.tagName!=='TEXTAREA' && event.target.tagName!=='BUTTON'){event.preventDefault();this.applyField();}});
+      this.fieldDialog.addEventListener('close',()=>{
+        const target=this.editID?this.root.querySelector(`[data-custom-edit="${this.editID}"]`):this.root.querySelector('[data-custom-add]');
+        (this.editTrigger?.isConnected?this.editTrigger:target)?.focus({preventScroll:true});
+      });
       root.querySelector("[data-custom-proof]").addEventListener("change",event=>{this.value ||= {};if(event.target.value)this.value.proof_policy=event.target.value;else delete this.value.proof_policy;this.changed();});
       root.querySelector("[data-custom-apply-template]").addEventListener("click",()=>this.assign());
       root.querySelector("[data-custom-no-template]").addEventListener("click",()=>{this.value ||= {};this.value.template=null;this.base={};this.changed();});
@@ -111,7 +148,8 @@
         const row=element("article",null,"customisation-field-row"),info=element("div"),own=this.value?.fields?.[id];
         info.append(element("strong",field.label || id),element("code",id),element("span",`${types[field.type]||field.type} · ${field.enabled===false?"Disabled":field.required?"Required":"Optional"} · ${own?inherited.fields?.[id]?"Overridden":"Local extension":"Inherited"}`,"field-helper"));
         const actions=element("div",null,"customisation-actions");
-        actions.append(button(own?"Edit":"Override",()=>this.edit(id)),button("Duplicate",()=>this.edit(null,field)),button("Move Up",()=>{this.value=reorder(this.value,this.effective(),id,-1);this.changed();}),button("Move Down",()=>{this.value=reorder(this.value,this.effective(),id,1);this.changed();}),button("Remove / exclude",()=>{this.value=exclude(this.value,inherited,id);this.changed();}));
+        const editButton=button(own?"Edit":"Override",()=>this.edit(id));editButton.dataset.customEdit=id;
+        actions.append(editButton,button("Duplicate",()=>this.edit(null,field)),button("Move Up",()=>{this.value=reorder(this.value,this.effective(),id,-1);this.changed();}),button("Move Down",()=>{this.value=reorder(this.value,this.effective(),id,1);this.changed();}),button("Remove / exclude",()=>{this.value=exclude(this.value,inherited,id);this.changed();}));
         if(own)actions.append(button("Reset to inherited",()=>{delete this.value.fields[id];this.changed();}));
         row.append(info,actions);target.append(row);
       }
@@ -121,62 +159,158 @@
       const ref=this.currentReference();this.root.querySelector("[data-custom-template-status]").textContent=ref?`Pinned template ${ref.id}, revision ${ref.revision}. Library edits do not change this assignment. Local/shared patches take precedence.`:"No template base. Shared and local fields are still retained.";
     }
     edit(id=null,duplicate=null) {
-      this.editID=id;this.editOriginal=clone(duplicate||this.effective().fields?.[id]||{type:"text",label:"",order:order(this.effective()).length});
-      this.buildInputs(this.editOriginal);this.fieldDialog.showModal();
+      const existing=id==null?null:this.effective().fields?.[id];
+      if(id!=null&&!existing){this.error('This field is no longer available. Reload its definition before editing; no new field was created.');return;}
+      this.editID=id;this.editTrigger=document.activeElement;
+      this.inputs=null;
+      this.editOriginal=clone(existing||duplicate||{type:"text",label:"",order:order(this.effective()).length});
+      this.root.querySelector('[data-custom-field-heading]').textContent=id?(this.value?.fields?.[id]?'Edit Field':'Override Inherited Field'):duplicate?'Duplicate Field':'Add Field';
+      this.buildInputs(this.editOriginal);
+      this.fieldDialog.showModal();this.inputs[id?'label':'id'].focus();
     }
     buildInputs(field) {
-      const target=this.root.querySelector("[data-custom-field-inputs]");target.replaceChildren();this.inputs={};
-      const input=(key,label,type="text",value=field[key])=>{
-        const wrapper=element("label",label),control=element(type==="textarea"?"textarea":"input");if(type!=="textarea")control.type=type;control.className="form-control";
-        if(type==="checkbox")control.checked=!!value;else control.value=value??"";
-        wrapper.append(control);target.append(wrapper);this.inputs[key]=control;return control;
+      const previousID=this.inputs?.id?.value;
+      const target=this.root.querySelector('[data-custom-field-inputs]');target.replaceChildren();this.inputs={};this.formValue=clone(field);this.defaultBox=null;
+      const group=title=>{const box=element('fieldset',null,'customisation-config-group');box.append(element('legend',title));target.append(box);return box;};
+      const basic=group('Basic'),behaviour=group('Behaviour'),validation=group('Validation');
+      const input=(parent,key,label,type='text',value=field[key])=>{
+        const wrapper=element('label',null,type==='checkbox'?'customisation-check':'customisation-control'),control=element(type==='textarea'?'textarea':'input');
+        if(type!=='textarea')control.type=type;
+        control.className=type==='checkbox'?'customisation-boolean':'form-control';control.dataset.customControl=key;
+        if(type==='checkbox'){control.checked=!!value;control.dataset.initialChecked=String(control.checked);}
+        else control.value=value??'';
+        const text=element('span',label);wrapper.append(text,control);parent.append(wrapper);this.inputs[key]=control;return control;
       };
-      const id=input("id","Stable field ID","text",this.editID||"");id.required=true;id.pattern="[a-z][a-z0-9_]{0,63}";id.disabled=!!this.editID;
-      const label=input("label","Customer-facing label");label.required=true;
-      label.addEventListener("input",()=>{if(!this.editID&&!id.dataset.edited)id.value=label.value.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^\d+|^_+|_+$/g,"").slice(0,64);});id.addEventListener("input",()=>id.dataset.edited="true");
-      const wrapper=element("label","Input type"),select=element("select");select.className="form-select";
-      const entries={...types};if(!entries[field.type])entries[field.type]=field.type;for(const [value,label]of Object.entries(entries))select.add(new Option(label,value));select.value=field.type;wrapper.append(select);target.append(wrapper);this.inputs.type=select;
-      input("required","Required","checkbox");input("enabled","Enabled","checkbox",field.enabled!==false);
-      input("help_text","Customer help text","textarea");input("placeholder","Placeholder");
-      const type=aliases[field.type];
-      const numeric={text:["min_length","max_length"],textarea:["min_length","max_length"],number:["minimum","maximum"],checkbox_group:["min_selections","max_selections"],file_upload:["max_file_size_bytes","max_files"]};
-      for(const key of numeric[type]||[])input(key,key.replaceAll("_"," "),"number");
-      if(type==="number")input("whole_number","Whole number only","checkbox");
-      if(type==="date")for(const key of ["min_date","max_date"])input(key,key.replaceAll("_"," "),"date");
-      if(["dropdown","radio","checkbox_group","colour"].includes(type))input("choices","Options: one stable_id | Label | optional value per line (colour value: #RRGGBB)","textarea",(field.choices||[]).map(c=>typeof c==="string"?c:`${c.id} | ${c.label}${c.value!=null?" | "+c.value:""}`).join("\n"));
-      if(type==="file_upload"){
-        input("allowed_extensions","Allowed extensions, comma-separated (e.g. .png, .jpg)","text",(field.allowed_extensions||[]).join(", "));
-        input("allowed_media_categories","Media categories: image, document","text",(field.allowed_media_categories||[]).join(", "));
-      }else input("default","Default (checkbox: true/false; checkbox group: JSON array)","text",typeof field.default==="object"?JSON.stringify(field.default):field.default);
-      select.addEventListener("change",()=>{const next=this.readInputs();next.type=select.value;for(const key of [...Object.keys(numeric).flatMap(k=>numeric[k]),"choices","min_date","max_date","whole_number","allowed_extensions","allowed_media_categories","default"])delete next[key];this.buildInputs(next);});
-      this.root.querySelector("[data-custom-field-source]").textContent=this.editID?`ID ${this.editID} is stable. Blank constraints reset this layer's override; inherited constraints remain.`:"Choose a unique stable ID. Duplicating creates an independent field; labels may later change.";
-      this.root.querySelector("[data-custom-dialog-error]").textContent="";
+      const id=input(basic,'id','Stable field ID','text',this.editID||previousID||'');id.readOnly=!!this.editID;id.pattern='[a-z][a-z0-9_]{0,63}';id.maxLength=64;
+      const label=input(basic,'label','Customer-facing label');label.maxLength=191;
+      label.addEventListener('input',()=>{if(!this.editID&&!id.dataset.edited)id.value=label.value.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^\d+|^_+|_+$/g,'').slice(0,64);});id.addEventListener('input',()=>id.dataset.edited='true');
+      const wrapper=element('label','Input type'),select=element('select');select.className='form-select';select.dataset.customControl='type';select.setAttribute('aria-label','Input type');
+      const entries={...types};if(!entries[field.type])entries[field.type]=types[Object.keys(types).find(key=>aliases[key]===aliases[field.type])]||field.type;for(const [value,label]of Object.entries(entries))select.add(new Option(label,value));select.value=field.type;wrapper.append(select);basic.append(wrapper);this.inputs.type=select;
+      input(behaviour,'enabled','Enabled','checkbox',field.enabled!==false);input(behaviour,'required','Required','checkbox');
+      behaviour.append(element('p','Disabled fields are hidden in the local preview. Required is retained and applies when the field is enabled.','field-helper'));
+      input(behaviour,'help_text','Customer help text','textarea').maxLength=4000;
+      const type=aliases[field.type];if(['text','textarea','number'].includes(type))input(behaviour,'placeholder','Placeholder').maxLength=1000;
+      const labels={min_length:'Minimum length',max_length:'Maximum length',minimum:'Minimum value',maximum:'Maximum value',min_selections:'Minimum selections',max_selections:'Maximum selections',max_file_size_bytes:'Maximum file size (bytes)',max_files:'Maximum number of files'};
+      const numeric={text:['min_length','max_length'],textarea:['min_length','max_length'],number:['minimum','maximum'],checkbox_group:['min_selections','max_selections'],file_upload:['max_file_size_bytes','max_files']};
+      for(const key of numeric[type]||[]){const node=input(validation,key,labels[key],'number');node.step=['minimum','maximum'].includes(key)?'any':'1';}
+      if(type==='number')input(validation,'whole_number','Whole numbers only','checkbox');
+      if(type==='date')for(const [key,label]of [['min_date','Earliest date'],['max_date','Latest date']])input(validation,key,label,'date');
+      if(type==='file_upload'){
+        input(validation,'allowed_extensions','Allowed extensions (e.g. .png, .jpg)','text',(field.allowed_extensions||[]).join(', '));
+        this.mediaInputs=[];for(const category of ['image','document']){
+          const node=input(validation,'media_'+category,category==='image'?'Allow images':'Allow documents','checkbox',(field.allowed_media_categories||[]).includes(category));this.mediaInputs.push([category,node]);delete this.inputs['media_'+category];
+        }
+        validation.append(element('p','File requirements only. No customer file can be selected or uploaded.','field-helper'));
+      }
+      this.optionValues=clone(field.choices||[]);this.newOptions=new WeakSet();this.defaultState={present:Object.hasOwn(field,'default'),value:clone(field.default)};
+      if(['dropdown','radio','checkbox_group','colour'].includes(type)){
+        this.optionBox=group(type==='colour'?'Approved colours (optional)':'Options');this.renderOptions();
+      }
+      if(type!=='file_upload'){this.defaultBox=group('Default');this.renderDefault();}
+      select.addEventListener('change',()=>{
+        const next=this.readInputs();next.type=select.value;for(const key of constraints)delete next[key];
+        this.buildInputs(next);this.root.querySelector('[data-custom-dialog-error]').textContent='Input type changed. Review its options, default and validation before applying.';
+      });
+      this.root.querySelector('[data-custom-field-source]').textContent=(this.editID?`Field ${this.editID}. ${this.inherited().fields?.[this.editID]?'Inherited values are shown; only your changes become overrides. ':''}`:'Choose a unique field ID. ')+ 'Field IDs identify customer answers and remain stable after creation. Blank constraints reset this layer’s override; inherited values remain.';
+      this.root.querySelector('[data-custom-dialog-error]').textContent='';
+    }
+    renderOptions() {
+      this.optionBox.replaceChildren(element('legend',aliases[this.formValue.type]==='colour'?'Approved colours (optional)':'Options'));
+      this.optionValues.forEach((option,index)=>{
+        const legacy=typeof option==='string',row=element('div',null,'customisation-option-row');
+        const control=(label,value,type='text')=>{const wrapper=element('label',label),node=element('input');node.type=type;node.className='form-control';node.value=value;wrapper.append(node);row.append(wrapper);return node;};
+        const id=control('Option ID',optionID(option));id.readOnly=legacy||!this.newOptions.has(option);id.maxLength=64;
+        const label=control('Option label',legacy?option:option.label);label.readOnly=legacy;label.maxLength=191;
+        if(legacy)row.append(element('p','Legacy option: its text is its identity. It is preserved unchanged; add a replacement and explicitly remove this option if necessary.','field-helper'));
+        id.addEventListener('input',()=>{option.id=id.value;});id.addEventListener('change',()=>this.renderDefault());
+        label.addEventListener('input',()=>{option.label=label.value;});label.addEventListener('change',()=>this.renderDefault());
+        if(aliases[this.formValue.type]==='colour'){
+          const colour=control('Option colour',legacy?option:option.value||'#000000','color');colour.disabled=legacy;colour.addEventListener('input',()=>{option.value=colour.value;this.renderDefault();});
+        }
+        row.append(button('Move option up',()=>{if(index>0){[this.optionValues[index-1],this.optionValues[index]]=[this.optionValues[index],this.optionValues[index-1]];this.renderOptions();this.renderDefault();}}),button('Move option down',()=>{if(index<this.optionValues.length-1){[this.optionValues[index+1],this.optionValues[index]]=[this.optionValues[index],this.optionValues[index+1]];this.renderOptions();this.renderDefault();}}),button('Remove option',()=>{this.optionValues.splice(index,1);this.renderOptions();this.renderDefault();}));
+        this.optionBox.append(row);
+      });
+      this.optionBox.append(button('Add option',()=>{
+        let n=1;while(this.optionValues.some(option=>optionID(option)===`option_${n}`))n++;
+        const option={id:`option_${n}`,label:'',...(aliases[this.formValue.type]==='colour'?{value:'#000000'}:{})};this.newOptions.add(option);this.optionValues.push(option);this.renderOptions();this.renderDefault();
+      }));
+    }
+    renderDefault() {
+      if(!this.defaultBox)return;
+      const type=aliases[this.formValue.type],state=this.defaultState;
+      this.defaultBox.replaceChildren(element('legend','Default'));
+      const label=element('label','Default value'),mode=element('select');mode.className='form-select';mode.dataset.customDefaultMode='';mode.setAttribute('aria-label','Default value');
+      mode.add(new Option('No default override / inherit','none'));mode.add(new Option('Set a default','set'));
+      if(state.present&&state.value===null)mode.add(new Option('Preserve legacy empty default','null'));
+      mode.value=state.present?(state.value===null?'null':'set'):'none';label.append(mode);this.defaultBox.append(label);
+      mode.addEventListener('change',()=>{state.present=mode.value!=='none';state.value=mode.value==='null'?null:undefined;this.renderDefault();});
+      if(!state.present||state.value===null)return;
+      if(type==='checkbox_group'){
+        const values=Array.isArray(state.value)?state.value:[];
+        const options=[...this.optionValues,...values.filter(id=>!this.optionValues.some(o=>optionID(o)===id)).map(id=>({id,label:`Unavailable default: ${id}`}))];
+        for(const option of options){const label=element('label',null,'customisation-check'),check=element('input');check.type='checkbox';check.className='customisation-boolean';check.value=optionID(option);check.checked=values.includes(check.value);label.append(element('span',typeof option==='string'?option:option.label),check);this.defaultBox.append(label);check.addEventListener('change',()=>{state.value=Array.from(this.defaultBox.querySelectorAll('input:checked'),node=>node.value);});}
+        if(state.value===undefined)state.value=[];
+      }else{
+        const palette=type==='colour'&&this.optionValues.length;
+        const labelText=type==='checkbox'?'Default checked':({text:'Default text',textarea:'Default message',number:'Default number',date:'Default date',colour:'Default colour'})[type]||'Default selection';
+        const label=element('label',labelText);
+        const control=element(type==='textarea'?'textarea':['dropdown','radio'].includes(type)||palette?'select':'input');
+        if(control.tagName==='SELECT'){
+          control.className='form-select';control.add(new Option('Choose a default',''));
+          for(const option of this.optionValues)control.add(new Option(typeof option==='string'?option:option.label,palette?(typeof option==='string'?option:option.value):optionID(option)));
+          if(state.value!=null&&!Array.from(control.options).some(o=>o.value===String(state.value)))control.add(new Option(`Unavailable default: ${state.value}`,state.value));
+        }else if(control.tagName==='INPUT')control.type=type==='checkbox'?'checkbox':type==='colour'?'color':type==='number'?'number':type==='date'?'date':'text';
+        control.className=type==='checkbox'?'customisation-boolean':control.className||'form-control';if(type==='checkbox')label.className='customisation-check';
+        control.setAttribute('aria-label',labelText);
+        if(type==='number')control.step='any';
+        if(type==='checkbox'){control.checked=state.value===true;if(state.value===undefined)state.value=false;}else if(state.value!==undefined)control.value=state.value;
+        else if(!['number','dropdown','radio'].includes(type)&&!palette)state.value=control.value;
+        label.append(control);this.defaultBox.append(label);
+        const capture=()=>{state.value=type==='checkbox'?control.checked:type==='number'?(control.value===''?undefined:Number(control.value)):control.value;};
+        control.addEventListener('input',capture);control.addEventListener('change',capture);
+      }
     }
     readInputs() {
-      const values={};for(const [key,node]of Object.entries(this.inputs)){
+      const values=clone(this.formValue);for(const [key,node]of Object.entries(this.inputs)){
         if(key==="id")continue;
-        if(node.type==="checkbox")values[key]=node.checked;
-        else if(node.type==="number"){if(node.value!=="")values[key]=Number(node.value);}
-        else if(node.value!=="")values[key]=node.value;
+        if(node.type==='checkbox'){if(Object.hasOwn(this.formValue,key)||String(node.checked)!==node.dataset.initialChecked)values[key]=node.checked;else delete values[key];}
+        else if(node.type==='number'){if(node.value!=='')values[key]=Number(node.value);else delete values[key];}
+        else if(node.value!==''||Object.hasOwn(this.formValue,key))values[key]=node.value;else delete values[key];
       }
-      if(values.choices)values.choices=values.choices.split("\n").filter(v=>v.trim()).map(line=>{const parts=line.split("|").map(v=>v.trim());return parts.length===1?parts[0]:{id:parts[0],label:parts[1],...(parts[2]?{value:parts[2]}:{})};});
-      for(const key of ["allowed_extensions","allowed_media_categories"])if(values[key])values[key]=values[key].split(",").map(v=>v.trim()).filter(Boolean);
-      if(Object.hasOwn(values,"default")){
-        const type=aliases[values.type];if(["number","checkbox","checkbox_group"].includes(type))values.default=JSON.parse(values.default);
+      const type=aliases[this.formValue.type];
+      if(['dropdown','radio','checkbox_group','colour'].includes(type)){
+        if(this.optionValues.length||Object.hasOwn(this.formValue,'choices'))values.choices=clone(this.optionValues);else delete values.choices;
       }
+      if(type==='file_upload'){
+        const categories=this.mediaInputs.filter(([,node])=>node.checked).map(([value])=>value);
+        if(this.mediaInputs.some(([,node])=>String(node.checked)!==node.dataset.initialChecked)){
+          if(categories.length)values.allowed_media_categories=categories;else delete values.allowed_media_categories;
+        }
+      }
+      for(const key of ["allowed_extensions","allowed_media_categories"])if(typeof values[key]==='string')values[key]=values[key].split(",").map(v=>v.trim()).filter(Boolean);
+      if(type!=='file_upload'){if(this.defaultState.present)values.default=clone(this.defaultState.value);else delete values.default;}
       return values;
     }
     applyField() {
       try{
+        for(const node of Object.values(this.inputs))if(node.validity?.badInput)throw new Error(node.type==='date'?'Please choose a valid date.':'Please enter a valid number.');
+        if(this.defaultState.present && this.defaultState.value===undefined)throw new Error('Choose a default value or select no default override.');
         const id=this.inputs.id.value,values=this.readInputs();if(!/^[a-z][a-z0-9_]{0,63}$/.test(id))throw new Error("Use a stable lowercase field ID.");
-        if(!this.editID&&Object.hasOwn(this.effective().fields||{},id))throw new Error("That field ID already exists. Choose another ID.");
-        const typeConstraints=new Set(['min_length','max_length','minimum','maximum','whole_number','min_date','max_date','min_selections','max_selections','choices','allowed_media_categories','allowed_extensions','max_file_size_bytes','max_files','default']);
+        if(this.editID&&id!==this.editID)throw new Error('Field IDs remain stable after creation. Reopen the existing field.');
+        if(!this.editID&&(Object.hasOwn(this.effective().fields||{},id)||this.value?.fields?.[id]?.remove))throw new Error("Field ID already exists. Choose another ID or reset the excluded field.");
+        const problem=configurationError(values);if(problem)throw new Error(problem);
+        const typeConstraints=constraints;
         const changes={};for(const key of new Set([...Object.keys(this.inputs),...Object.keys(this.editOriginal)])){
-          if(key==="id"||(!Object.hasOwn(this.inputs,key)&&(this.editOriginal.type===values.type||!typeConstraints.has(key))))continue;
+          if(key==='id')continue;
           if(JSON.stringify(values[key])!==JSON.stringify(this.editOriginal[key]))changes[key]=values[key];
         }
+        for(const key of ['choices','default','allowed_media_categories'])if(JSON.stringify(values[key])!==JSON.stringify(this.editOriginal[key]))changes[key]=values[key];
         if(!this.editID){Object.assign(changes,values);for(const [key,value]of Object.entries(this.editOriginal))if(!typeConstraints.has(key)&&!Object.hasOwn(changes,key))changes[key]=value;}
-        this.value=changeField(this.value,this.inherited(),id,changes);this.changed();this.fieldDialog.close();
+        if(this.editID&&!Object.keys(changes).length){this.fieldDialog.close();return;}
+        const next=changeField(this.value,this.inherited(),id,changes);
+        const effective=resolve(this.base,this.shared,next).fields[id];
+        const inheritedProblem=configurationError(effective);if(inheritedProblem)throw new Error(inheritedProblem);
+        this.value=next;this.changed();this.fieldDialog.close();
       }catch(error){this.root.querySelector("[data-custom-dialog-error]").textContent=error.message;}
     }
     preview() {
@@ -187,11 +321,11 @@
         if(type==="file_upload") {group.append(element("p",`Upload definition only — no file input or network upload. ${JSON.stringify({extensions:field.allowed_extensions,categories:field.allowed_media_categories,max_bytes:field.max_file_size_bytes,max_files:field.max_files})}`));form.append(group);continue;}
         let read;
         if(["radio","checkbox_group"].includes(type)){
-          const controls=[];for(const option of field.choices||[]){const label=element("label",typeof option==="string"?option:option.label),control=element("input");control.type=type==="radio"?"radio":"checkbox";control.name=`preview_${id}`;control.value=optionID(option);control.checked=type==="radio"?field.default===control.value:(field.default||[]).includes(control.value);label.prepend(control);group.append(label);controls.push(control);}
+          const controls=[];for(const option of field.choices||[]){const label=element("label",typeof option==="string"?option:option.label,'customisation-check'),control=element("input");control.type=type==="radio"?"radio":"checkbox";control.className='customisation-boolean';control.name=`preview_${id}`;control.value=optionID(option);control.checked=type==="radio"?field.default===control.value:(field.default||[]).includes(control.value);label.prepend(control);group.append(label);controls.push(control);}
           read=()=>type==="radio"?controls.find(c=>c.checked)?.value||"":controls.filter(c=>c.checked).map(c=>c.value);
         }else{
           const palette=type==="colour"&&field.choices?.length;
-          const control=element(type==="textarea"?"textarea":type==="dropdown"||palette?"select":"input");control.className="form-control";control.setAttribute("aria-label",field.label);
+          const control=element(type==="textarea"?"textarea":type==="dropdown"||palette?"select":"input");control.className=type==='checkbox'?'customisation-boolean':'form-control';control.setAttribute("aria-label",field.label);
           if(control.tagName==="SELECT"){control.add(new Option("Choose…",""));for(const option of field.choices||[])control.add(new Option(typeof option==="string"?option:option.label,palette?(typeof option==="string"?option:option.value):optionID(option)));}
           else if(control.tagName==="INPUT")control.type=type==="checkbox"?"checkbox":type==="colour"?"color":type==="number"?"number":type==="date"?"date":"text";
           if(type==="number")control.step=field.whole_number?"1":"any";
@@ -205,5 +339,5 @@
       submit.addEventListener('click',event=>{event.preventDefault();readers.forEach(read=>read());});this.previewDialog.showModal();
     }
   }
-  global.TLCCustomisations={resolve,order,changeField,exclude,reorder,validateAnswer,Designer,request};
+  global.TLCCustomisations={resolve,order,changeField,exclude,reorder,validateAnswer,configurationError,Designer,request};
 })(typeof window==="undefined"?globalThis:window);

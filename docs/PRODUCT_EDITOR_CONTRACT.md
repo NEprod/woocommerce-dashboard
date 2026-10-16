@@ -1,5 +1,39 @@
 # M3A.9 Product Creator & Editor contract
 
+## M3A.9.4.1 — reliable customisation modal
+
+Add, Edit, Duplicate and Override Inherited Field have separate modal headings.
+Existing lookup failures never create blank replacement definitions. Existing IDs
+are read-only and validated again on Apply; label/constraint edits never rename IDs.
+All supported effective properties populate their relevant controls. Boolean inputs
+are native checkboxes, not text form-control elements. Enabled and Required remain
+independent; disabled fields retain Required but are omitted from customer preview.
+
+Defaults use text/multiline, number, checkbox, option selection, checked groups,
+date or colour/palette controls. No default override restores inheritance, not an
+instruction to erase an inherited default. Explicit false/empty defaults and legacy
+null remain distinguishable; untouched values are not normalised. File definitions
+have no default customer file. Options preserve IDs/opaque keys on label/reorder
+changes. Existing object option IDs are read-only; new IDs are chosen before Apply.
+Legacy string labels are identities, so replacement uses explicit add/remove, never
+silent conversion. Removing a selected option does not silently clear its default.
+
+Only intended field changes become sparse patches. Unchanged inherited Apply is a
+no-op. Changing an inherited type with incompatible parent constraints is blocked
+with shared-owner/new-ID guidance, not a new inheritance/removal schema. Unknown
+properties remain preserved. Apply changes the local draft only. Cancel/Escape do
+not mutate it; modal and preview events do not spuriously dirty the parent editor.
+Enter applies (except multiline/button controls); native dialog focus is restored.
+Server-side schema/admin/CSRF/source review/concurrency/backup/write/scan safeguards
+remain authoritative. Friendly client validation supplements them, never replaces them.
+
+For a disposable real-DOM regression, run tests/browser/customisation_editor_fixture.py
+with the test Python, then bind a CUA tab to its loopback port 7495 and execute
+customisationEditorUX(tab) from customisation-editor-ux.cua.js. No production mounts,
+outbound calls, automatic Shopify work or customer uploads are permitted. Native
+Safari/WebKit/Chrome checks and mobile viewport testing are separate engine evidence;
+helper DOM tests alone must not be described as Safari coverage.
+
 ## M3A.9.4 implementation contract — local customisation designer
 
 Extend the existing `customisation` object, never introduce a second customer-field

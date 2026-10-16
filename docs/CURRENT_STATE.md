@@ -1,5 +1,37 @@
 # Current State
 
+## M3A.9.4.1 — customisation field controls and editing corrections
+
+Confirmed with a fictional catalogue in native Safari/WebKit: Required/Enabled
+were checked in the DOM but incorrectly had form-control, making appearance:none,
+full-width text rectangles. Dedicated native boolean styling now restores visible
+independent checkboxes, including keyboard focus. Preview booleans use the same rule.
+Disabled+required remains authored unchanged, but hidden fields have no active
+preview input; Required applies when enabled. No schema or migration change.
+
+The reported blank existing ID/label could not be reproduced with the supplied
+field names in baseline Safari or Chrome: both held name_on_card/Name. Do not claim
+their live cause was established. A confirmed unsafe fallback did initialise a
+missing existing-field lookup as an empty new form; that path is now blocked.
+Existing IDs are read-only, fields load effective values explicitly, add/edit/
+duplicate/inherited override are labelled distinctly and a type switch preserves
+a new field's chosen ID. Cancel and preview inputs cannot mark the outer draft dirty.
+
+The field modal now has typed defaults instead of JSON strings, structured stable-ID
+option add/label/order/removal controls, relevant constraints, friendly Apply errors,
+and compact responsive groups. Removed selected options retain an invalid-default
+warning until explicitly resolved. Legacy string-option identities and null/empty/
+false defaults are retained; strings need explicit add/remove replacement to change
+their identity. Type changes cannot bypass incompatible inherited constraints.
+Unchanged inherited Apply adds no empty override. Shared/template merge, signed local
+saves/backups/targeted scans, pinned revisions, Shopify fingerprints, sales and
+publishing remain unchanged. No real product, Shopify or Discord test data is used.
+
+Real-DOM CUA regression fixture/scenario lives under tests/browser, separate from
+the production image; focused native Safari and Chrome checks supplement it.
+Mobile one-column/scrolling Apply/Cancel are checked without bottom-nav overlap.
+Storefront controls, real uploads, orders and charges remain unimplemented.
+
 ## M3A.9.4 — local Customer Customisation Designer
 
 The Product/Shared Metadata editors extend the existing customisation stable-field

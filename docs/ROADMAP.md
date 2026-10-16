@@ -1,5 +1,16 @@
 # Roadmap
 
+## M3A.9.4.1 — accept corrected local field authoring before storefront work
+
+Accept populated existing fields, visible independent Required/Enabled controls,
+typed defaults, safe option editing, Cancel/Apply/no-op semantics and sparse inherited
+changes on Unraid. Verify pinned templates and local-only Shopify status isolation.
+The checkbox styling defect is reproduced in Safari; the original blank ID/label
+observation remains unproven, with missing-lookup fallback now guarded and population
+covered by real-DOM plus native Safari/Chrome checks. No new migration (head 0015),
+XML/environment/API/scope change or storefront capability. Do not start theme rendering,
+uploads, paid charges or order capture until this local editor milestone is accepted.
+
 ## M3A.9.4 — local customisation designer and pinned template library
 
 Accept the existing Product/Shared Editor's typed customisation definitions, local

@@ -14,9 +14,9 @@
   <div class="customisation-actions"><button type="button" class="btn btn-sm btn-outline-primary" data-custom-add>Add Field</button><button type="button" class="btn btn-sm btn-ghost" data-custom-reset>Reset customisations to inherited</button><button type="button" class="btn btn-sm btn-outline-primary" data-custom-preview>Preview Customer Form</button></div>
   <p class="field-error" data-field-error="customisation" data-custom-error hidden role="alert"></p>
   <dialog data-custom-field-dialog class="customisation-dialog" aria-label="Edit customisation field"><div data-custom-field-form>
-    <h3>Edit Field</h3><p data-custom-field-source class="field-helper"></p><div class="editor-field-grid" data-custom-field-inputs></div>
+    <h3 data-custom-field-heading>Edit Field</h3><p data-custom-field-source class="field-helper"></p><div class="customisation-config-grid" data-custom-field-inputs></div>
     <p class="field-helper">Opaque/legacy keys remain preserved. Inspect Advanced JSON for unsupported extensions; they have no customer-facing behaviour.</p>
-    <div class="customisation-actions"><button type="button" class="btn btn-primary" data-custom-apply-field>Apply to local draft</button><button type="button" class="btn btn-ghost" data-custom-close>Cancel</button></div><p data-custom-dialog-error role="alert"></p>
+    <div class="customisation-actions"><button type="button" class="btn btn-primary" data-custom-apply-field>Apply to local draft</button><button type="button" class="btn btn-ghost" data-custom-close>Cancel</button></div><p data-custom-dialog-error class="field-error" role="alert" aria-live="polite"></p>
   </div></dialog>
   <dialog data-custom-preview-dialog class="customisation-dialog" aria-label="Local customer form preview"><h3>Local preview — not yet published to Shopify</h3><p>No files, answers, orders or payments are sent or stored.</p><div data-custom-preview-form></div><button type="button" class="btn btn-ghost" data-custom-preview-close>Close preview</button></dialog>
 </section>

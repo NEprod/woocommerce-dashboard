@@ -1,5 +1,29 @@
 # product_info.json Contract
 
+## M3A.9.4.1 editor corrections — schema unchanged
+
+Required/Enabled are independent authored booleans. `enabled:false,required:true`
+is preserved; the disabled field has no active local preview input. Once enabled,
+its Required rule applies again. Label changes retain stable field ID. The designer
+loads effective values but writes only changed properties into a child override.
+An unchanged Apply is a no-op. Cancel never writes a field or marks an otherwise
+saved outer draft dirty. Save Locally remains the only JSON persistence action.
+
+Defaults are now entered through type-appropriate controls, not typed JSON. False,
+empty text/list and legacy null are retained distinctly from unspecified/inherited.
+Dropdown/radio defaults use IDs; group defaults use selected checkboxes; date and
+colour controls retain existing representations. Options can be added, labelled,
+removed and reordered without changing correct stable IDs or opaque properties.
+Existing object option IDs are read-only. Legacy string options retain their original
+text identity; intentional replacement uses Add/Remove and reviewed default selection.
+Removing a selected option blocks Apply until its default is resolved explicitly.
+
+Native boolean controls and responsive modal groups use shared theme tokens.
+File categories, extensions, size/count remain future-upload definitions only.
+Incompatible inherited type changes require editing the owner or a new field plus
+explicit exclusion, not silently erasing inherited constraints. No schema/migration,
+template storage, scanner, variant, source layout, price or Shopify payload change.
+
 ## M3A.9.4 — local customer customisations and reusable templates
 
 `customisation` remains the only authored root for customer input **definitions**.
