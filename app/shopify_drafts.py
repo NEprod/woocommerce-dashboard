@@ -218,6 +218,9 @@ def preview(product, adapter=None, *, context=None, scope="full"):
 
 
 def _preview(product, adapter=None, *, context=None, scope="full", started=None):
+    if scope == 'customisations':
+        from app.shopify_customisations import preview as customisation_preview
+        return customisation_preview(product, adapter)
     if scope not in {"full","inventory"}:
         raise ShopifyError("Choose a supported review scope.")
     if product.product_type == "variable":
@@ -302,13 +305,16 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
         for key, value in plan["managed"]["product"].items()]
     plan["fields"] += [{"field": key, "before": None, "after": value, "changed": value is not None}
         for key, value in plan["managed"]["variant"].items()]
+    from app.shopify_customisations import attach as attach_customisations
+    attach_customisations(product, plan, config, shop, adapter)
     from app.shopify_attributes import attach
     attach(product, plan, config, shop, adapter)
     from app.shopify_native_dimensions import attach_review
     attach_review(product, plan, None, config, shop, adapter)
     from app.shopify_publication import annotate
     annotate(product,plan,None,config,shop,adapter)
-    encode({"version": 1, "plan": plan, "reserve": "x" * 12000})
+    from app.shopify_customisations import reserve as customisation_reserve
+    encode({"version": 1, "plan": plan, 'storefront_configuration':customisation_reserve(plan), "reserve": "x" * 12000})
     token = serializer().dumps({k: plan[k] for k in ("product_id", "digest", "store_id", "store_key", "domain", "config_digest", "nonce", "taxonomy_review_digest")})
     from app.shopify_comparison import record
     record(product, plan, row)
@@ -357,6 +363,9 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         raise ShopifyError("Draft Preview expired or is invalid. Generate a fresh Preview.") from None
     if expected_product_id is not None and reviewed.get("product_id") != expected_product_id:
         raise ShopifyError("Reviewed product does not match this Products workspace. Open its own review; no write occurred.")
+    if reviewed.get('mode') == 'customisations':
+        from app.shopify_customisations import confirm as customisation_confirm
+        return customisation_confirm(reviewed, adapter)
     if reviewed.get("scope") == "inventory":
         from app.shopify_inventory_review import confirm as inventory_confirm
         return inventory_confirm(reviewed,adapter)
@@ -394,6 +403,8 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         plan["managed"]["product"]["category"] = adapter.standard_category(config, standard)["id"]
     plan["taxonomy_review_digest"] = digest({"collections": plan["collections"], "standard": standard})
     plan["fields"] = []
+    from app.shopify_customisations import attach as attach_customisations
+    attach_customisations(product, plan, config, shop, adapter)
     from app.shopify_attributes import attach
     attach(product, plan, config, shop, adapter)
     if plan["blockers"]:
@@ -490,6 +501,8 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         join_reviewed(row, data, config, adapter)
         from app.shopify_attributes import apply
         apply(row, data, config, adapter)
+        from app.shopify_customisations import apply as apply_customisations
+        apply_customisations(row, data, config, adapter)
         apply_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]), adapter)
         from app.shopify_publication import apply_reviewed, complete as publication_complete
         if apply_reviewed(row,data,config,adapter):
@@ -674,6 +687,8 @@ def update_preview(product, row, plan, config, shop, adapter):
         plan["attribute_diagnostics"] = [{"name":a["name"],"action":"Explicitly deferred; not compared or synchronised"} for a in resolve(product_document(product))["attributes"] if not a["variation"]]
     else:
         attach(product, plan, config, shop, adapter, row.shopify_product_id)
+        from app.shopify_customisations import attach as attach_customisations
+        attach_customisations(product, plan, config, shop, adapter, row.shopify_product_id)
     if "tags" in plan["managed"]["product"]:
         removed = sorted(set(remote.get("tags", [])) - set(plan["managed"]["product"]["tags"]))
         if removed:
@@ -694,7 +709,8 @@ def update_preview(product, row, plan, config, shop, adapter):
     plan["remote_updated_at"] = remote.get("updatedAt")
     if actions["alt"]:
         plan["warnings"].append("Alt text is a Shopify file property; other uses of that same file may also reflect the change.")
-    encode({**data,"version":1,"plan":plan,"previous_verified":{"plan":data["plan"]},"reserve":"x"*12000})
+    from app.shopify_customisations import reserve as customisation_reserve
+    encode({**data,"version":1,"plan":plan,'storefront_configuration':customisation_reserve(plan),"previous_verified":{"plan":data["plan"]},"reserve":"x"*12000})
     token = None
     if classification == "update":
         token = serializer().dumps({"mode": "update", **{key: plan[key] for key in (
@@ -795,6 +811,10 @@ def confirm_update(reviewed, adapter=None):
         if any(a["changed"] for a in plan.get("attributes", [])):
             attempted = True
         apply(row, data, config, adapter)
+        from app.shopify_customisations import apply as apply_customisations
+        if (plan.get('customisations') or {}).get('changed'):
+            attempted = True
+        apply_customisations(row, data, config, adapter)
         from app.shopify_publication import apply_reviewed
         if (plan.get('publication') or {}).get('pending') and (plan.get('publication') or {}).get('read_complete') and not (plan.get('publication') or {}).get('blockers'):
             attempted=True
@@ -873,6 +893,8 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
         from app.shopify_attributes import remaining_review
         remaining=remaining_review(plan,configuration(),adapter or ShopifyAdapter(),row.shopify_product_id)
     data["verification"]["attributes"]="remaining_review" if remaining else "verified"
+    from app.shopify_customisations import verify as verify_customisations
+    verify_customisations(row, data, configuration(), adapter or ShopifyAdapter())
     data["verification"]["memberships"] = "verified"
     data["stage"] = "media_verification"
     save(row, data)
@@ -965,6 +987,9 @@ def _reconcile(row, candidate_id=None, adapter=None, approval=None, *, allow_att
     if shop["shop_id"] != row.store_id:
         raise ShopifyError("Configured Shopify store does not match this identity. Restore its store configuration.")
     data = evidence(row)
+    if data.get('customisation_update', {}).get('state') in {'pending', 'uncertain'}:
+        from app.shopify_customisations import reconcile as reconcile_customisations
+        return reconcile_customisations(row, data, config, adapter)
     if data.get('publication_update',{}).get('state') in {'pending','uncertain'}:
         from app.shopify_publication import verify
         verify(row,data,adapter)

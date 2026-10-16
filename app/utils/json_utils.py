@@ -83,7 +83,7 @@ def title_components(shared, override, path=None, *, collection_path=None, layou
     """Resolve authored contributions, never infer authorship from a DB/display title.
 
     Child layouts use Product | Collection. Single Variable retains its historical
-    root-folder - authored-root-title convention (one JSON owner, no parent scope).
+    root-folder | authored-root-title convention (one JSON owner, no parent scope).
     No truncation or source mutation. Legacy scalar coercion remains read-only;
     the editor's existing string schema still rejects invalid newly authored values.
     """
@@ -99,7 +99,7 @@ def title_components(shared, override, path=None, *, collection_path=None, layou
         product_component, collection_component = product_name, common or ''
         parts = [v for v in (product_component, collection_component) if v]
         if len(parts) == 2 and parts[0] == parts[1]: parts.pop()
-        title = ' - '.join(parts)
+        title = ' | '.join(parts)
     elif folder and collection == folder:
         product_component, collection_component = own or common or product_name, ''
         title = product_component

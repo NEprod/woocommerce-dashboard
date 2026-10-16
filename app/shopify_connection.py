@@ -177,6 +177,11 @@ ATTRIBUTE_FIELD = '''query AttributeField($namespace: String!, $key: String!) {
  metafieldDefinitions(first: 2, ownerType: PRODUCT, namespace: $namespace, key: $key) {
  nodes { id namespace key ownerType type { name } validations { name value } access { storefront } } pageInfo { hasNextPage } } }'''
 ATTRIBUTE_FIELD_CAPABILITIES = {}
+CUSTOMISATION_DEFINITION = ATTRIBUTE_FIELD.replace('access { storefront }', 'access { admin storefront }')
+CUSTOMISATION_VALUE = '''query CustomerConfiguration($id: ID!, $namespace: String!, $key: String!) {
+ product(id: $id) { id metafield(namespace: $namespace, key: $key) {
+ id namespace key type value compareDigest } } }'''
+READ_QUERIES |= frozenset((CUSTOMISATION_DEFINITION, CUSTOMISATION_VALUE))
 for _keys in (("adminFilterable",), ("smartCollectionCondition",), ("adminFilterable", "smartCollectionCondition")):
     _selection = " ".join(key + " { eligible enabled" + (" status" if key == "adminFilterable" else "") + " }" for key in _keys)
     ATTRIBUTE_FIELD_CAPABILITIES[_keys] = ATTRIBUTE_FIELD.replace("access { storefront }", "access { storefront } capabilities { " + _selection + " }")
@@ -679,6 +684,20 @@ class ShopifyAdapter:
         if len({v["key"] for v in nodes})!=len(nodes):
             raise ShopifyError("Attribute assignment keys are ambiguous; no equality assumed.")
         return nodes
+
+    def customisation_definition(self, config, namespace, key):
+        part = self._read(config, CUSTOMISATION_DEFINITION, {"namespace":namespace,"key":key}).get('metafieldDefinitions')
+        if (not isinstance(part, dict) or part.get('pageInfo', {}).get('hasNextPage') is not False
+                or not isinstance(part.get('nodes'), list) or len(part['nodes']) > 1):
+            raise ShopifyError('Customer configuration definition read is incomplete or ambiguous.')
+        return part['nodes'][0] if part['nodes'] else None
+
+    def customisation_value(self, config, product_id, namespace, key):
+        product = self._read(config, CUSTOMISATION_VALUE,
+            {"id":_gid(product_id,'Product'),"namespace":namespace,"key":key}).get('product')
+        if not isinstance(product, dict) or product.get('id') != product_id or 'metafield' not in product:
+            raise ShopifyError('Customer configuration product identity/readback is incomplete.')
+        return product['metafield']
 
     def set_attributes(self, config, values):
         return self._write(config,ATTRIBUTE_SET,{"metafields":values})

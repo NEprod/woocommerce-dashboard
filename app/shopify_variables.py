@@ -398,6 +398,8 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
         plan["native"] = {"enabled":False,"classification":"deferred","reason":"Not part of this inventory-only review","variants":{}}
     else:
         attach(product,plan,config,shop,adapter,remote_id)
+        from app.shopify_customisations import attach as attach_customisations
+        attach_customisations(product,plan,config,shop,adapter,remote_id)
         native_review(plan,row if remote_id else None,data,config,shop,adapter)
     plan["classification"] = "create" if not remote_id else "update" if any(f["changed"] for f in plan["fields"]) or any(c["action"] in {"Join","Create & Join"} for c in plan["collections"]) else "no_change"
     if scope == "inventory":
@@ -420,6 +422,7 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
                 plan["blockers"].append("New variant SKU candidate already exists or discovery is incomplete; resolve before creation.")
     from app.shopify_publication import review_binding
     plan["taxonomy_review_digest"] = drafts.digest({"collections":plan["collections"],"standard":standard,"attributes":plan["attribute_review_digest"],
+        "customisations":plan.get('customisations'),
         "native":{k:v for k,v in plan["native"].items() if k!="checked_at"},
         "publication":review_binding(plan.get('publication') or {})})
     # Leave room for durable media/maps/native receipts BEFORE any remote write.
@@ -430,6 +433,8 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
         "reserve":"x"*(3000+sum(len(a["resources"]) for a in plan.get("attributes",[]))*300)}
     if plan["native"]["enabled"]:
         reserves["variant_native"]={v["identity"]:{"version":1,"state":"uncertain","desired":v["native"]["desired"],"observed":v["native"]["desired"],"inventory_id":"x"*100,"operation_id":"x"*100,"checked_at":"x"*100,"message":"x"*512} for v in plan["variants"]}
+    from app.shopify_customisations import reserve as customisation_reserve
+    reserves['storefront_configuration'] = customisation_reserve(plan)
     drafts.encode(reserves)
     from app.shopify_comparison import record
     record(product,plan,row if remote_id else None)
@@ -584,6 +589,8 @@ def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attri
         from app.shopify_attributes import remaining_review
         remaining=remaining_review(plan,config,adapter,row.shopify_product_id)
     data["verification"]["attributes"]="remaining_review" if remaining else "verified"
+    from app.shopify_customisations import verify as verify_customisations
+    verify_customisations(row, data, config, adapter)
     data["verification"]["memberships"] = "verified"
     expected = [m.get("id") for m in data.get("created_media",[])]
     observed = remote["media"]["nodes"]
@@ -772,6 +779,10 @@ def confirm(reviewed, adapter=None):
         if any(a["changed"] for a in plan.get("attributes",[])):
             attempted=True
         apply_attributes(row,data,config,adapter)
+        from app.shopify_customisations import apply as apply_customisations
+        if (plan.get('customisations') or {}).get('changed'):
+            attempted=True
+        apply_customisations(row,data,config,adapter)
         from app.shopify_publication import apply_reviewed
         if creating and plan.get('publication'):
             verify(row,data,config,adapter)

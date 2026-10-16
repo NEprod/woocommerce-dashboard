@@ -32,6 +32,7 @@ FIELD_SCHEMA = {"type": "object", "properties": {
     "max_file_size_bytes": {"type": "integer", "minimum": 1}, "max_files": {"type": "integer", "minimum": 1},
     "default": {}}}
 SCHEMA = {"type": "object", "properties": {
+    "storefront_enabled": {"type": "boolean"},
     "schema_version": {"enum": [1, 2]}, "proof_policy": {"enum": ["none", "required", "optional"]},
     "template": {"oneOf": [{"type": "null"}, {"type": "object", "required": ["id", "revision"],
         "additionalProperties": False, "properties": {"id": {"type": "string", "pattern": ID},

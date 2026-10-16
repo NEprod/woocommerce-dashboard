@@ -1,5 +1,25 @@
 # M3A.9 Product Creator & Editor contract
 
+## M3A.9.5 — public configuration intent and scoped review
+
+Customer Customisations retains the same designer, pinning, stable IDs and sparse
+patches. The storefront intent selector has inherited/default, explicit enable and
+explicit disable states. The read-only configuration status is retained evidence,
+not an assertion that a theme block is active. Local changes and upload/validation
+blockers are labelled separately. Proof policy remains an internal workflow definition,
+not a customer proof checkbox/email/approval promise.
+
+Save Locally and targeted projection remain unchanged. Publish from the normal
+Products → Review & Sync workflow. A verified retained Simple/Variable product may
+select customer-configuration-only Review: only the public JSON metafield and its
+definition access can change; pricing, media, taxonomy, inventory and channels are
+deferred. Other local changes invalidate the signed review but are not automatically
+published. A new product uses the existing full reviewed Create. Scope-only success
+does not refresh full-product verification or activate a theme.
+
+Single Variable's read-only composed title is now `Root folder | Authored root title`;
+only its separator changed. Authored scope, fallback and deduplication are unchanged.
+
 ## M3A.9.4.2 — authored title versus resolved Shopify title
 
 General shows only this JSON owner's authored title. An absent child title stays

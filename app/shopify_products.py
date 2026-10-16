@@ -65,6 +65,10 @@ def source_fingerprint(product, images):
             child['pricing'].pop('state',None)
             for key in ('price','sale','dates'): child.pop(key,None)
     from app.shopify_publication import intent
+    from app.storefront_customisations import public_configuration
+    customisation = authored.get('customisation') or {}
+    if 'storefront_enabled' in customisation:
+        data['storefront_configuration'] = public_configuration(customisation)
     data['publication_intent'] = intent(authored, required=False)
     from app.shopify_native_dimensions import desired
     native_policy = desired(product)

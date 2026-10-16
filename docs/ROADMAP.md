@@ -1,5 +1,20 @@
 # Roadmap
 
+## M3A.9.5 — accept the staged storefront bridge
+
+Accept the Single Variable pipe separator and reviewed per-product public configuration
+on Unraid first. Then link Shopify CLI to the existing installed TLC app, build/release
+the included extension separately, add one block to a draft Tinker personalised-product
+template and run cart/checkout/test-order acceptance. The exact current theme/version
+is unverified. Do not label the bridge live until that purchase path passes.
+
+Keep accelerated/quick-add/bypass limitations explicit. Required input enforcement is
+browser-side in the supported main product form, not a server-side checkout policy;
+custom-app Shopify Functions may require Plus. Do not assume a paid plan or third-party
+options app. Secure upload association/scanning/retention and customer proof delivery
+are separately gated future work, not enabled by this release. No Orders dashboard,
+paid-option pricing or broad catalogue redesign is included.
+
 ## M3A.9.4.2 — accept title scope/fallback correction
 
 Verify all four user-confirmed Product | Collection combinations, preserved Single

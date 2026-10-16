@@ -200,7 +200,11 @@ def drafts(product_id=None):
                 product = scoped_product or db.session.get(Product, request.form.get("product_id", type=int))
                 if not product:
                     abort(404)
-                plan, token = service.preview(product, scope="inventory" if request.form.get("inventory_only") == "yes" else "full")
+                inventory_only = request.form.get('inventory_only') == 'yes'
+                customisations_only = request.form.get('customisations_only') == 'yes'
+                if inventory_only and customisations_only:
+                    raise ShopifyError('Choose only one limited review scope.')
+                plan, token = service.preview(product, scope='customisations' if customisations_only else 'inventory' if inventory_only else 'full')
             elif request.form.get("action") == "confirm":
                 review = request.form.get("review", "")
                 from app.shopify_progress import receipt

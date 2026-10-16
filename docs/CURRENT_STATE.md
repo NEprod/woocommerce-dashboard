@@ -1,5 +1,44 @@
 # Current State
 
+## M3A.9.5 — staged storefront customisation bridge
+
+Single Variable now uses `Root folder | Authored root title` (same two components,
+identical-name deduplication and missing-title fallback). This supersedes only the
+separator in the historical M3A.9.4.2 entry below. No JSON/folder/SKU/GID rewrite.
+
+The existing customisation model gains optional inherited `storefront_enabled`.
+Default is false. Resolved supported fields are projected through an explicit public
+allowlist into an app-owned product JSON metafield. Full Products Create/Update and
+a customer-configuration-only review reuse signed confirmation, CSRF, product/store
+identity, operation leases, durable pre-mutation evidence, CAS and independent
+readback. Save Locally still never authorises Shopify writes. Private notes, template
+storage, paths and proof workflow data are not public configuration.
+
+A Shopify-hosted theme app extension is included, targeting Tinker/Horizon's native
+product form. It renders nine non-upload input types and native line-item properties
+with stable IDs, typed answers, readable labels and a revision snapshot. It does not
+replace variant/cart handling. File/photo fields fail closed at publication when
+enabled; no customer upload endpoint exists. Browser validation is not server-side
+checkout enforcement. See SHOPIFY_CUSTOMISATIONS.md for bypasses and purchase gates.
+
+Readiness is **staged/integration-ready**, not live storefront acceptance. Shopify CLI
+is not linked here, the merchant is considering Tinker, and the installed theme/version
+has not been verified. Extension build/deployment, draft-theme activation and a real
+test cart/order remain merchant-controlled separate steps. Docker publication does
+not deploy extension assets. No live theme, Shopify product or customer order was
+modified during development. API 2026-10 and opt-in native 2027-01 remain unchanged.
+No migration: head remains 0015_customisation_templates. Existing product identity
+evidence stores bounded configuration receipts; no new credentials/answer database.
+
+Operational setup, rollback, limitations and controlled acceptance are documented in
+[SHOPIFY_CUSTOMISATIONS.md](SHOPIFY_CUSTOMISATIONS.md).
+
+Verification: 20 focused storefront Python cases; 262-case bounded Python regression;
+124 JavaScript checks (including 22 storefront checks); isolated Chrome fixture with
+14 real-DOM/form assertions at mobile viewport. Earlier 137-case catalogue/publishing
+checks also passed (overlapping, not an additional unique-case count). No live order
+or theme test is claimed. All changes preserve the unrelated Unraid/template files.
+
 ## M3A.9.4.2 — canonical authored/folder title resolution
 
 The user-confirmed child-product contract is now Product component + ` | ` +

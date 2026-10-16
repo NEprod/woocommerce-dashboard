@@ -1,5 +1,42 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.5 — staged customer customisation publication
+
+The existing Shopify adapter publishes a product-owned JSON metafield at
+`$app:tlc_customisations.configuration`, type `json`, Admin `MERCHANT_READ` and
+Storefront `PUBLIC_READ`. Shopify's returned expanded namespace and definition/value
+GIDs are retained, never guessed from the Client ID. Existing `read_products` and
+`write_products` suffice for this product-metadata capability; no new theme-write,
+orders, upload, app-proxy or webhook permission is requested. Existing feature-specific
+scopes are unchanged. Main operations remain 2026-10; opt-in packed dimensions alone
+remain 2027-01.
+
+Public schema v1 is generated from effective customisations after template pins,
+inheritance, disabled fields and exclusions. Its deterministic SHA-256 revision binds
+the explicit public allowlist. Effective opted-in public changes invalidate managed
+comparison fingerprints; private notes/proof metadata do not. Default-disabled
+definitions incur no additional Shopify requests. Opted-in comparisons independently
+read definition access/identity and exact product value; only a signed expiring
+review plus administrator confirmation/CSRF may mutate them. Existing IDs, variants,
+media and collection memberships are preserved.
+
+The existing product identity evidence and CatalogueOperation ledger record stages
+before each mutation. `metafieldsSet.compareDigest` protects concurrent value changes.
+Readback checks actual definition/value IDs, type, access and complete JSON, not just
+the desired hash. Access-only repair does not rewrite a correct value. Uncertainty
+blocks another write; reconciliation is read-only. A resolved definition-only timeout
+with proof that no value request was attempted permits a fresh signed review for the
+unsent value stage. An uncertain value request is never automatically replayed.
+New full evidence must still prove other managed fields; a configuration-only success
+does not manufacture full synchronisation or publication freshness.
+
+The theme app extension in `shopify/extensions/tlc-customisations` renders from Shopify
+Liquid/metafields and Shopify-hosted assets; no public Unraid endpoint or secret is
+sent to the browser. Docker and Shopify extension releases are separate. This release
+is staged because no CLI app association, installed Tinker version, theme activation
+or test purchase has been verified. See [setup/acceptance/rollback](SHOPIFY_CUSTOMISATIONS.md).
+No secure file uploads, paid options, order import or proof-delivery workflow is claimed.
+
 ## M3A.9.4.2 — reviewed canonical title corrections
 
 Shopify snapshot, desired-state title and managed comparison use the same scoped

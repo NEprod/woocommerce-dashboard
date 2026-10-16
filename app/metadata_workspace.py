@@ -502,9 +502,20 @@ def editor_workspace(product: Product, kind: str):
             "message": "Last editor scan completed locally." if complete else "Local scan/projection needs completion or recovery. Inspect Scanner history before publishing."}
         break
     remote_media = []
+    storefront = {'state':'Not verified / not published', 'checked_at':None}
     for identity in ShopifyProductIdentity.query.filter_by(product_id=product.id).all():
         try:
             from app.shopify_drafts import evidence
+            proof = evidence(identity).get('storefront_configuration', {})
+            if proof:
+                storefront = {'state':('Verified public configuration' if proof.get('enabled') else 'Verified disabled configuration') if proof.get('state') == 'verified' and identity.state == 'verified' else 'Pending / recovery required', 'checked_at':proof.get('checked_at')}
+                from app.shopify_customisations import desired
+                from app.shopify_connection import ShopifyError
+                try:
+                    if desired(product)['revision'] != proof.get('revision'):
+                        storefront['state'] = 'Local configuration changes — review required'
+                except ShopifyError:
+                    storefront['state'] = 'Local validation/upload blocker — not publishable'
             for media in evidence(identity).get("media", [])[:20]:
                 url = media.get("url")
                 remote_media.append({"source": media.get("source"), "id": media.get("id"),
@@ -525,6 +536,7 @@ def editor_workspace(product: Product, kind: str):
         "kind": kind,
         "revision": token,
         "customisation_template": customisation_template,
+        "storefront": storefront,
         'defaults':defaults,'channels':cached_channels(),'sale':sale_summary(product),
         'pricing':catalogue_prices(product),
         "save_error": save_error,

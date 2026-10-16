@@ -114,6 +114,7 @@
         (this.editTrigger?.isConnected?this.editTrigger:target)?.focus({preventScroll:true});
       });
       root.querySelector("[data-custom-proof]").addEventListener("change",event=>{this.value ||= {};if(event.target.value)this.value.proof_policy=event.target.value;else delete this.value.proof_policy;this.changed();});
+      root.querySelector('[data-custom-storefront]')?.addEventListener('change', event=>{this.value ||= {};if(event.target.value==='')delete this.value.storefront_enabled;else this.value.storefront_enabled=event.target.value==='true';this.changed();});
       root.querySelector("[data-custom-apply-template]").addEventListener("click",()=>this.assign());
       root.querySelector("[data-custom-no-template]").addEventListener("click",()=>{this.value ||= {};this.value.template=null;this.base={};this.changed();});
       root.querySelector("[data-custom-inherit-template]").addEventListener("click",()=>{this.value ||= {};delete this.value.template;this.restoreBase();this.changed();});
@@ -156,6 +157,7 @@
       for(const [id,patch] of Object.entries(this.value?.fields||{}))if(patch.remove){const row=element("p",`${id} — excluded for this layer. `);row.append(button("Reset to inherited",()=>{delete this.value.fields[id];this.changed();}));target.append(row);}
       if(!target.children.length)target.append(element("p","No effective customer fields defined. Nothing is added to JSON until you edit."));
       const proof=this.root.querySelector("[data-custom-proof]");proof.options[0].textContent=`Inherited / unspecified${this.inherited().proof_policy?': '+this.inherited().proof_policy:''}`;proof.value=this.value?.proof_policy||"";
+      const storefront=this.root.querySelector('[data-custom-storefront]');if(storefront){storefront.options[0].textContent=`Inherited / default: ${this.inherited().storefront_enabled===true?'enabled':'disabled'}`;storefront.value=typeof this.value?.storefront_enabled==='boolean'?String(this.value.storefront_enabled):'';}
       const ref=this.currentReference();this.root.querySelector("[data-custom-template-status]").textContent=ref?`Pinned template ${ref.id}, revision ${ref.revision}. Library edits do not change this assignment. Local/shared patches take precedence.`:"No template base. Shared and local fields are still retained.";
     }
     edit(id=null,duplicate=null) {

@@ -1,0 +1,12 @@
+tlc-customer-fields { display:block; font:inherit; color:inherit; margin-block:1rem; }
+tlc-customer-fields [data-tlc-fields] { display:grid; gap:1rem; }
+tlc-customer-fields .tlc-field { display:grid; gap:.35rem; min-width:0; overflow-wrap:anywhere; }
+tlc-customer-fields input:not([type=checkbox]):not([type=radio]),
+tlc-customer-fields textarea, tlc-customer-fields select {
+  font:inherit; color:inherit; background:transparent; border:1px solid currentColor;
+  border-radius:var(--style-border-radius-inputs, .25rem); padding:.65rem; max-width:100%; width:100%;
+}
+tlc-customer-fields fieldset { margin:0; padding:.65rem; border:1px solid currentColor; }
+tlc-customer-fields fieldset label { display:flex; align-items:center; gap:.5rem; margin-block:.35rem; }
+tlc-customer-fields small { font-size:.875em; }
+tlc-customer-fields [data-tlc-status]:empty { display:none; }

@@ -155,6 +155,7 @@ def weight_grams(weight):
 def review_rows(plan):
     """Readable view only; canonical comparison and signed evidence are unchanged."""
     labels = {"title": "Title", "descriptionHtml": "Main description", "vendor": "Vendor",
+        'customisations.configuration':'Public customer field configuration', 'customisations.access':'Customer configuration access',
         "handle": "URL handle", "tags": "Tags", "seo.title": "SEO title",
         "seo.description": "SEO description", "price": "Customer price",
         "compareAtPrice": "Compare-at price", "variant.sku": "SKU", "sku": "SKU",

@@ -47,7 +47,7 @@ def test_missing_empty_null_whitespace_are_absent_without_suppressing_other_scop
 def test_full_titles_are_not_truncated_and_single_variable_retains_historical_root_rule():
     title='Long authored title '+('é'*300)
     assert title_components({'title':title},{},'Collection/Product')['title']=='Product | '+title
-    assert title_components({'title':'Personalised Print','collection_type':'Single Variable'}, {}, 'Single Variable')['title']=='Single Variable - Personalised Print'
+    assert title_components({'title':'Personalised Print','collection_type':'Single Variable'}, {}, 'Single Variable')['title']=='Single Variable | Personalised Print'
     assert title_components({'title':'Single Variable','collection_type':'Single Variable'}, {}, 'Single Variable')['title']=='Single Variable'
     assert title_components({'collection_type':'Single Variable'}, {}, 'Single Variable')['title']=='Single Variable'
     assert title_components({'title':'Root product','collection_type':'Simple'}, {}, 'Root',collection_path='Root')['title']=='Root product'

@@ -1,5 +1,8 @@
 <section class="editor-workspace-section customisation-designer" data-customisation-designer aria-label="Customer Customisations">
-  <header><div><h2 id="customisations-title">Customer Customisations</h2><p>Local definitions only — not yet published to Shopify. Names, messages and photographs are not variants.</p></div></header>
+  <header><div><h2 id="customisations-title">Customer Customisations</h2><p>Save locally, then review public configuration from Products → Review &amp; Sync. Saving does not publish. Names and messages are not variants.</p></div></header>
+  <label>Storefront configuration intent <select class="form-select" data-custom-storefront><option value="">Inherited / default: disabled</option><option value="true">Enable supported fields after reviewed publication</option><option value="false">Disable after reviewed publication</option></select></label>
+  <p class="field-helper">A Shopify-hosted app block must be separately installed and activated on the product template. Secure photo/file uploads and customer proof delivery are not available. Enabling an upload field blocks storefront publication.</p>
+  {% if workspace is defined and workspace.storefront %}<p class="field-helper">Shopify configuration: {{ workspace.storefront.state }}{% if workspace.storefront.checked_at %} · Last checked {{ workspace.storefront.checked_at }} UTC{% endif %}. Theme activation is not verified by this evidence.</p>{% endif %}
   <div class="customisation-template-controls" data-custom-template-controls>
     <label>Reusable template <select class="form-select" data-custom-template><option value="">Choose a pinned template revision</option></select></label>
     <button type="button" class="btn btn-sm btn-outline-primary" data-custom-apply-template>Assign selected revision</button>
@@ -8,7 +11,7 @@
     <a href="{{ url_for('customisations.index') }}" target="_blank" rel="noopener">Manage reusable templates</a>
   </div>
   <p class="field-helper" data-custom-template-status>No template assigned.</p>
-  <label>Proof policy <select class="form-select" data-custom-proof><option value="">Inherited / unspecified</option><option value="none">None</option><option value="optional">Optional</option><option value="required">Required</option></select></label>
+  <label>Proof policy (internal workflow definition) <select class="form-select" data-custom-proof><option value="">Inherited / unspecified</option><option value="none">None</option><option value="optional">Optional</option><option value="required">Required</option></select></label>
   <p class="field-helper">Proof policy is a definition, not an implemented email/approval workflow. Internal production notes are separate and must not be entered as customer help.</p>
   <div data-custom-fields class="structured-editor-list"></div>
   <div class="customisation-actions"><button type="button" class="btn btn-sm btn-outline-primary" data-custom-add>Add Field</button><button type="button" class="btn btn-sm btn-ghost" data-custom-reset>Reset customisations to inherited</button><button type="button" class="btn btn-sm btn-outline-primary" data-custom-preview>Preview Customer Form</button></div>

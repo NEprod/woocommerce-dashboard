@@ -38,6 +38,8 @@ def read_only(operation):
 def complete(identity, data):
     if not identity or identity.state != "verified" or identity.verification_state != "verified":
         return False
+    if (data.get('plan', {}).get('customisations') or data.get('customisation_update')) and data.get('storefront_configuration', {}).get('state') != 'verified':
+        return False
     from app.shopify_publication import complete as publication_complete
     if not publication_complete(data): return False
     verification = data.get("verification", {})
@@ -86,6 +88,11 @@ def product_result(operation):
     if scope.get('mode')=='publication':
         result['operation']='Publication updated'
         result['deferred'].append('Status/channel scope only; metadata verification is retained, not renewed.')
+    if scope.get('mode') == 'customisations':
+        result['operation'] = 'Customer configuration updated'
+        result['deferred'].append('Configuration scope only; theme activation, cart/order acceptance and full product comparison remain separate.')
+        if operation.status == 'succeeded' and data.get('customisation_update', {}).get('state') == 'verified' and data.get('storefront_configuration', {}).get('state') == 'verified' and identity.state == 'verified':
+            result['outcome'] = 'verified_success'
     if scope.get('mode') in {'sale_activate','sale_end'}:
         result['operation']='Sale Activated' if scope['mode']=='sale_activate' else 'Sale Ended'
         result['sale_status']=('active' if data.get('sale_transition',{}).get('phase')=='activate' else 'completed') if outcome=='verified_success' else summary.get('sale_status') or ('Recovery Required' if outcome=='recovery_required' else 'Needs Attention')

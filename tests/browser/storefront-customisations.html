@@ -1,0 +1,62 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Offline TLC storefront fixture</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../../shopify/extensions/tlc-customisations/assets/tlc-customer-fields.css">
+<main class="shopify-section" id="section-main">
+<h1>Fictional personalised product</h1>
+<tlc-customer-fields id="tlc-fixture" data-product-id="100" data-form-id="BuyButtons-ProductForm-main"><p data-tlc-status role="status"></p><div data-tlc-fields></div></tlc-customer-fields>
+<product-form-component data-product-id="100"><form action="/cart/add" id="BuyButtons-ProductForm-main">
+<input name="id" value="200" type="hidden"><label>Quantity <input type="number" name="quantity" value="1"></label><button type="submit">Add to cart (offline fixture)</button>
+</form></product-form-component>
+</main><pre id="result">RUNNING</pre>
+<script>
+// Static fictional config; never contacts Shopify or the Dashboard.
+document.querySelector('tlc-customer-fields').dataset.configuration=JSON.stringify({schema_version:1,enabled:true,revision:'a'.repeat(64),fields:[
+ {id:'name',type:'text',label:'Name',required:true,max_length:30},
+ {id:'message',type:'textarea',label:'Message',default:'Happy Birthday'},
+ {id:'age',type:'number',label:'Age',whole_number:true,minimum:1},
+ {id:'wrap',type:'dropdown',label:'Wrap',choices:[{id:'blue',label:'Blue wrap'}]},
+ {id:'side',type:'radio',label:'Side',choices:[{id:'front',label:'Front'},{id:'back',label:'Back'}]},
+ {id:'confirm',type:'checkbox',label:'Confirm spelling'},
+ {id:'extras',type:'checkbox_group',label:'Extras',choices:[{id:'heart',label:'Heart'},{id:'star',label:'Star'}],max_selections:1},
+ {id:'date',type:'date',label:'Date'},{id:'colour',type:'colour',label:'Colour'}]});
+</script>
+<script src="../../shopify/extensions/tlc-customisations/assets/tlc-customer-fields.js"></script>
+<script>
+(async()=>{
+const output=document.querySelector('#result'), checks=[];
+function check(value,label){if(!value)throw Error(label);checks.push(label);}
+try {
+ const block=document.querySelector('tlc-customer-fields'),form=document.querySelector('form');
+ form.addEventListener('submit',e=>e.preventDefault()); // no network, ever
+ check(block.form===form,'correct Tinker-style form binding');
+ check(block.controls.size===9,'all nine supported controls render');
+ const submit=new Event('submit',{cancelable:true,bubbles:true});form.dispatchEvent(submit);
+ check(submit.defaultPrevented && block.status.textContent.includes('Name'),'required input blocks before add-to-cart: '+submit.defaultPrevented+' / '+block.status.textContent);
+ const input=(id,value)=>{const control=block.controls.get(id)[0];control.value=value;control.dispatchEvent(new Event('input',{bubbles:true}));};
+ input('name','Ellie');input('age','7');input('wrap','blue');input('date','2026-10-16');input('colour','#ff0000');
+ const first=new FormData(form);
+ check(first.get('id')==='200' && first.get('quantity')==='1','native variant and quantity preserved');
+ const firstPayload=JSON.parse(first.get('properties[_tlc_personalisation]'));
+ check(firstPayload.fields.find(f=>f.id==='name').value==='Ellie','Ellie remains attached to correct line');
+ check(firstPayload.fields.find(f=>f.id==='age').value===7,'typed numeric answer retained');
+ check(firstPayload.fields.find(f=>f.id==='wrap').value==='blue','stable choice identity retained');
+ form.querySelector('[name=id]').value='201';input('name','Jack');
+ const second=new FormData(form);
+ check(second.get('id')==='201','theme variant switch is not overwritten');
+ check(first.get('properties[_tlc_personalisation]')!==second.get('properties[_tlc_personalisation]'),'different personalisations produce separate cart properties');
+ input('name','<img src=x>');
+ const unsafe=new FormData(form).get('properties[Name · name]');
+ check(!unsafe.includes('<') && !block.querySelector('img'),'HTML customer answer is inert');
+ block.controls.get('extras').forEach(c=>{c.checked=true;c.dispatchEvent(new Event('change'));});
+ check(!block.validate(false),'checkbox group selection limit enforced');
+ block.controls.get('extras')[1].checked=false;block.controls.get('extras')[1].dispatchEvent(new Event('change'));
+ form.reset();await Promise.resolve();
+ check(block.answers.name==='' && block.answers.message==='Happy Birthday','form reset uses the same visible and retained answers');
+ input('name','Jack');
+ const parent=block.parentNode;block.remove();parent.prepend(block);
+ check(block.form===form && new FormData(form).getAll('properties[_tlc_personalisation]').length===1,'section reconnect has one set of properties and handlers');
+ block.remove();check(!form.querySelector('[name="properties[_tlc_personalisation]"]'),'section removal cleans properties');
+ output.textContent='PASS '+checks.length+' browser assertions\n'+checks.join('\n');
+} catch(error){output.textContent='FAIL '+error.stack;}
+})();
+</script></html>

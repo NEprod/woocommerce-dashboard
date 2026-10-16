@@ -9,6 +9,9 @@ from flask import g, url_for
 from sqlalchemy import func, case
 
 STAGES = {
+    'customisation_definition':'Updating reviewed public configuration definition',
+    'customisation_configuration':'Publishing reviewed customer field configuration',
+    'customisation_verified':'Customer configuration verified; theme activation is separate',
     "confirmation_validation":"Validating signed confirmation",
     "pending":"Preparing reviewed operation", "update_pending":"Preparing reviewed update",
     "reviewed_update":"Preparing retained product update", "staged_uploads":"Uploading original images",
@@ -46,7 +49,7 @@ def accept(product_id,token,acknowledged):
         raise ShopifyError("Explicit publishing acknowledgement is required; no write was accepted.")
     product=db.get_or_404(Product,product_id)
     g.shopify_review_ticket=drafts.digest(token)
-    mode=reviewed.get("classification") or ("update" if reviewed.get("mode")=="update" else "create")
+    mode='customisations' if reviewed.get('mode') == 'customisations' else reviewed.get("classification") or ("update" if reviewed.get("mode")=="update" else "create")
     lease=acquire_catalogue_operation("shopify_draft_publish",{"product_id":product_id,"sku":product.sku,
         "title":product.title,"mode":mode,"scope":reviewed.get("scope","full"),"stage":"confirmation_validation"})
     g.shopify_confirm_lease=lease
@@ -61,7 +64,7 @@ def finalise_unfinished(operation_id, error=None):
     if not operation or operation.status not in {"running","pending"}: return
     row=ShopifyProductIdentity.query.filter_by(operation_id=operation_id).first()
     data=drafts.evidence(row) if row else {}
-    attempted=bool(data.get("create_attempted") or data.get("update_attempted") or data.get("inventory_update")
+    attempted=bool(data.get("create_attempted") or data.get("update_attempted") or data.get("inventory_update") or data.get('customisation_update')
         or data.get('publication_update',{}).get('attempted') or data.get('sale_transition',{}).get('write_attempted'))
     finish_catalogue_operation(operation_id,status="partial" if attempted else "failed",
         error=error or ("Publishing finalisation was interrupted. Inspect retained stages and reconcile read-only; no retry." if attempted else "Confirmation validation did not finish; no Shopify product write was attempted."),

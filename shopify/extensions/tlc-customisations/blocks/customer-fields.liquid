@@ -1,0 +1,31 @@
+{% liquid
+  assign tlc_product = closest.product | default: product
+  assign tlc_namespace = block.settings.configuration_namespace
+  assign tlc_config = tlc_product.metafields[tlc_namespace].configuration.value
+  assign tlc_form_id = block.settings.product_form_id
+  if tlc_form_id == blank
+    assign tlc_form_id = 'BuyButtons-ProductForm-' | append: section.id
+  endif
+%}
+{% if tlc_product != blank and tlc_config.enabled == true %}
+  <tlc-customer-fields data-product-id="{{ tlc_product.id }}" data-form-id="{{ tlc_form_id | escape }}"
+    data-configuration="{{ tlc_config | json | escape }}" {{ block.shopify_attributes }}>
+    <p data-tlc-status role="status">Loading your personalisation options…</p>
+    <div data-tlc-fields></div>
+    <noscript>Personalisation needs JavaScript. Do not purchase this personalised product without supplying its required details.</noscript>
+  </tlc-customer-fields>
+{% elsif request.design_mode %}
+  <p {{ block.shopify_attributes }}>TLC: no enabled configuration. Set the verified app-owned namespace below, publish this product's reviewed configuration in TLCDashboard, and refresh this preview.</p>
+{% endif %}
+{% schema %}
+{
+  "name": "TLC customer fields",
+  "target": "section",
+  "javascript": "tlc-customer-fields.js",
+  "stylesheet": "tlc-customer-fields.css",
+  "settings": [
+    {"type":"text","id":"configuration_namespace","label":"Verified configuration namespace","info":"Copy app--NUMBER--tlc_customisations from TLCDashboard identity evidence. Not a token or secret."},
+    {"type":"text","id":"product_form_id","label":"Product form ID (optional)","info":"Leave empty for Tinker/Horizon BuyButtons-ProductForm-SECTION. Other themes require their verified main product form ID."}
+  ]
+}
+{% endschema %}

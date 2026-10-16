@@ -1,5 +1,27 @@
 # product_info.json Contract
 
+## M3A.9.5 — explicit public storefront intent
+
+`customisation.storefront_enabled` is an optional boolean within the existing
+customisation definition. It follows pinned-template → shared JSON → sparse product
+override precedence; explicit false overrides true, absence inherits (default false).
+Adding fields still merges by stable ID; disabled fields and removal tombstones are
+omitted from public projection. No second authored definition file is introduced.
+
+```json
+{"customisation":{"storefront_enabled":true,"fields":{"recipient_name":{
+  "type":"text","label":"Recipient name","required":true,"max_length":30}}}}
+```
+
+Only supported, enabled public fields/choices/constraints/defaults are exported.
+Unknown keys, proof policy, template IDs/revisions, private notes and source paths
+are excluded. Customer help/labels are intentionally public: never enter secrets there.
+Enabled photo/file fields block storefront configuration publication until a complete
+secure upload flow exists, including optional uploads; exclude or disable them for
+the pilot. Disabling storefront intent publishes a reviewed disabled configuration,
+not a deletion. Saving JSON neither publishes nor changes Shopify/theme activation.
+Regular product publishing without opt-in retains existing local-only behaviour.
+
 ## M3A.9.4.2 — title contributions are separate authored scopes
 
 For a Simple or Variable Collection child:
@@ -23,8 +45,8 @@ unchanged. Invalid legacy authoring must be deliberately corrected, never silent
 normalised by deployment. An actually authored complete-looking title is still an
 authored contribution; suffixes are not guessed or stripped automatically.
 
-Single Variable has one root JSON owner and retains the historical root-folder
-` - ` authored-root-title rule when both differ; identical components appear once,
+Single Variable has one root JSON owner and uses root-folder
+` | ` authored-root-title when both differ (M3A.9.5); identical components appear once,
 and no root title means the root folder alone. A root-only Simple intake preview
 uses its authored root title or root folder, not a nonexistent parent. Scanner
 layout classification is unchanged; scoped child layouts use the two-part rule above.
