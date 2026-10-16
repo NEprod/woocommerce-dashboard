@@ -102,6 +102,6 @@ def receipt(product_id, token):
             "completed_stages":[STAGES.get(s,s.replace("_"," ")) for s in data.get("completed_steps",[])],
             "pending_stages":[] if state=="completed" else [label],
             "api_requests":data.get("api_requests"),
-            "message":operation.error or data.get("error") or ("Inventory verified; full synchronisation remains outstanding." if row and row.state=="scoped_verified" else ""),
+            "message":operation.error or data.get("error") or ("Customer configuration verified; full product comparison and theme activation remain separate." if scope.get('mode')=='customisations' and state=='completed' else "Inventory verified; full synchronisation remains outstanding." if row and row.state=="scoped_verified" else ""),
             "history_url":url_for("commerce.draft_identity",identity_id=row.id) if row else None}
     return {"state":"waiting","stage":"Waiting for durable operation receipt","message":"No completion is assumed. Do not resubmit while the request is pending."}

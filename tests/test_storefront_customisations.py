@@ -293,6 +293,7 @@ def test_normal_review_and_editor_render_scoped_configuration(world,monkeypatch)
     _,token=drafts.preview(world[0],adapter,scope='customisations')
     response=client.post(target,data={'action':'confirm','review':token,'acknowledge':'yes'},headers={'Accept':'application/json'})
     assert response.status_code==200 and response.json['state']=='completed',response.json
+    assert 'theme activation remain separate' in response.json['message']
     operation=db.session.get(CatalogueOperation,row.operation_id)
     assert json.loads(operation.scope)['mode']=='customisations'
     assert drafts.evidence(row)['plan']['managed']['namespace']

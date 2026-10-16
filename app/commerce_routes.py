@@ -228,7 +228,7 @@ def drafts(product_id=None):
                     finalise_unfinished(accepted.id,confirmation_error)
                 result = receipt(target,review)
                 if result["state"] in {"completed","processing"}:
-                    flash("Shopify product verified." if result["state"] == "completed" else "Shopify media is processing; check its product status.","success" if result["state"] == "completed" else "info")
+                    flash(result['message'] if result.get('operation_type')=='customisations' else "Shopify product verified." if result["state"] == "completed" else "Shopify media is processing; check its product status.","success" if result["state"] == "completed" else "info")
                 if request.headers.get("Accept") == "application/json":
                     return jsonify({**result,"return_url":products_return(target)}), 200, {"Cache-Control":"no-store"}
                 if result["state"] in {"completed","processing"}:
