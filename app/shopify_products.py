@@ -54,6 +54,16 @@ def source_fingerprint(product, images):
             "manage_stock", "backorders", "stock_quantity", "harmonized_system_code",
             "country_of_origin", "requires_shipping") if key in parts["authored"]}
         data["variable"] = parts
+        from app.packaging_contract import effective as packing_effective
+        from app.shopify_variables import packed_policy
+        packaging_values = [packing_effective(authored,dict(v['attributes'])) for v in parts['variations']]
+        if any('packed_dimensions_cm' in value for value in packaging_values):
+            data['variable_packed'] = [packed_policy(dict(zip(('length','width','height'),v['dimensions'])),value)
+                for v,value in zip(parts['variations'],packaging_values)]
+        for child,value in zip(parts['variations'],packaging_values):
+            if 'weight_g' in value:
+                from decimal import Decimal
+                child['shipping_weight_g'] = str(Decimal(str(value['weight_g'])).normalize())
         from app.sale_pricing import project, variant_sale
         data['managed'] = managed['product']
         data['inventory_policy']={key:value for key,value in managed['variant'].items() if key=='inventoryPolicy'}

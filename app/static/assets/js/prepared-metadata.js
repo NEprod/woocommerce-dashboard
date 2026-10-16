@@ -13,6 +13,7 @@
   const known = new Set(boot.supported_fields || []);
   let authored = structuredClone(boot.document || {});
   let dirty = false;
+  let packagingDesigner = null;
 
   function button(label, action, index) {
     const node = document.createElement("button");
@@ -84,6 +85,10 @@
       const row = document.createElement("div");
       row.className = "structured-editor-row modifier-editor-row";
       row.dataset.modifierRow = "";
+      row._originalModifier=structuredClone(modifier);
+      if(window.TLCPackaging){const target=document.createElement('div');row.appendChild(target);
+        row._packagingEditor=new window.TLCPackaging.Editor(target,{value:modifier.packaging,shared:authored.packaging,
+          onChange:()=>{dirty=true;},getDocument:()=>({...guidedDocument(),packaging:window.TLCPackaging.merge(packagingDesigner?.get(),row._packagingEditor.get())})});}
       [["expression", expression, "Attribute=Value expression"], ["price", modifier.price, "Price"], ["sale_price", modifier.sale_price, "Sale price"], ["weight", modifier.weight, "Weight"], ["length", modifier.dimensions && modifier.dimensions.length, "Length"], ["width", modifier.dimensions && modifier.dimensions.width, "Width"], ["height", modifier.dimensions && modifier.dimensions.height, "Height"]].forEach(([name, value, label]) => {
         const input = document.createElement("input");
         input.dataset.modifierField = name;
@@ -103,7 +108,9 @@
       const get = (name) => row.querySelector(`[data-modifier-field="${name}"]`).value.trim();
       const expression = get("expression");
       if (!expression) return;
-      const modifier = {};
+      const modifier = structuredClone(row._originalModifier || {});
+      ['price','sale_price','weight','dimensions'].forEach(k=>delete modifier[k]);
+      if(row._packagingEditor){const value=row._packagingEditor.get();if(value)modifier.packaging=value;else delete modifier.packaging;}
       ["price", "sale_price", "weight"].forEach((name) => { if (get(name)) modifier[name] = get(name); });
       const dimensions = {};
       ["length", "width", "height"].forEach((name) => { if (get(name)) dimensions[name] = get(name); });
@@ -115,10 +122,13 @@
 
   function populate(documentValue) {
     authored = structuredClone(documentValue || {});
+    const target=guided.querySelector('[data-packaging-controls]');
+    if(target && window.TLCPackaging)packagingDesigner=new window.TLCPackaging.Editor(target,{value:authored.packaging,
+      onChange:()=>{dirty=true;},getDocument:()=>guidedDocument()});
     guided.querySelectorAll("[data-field]").forEach((control) => {
       const field = control.dataset.field;
       let value = authored[field];
-      if (field === "live") value = value === true ? "true" : value === false ? "false" : "";
+      if (["live","requires_shipping"].includes(field)) value = value === true ? "true" : value === false ? "false" : "";
       if (control.dataset.arrayField === "true") value = Array.isArray(value) ? value.join(", ") : "";
       control.value = value == null ? "" : String(value);
     });
@@ -145,9 +155,10 @@
   function guidedDocument() {
     const result = {};
     Object.entries(authored).forEach(([key, value]) => { if (!known.has(key)) result[key] = value; });
+    if(packagingDesigner){const value=packagingDesigner.get();if(value)result.packaging=value;else delete result.packaging;}
     guided.querySelectorAll("[data-field]").forEach((control) => {
       let value = control.value.trim();
-      if (control.dataset.field === "live") value = value === "true" ? true : value === "false" ? false : "";
+      if (["live","requires_shipping"].includes(control.dataset.field)) value = value === "true" ? true : value === "false" ? false : "";
       if (control.dataset.arrayField === "true") value = value.split(",").map((item) => item.trim()).filter(Boolean);
       result[control.dataset.field] = value;
     });

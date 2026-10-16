@@ -22,7 +22,7 @@
     "image_attributes", "variation_attributes", "variation_modifiers", "shipping_class", "grouped_ids",
     "grouped_products", "upsell_ids", "cross_sell_ids", "upsells", "crosssells",
     "meta_title", "meta_description", "vendor", "handle", "shopify_product_type",
-    "country_of_origin", "requires_shipping", "manage_stock", "backorders", "primary_category", "shopify_status", "shopify_channels"
+    "country_of_origin", "requires_shipping", "manage_stock", "backorders", "primary_category", "shopify_status", "shopify_channels", "packaging"
   ]);
   let authored = structuredClone(boot.authored || {});
   let originalDocument = structuredClone(boot.authored || {});
@@ -37,6 +37,7 @@
   let channels = boot.channels || [];
   let channelDraft = {};
   let customisationDesigner = null;
+  let packagingDesigner = null;
 
   function channelValues() {
     const result = structuredClone(channelDraft);
@@ -152,6 +153,7 @@
     }
     if (field === "variation_modifiers") {
       guided.querySelectorAll("[data-modifiers-editor] input, [data-modifiers-editor] button, [data-add-modifier]").forEach((control) => { control.disabled = !enabled; });
+      guided.querySelectorAll('[data-modifier-row]').forEach(row=>row._packagingEditor?.setEnabled(enabled));
     }
     if (field === "dimensions") {
       guided.querySelectorAll("[data-dimension]").forEach((control) => { control.disabled = !enabled; });
@@ -310,6 +312,13 @@
       const row = document.createElement("div");
       row.className = "structured-editor-row modifier-editor-row";
       row.dataset.modifierRow = "";
+      row._originalModifier = structuredClone(modifier);
+      if (window.TLCPackaging) {
+        const packaging = document.createElement('div'); row.appendChild(packaging);
+        row._packagingEditor = new window.TLCPackaging.Editor(packaging, {value:modifier.packaging,
+          shared:window.TLCPackaging.merge(boot.collection?.packaging,authored.packaging),onChange:()=>setDirty(true),
+          getDocument:()=>({...guidedDocument(),packaging:window.TLCPackaging.merge(window.TLCPackaging.merge(boot.collection?.packaging,packagingDesigner?.get()),row._packagingEditor.get())})});
+      }
       const fields = [
         ["expression", expression, "Modifier expression"], ["price", modifier.price, "Price"],
         ["sale_price", modifier.sale_price, "Sale price"], ["weight", modifier.weight, "Weight"],
@@ -337,7 +346,9 @@
       const value = (name) => row.querySelector(`[data-modifier-field="${name}"]`).value.trim();
       const expression = value("expression");
       if (!expression) return;
-      const modifier = {};
+      const modifier = structuredClone(row._originalModifier || {});
+      ['price','sale_price','weight','dimensions'].forEach(k=>delete modifier[k]);
+      if (row._packagingEditor) { const packing=row._packagingEditor.get();if(packing)modifier.packaging=packing;else delete modifier.packaging; }
       ["price", "sale_price", "weight"].forEach((name) => { if (value(name)) modifier[name] = value(name); });
       const dimensions = {};
       ["length", "width", "height"].forEach((name) => { if (value(name)) dimensions[name] = value(name); });
@@ -349,6 +360,10 @@
 
   function populate(documentValue) {
     authored = structuredClone(documentValue || {});
+    const packingRoot=guided.querySelector('[data-packaging-controls]');
+    if(packingRoot && window.TLCPackaging) packagingDesigner=new window.TLCPackaging.Editor(packingRoot,{
+      value:authored.packaging,shared:isShared?{}:boot.collection?.packaging,onChange:()=>setDirty(true),
+      getDocument:()=>window.TLCPackaging.merge(isShared?{}:boot.collection,guidedDocument())});
     if (!customisationDesigner && window.TLCCustomisations && guided.querySelector('[data-customisation-designer]')) {
       customisationDesigner = new window.TLCCustomisations.Designer(guided.querySelector('[data-customisation-designer]'), {
         value: authored.customisation, shared: isShared ? {} : boot.collection?.customisation || {},
@@ -413,6 +428,7 @@
       const definition = customisationDesigner.get();
       if (definition === undefined) delete result.customisation; else result.customisation = definition;
     }
+    if(packagingDesigner){const value=packagingDesigner.get();if(value)result.packaging=value;}
     guided.querySelectorAll("[data-field]").forEach((control) => {
       const field = control.dataset.field;
       if (!overrideEnabled(field)) return;

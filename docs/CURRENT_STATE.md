@@ -1,5 +1,22 @@
 # Current State
 
+## M3A.9.5.4 — local packaging and mixed-basket shipping preparation
+
+Migration 0017_packaging adds UUID package definitions, rate revisions and immutable
+packing evidence. Existing Intake/product/shared/modifier forms gain sparse packing
+authoring and one inline package modal. A bounded Decimal geometric planner supports
+actual mixed items, supported stacks and multiple parcels; local simulator and
+read-only Orders suggestions reuse it. Explicit measured packed cm joins the existing
+signed opt-in 2027-01 review; normal operations stay 2026-10. No automatic publication.
+
+Read-only authenticated Admin audit confirms Basic, seven existing TLC packages,
+Envelope default and calculated Royal Mail Tracked24/48 services. Local seeds remain
+unlinked/unmeasured. Unsupported package discovery/readback blocks remote package
+writes. Checkout remains **unfixed/unverified**: Basic cannot register TLC's carrier
+callback; no scope/public gateway/rate change is made. Native Box-only/default fallbacks
+mean current Envelope default and undersized Boxes cannot establish safe A3 mixing.
+See [Packaging & Shipping](PACKAGING_AND_SHIPPING.md) for exact gates and acceptance.
+
 ## M3A.9.5.2 — local read-only Shopify Orders foundation
 
 Migration 0016_shopify_orders adds protected order/line commerce snapshots and per-store

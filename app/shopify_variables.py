@@ -53,10 +53,13 @@ def source_parts(product):
         for v in sorted(product.variations, key=lambda v: (v.source_identity or "", v.sku or ""))]}
 
 
-def packed_policy(dimensions):
+def packed_policy(dimensions, packaging=None):
     policy = {"enabled": native.flag("SHOPIFY_NATIVE_DIMENSIONS_ENABLED"),
         "use_product_dimensions": native.flag("SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS"), "desired": None, "reason": ""}
     if not policy["enabled"]:
+        return policy
+    if packaging and 'packed_dimensions_cm' in packaging:
+        policy.update(native.explicit_packed(packaging))
         return policy
     if not policy["use_product_dimensions"]:
         policy["reason"] = "Packed-measurement policy unresolved; no physical-to-packed assumption."
@@ -114,7 +117,9 @@ def projection(product):
         dimensions = {"length": v.length, "width": v.width, "height": v.height}
         from app.catalogue_fields import shipping_details
         shipping = shipping_details(authored, product)
-        shipping.update(weight_g=v.weight, dimensions_mm=dimensions)
+        from app.packaging_contract import effective as packing_effective
+        packaging = packing_effective(authored,dict(selection))
+        shipping.update(weight_g=packaging.get('weight_g',v.weight), dimensions_mm=dimensions)
         from app.sale_pricing import variant_sale
         # Scanner identity/regular/measurement checks above stay authoritative.
         # Sale modifiers previously omitted by legacy CSV are read explicitly
@@ -138,7 +143,7 @@ def projection(product):
             raise ShopifyError("Variant image source is unavailable; no association is guessed.")
         result.append({"identity": v.source_identity, "local_id": v.id, "sku": v.sku,
             "options": [{"name": n, "value": value} for n,value in selection],
-            "managed": payload, "media_source": source, "native": packed_policy(dimensions),
+            "managed": payload, "media_source": source, "native": packed_policy(dimensions,packaging),
             "dimensions_mm": {k: str(value) if value is not None else None for k,value in dimensions.items()}})
         actual.add(selection); identities.add(v.source_identity); skus.add(v.sku)
     if actual != expected:

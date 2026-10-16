@@ -1,5 +1,16 @@
 # Roadmap
 
+## M3A.9.5.4 — local packing accepted separately from remote checkout
+
+This number was unused at HEAD 7679198. Accept migration 0017, seven unverified UUID
+seeds, measured local management, sparse shared/product/variant data, inline draft
+preservation, actual mixed/multi-parcel simulation, rates and line-safe Orders suggestions.
+Before checkout claims, approve native A3-capable Box/default trial or obtain eligible
+custom carrier entitlement, exact scope approval, isolated HTTPS gateway and authorised
+rates. Preserve Tracked24/48 and rollback. Real two-card+A5+A3 checkout geometry/rate
+acceptance is mandatory. No live shipping change/public endpoint/permission release
+is included. See PACKAGING_AND_SHIPPING.md for conditions and limitations.
+
 ## M3A.9.5.2 — accept read-only Orders before production work
 
 Release/authorise the separately staged read_orders permission only after explicit

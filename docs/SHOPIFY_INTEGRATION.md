@@ -1,5 +1,16 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.5.4 — packaging capability boundary
+
+Local mixed-basket planning is implemented, not activated checkout rating. Read-only
+Admin confirms Basic, seven packages, 6x6 Envelope default and calculated Tracked24/48.
+No shipping scopes/settings change. A fixed 2026-10 schema probe uses the existing
+transport; no package query/GID is invented. Package/default/assignment writes stay
+blocked without independent readback. Native 2027-01 accepts explicit measured packed
+cm, otherwise retaining legacy opt-in product-size reuse. Basic CarrierService eligibility,
+native Box/default fallback, rates and isolated public infrastructure are separate gates.
+Actual mixed-basket checkout acceptance remains mandatory: PACKAGING_AND_SHIPPING.md.
+
 ## M3A.9.5.2 — read-only Orders foundation and separate scope gate
 
 The existing transport adds only three fixed read queries (order index, paginated

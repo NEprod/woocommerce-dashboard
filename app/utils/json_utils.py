@@ -132,7 +132,10 @@ def merge_product_json(shared, override, path=None, *, collection_path=None, lay
     result = dict(shared)
 
     for key, value in override.items():
-        if key == "customisation":
+        if key == "packaging":
+            from app.packaging_contract import merge
+            result[key] = merge(shared.get(key), value)
+        elif key == "customisation":
             continue  # resolve the two authored layers once, below
         elif key in {"variation_attributes", "storefront_collections"}:
             result[key] = value  # explicit replacement, including []
@@ -239,7 +242,11 @@ def apply_variation_modifiers(base_data, variation_attrs, log=print):
         dict: Modified values for price, weight, dimensions, and sale_price
     """
 
-    modifiers = base_data.get("variation_modifiers", {})
+    # A newly authored packaging-only rule must not mask an existing price/
+    # weight modifier. All historical (including empty) rules keep their exact
+    # matching behaviour; only the new non-pricing extension is excluded here.
+    modifiers = {key: value for key, value in base_data.get("variation_modifiers", {}).items()
+                 if not (isinstance(value, dict) and set(value) == {"packaging"})}
     result = {
         "price": base_data.get("price"),
         "sale_price": base_data.get("sale_price"),

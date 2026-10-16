@@ -1,0 +1,10 @@
+{% extends 'layouts/base.html' %}
+{% block title %}{{ 'Edit' if package else 'Add' }} Package{% endblock %}
+{% block content %}
+<header class="page-header"><div><h1 class="page-title">{{ 'Edit' if package else 'Add' }} Package</h1><p>Local operational definition. Existing product assignments and historical plan snapshots are preserved.</p></div><a href="{{ url_for('packaging.index') }}" class="btn btn-ghost">All packages</a></header>
+<form class="app-card" data-package-form data-save-url="{{ url_for('packaging.edit',package_id=package.id) if package else url_for('packaging.new') }}">
+{% include 'packaging/_form.html' %}<p data-package-feedback role="status"></p><div class="page-actions"><button class="btn btn-primary">Save locally</button>{% if package %}<button type="button" class="btn btn-outline-primary" data-package-duplicate>Duplicate</button><a class="btn btn-ghost" href="{{ url_for('packaging.usage',package_id=package.id) }}">Inspect usage / archive</a>{% endif %}</div>
+</form><script id="package-bootstrap" type="application/json">{{ package|tojson }}</script>
+<section class="app-card"><h2>Shopify package</h2><p>Remote creation, linking, update, default change and inventory association are blocked until a public identity/readback contract is verified. Do not copy an unverified ID or recreate the seven existing packages. Add any genuinely new package in Shopify Admin → Settings → Shipping and delivery → Packages, then recheck capabilities here. No local save changes Shopify.</p><details><summary>Copyable Shopify-native measurements</summary><pre data-native-package-copy></pre><p>Internal size, suitability, costs and packing rules are dashboard-only. Verify exterior dimensions and tare before entering them in Shopify.</p></details></section>
+{% endblock %}
+{% block javascripts %}<script src="{{ url_for('static',filename='assets/js/packaging.js') }}"></script>{% endblock %}

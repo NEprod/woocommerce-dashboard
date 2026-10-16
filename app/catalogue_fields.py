@@ -14,6 +14,10 @@ def validate_extensions(data, *, partial=False):
         raise ValueError("country_of_origin must be an uppercase two-letter country code.")
     if "requires_shipping" in data and type(data["requires_shipping"]) is not bool:
         raise ValueError("requires_shipping must be true or false.")
+    from app.packaging_contract import validate as validate_packaging
+    if 'packaging' in data: validate_packaging(data['packaging'])
+    for modifier in (data.get('variation_modifiers') or {}).values():
+        if isinstance(modifier,dict) and 'packaging' in modifier: validate_packaging(modifier['packaging'])
     if "customisation" not in data:
         return
     validate(data['customisation'], partial=partial)
@@ -27,7 +31,7 @@ def shipping_details(authored, product):
     validate_extensions(authored)
     from app.product_defaults import effective
     defaults, sources = effective(authored)
-    return {"weight_g": authored.get("weight", product.weight),
+    return {"weight_g": (authored.get('packaging') or {}).get('weight_g',authored.get("weight", product.weight)),
         "dimensions_mm": authored.get("dimensions", {
             "length": product.length, "width": product.width, "height": product.height}),
         "country_of_origin": defaults['country_of_origin'],

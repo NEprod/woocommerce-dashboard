@@ -1,0 +1,12 @@
+<div class="editor-field-grid" data-package-fields>
+<label>Name<input class="form-control" name="name" required maxlength="191"></label>
+<label>Type<select class="form-select" name="type"><option value="BOX">Box</option><option value="ENVELOPE">Envelope</option><option value="SOFT_PACK">Soft Pack (manual only)</option></select></label>
+{% for group,label in [('external_cm','External'),('internal_cm','Internal usable')] %}
+{% for axis in ['length','width','height'] %}<label>{{ label }} {{ axis }} (cm)<input class="form-control" name="{{ group }}.{{ axis }}" type="number" min="0.001" step="any" placeholder="Unknown"></label>{% endfor %}
+{% endfor %}
+{% for key,label in [('tare_g','Empty package weight (g)'),('max_contents_g','Maximum contents weight (g)'),('max_gross_g','Maximum gross weight (g)'),('clearance_cm','Additional package clearance, each face (cm)'),('protection_weight_g','Protective materials per parcel (g)'),('cost_pence','Unit cost (GBP pence)'),('max_quantity','Maximum item quantity, if constrained')] %}<label>{{ label }}<input class="form-control" name="{{ key }}" type="number" min="0" step="{{ '1' if key in ['cost_pence','max_quantity'] else 'any' }}" placeholder="Unknown / not constrained"></label>{% endfor %}
+<label>Approved protection/materials (comma separated)<input class="form-control" name="protection" placeholder="e.g. rigid backing, bubble wrap"></label>
+</div>
+<div class="packaging-checks">{% for key,label in [('dimensions_measured','External and usable dimensions physically measured'),('tare_measured','Empty weight physically measured'),('automatic','Eligible for automatic packing'),('flat','Approved protection for flat/rigid goods'),('fragile','Approved for fragile contents'),('rolled','Approved for rolled goods (manual planning only)'),('stackable','Contents may be stacked with full support')] %}<label><input type="checkbox" name="{{ key }}"> {{ label }}</label>{% endfor %}</div>
+<label>Notes<textarea class="form-control" name="notes" maxlength="2000" rows="2"></textarea></label>
+<p class="field-helper">Envelope height means its measured usable filled thickness. Unknown is not zero. Interior must not exceed exterior. Confirm weight limits, clearance and protection weight before automatic use. Package definitions never alter product files or Shopify checkout.</p>

@@ -5,6 +5,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import synonym
 from flask import current_app, has_app_context
 from .order_models import ShopifyOrder, ShopifyOrderLine, ShopifyOrderSync
+from .packaging_models import Package, PackageLink, ShippingRates, PackingRecord, PackagingEvidence
 
 # -------------------- Auth / Settings --------------------
 

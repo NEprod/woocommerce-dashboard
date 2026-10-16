@@ -170,6 +170,7 @@
         {{ extra_field('manage_stock','Track finished-product inventory','No quantity or location changes.', [('true','Tracked'),('false','Untracked')]) }}
         {{ extra_field('backorders','Out-of-stock selling policy','Existing reviewed Shopify policy; notify does not send customer alerts.', [('no','Do not allow'),('yes','Allow'),('notify','Allow (legacy notify policy)')]) }}
       </div><p>Product millimetres are not parcel dimensions. Native packed dimensions retain their separate opt-in measurement policy.</p></section>
+      {% include 'packaging/_product.html' %}
       {% include 'includes/_customisation_designer.html' %}
       <section class="editor-workspace-section advanced-fields-section" aria-labelledby="advanced-fields-title">
         <header><h2 id="advanced-fields-title">Advanced</h2><p>Unknown, internal and historical fields remain preserved. Customisation remains definitions only. Scheduled prices require separate explicit per-product authorisation; there are no customer forms, uploads or proof workflows here.</p></header>
@@ -236,4 +237,4 @@
 {% endblock %}
 
 {% block stylesheets %}<link rel="stylesheet" href="{{ url_for('static', filename='assets/css/metadata-taxonomy.css') }}">{% endblock %}
-{% block javascripts %}<script src="{{ url_for('static', filename='assets/js/customisation-designer.js') }}"></script><script src="{{ url_for('static', filename='assets/js/sale-editor.js') }}"></script><script src="{{ url_for('static', filename='assets/js/metadata-editor.js') }}"></script>{% endblock %}
+{% block javascripts %}{% include 'packaging/_modal.html' %}<script src="{{ url_for('static', filename='assets/js/packaging.js') }}"></script><script src="{{ url_for('static', filename='assets/js/customisation-designer.js') }}"></script><script src="{{ url_for('static', filename='assets/js/sale-editor.js') }}"></script><script src="{{ url_for('static', filename='assets/js/metadata-editor.js') }}"></script>{% endblock %}

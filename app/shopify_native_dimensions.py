@@ -32,11 +32,16 @@ def desired(product):
         "desired": None, "local_mm": None, "reason": "Native packed dimensions disabled; product metafields are not shipping dimensions."}
     if not enabled:
         return result
+    document = product_document(product)
+    packaging = document.get('packaging') or {}
+    if 'packed_dimensions_cm' in packaging:
+        result.update(explicit_packed(packaging))
+        return result
     if not use_product:
         result["reason"] = "Packed measurement policy unresolved. Explicitly approve reuse of authored product dimensions only when they accurately describe the packed item."
         return result
     try:
-        local = shipping_details(product_document(product), product)["dimensions_mm"]
+        local = shipping_details(document, product)["dimensions_mm"]
         values = {key: Decimal(str(local[key])) for key in ("length", "width", "height")}
         if any(isinstance(local[k], bool) or not v.is_finite() or v <= 0 or v > Decimal("1000000000") for k, v in values.items()):
             raise ValueError()
@@ -50,6 +55,19 @@ def desired(product):
         result.update(desired=None, local_mm=None)
         result["reason"] = "Complete positive authored length, width and height are required; no packaging values are invented."
     return result
+
+
+def explicit_packed(packaging):
+    """Authored measured shipping size wins; never silently fall back to artwork."""
+    from app.packaging_contract import validate, AXES, number
+    try:
+        validate(packaging)
+        if not packaging.get('measured'): raise ValueError('Confirm packed measurements before Shopify review.')
+        values={k:number(packaging.get('packed_dimensions_cm',{}).get(k),k) for k in AXES}
+        return {'desired':{**{k:float(v) for k,v in values.items()},'unit':'CENTIMETERS'},
+            'local_mm':{k:str(v*10) for k,v in values.items()},'reason':'','measurement_source':'authored_packed_size'}
+    except ValueError as exc:
+        return {'desired':None,'local_mm':None,'reason':str(exc),'measurement_source':'authored_packed_size'}
 
 
 def millimetres(value):

@@ -1,5 +1,14 @@
 # M3A.9 Product Creator & Editor contract
 
+## M3A.9.5.4 — shared Shipping & Packaging component
+
+Intake, shared/product editor and variant modifiers reuse one sparse packing component
+and inline local package modal. Cancel retains drafts; package save never saves/scans/
+publishes a product. Explicit child/manual choices survive inherited changes. Existing
+atomic/source-reviewed local saves, backups and .update handoff remain authoritative.
+Measured packed size can use the existing signed native publisher; preset sync/checkout
+is separately gated. See PACKAGING_AND_SHIPPING.md.
+
 ## M3A.9.5.2 — historical order boundary
 
 Orders imports purchase-time schema-v1 answers by Shopify order/line GID, including

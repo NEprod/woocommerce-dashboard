@@ -1,5 +1,13 @@
 # Shopify Orders — M3A.9.5.2
 
+## M3A.9.5.4 — read-only suggested packaging
+
+Order details can explicitly request local mixed-basket planning, joining exact retained
+store/product/variant GIDs and preserving each historical order/line identity/quantity.
+Current measurements are suggestions, not historical dimensions. Unavailable/uncertain
+mappings block complete plans; no answers/addresses enter packaging evidence. No labels,
+fulfilment or Shopify order writes. See PACKAGING_AND_SHIPPING.md.
+
 ## Authority, permissions and release gates
 
 Shopify owns order commerce, payments, quantities, edits, cancellation, refunds and

@@ -32,6 +32,8 @@ COLLECTION_QUERY = "query Collection($id: ID!, $after: String) { collection(id: 
 READ_QUERIES = frozenset((QUERY, PRODUCTS_QUERY, PRODUCT_QUERY, VARIANT_QUERY, COLLECTIONS_QUERY, COLLECTION_QUERY))
 from .order_queries import READ_QUERIES as ORDER_READ_QUERIES
 READ_QUERIES |= ORDER_READ_QUERIES
+from .packaging_queries import CAPABILITY as PACKAGING_CAPABILITY
+READ_QUERIES |= frozenset((PACKAGING_CAPABILITY,))
 STAGE_QUERY = "mutation Stage($input: [StagedUploadInput!]!) { stagedUploadsCreate(input: $input) { stagedTargets { url resourceUrl parameters { name value } } userErrors { field message } } }"
 CREATE_QUERY = """mutation Draft($product: ProductCreateInput!, $media: [CreateMediaInput!]) {
  productCreate(product: $product, media: $media) { product { id variants(first: 2) { nodes { id } }

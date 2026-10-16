@@ -1,5 +1,14 @@
 # product_info.json Contract
 
+## M3A.9.5.4 — optional authored packaging
+
+`packaging` stores measured packed_dimensions_cm, optional shipping weight_g,
+orientation/classification, protection/clearance, sharing/stacking and selected local
+package UUID/reason. Nested collection → sparse product → matching variation modifier
+merges preserve explicit false/null. Manufacturing dimensions remain separate mm.
+Existing JSON remains valid; deployment/time passing never rewrites authored files.
+The [packaging guide](PACKAGING_AND_SHIPPING.md) defines fields and safety gates.
+
 ## M3A.9.5 — explicit public storefront intent
 
 `customisation.storefront_enabled` is an optional boolean within the existing

@@ -168,6 +168,32 @@ def create(w):
     return row,adapter
 
 
+def test_packaging_weight_and_native_size_are_managed_per_exact_variant(variable_world,monkeypatch):
+    from app.shopify_products import source_fingerprint
+    from app.utils.json_utils import json_key
+    product,shared,*_=variable_world
+    baseline=source_fingerprint(product,[])
+    data=json.loads(shared.read_text())
+    chosen=product.variations[0]
+    selection={a.name:a.value for a in chosen.attributes}
+    key=json_key(selection)
+    modifier=data.setdefault('variation_modifiers',{}).setdefault(key,{})
+    modifier['packaging']={'weight_g':'123.45','packed_dimensions_cm':{'length':'42','width':'29.7','height':'0.3'},'measured':True}
+    shared.write_text(json.dumps(data))
+    monkeypatch.setenv('SHOPIFY_NATIVE_DIMENSIONS_ENABLED','false')
+    assert source_fingerprint(product,[])!=baseline
+    values=variable.projection(product)
+    row=next(v for v in values if v['local_id']==chosen.id)
+    assert str(row['managed']['inventoryItem']['measurement']['weight']['value'])=='123.45'
+    assert row['managed']['inventoryItem']['measurement']['weight']['unit']=='GRAMS'
+    monkeypatch.setenv('SHOPIFY_NATIVE_DIMENSIONS_ENABLED','true')
+    monkeypatch.setenv('SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS','false')
+    values=variable.projection(product)
+    row=next(v for v in values if v['local_id']==chosen.id)
+    assert row['native']['desired']['length']==42.0
+    assert all(v['native']['desired'] is None for v in values if v['local_id']!=chosen.id)
+
+
 def test_scanner_boundaries_prices_create_and_matching(variable_world):
     p,shared,collection,output,rows=variable_world
     files={str(f):f.read_bytes() for f in collection.rglob('*') if f.is_file()}

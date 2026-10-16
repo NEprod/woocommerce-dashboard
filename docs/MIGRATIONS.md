@@ -2,7 +2,11 @@
 
 SQLite schema changes are managed by Alembic. Application startup resolves the configured database path, verifies or migrates it to the current migration head, and only then serves requests. `db.create_all()` is not used.
 
-Current head: **0016_shopify_orders**, following 0015_customisation_templates.
+Current head: **0017_packaging**, following 0016_shopify_orders. Adds operational local
+packages, remote mapping/capability storage, immutable rate revisions and packing
+snapshots, seeding seven deterministic unmeasured UUID definitions. No product/source
+rewrite or new mount. Back up before upgrade; restore pre-upgrade DB with old image
+for rollback. Destructive packaging downgrade is intentionally blocked.
 This adds the three protected Orders tables and one existing-coordinator task, without
 rewriting catalogue, template, product/variant identity or operation tables. Upgrade
 uses the established verified backup process. Nonempty Orders downgrade is refused:
