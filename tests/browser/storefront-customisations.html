@@ -29,6 +29,7 @@ try {
  const block=document.querySelector('tlc-customer-fields'),form=document.querySelector('form');
  form.addEventListener('submit',e=>e.preventDefault()); // no network, ever
  check(block.form===form,'correct Tinker-style form binding');
+ check(block.controls.get('name')[0].form===form,'external controls remain associated despite input[name=id]');
  check(block.controls.size===9,'all nine supported controls render');
  const submit=new Event('submit',{cancelable:true,bubbles:true});form.dispatchEvent(submit);
  check(submit.defaultPrevented && block.status.textContent.includes('Name'),'required input blocks before add-to-cart: '+submit.defaultPrevented+' / '+block.status.textContent);
@@ -45,7 +46,7 @@ try {
  check(second.get('id')==='201','theme variant switch is not overwritten');
  check(first.get('properties[_tlc_personalisation]')!==second.get('properties[_tlc_personalisation]'),'different personalisations produce separate cart properties');
  input('name','<img src=x>');
- const unsafe=new FormData(form).get('properties[Name · name]');
+ const unsafe=new FormData(form).get('properties[Name]');
  check(!unsafe.includes('<') && !block.querySelector('img'),'HTML customer answer is inert');
  block.controls.get('extras').forEach(c=>{c.checked=true;c.dispatchEvent(new Event('change'));});
  check(!block.validate(false),'checkbox group selection limit enforced');

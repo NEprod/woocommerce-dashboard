@@ -1,4 +1,120 @@
-# M3A.9.5 — storefront customisations: staged setup and acceptance
+# M3A.9.5 — storefront customisations: setup and acceptance
+
+## M3A.9.5.1 — cart validation and readable properties
+
+M3A.9.5 was released as `tlc-customisations-m3a-9-5-20261016` (version
+1169951948801). The merchant confirmed its block renders on unpublished Copy of
+Tinker, including separate Freddie/5 and Ellie/6 cart lines. The reported blank-name
+addition is a real defect. The correction must be staged **unreleased** for approval.
+
+### Confirmed causes and correction
+
+Shopify's [Horizon component delegation](https://github.com/Shopify/horizon/blob/main/assets/component.js)
+invokes on:submit handlers during **document capture**. Its
+[product form](https://github.com/Shopify/horizon/blob/main/assets/product-form.js)
+builds FormData and starts AJAX before a later form-target listener can cancel it.
+Our old form-capture validation ran too late: the offline regression recorded one
+cart-add request with an empty name, followed by the validation error. The previous
+helper-only browser fixture did not model the earlier theme handler.
+
+Separately, the hidden input named id shadows form.id. Using that property for the
+app fields' form attribute broke external control association and native Enter/HTML
+validation. The fix reads getAttribute('id') on bind/reset and tests input.form identity.
+
+The guard now runs at window capture **before document capture**, regardless of script
+registration order, and handles only event.target === its verified owned form. Invalid
+submissions stop before the theme/request; valid submissions use the normal theme or
+native handler. There are no global click blockers, key overrides, fetch/prototype
+patches or replacement cart APIs. Native Enter works with corrected association.
+Listeners are removed/rebound on disconnect or form replacement. Validation reads
+current controls, rejects required whitespace, clears stale validity and removes stale
+owned properties from serialization rather than retaining an old answer.
+
+Real Chromium and touch/mobile-emulated WebKit tests use a fictional local cart server,
+with document capture registered before the app asset. They cover click/tap/Enter,
+native requestSubmit, synthetic AJAX submit, independent products, quantity changes,
+reload, replacement/reconnect/reset and simulated checkout/order-attribute retention.
+The exact installed theme asset/version was not fetched: the local Themes panel
+stalled and the merchant explicitly authorised proceeding without a draft preview URL.
+Shared Shopify source plus the reproduced mechanism are code evidence, not a claim of
+corrected live Safari acceptance. Physical iPhone Safari remains an acceptance gate.
+
+### Public labels and historical identities
+
+New visible keys are escaped, bracket-safe **field labels only**, for example:
+
+```text
+Recipients Name: Freddie
+Anniversary Years: 5
+```
+
+Duplicate labels receive readable numbered suffixes without dropping answers. A label
+beginning with '_' is prefixed with "Answer " so it cannot hide an answer or overwrite
+reserved private properties. Existing HTML-entity escaping remains unchanged.
+
+_tlc_configuration and _tlc_personalisation remain private line-item properties. JSON
+v1 retains product_id, revision, stable field/choice IDs, type, original label, typed
+value and display text; additive property_key records the exact visible cart key.
+Old snapshots without property_key remain interpretable by retained ID and label.
+No authored schema, template, inheritance, SKU, variant or public configuration changes.
+
+Horizon cart-products.liquid excludes underscore-prefixed properties; drawer and full
+cart share that renderer. Shopify documents private properties as
+[hidden at checkout but retained in Admin and Liquid/Ajax](https://shopify.dev/docs/api/ajax/reference/cart#private-line-item-properties).
+[LineItem.customAttributes](https://shopify.dev/docs/api/admin-graphql/latest/objects/LineItem#field-LineItem.fields.customAttributes)
+is the future order-API surface. Tests round-trip that shape, not an actual order.
+Live order readback requires a separately authorised test order and appropriate access;
+no read_orders scope is added. Private is not secret/tamper-proof. Other themes require
+their own visibility check. Existing cart lines keep old technical keys until manually
+removed/re-added by the merchant; there is no automatic cart rewrite.
+
+### Accelerated checkout and server-side limits
+
+Buy with Shop can bypass the product-form submit path through Shopify-owned payment
+controls. This script does not claim universal enforcement there. TLC's installation
+was confirmed as Basic. Shopify's [Functions availability rules](https://shopify.dev/docs/apps/build/functions#availability-of-shopify-functions)
+permit public App Store apps containing Functions on any plan, but custom-app Functions
+require Plus. Cart and Checkout Validation Functions are the supported server-side
+mechanism; deployment in this private app on Basic is not assumed supported. A suitable
+public validation app or another supported arrangement requires separate evaluation.
+No new app, scope, validation Function or checkout UI is introduced.
+
+Merchant mitigation: on the **unpublished personalised product template**, open Product
+information → Buy buttons and turn off **Show accelerated checkout buttons** (exact
+wording can vary), then save only the draft theme. Disable incompatible quick-add and
+featured-product purchase shortcuts there. Do not disable Shop Pay/payment methods
+globally. See Shopify's [template-level instructions](https://help.shopify.com/en/manual/online-store/dynamic-checkout/add-buttons).
+No theme setting is changed automatically. Direct cart requests, form.submit(), disabled
+JS, quick-add and third-party flows remain outside this product-page guard.
+
+### Staging and controlled acceptance
+
+Stage `tlc-customisations-cart-<shortcommit>` using the existing CLI config and UID,
+--no-release and exact source-control URL. Compare settings against the active version
+above; leave it active. No Docker rebuild or migration is needed for extension-only
+runtime changes. A staged version is **not available** merely by opening a draft theme.
+Separate approval to release the inspected candidate must precede hosted acceptance:
+
+1. Release the exact inspected candidate only after approval. Confirm its UID, unchanged
+   app configuration and Active state. Rollback target is the released version above.
+2. Open Copy of Tinker and confirm its Draft badge; do not publish it. Keep one TLC
+   block on the main product form, using the existing enabled pilot configuration and
+   namespace `app--434537660417--tlc_customisations`. No configuration republish needed.
+3. Disable accelerated checkout for this personalised draft template as described above.
+4. Use a clean test basket or manually remove only approved old pilot lines. Blank or
+   whitespace Recipients Name: click/tap Add to Cart and test Enter. Expect a visible
+   error and **zero** new items. Test physical mobile Safari and desktop Chromium.
+5. Add Freddie/5, then Ellie/6. Verify two distinct lines and readable labels in drawer
+   and full cart. Increase Freddie's quantity without changing Ellie's data. Reload and
+   navigate to checkout review **without placing an order**; no technical keys should
+   display. Check a normal product and supported variant/form rerender behaviour.
+6. Stop on connection errors or incompatible shortcuts. Actual order-API readback needs
+   a separately authorised test order; neither theme edits nor orders occur in staging.
+
+Rollback only after approval: from shopify/, run
+`shopify app release --path . --version tlc-customisations-m3a-9-5-20261016` and verify
+it is Active. This restores the earlier asset, not product/cart/order data. It also
+restores the original validation defect, so do not sell through the affected flow.
 
 ## Readiness and boundaries
 
@@ -74,7 +190,8 @@ upload endpoint, public customer file storage, signed upload URL or scan/retenti
 The app block associates controls with the exact main product form; it never writes
 the theme's variant ID or replaces native cart requests. Native line-item properties:
 
-- Visible `Label · stable_id`: readable selected labels/answers.
+- Visible `Label`: readable selected labels/answers (M3A.9.5.1; older carts keep their
+  original `Label · stable_id` keys until explicitly re-added).
 - `_tlc_configuration`: immutable public configuration revision.
 - `_tlc_personalisation`: JSON v1 containing product_id, revision and a historical
   field snapshot (stable id, type, label, typed value, readable display).

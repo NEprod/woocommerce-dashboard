@@ -1,0 +1,76 @@
+<!doctype html><html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offline Tinker capture-order regression</title>
+<link rel="stylesheet" href="/shopify/extensions/tlc-customisations/assets/tlc-customer-fields.css">
+<main class="shopify-section" id="main-product">
+  <h1>Fictional Anniversary Card</h1>
+  <tlc-customer-fields id="personalisation" data-product-id="100" data-form-id="BuyButtons-ProductForm-main">
+    <p data-tlc-status role="status"></p><div data-tlc-fields></div>
+  </tlc-customer-fields>
+  <product-form-component data-product-id="100">
+    <form id="BuyButtons-ProductForm-main" action="/cart/add" method="post" target="native-result" on:submit="/handleSubmit" novalidate>
+      <input name="id" value="200" type="hidden"><input name="quantity" value="1" type="hidden">
+      <button type="submit">Add personalised item</button>
+    </form>
+  </product-form-component>
+</main>
+<section class="shopify-section" id="second-product">
+  <tlc-customer-fields id="second-personalisation" data-product-id="101" data-form-id="second-form">
+    <p data-tlc-status role="status"></p><div data-tlc-fields></div>
+  </tlc-customer-fields>
+  <product-form-component data-product-id="101"><form id="second-form" action="/cart/add" on:submit="/handleSubmit" novalidate>
+    <input name="id" value="201" type="hidden"><button type="submit">Add second item</button>
+  </form></product-form-component>
+</section>
+<product-form-component data-product-id="102"><form id="plain-form" action="/cart/add" on:submit="/handleSubmit">
+  <input name="id" value="202" type="hidden"><button type="submit">Add plain item</button>
+</form></product-form-component>
+<iframe name="native-result" title="Offline native submission result" hidden></iframe>
+<button id="refresh-cart">Refresh offline cart</button><a href="/checkout">Offline checkout fixture (no order)</a>
+<div id="cart-drawer"></div><div id="cart-page"></div>
+<script>
+// Models Horizon's document capture delegation BEFORE the app asset loads.
+// Its handler does not gate on defaultPrevented/checkValidity; a form-target
+// listener is too late. All requests stay on this fictional local test server.
+class FixtureProductForm extends HTMLElement {
+  async handleSubmit(event) {
+    event.preventDefault();
+    const data = new FormData(event.target), properties = {};
+    for (const [key,value] of data) if (key.startsWith('properties[')) properties[key.slice(11,-1)] = value;
+    await fetch('/cart/add.js',{method:'POST',body:JSON.stringify({id:data.get('id'),quantity:Number(data.get('quantity')||1),properties})});
+    await refreshCart();
+  }
+}
+customElements.define('product-form-component',FixtureProductForm);
+document.addEventListener('submit',event=>{
+  if (event.target.matches('form[on\\:submit]')) event.target.closest('product-form-component').handleSubmit(event);
+},{capture:true});
+async function refreshCart() {
+  const cart = await (await fetch('/cart.js')).json();
+  for (const target of ['cart-drawer','cart-page']) {
+    const container=document.getElementById(target); container.replaceChildren();
+    for (const item of cart.items) {
+      const row=document.createElement('article');row.dataset.key=item.key;
+      const title=document.createElement('strong');title.textContent=`Variant ${item.id} × ${item.quantity}`;row.append(title);
+      // Horizon cart-products.liquid excludes underscore-prefixed properties.
+      for (const [key,value] of Object.entries(item.properties)) if (!key.startsWith('_') && value!=='') {
+        const line=document.createElement('p');line.innerHTML=`${key}: ${value}`;row.append(line);
+      }
+      const plus=document.createElement('button');plus.textContent='Increase quantity';
+      plus.onclick=async()=>{await fetch('/cart/change.js',{method:'POST',body:JSON.stringify({id:item.key,quantity:item.quantity+1})});await refreshCart();};
+      row.append(plus);container.append(row);
+    }
+  }
+}
+document.getElementById('refresh-cart').onclick=refreshCart;
+document.querySelector('#personalisation').dataset.configuration=JSON.stringify({schema_version:1,enabled:true,revision:'a'.repeat(64),fields:[
+  {id:'recipient',type:'text',label:'Recipients Name',required:true,max_length:40},
+  {id:'anniversary_length',type:'number',label:'Anniversary Years',whole_number:true,minimum:1}
+]});
+document.querySelector('#second-personalisation').dataset.configuration=JSON.stringify({schema_version:1,enabled:true,revision:'b'.repeat(64),fields:[
+  {id:'message',type:'text',label:'Second message',required:true}
+]});
+</script>
+<script src="/shopify/extensions/tlc-customisations/assets/tlc-customer-fields.js"></script>
+<script>refreshCart();</script>
+</html>

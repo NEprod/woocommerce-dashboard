@@ -3,7 +3,7 @@
   'use strict';
   const kinds = new Set(['text','textarea','number','dropdown','radio','checkbox','checkbox_group','date','colour']);
   const idPattern = /^[a-z][a-z0-9_]{0,63}$/;
-  const empty = value => value == null || value === '' || Array.isArray(value) && !value.length || value === false;
+  const empty = value => value == null || typeof value === 'string' && !value.trim() || Array.isArray(value) && !value.length || value === false;
   const htmlText = value => String(value).replace(/[&<>"'/]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#47;'}[c]));
   function configuration(value) {
     if (!value || value.schema_version !== 1 || typeof value.enabled !== 'boolean' || !/^[a-f0-9]{64}$/.test(value.revision) || !Array.isArray(value.fields)) throw Error('Unsupported TLC configuration. Please contact us before ordering.');
@@ -39,7 +39,7 @@
   function properties(config, product, answers) {
     configuration(config);
     if (!config.enabled) return {};
-    const result = {}, snapshot = [];
+    const result = Object.create(null), snapshot = [];
     for (const field of config.fields) {
       const value = Object.hasOwn(answers,field.id) ? answers[field.id] : undefined;
       const problem = error(field,value);
@@ -49,8 +49,12 @@
       const readable = Array.isArray(value) ? value.map(label).join(', ') : value === true ? 'Yes' : label(value);
       // Visible values are entity-encoded: Horizon's current cart renders them
       // without explicit Liquid escaping. Raw typed answers stay in private data.
-      result[`${htmlText(field.label).replace(/[\[\]]/g,' ')} · ${field.id}`] = htmlText(readable);
-      const saved={id:field.id,type:field.type,label:field.label,value,display:readable};
+      const labelText = htmlText(field.label).replace(/[\[\]]/g,' ').trim() || 'Customisation';
+      const base = labelText.startsWith('_') ? `Answer ${labelText}` : labelText;
+      let key = base;
+      for (let n=2; Object.hasOwn(result,key); n++) key=`${base} (${n})`;
+      result[key] = htmlText(readable);
+      const saved={id:field.id,type:field.type,label:field.label,property_key:key,value,display:readable};
       if(field.choices)saved.choice_ids=field.choices.filter(c=>Array.isArray(value)?value.includes(c.id):c.id===value||c.value===value).map(c=>c.id);
       snapshot.push(saved);
     }
@@ -92,16 +96,30 @@
       }
       if (owners.has(form) && owners.get(form) !== this) {this.status.textContent='Duplicate TLC block: remove the extra block before using this template.';return;}
       owners.set(form,this);this.form=form;
-      for (const inputs of this.controls.values()) for (const input of inputs) input.setAttribute('form',form.id);
-      this.submit = event => {if (!this.validate()) {event.preventDefault();event.stopImmediatePropagation();}};
-      this.formdata = event => {if (this.validate(false)) for (const [key,value] of Object.entries(this.values())) event.formData.set(`properties[${key}]`,value);};
-      this.reset = event => queueMicrotask(()=>{if(event.defaultPrevented || !this.isConnected)return;this.answers=Object.create(null);this.render();for(const inputs of this.controls.values())for(const input of inputs)input.setAttribute('form',this.form.id);this.sync();});
-      form.addEventListener('submit',this.submit,true);form.addEventListener('formdata',this.formdata);form.addEventListener('reset',this.reset);
+      // Shopify's input[name=id] shadows form.id. Always read the attribute.
+      for (const inputs of this.controls.values()) for (const input of inputs) input.setAttribute('form',form.getAttribute('id'));
+      // Horizon delegates submit from document capture: form capture is too late.
+      // Window capture precedes it regardless of script registration order. Ignore
+      // every other form; do not intercept clicks, fetch, checkout or payment APIs.
+      this.submit = event => {
+        if (event.target !== this.form) return;
+        if (!this.validate()) {event.preventDefault();event.stopImmediatePropagation();}
+        else this.sync();
+      };
+      this.formdata = event => {
+        for (const input of this.propertyInputs) event.formData.delete(input.name);
+        if (this.validate(false)) for (const [key,value] of Object.entries(this.values())) event.formData.set(`properties[${key}]`,value);
+      };
+      this.reset = event => queueMicrotask(()=>{if(event.defaultPrevented || !this.isConnected)return;this.answers=Object.create(null);this.render();for(const inputs of this.controls.values())for(const input of inputs)input.setAttribute('form',this.form.getAttribute('id'));this.sync();});
+      this.guardTarget = this.ownerDocument.defaultView;
+      this.guardTarget.addEventListener('submit',this.submit,true);
+      form.addEventListener('formdata',this.formdata);form.addEventListener('reset',this.reset);
       this.sync();
       if (!this.blockReason) this.status.textContent='';
     }
     unbind() {
-      if (this.form) {this.form.removeEventListener('submit',this.submit,true);this.form.removeEventListener('formdata',this.formdata);this.form.removeEventListener('reset',this.reset);owners.delete(this.form);}
+      this.guardTarget?.removeEventListener('submit',this.submit,true);
+      if (this.form) {this.form.removeEventListener('formdata',this.formdata);this.form.removeEventListener('reset',this.reset);owners.delete(this.form);}
       this.propertyInputs.forEach(n=>n.remove());this.propertyInputs=[];this.form=null;
     }
     values() {return properties(this.config,this.dataset.productId,this.answers);}
@@ -115,12 +133,18 @@
     }
     validate(report=true) {
       if (this.blockReason) {if(report)this.status.textContent=this.blockReason;return false;}
+      let first;
       for (const f of this.config.fields) {
-        const message=error(f,this.answers[f.id]);
-        const input=this.controls.get(f.id)?.[0];input?.setCustomValidity(message || '');
-        if (message) {if(report){this.status.textContent=`${f.label}: ${message}`;input?.reportValidity();input?.focus();}return false;}
+        const inputs=this.controls.get(f.id) || [], input=inputs[0];
+        if (input) this.answers[f.id]=f.type==='radio'?inputs.find(i=>i.checked)?.value || '':f.type==='checkbox_group'?inputs.filter(i=>i.checked).map(i=>i.value):f.type==='checkbox'?input.checked:f.type==='number'?(input.value===''?'':Number(input.value)):input.value;
+        const message=error(f,this.answers[f.id]) || (input?.validity.badInput ? 'Please enter a valid value.' : null);
+        input?.setCustomValidity(message || '');
+        if (input) input.setAttribute('aria-invalid',message?'true':'false');
+        if (message && !first) first={input,message:`${f.label}: ${message}`};
       }
-      if(report)this.status.textContent='';return true;
+      if(report || !first)this.status.textContent=first?.message || '';
+      if(first && report){first.input?.reportValidity();first.input?.focus();}
+      return !first;
     }
     render() {
       this.container.replaceChildren();
@@ -132,7 +156,7 @@
         const inputs=[];
         const value = this.answers[f.id] ?? f.default ?? (f.type==='checkbox'?false:f.type==='checkbox_group'?[]:'');
         this.answers[f.id]=value;
-        const update=()=>{this.answers[f.id]=group?(f.type==='radio'?inputs.find(i=>i.checked)?.value || '':inputs.filter(i=>i.checked).map(i=>i.value)):f.type==='checkbox'?inputs[0].checked:f.type==='number'?(inputs[0].value===''?'':Number(inputs[0].value)):inputs[0].value;this.sync();};
+        const update=()=>this.sync();
         if (group) for (const [index,c] of f.choices.entries()) {
           const row=document.createElement('label'),input=document.createElement('input');
           input.type=f.type==='radio'?'radio':'checkbox';input.id=`${key}-${index}`;input.name=`tlc-ui-${key}`;input.value=c.id;

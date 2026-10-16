@@ -1,5 +1,37 @@
 # Current State
 
+## M3A.9.5.1 — Tinker cart validation correction (unreleased candidate)
+
+The merchant confirmed M3A.9.5 renders on unpublished Copy of Tinker, but blank
+required names still added a cart line. Real-browser offline reproduction established
+two defects: Horizon runs its cart handler at document capture before our form-capture
+listener, and input[name=id] shadows form.id, breaking external control association.
+The correction guards submit at window capture for the exact owned form only and
+uses getAttribute('id') when binding/resetting controls. Native Enter/requestSubmit,
+AJAX, replacement and reconnect keep the existing theme cart implementation.
+
+Visible properties now use readable labels, not stable IDs. IDs, typed answers and
+revision remain in _tlc_personalisation; additive property_key records the public key.
+Existing cart lines are not rewritten. No product-configuration republish is needed.
+Asset: 9296 bytes, below Shopify's 10000-byte limit. Focused checks: 25 JavaScript,
+20 Python, 16 real-browser scenarios across Chromium/mobile-emulated WebKit (18 test
+records, including the existing 15-assertion fixture in both engines). Bounded
+Dashboard regression: 178 Python and 66 existing editor/designer JavaScript checks.
+Build/Theme Check and configuration validation pass. All requests use fictional local
+cart endpoints; no live cart, Shopify checkout/order or physical iPhone acceptance is
+claimed. The merchant authorised proceeding without a shareable draft preview URL;
+the exact installed theme asset/version was not independently inspected.
+
+Only extension source/assets, tests and docs change: no Dashboard runtime, Docker
+image, migration, app scopes, product data or theme change. Release baseline is
+tlc-customisations-m3a-9-5-20261016; stage the correction with --no-release and the
+same UID, leaving that version active. Release requires separate approval.
+
+Accelerated checkout is outside product-page enforcement. TLC's existing installation
+is Basic; Shopify custom-app Functions require Plus. Use the merchant-controlled
+personalised-template accelerated-checkout setting, not global payment changes.
+Server-side options, remaining bypasses and acceptance are in SHOPIFY_CUSTOMISATIONS.md.
+
 ## M3A.9.5 Shopify CLI staging checkpoint — 16 October 2026
 
 CLI 4.9.4 is authenticated and the local shopify/ workspace is linked to the existing

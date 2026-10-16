@@ -21,7 +21,7 @@ const configuration = fields => ({schema_version:1,enabled:true,revision:'a'.rep
 const name = {id:'name',type:'text',label:'Name',required:true,max_length:30};
 
 for(const [field,answer,valid] of [
-  [name,'Ellie',true],[name,'',false],[name,'x'.repeat(31),false],
+  [name,'Ellie',true],[name,'',false],[name,'   ',false],[name,'x'.repeat(31),false],
   [{...name,type:'textarea'},'Happy\nBirthday',true],
   [{id:'age',label:'Age',type:'number',minimum:1,maximum:100,whole_number:true},4,true],
   [{id:'age',label:'Age',type:'number',whole_number:true},1.5,false],
@@ -45,7 +45,8 @@ test('same variant with different personalisations retains different cart identi
   assert.notDeepEqual(first,second);
   const order=JSON.parse(first._tlc_personalisation);
   assert.equal(order.product_id,'100');assert.equal(order.revision,config.revision);
-  assert.deepEqual(order.fields,[{id:'name',type:'text',label:'Name',value:'Ellie',display:'Ellie'}]);
+  assert.deepEqual(order.fields,[{id:'name',type:'text',label:'Name',property_key:'Name',value:'Ellie',display:'Ellie'}]);
+  assert.equal(first.Name,'Ellie');assert.equal(first['Name · name'],undefined);
 });
 test('several fields and stable option identities survive cart and simulated order customAttributes',()=>{
   const config=configuration([name,{id:'message',type:'textarea',label:'Message'},
@@ -72,9 +73,20 @@ test('disabled definitions add no properties; unsupported required files fail cl
   assert.throws(()=>api.properties(configuration([{id:'photo',label:'Photo',type:'file_upload',required:true}]),100,{}),/unsupported/);
   assert.throws(()=>api.properties(configuration([name,name]),100,{}),/unsupported/);
 });
+test('readable duplicate labels preserve every answer and private stable identity',()=>{
+  const fields=[name,{id:'other_name',type:'text',label:'Name'},{id:'third',type:'text',label:'Name (2)'},
+    {id:'private_label',type:'text',label:'_tlc_configuration'}];
+  const result=plain(api.properties(configuration(fields),100,{name:'Ellie',other_name:'Freddie',third:'Jack',private_label:'Visible'}));
+  assert.equal(result.Name,'Ellie');assert.equal(result['Name (2)'],'Freddie');assert.equal(result['Name (2) (2)'],'Jack');
+  assert.equal(result['Answer _tlc_configuration'],'Visible');assert.equal(result._tlc_configuration,'a'.repeat(64));
+  assert.deepEqual(JSON.parse(result._tlc_personalisation).fields.map(f=>f.id),fields.map(f=>f.id));
+});
 test('renderer preserves native theme variant/cart and supports formdata lifecycle without a proxy',()=>{
-  assert.match(source,/form\.addEventListener\('submit',this.submit,true\)/);
-  assert.match(source,/formdata/);assert.match(source,/setAttribute\('form',form.id\)/);
+  assert.match(source,/guardTarget\.addEventListener\('submit',this.submit,true\)/);
+  assert.match(source,/event\.target !== this\.form/);
+  assert.match(source,/guardTarget\?\.removeEventListener\('submit',this.submit,true\)/);
+  assert.match(source,/formdata/);assert.match(source,/setAttribute\('form',form.getAttribute\('id'\)\)/);
+  assert.doesNotMatch(source,/\bform\.id\b[^\n]*\)/);
   assert.match(source,/disconnectedCallback\(\)/);assert.match(source,/MutationObserver/);
   assert.doesNotMatch(source,/fetch\(|XMLHttpRequest|\/cart\/change|\.value\s*=.*variant|type=['"]file/);
 });
