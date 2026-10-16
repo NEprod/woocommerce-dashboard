@@ -1,5 +1,39 @@
 # Current State
 
+## M3A.9.5.2 — local read-only Shopify Orders foundation
+
+Migration 0016_shopify_orders adds protected order/line commerce snapshots and per-store
+durable import checkpoints, plus one five-minute Orders task in the existing scheduler.
+Order and line GIDs—not SKU—associate historical answers, retaining the actual schema-v1
+_tlc_personalisation JSON and plain _tlc_configuration revision. Missing/malformed data
+keeps public answers and warnings; source properties remain in protected details.
+
+Admin-only Orders list/detail/search/filter pages and Dashboard summaries render from
+SQLite, never from live page-load queries. Test orders are labelled and excluded from
+ordinary Dashboard operational totals by default. The importer performs fixed read-only
+2026-10 queries, complete line pagination and revision-consistent atomic upserts, rejects
+older responses, resumes interrupted ID queues, and preserves inaccessible records.
+No scanner, order mutation, webhook endpoint or Discord notification is introduced.
+Existing Products, authored JSON, identities, sales, theme and native 2027-01 policy stay
+unchanged. Persistent appdata remains /app/instance; no replacement /data mount or XML
+change is required. Unrelated Unraid/template work remains outside this milestone.
+
+The only Shopify app configuration change is adding read_orders to the existing 11
+scopes. It must be staged unreleased; release/install authorisation is a separate
+approval boundary. The working extension UID/asset is unchanged. The actual merchant
+test order #TLC-1001 has not been imported during development: permission approval and
+controlled Unraid acceptance remain necessary. See [Orders guide](SHOPIFY_ORDERS.md)
+for persistence, boundaries, backups, recovery, limits and exact acceptance steps.
+
+Offline verification: 57 focused Orders cases; bounded existing regression coverage
+across scheduler/startup, Simple/Variable publishing, sales/lifecycle, storefront,
+migrations and Dashboard (296 cases after aligning three stale Woo-era Dashboard
+tests with the current Shopify/request-context contract). Affected Orders/scheduler
+progress checks pass together (106 cases); these overlap the totals, not extra cases.
+37 focused JavaScript checks pass. Native Chrome desktop/mobile fixture confirms
+independent answers, administrator gating, collapsed diagnostics and no horizontal
+overflow at 390px; this is synthetic browser evidence, not the merchant's live order.
+
 ## M3A.9.5.1 — Tinker cart validation correction (unreleased candidate)
 
 The merchant confirmed M3A.9.5 renders on unpublished Copy of Tinker, but blank

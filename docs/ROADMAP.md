@@ -1,5 +1,20 @@
 # Roadmap
 
+## M3A.9.5.2 — accept read-only Orders before production work
+
+Release/authorise the separately staged read_orders permission only after explicit
+approval; deploy the tested Dashboard image with migration 0016 and existing mounts.
+Accept actual #TLC-1001 once: one order, two independent same-SKU line identities,
+Ellie/6 and Freddie/5, original typed snapshots/revisions, matching totals/test status,
+idempotent re-import and restart/offline readability. No live import is claimed by
+offline tests. The [Orders guide](SHOPIFY_ORDERS.md) defines the permanent authority,
+security, checkpoint, privacy and recovery boundaries.
+
+Future proofs/production/shared materials/picking/packing/Royal Mail/fulfilment must
+attach separate local workflow records to these historical identities. Secure webhook
+hints may reuse targeted read_order later, but no public Unraid endpoint, order write,
+bulk publishing, upload or new workflow is included in this milestone.
+
 ## M3A.9.5 — accept the staged storefront bridge
 
 Accept the Single Variable pipe separator and reviewed per-product public configuration

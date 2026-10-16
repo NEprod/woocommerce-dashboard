@@ -1,0 +1,26 @@
+{% extends 'layouts/base.html' %}
+{% block title %}Orders{% endblock %}
+{% block content %}
+<header class="page-header"><div><p class="eyebrow">Shopify · Read only</p><h1 class="page-title">Orders</h1><p>Saved purchases and their original personalisations. Shopify remains authoritative for payment and fulfilment.</p></div>
+<form method="post" action="{{ url_for('orders.sync_now') }}">{{ form.hidden_tag() }}<button class="btn btn-primary">Sync Now</button></form></header>
+<section class="app-card order-sync" data-order-sync data-status-url="{{ url_for('orders.status') }}" data-active="{{ 'true' if sync.run_id else 'false' }}">
+<h2 data-order-sync-label>{{ sync.label }}</h2><p data-order-sync-message>{{ sync.message }}</p>
+<p>Last complete sync: <span data-order-sync-time>{{ sync.last_successful|order_uk_time }}</span> · {{ sync.imported_orders }} saved orders</p>
+<div class="panel-actions"><a href="{{ url_for('tasks.index',task='shopify_orders') }}">Schedule settings</a><a href="{{ url_for('tasks.history',key='shopify_orders') }}">Import history</a><a href="{{ url_for('commerce.settings') }}">Shopify connection</a><a href="{{ url_for('orders.index',**filters) }}">Refresh local list</a></div><p data-order-sync-feedback role="status" aria-live="polite"></p>
+</section>
+<form class="app-card orders-filters" method="get" aria-label="Filter orders">
+<label>Order number or SKU<input class="form-control" name="q" value="{{ filters.q }}" maxlength="100" type="search"></label>
+<label>Fulfilment<select class="form-select" name="fulfillment"><option value="">All</option>{% for key,label in [('unfulfilled','Outstanding items'),('fulfilled','Fulfilled')] %}<option value="{{ key }}" {% if filters.fulfillment==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+<label>Payment<select class="form-select" name="payment"><option value="">All</option>{% for status in financial_options %}<option {% if filters.payment==status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></label>
+<label>Test orders<select class="form-select" name="test"><option value="">Include all</option><option value="yes" {% if filters.test=='yes' %}selected{% endif %}>Test only</option><option value="no" {% if filters.test=='no' %}selected{% endif %}>Exclude test</option></select></label>
+<label>Personalisation<select class="form-select" name="personalised"><option value="">All</option><option value="yes" {% if filters.personalised=='yes' %}selected{% endif %}>Personalised</option></select></label><button class="btn btn-primary">Filter</button><a href="{{ url_for('orders.index') }}">Clear</a>
+</form>
+{% if orders %}
+<section class="app-card"><div class="table-responsive"><table class="table orders-table"><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Fulfilment</th><th>Items</th></tr></thead><tbody>
+{% for order in orders %}<tr><td data-label="Order"><a href="{{ url_for('orders.detail',order_id=order.id) }}"><strong>{{ order.name }}</strong></a><small>{{ order.created_at|order_uk_time }}</small>{% if order.test %}<span class="status-pill is-warning">Test order</span>{% endif %}{% if order.personalised %}<span class="compact-status">Personalised</span>{% endif %}{% if order.cancelled_at %}<span class="status-pill is-warning">Cancelled</span>{% endif %}</td>
+<td data-label="Customer">{{ order.customer_name or 'Not available' }}</td><td data-label="Total">{{ order.currency }} {{ '%.2f'|format(order.total) }}</td><td data-label="Payment">{{ order.financial_status|replace('_',' ')|title }}</td><td data-label="Fulfilment">{{ order.fulfillment_status|replace('_',' ')|title }}</td><td data-label="Items">{{ order.quantity }} units<small>{{ order.outstanding_quantity }} outstanding</small></td></tr>{% endfor %}
+</tbody></table></div></section>
+<nav class="pagination-bar" aria-label="Order pages">{% if pagination.has_prev %}<a class="btn btn-ghost" href="{{ url_for('orders.index',page=pagination.prev_num,**filters) }}">Previous</a>{% endif %}<span>Page {{ pagination.page }} · {{ pagination.total }} orders</span>{% if pagination.has_next %}<a class="btn btn-ghost" href="{{ url_for('orders.index',page=pagination.next_num,**filters) }}">Next</a>{% endif %}</nav>
+{% else %}<section class="empty-state"><h2>{{ 'No orders matching filters' if sync.imported_orders else sync.label }}</h2><p>{{ 'Try clearing the filters. Existing records are retained when Shopify is unavailable.' if sync.imported_orders else 'Use Sync Now after read_orders is approved. An empty local list is not proof that the Shopify store has no orders.' }}</p></section>{% endif %}
+{% endblock %}
+{% block javascripts %}<script src="{{ url_for('static',filename='assets/js/orders.js') }}" defer></script>{% endblock %}

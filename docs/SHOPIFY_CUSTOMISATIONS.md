@@ -1,5 +1,18 @@
 # M3A.9.5 — storefront customisations: setup and acceptance
 
+## M3A.9.5.2 — read-only historical order capture
+
+The cart correction tlc-customisations-cart-604e504d4cae (1170069815297) was separately
+released and confirmed Active. The merchant subsequently reported a test-mode order
+#TLC-1001 with two independent 16bit-0001 lines and private snapshots. The Orders
+foundation parses the exact existing schema, preserves labels/typed answers/revision,
+and does not modify the extension or need product configuration republication.
+
+The new read_orders scope must be staged unreleased and separately approved before
+live import. Fixture/browser/Docker checks do not establish actual #TLC-1001 values.
+Storefront validation, accelerated-checkout limitations, app UID and theme controls
+remain unchanged. See [Orders acceptance](SHOPIFY_ORDERS.md) for the two-line check.
+
 ## M3A.9.5.1 — cart validation and readable properties
 
 M3A.9.5 was released as `tlc-customisations-m3a-9-5-20261016` (version

@@ -1,5 +1,7 @@
 .git
 .github
+shopify/.shopify
+shopify/node_modules
 .env
 .env.*
 !.env.example

@@ -1,5 +1,14 @@
 # M3A.9 Product Creator & Editor contract
 
+## M3A.9.5.2 — historical order boundary
+
+Orders imports purchase-time schema-v1 answers by Shopify order/line GID, including
+the original configuration revision and stable field/choice IDs. It never reinterprets
+them using today's editor/template or writes answers into product_info.json. Two lines
+with one SKU remain separate. Local saves, inheritance, targeted .update projection,
+signed publishing and separately authorised sales are unchanged. No editor action
+imports, creates or modifies a Shopify order. See [Orders guide](SHOPIFY_ORDERS.md).
+
 ## M3A.9.5 — public configuration intent and scoped review
 
 Customer Customisations retains the same designer, pinning, stable IDs and sparse

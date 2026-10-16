@@ -22,16 +22,20 @@ DEFINITION = {"name":"Shopify Product Reconciliation",
     "description":"Read-only verification of product, variant, inventory, media, taxonomy and attribute evidence."}
 SALE_KEY='shopify_sales'
 SALE_DEFINITION={'name':'Scheduled Sale Transitions','description':'Only explicitly authorised due price transitions; no due sale means no Shopify request.'}
+ORDERS_KEY='shopify_orders'
 
 
 def definition(key):
     from app.catalogue_startup import KEY as local_key, DEFINITION as local_definition
     if key==local_key: return local_definition
+    if key==ORDERS_KEY:
+        from app.shopify_orders import DEFINITION as orders_definition
+        return orders_definition
     return SALE_DEFINITION if key==SALE_KEY else DEFINITION
 
 
 def intervals(key):
-    return (5,10,20,30,60) if key==SALE_KEY else INTERVALS
+    return (5,10,20,30,60) if key in {SALE_KEY,ORDERS_KEY} else INTERVALS
 COUNTERS = ("considered", "skipped_recent", "checked", "up_to_date", "updates", "attention", "unavailable", "deferred", "api_requests", "throttled")
 
 
@@ -48,18 +52,19 @@ def encoded(data):
 
 def snapshot(task):
     run = db.session.get(ScheduledTaskRun, task.active_run_id) if task.active_run_id else ScheduledTaskRun.query.filter_by(task_key=task.key).order_by(ScheduledTaskRun.created_at.desc()).first()
+    data=json.loads(run.data_json) if run else {}
     return {"key":task.key, **definition(task.key), "enabled":task.enabled,"interval":task.interval_minutes,
         'intervals':intervals(task.key),
         "state":task.state,"outcome":task.last_outcome,
         "duration":max(0,(now()-run.started_at).total_seconds()) if task.active_run_id and run and run.started_at else None if task.active_run_id else task.duration_seconds,
         **{key:getattr(task,key).isoformat()+"Z" if getattr(task,key) else None for key in
             ("next_due","last_scheduled","last_started","last_completed","last_successful")},
-        "run_id":task.active_run_id,"progress":{**json.loads(run.data_json).get("counts",{}),"remaining":len(json.loads(run.data_json).get("queue",[]))} if run else {},
+        "run_id":task.active_run_id,"progress":{**data.get("counts",{}),"remaining":data.get('pending_orders',len(data.get("queue",[])))} if run else {},
         "reason":json.loads(run.data_json).get("reason") if run else None,"error":run.error if run else None}
 
 
 def configure(key, *, enabled, interval):
-    if key not in {KEY,SALE_KEY} or type(enabled) is not bool or type(interval) is not int or interval not in intervals(key):
+    if key not in {KEY,SALE_KEY,ORDERS_KEY} or type(enabled) is not bool or type(interval) is not int or interval not in intervals(key):
         raise ValueError("Choose an enabled state and 10, 20, 30 or 60 minutes.")
     task = db.session.get(ScheduledTask, key)
     changed = task.interval_minutes != interval or task.enabled != enabled
@@ -75,14 +80,16 @@ def configure(key, *, enabled, interval):
 
 
 def enqueue(key=KEY, *, manual=False, product_ids=None, startup=False):
-    if key not in {KEY,SALE_KEY}:
+    if key not in {KEY,SALE_KEY,ORDERS_KEY}:
         raise ValueError("Unknown task.")
     if startup and (key!=KEY or manual or product_ids is not None):
         raise ValueError('Startup only queues the existing full read-only Products task.')
-    if product_ids is not None and (key==SALE_KEY or not manual or not isinstance(product_ids,list) or not 1 <= len(product_ids) <= 25
+    if product_ids is not None and (key in {SALE_KEY,ORDERS_KEY} or not manual or not isinstance(product_ids,list) or not 1 <= len(product_ids) <= 25
             or any(type(i) is not int or i < 1 for i in product_ids) or len(set(product_ids)) != len(product_ids)):
         raise ValueError("An explicit manual scope accepts one to 25 distinct product IDs.")
     task = db.session.get(ScheduledTask,key)
+    if key==ORDERS_KEY and task.state=='authorisation_required' and not manual:
+        return None  # A known missing permission waits for an explicit Sync Now.
     run_id, stamp = uuid.uuid4().hex, now()
     conditions = [ScheduledTask.key==key, ScheduledTask.active_run_id.is_(None)]
     if not manual:
@@ -121,7 +128,7 @@ def renew(key, run_id, owner):
 
 def claim(owner):
     stamp=now()
-    candidate=ScheduledTask.query.filter(ScheduledTask.key.in_({KEY,SALE_KEY}),ScheduledTask.active_run_id.isnot(None),
+    candidate=ScheduledTask.query.filter(ScheduledTask.key.in_({KEY,SALE_KEY,ORDERS_KEY}),ScheduledTask.active_run_id.isnot(None),
         or_(ScheduledTask.resume_at.is_(None),ScheduledTask.resume_at<=stamp),
         or_(ScheduledTask.owner.is_(None),ScheduledTask.lease_until<=stamp)).order_by((ScheduledTask.key==SALE_KEY).desc(),ScheduledTask.next_due).first()
     if not candidate:
@@ -275,7 +282,10 @@ def item_result(data,product,state):
 
 
 def run_slice(key,run_id,owner,*,adapter=None):
-    if key not in {KEY,SALE_KEY}: raise ValueError('Unknown or retired task; history is read-only.')
+    if key not in {KEY,SALE_KEY,ORDERS_KEY}: raise ValueError('Unknown or retired task; history is read-only.')
+    if key==ORDERS_KEY:
+        from app.shopify_orders import run_slice as orders_slice
+        return orders_slice(run_id,owner,adapter=adapter)
     if key==SALE_KEY:
         return sale_slice(key,run_id,owner,adapter=adapter)
     from app.shopify_connection import ShopifyAdapter,ShopifyError
@@ -371,6 +381,7 @@ def tick(owner,*,adapter=None):
     retire()  # database-only retirement after any historical lease expires
     enqueue()
     enqueue(SALE_KEY)
+    enqueue(ORDERS_KEY)
     claimed=claim(owner)
     if claimed:
         run_slice(*claimed,owner,adapter=adapter)
@@ -405,7 +416,7 @@ def activity():
     """Attribute real task failures; routine deferral is not a global alarm."""
     from app.catalogue_startup import KEY as local_key
     values=[]
-    for key in (KEY,SALE_KEY,local_key):
+    for key in (KEY,SALE_KEY,ORDERS_KEY,local_key):
         task=db.session.get(ScheduledTask,key)
         if not task: continue
         view=snapshot(task)

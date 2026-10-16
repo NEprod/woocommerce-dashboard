@@ -59,6 +59,8 @@ def create_app(*, recover=None):
     app.register_blueprint(tasks)
     from .customisation_routes import customisations
     app.register_blueprint(customisations)
+    from .order_routes import orders
+    app.register_blueprint(orders)
 
     @app.context_processor
     def commerce_context():

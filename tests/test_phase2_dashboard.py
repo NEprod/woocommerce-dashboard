@@ -195,7 +195,7 @@ def test_dashboard_data_uses_only_projection_and_operation_records(dashboard_app
     from app.dashboard import build_dashboard_data
 
     app, _database = dashboard_app
-    with app.app_context():
+    with app.test_request_context('/'):
         data = build_dashboard_data()
 
     assert data["summary"] == {
@@ -247,14 +247,15 @@ def test_dashboard_route_renders_real_sections_without_unsupported_claims(
         "Fictional Card",
         "CARD-001",
         "67%",
-        "Not configured",
+        "Shopify Products",
+        "No orders imported yet",
+        "Orders today (UK)",
     ):
         assert required in html
 
     for unsupported in (
         "Revenue",
         "Sales",
-        "Orders today",
         "WooCommerce connected",
         "Notifications",
         "Export",
@@ -273,7 +274,7 @@ def test_dashboard_active_wording_is_explicitly_local(dashboard_client):
 
     assert "Active in Catalogue" in html
     assert "local scanned catalogue lifecycle state" in html
-    assert "current WooCommerce publication" in html
+    assert "not verified Shopify storefront publication" in html
     assert "Active Products" not in html
     assert "synced to WooCommerce" not in html
     assert "published in WooCommerce" not in html

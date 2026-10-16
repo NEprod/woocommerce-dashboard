@@ -21,8 +21,12 @@ new SKU allocation counters
 SQLite:
 queryable resolved catalogue plus application/integration state
 
-WooCommerce:
-downstream controlled publication target; never authored catalogue truth
+Shopify:
+downstream catalogue publication target; authoritative order commerce source
+
+SQLite Orders:
+protected historical order/line snapshots and import checkpoints, not authored
+product definitions or future local production-workflow authority
 ```
 
 SQLite is not independently authoritative for authored product metadata.
@@ -37,6 +41,13 @@ they do not turn SQLite into the metadata source of truth.
 Alembic revisions define the SQLite schema. Revision `0001_phase0` freezes the Phase 0 tables and is also the adoption point for structurally matching unversioned Phase 0 databases. Revision `0002_operations` adds catalogue operation history. Revision `0003_projection` activates catalogue relationships, complete emitted-row storage, normalized metadata, and portable provenance. Revision `0004_lifecycle` adds soft missing/restored state, variation source identity, and lifecycle outcome counts. Revision `0005_relationships` adds ordered local product-relationship edges without reusing scanner-owned emitted-row fields. Revision `0006_relationship_workspace` adds reconstructable relationship source-kind and last-change projection metadata. Revision `0007_woo_sync_identity` adds store-scoped parent and variation Woo identity/sync projection rows without modifying scanner-owned product columns or authored JSON. Application models do not create or alter tables directly at startup. See [Database Migrations](MIGRATIONS.md).
 
 ## Models
+
+M3A.9.5.2 adds ShopifyOrder, ShopifyOrderLine and ShopifyOrderSync under migration
+0016_shopify_orders. Store/order and parent/line uniqueness, revision-guarded upserts,
+complete readback, retained removed lines and a local redaction tombstone preserve
+purchase identities and historical personalisations without coupling to mutable
+catalogue Product/Variation rows. One existing-coordinator shopify_orders task owns
+bounded resumable import. See [Orders data and operations](SHOPIFY_ORDERS.md).
 
 - `User`: local authentication and administrator flag.
 - `Settings`: catalogue root, processed-image output root, and public URL prefix.

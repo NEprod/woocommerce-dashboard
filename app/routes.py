@@ -899,7 +899,11 @@ def dashboard():
         return redirect(url_for("main.login"))
     if onboarding.pending():
         return redirect(url_for("main.initial_settings"))
-    return render_template("dashboard.html", dashboard=build_dashboard_data())
+    from app.orders_workspace import overview
+    response=current_app.make_response(render_template("dashboard.html", dashboard=build_dashboard_data(),
+        orders_overview=overview(include_test=request.args.get('include_test')=='1') if current_user.is_admin else None))
+    response.headers['Cache-Control']='no-store, private'
+    return response
 
 
 # ---------- Products page + API ----------
@@ -2215,11 +2219,7 @@ def sync():
 @main.route("/orders")
 @login_required
 def orders():
-    return _render_planned(
-        "Orders",
-        "Future",
-        "Order management will be introduced only after a verified WooCommerce integration.",
-    )
+    return redirect(url_for('orders.index'))
 
 
 @main.route("/website-automation")

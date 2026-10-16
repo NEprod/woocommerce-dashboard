@@ -1,5 +1,23 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.5.2 — read-only Orders foundation and separate scope gate
+
+The existing transport adds only three fixed read queries (order index, paginated
+detail and exact revision). No order mutation is registered. Orders and purchased line
+identities, commerce snapshots and historical personalisations persist in the existing
+SQLite appdata under migration 0016_shopify_orders. Import uses the existing scheduler,
+leases and shared API coordination, defaulting to five-minute incremental windows and
+bounded manual Sync Now. Page loads query local records only. No scanner or Discord
+event is triggered. Existing product/store/variant IDs and publishing are unchanged.
+
+The sole app permission addition is read_orders; the existing 11 scopes, CLI app,
+tlc-customisations UID and released extension asset remain intact. Stage the scope-only
+version unreleased, then wait for explicit release/installation approval. Current active
+baseline is tlc-customisations-cart-604e504d4cae. Orders remains gated without the actual
+token grant; do not infer access from a staged version or Docker release. No live
+#TLC-1001 import is claimed. See [Orders operations and acceptance](SHOPIFY_ORDERS.md)
+for protected customer data, limitations, backup/recovery and the exact live checklist.
+
 ## M3A.9.5 — staged customer customisation publication
 
 The existing Shopify adapter publishes a product-owned JSON metafield at

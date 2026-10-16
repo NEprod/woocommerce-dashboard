@@ -1,5 +1,22 @@
 # Docker
 
+## M3A.9.5.2 Orders foundation
+
+Current head is 0016_shopify_orders. Preserve the existing /app/instance/site.db appdata
+mount and catalogue/output/taxonomy mappings. No /data mount, credential rotation or
+Unraid XML replacement is required. Optional limits are SHOPIFY_ORDERS_INITIAL_DAYS=30
+(1–60) and SHOPIFY_ORDERS_BATCH_SIZE=5 (1–10); interval defaults to five minutes in the
+existing Scheduled Tasks settings. Keep the supervised runtime CMD for the scheduler.
+
+Docker publication and app permission release are independent. The tested develop and
+immutable shopify-orders-foundation-<commit> tags must share one linux/amd64 digest
+and revision label. A separately staged +read_orders Shopify app version remains
+unreleased until merchant approval; the Dashboard reports permission required rather
+than an empty store. Restart after approved permission changes to refresh cached tokens.
+Back up private appdata before upgrade. Nonempty Orders downgrade is refused; a rollback
+must preserve subsequent purchase snapshots and other operational evidence. See
+[Orders deployment and acceptance](SHOPIFY_ORDERS.md).
+
 ## M3A.9.3 publication/defaults and sale task
 
 The existing supervised web + scheduler runtime is unchanged. Startup upgrades to

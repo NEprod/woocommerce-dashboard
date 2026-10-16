@@ -2,6 +2,13 @@
 
 SQLite schema changes are managed by Alembic. Application startup resolves the configured database path, verifies or migrates it to the current migration head, and only then serves requests. `db.create_all()` is not used.
 
+Current head: **0016_shopify_orders**, following 0015_customisation_templates.
+This adds the three protected Orders tables and one existing-coordinator task, without
+rewriting catalogue, template, product/variant identity or operation tables. Upgrade
+uses the established verified backup process. Nonempty Orders downgrade is refused:
+historical purchase snapshots must not be silently destroyed. Existing instance paths
+remain unchanged. See [Orders backup and recovery](SHOPIFY_ORDERS.md).
+
 ## Fresh database
 
 For a missing or empty database, startup applies every revision from the beginning. The current revisions are:

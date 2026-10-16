@@ -4,6 +4,18 @@ This is a personal project baseline. Report suspected vulnerabilities privately 
 
 ## Rules
 
+- Shopify Orders adds customer contact/address and historical personalisation data
+  to the existing private instance database. Orders pages/status/Sync Now require
+  an authenticated administrator; writes to the local queue also require CSRF.
+  Responses are no-store/private. The importer registers no Shopify order mutation,
+  requests only read_orders in addition to existing scopes, and never sends customer
+  data to Discord or request/error logs. Scope release/install approval is separate.
+- Orders source properties are untrusted. Jinja escapes readable answers and technical
+  JSON; missing/malformed private snapshots retain public answers with warnings. Do not
+  treat a browser-generated snapshot as tamper-proof. Protect order-containing backups
+  and review retention/deletion obligations; local redaction has a durable re-import
+  tombstone, but does not erase historical backups automatically. See SHOPIFY_ORDERS.md.
+
 - Provide secrets only through the runtime environment.
 - Never commit `.env` or any variant containing real values.
 - Never commit `instance/site.db` or another database; it contains users and password hashes.

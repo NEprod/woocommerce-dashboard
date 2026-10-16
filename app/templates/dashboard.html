@@ -9,6 +9,7 @@
   </div>
   <p class="dashboard-generated">Updated {{ dashboard.generated_at.strftime('%d %b %Y, %H:%M') }} UTC</p>
 </header>
+{% if orders_overview %}{% include 'orders/overview.html' %}{% endif %}
 
 <section class="dashboard-stats" aria-label="Catalogue summary">
   {% set cards = [

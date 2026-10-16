@@ -13,3 +13,6 @@ class Config:
     SQLALCHEMY_DATABASE_URI = "sqlite:///../instance/site.db"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     LOGIN_VIEW = "main.login"
+    # Bounded Orders history; read_orders alone does not grant older-than-60-day access.
+    SHOPIFY_ORDERS_INITIAL_DAYS = int(os.getenv('SHOPIFY_ORDERS_INITIAL_DAYS', '30'))
+    SHOPIFY_ORDERS_BATCH_SIZE = int(os.getenv('SHOPIFY_ORDERS_BATCH_SIZE', '5'))

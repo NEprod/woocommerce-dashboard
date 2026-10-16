@@ -19,14 +19,14 @@ def administrator():
 @tasks.route("/settings/tasks")
 def index():
     key=request.args.get('task',service.KEY)
-    if key not in {service.KEY,service.SALE_KEY}: abort(404)
+    if key not in {service.KEY,service.SALE_KEY,service.ORDERS_KEY}: abort(404)
     return render_template("scheduled_tasks.html",task=service.snapshot(db.session.get(ScheduledTask,key)),form=FlaskForm())
 
 
 @tasks.route("/settings/tasks/status")
 def status():
     key=request.args.get('task',service.KEY)
-    if key not in {service.KEY,service.SALE_KEY}: abort(404)
+    if key not in {service.KEY,service.SALE_KEY,service.ORDERS_KEY}: abort(404)
     return jsonify(service.snapshot(db.session.get(ScheduledTask,key))),200,{"Cache-Control":"no-store"}
 
 
@@ -55,7 +55,7 @@ def run_now(key):
 
 @tasks.route("/settings/tasks/<key>/history")
 def history(key):
-    if key not in {service.KEY,service.SALE_KEY,'catalogue_startup'}:abort(404)
+    if key not in {service.KEY,service.SALE_KEY,service.ORDERS_KEY,'catalogue_startup'}:abort(404)
     runs=ScheduledTaskRun.query.filter_by(task_key=key).order_by(ScheduledTaskRun.created_at.desc()).limit(100).all()
     return render_template("scheduled_task_history.html",runs=runs,detail=None,definition=service.definition(key))
 
@@ -67,5 +67,5 @@ def run_detail(run_id):
     data=json.loads(run.data_json)
     if request.accept_mimetypes.best=="application/json":
         return jsonify(id=run.id,state=run.state,counts=data.get("counts",{}),reason=data.get("reason"),
-            error=run.error,outstanding=len(data.get("queue",[])),items=data.get("items",[])),200,{"Cache-Control":"no-store"}
+            error=run.error,outstanding=data.get('pending_orders',len(data.get("queue",[]))),items=data.get("items",[])),200,{"Cache-Control":"no-store"}
     return render_template("scheduled_task_history.html",runs=[run],detail=data,definition=service.definition(run.task_key))
