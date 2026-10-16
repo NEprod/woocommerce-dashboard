@@ -12,7 +12,7 @@ def test_override_scalars_and_merge_lists_without_mutating_inputs():
 
     merged = merge_product_json(shared, override)
 
-    assert merged["title"] == "Override Title - Shared Title"
+    assert merged["title"] == "Override Title | Shared Title"
     assert merged["price"] == "12.00"
     assert set(merged["tags"]) == {"shared", "common", "extra"}
     assert shared["price"] == "10.00"

@@ -1,5 +1,16 @@
 # Roadmap
 
+## M3A.9.4.2 — accept title scope/fallback correction
+
+Verify all four user-confirmed Product | Collection combinations, preserved Single
+Variable root naming, separate authored/computed editor values, customisation-only
+title absence and shared targeted projection with unchanged SKUs/GIDs. Retained
+Shopify title drift is a reviewed Update, never startup publication or recreation.
+Legacy indexed search/order catches up through normal affected scans, not a boot
+mass rewrite. No migration (head 0015), XML/API/mount change, title truncation policy
+or new publishing feature. Continue the existing customisation roadmap only after
+this focused title correction is accepted on Unraid.
+
 ## M3A.9.4.1 — accept corrected local field authoring before storefront work
 
 Accept populated existing fields, visible independent Required/Enabled controls,

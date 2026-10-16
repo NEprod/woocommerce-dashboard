@@ -1,5 +1,38 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.4.2 — reviewed canonical title corrections
+
+Shopify snapshot, desired-state title and managed comparison use the same scoped
+resolver as scanner and editor preview: authored child title or child folder, then
+` | `, then authored collection title or collection folder. Shared title never
+replaces a missing child component. PRODUCT_INFO.md records all four exact cases
+and the preserved Single Variable root-folder naming exception. No publishing title
+truncation is added; the existing 255-character guard blocks oversized final titles.
+
+This can legitimately invalidate old comparison fingerprints and reveal Update
+Available for an existing product with the old title. Normal complete comparison
+still establishes differences; no fingerprint change alone authorises a write.
+Startup remains bounded read-only Shopify Products reconciliation, never a broad
+local scan or remote rename. Product GID/source/SKU and receipts are untouched;
+title-only updates use the retained identity, signed expiring Preview/Confirm,
+independent readback and ordinary uncertain-write recovery. No new product/media,
+variant, collection or publication operation is inferred from the corrected title.
+
+Local source titles are projected for existing indexed rows without source/DB
+writes during page rendering; explicit affected/shared scans persist canonical
+titles normally. Saving only customisation cannot author a missing computed title
+or cause unrelated drift. Scanner product-added events still require creation,
+not retitling. Publishing Discord uses the reviewed operation title when available.
+No migration, permission, environment, API-version or Unraid XML change: head 0015;
+normal API 2026-10 and opt-in native packed-dimensions capability 2027-01 remain.
+
+Acceptance: back up DB/catalogue, pull the immutable title-resolution image, retain
+mounts and previous image. Inspect the authored and computed title separately. Test
+one title-free customisation save and one shared-title change/targeted rescan, with
+stable children/SKUs/GIDs. Compare one retained Shopify product: a real old/new
+title difference must be reviewable without Create. Confirm only an intentionally
+approved title update, check Shopify/readback and retained IDs. Do not bulk rename.
+
 ## M3A.9.4 — customer input definitions remain local
 
 Product and shared collection editors now offer a Customer Customisation Designer

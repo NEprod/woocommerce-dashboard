@@ -157,8 +157,34 @@ def metadata_source(product: Product, kind: str, *, catalogue_root=...):
 
 
 def resolved_metadata(product: Product, shared: dict, override: dict):
-    folder_name = PurePosixPath(product.source_relpath or "").name
-    return merge_product_json(shared, override, path=folder_name)
+    return merge_product_json(shared, override, **title_context(product))
+
+
+def title_context(product):
+    """Portable folder scopes; collection display names are not title fallbacks."""
+    reference = _source_candidate(product, 'shared')
+    return {'path': product.source_relpath,
+            'collection_path': PurePosixPath(reference).parent.as_posix() if reference else None,
+            'layout': product.collection_type}
+
+
+def current_title(product, *, shared=None, override=None, resolved=None):
+    """Read-only compatibility projection for pre-correction indexed titles.
+
+    A normal targeted scan persists the same value. Unmounted/invalid sources keep
+    their indexed display value; rendering never scans, writes or changes authorship.
+    """
+    shared = metadata_source(product, 'shared') if shared is None else shared
+    override = metadata_source(product, 'override') if override is None else override
+    if not shared['exists'] or shared['error'] or (override['exists'] and override['error']):
+        return product.title
+    resolved = resolved if resolved is not None else resolved_metadata(product, shared['data'], override['data'] if override['exists'] else {})
+    return resolved.get('title') or product.title
+
+
+def title_preview(product, shared, override):
+    from app.utils.json_utils import title_components
+    return title_components(shared, override, **title_context(product))
 
 
 def _display(value):
@@ -345,6 +371,7 @@ def product_workspace(product: Product):
         pass
     return {
         "product": product,
+        "title": current_title(product, shared=shared_source, override=override_source, resolved=resolved),
         "collection_display_name": (
             collection_display_name(product.collection)
             if product.collection
@@ -487,6 +514,8 @@ def editor_workspace(product: Product, kind: str):
             pass
     return {
         "product": product,
+        "title": current_title(product, shared=shared, override=override, resolved=resolved),
+        "title_preview": title_preview(product, shared['data'], override_data),
         "collection_display_name": (
             collection_display_name(product.collection)
             if product.collection

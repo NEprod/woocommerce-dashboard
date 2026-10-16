@@ -1,17 +1,17 @@
 {% extends "layouts/base.html" %}
 {% from 'includes/icons.html' import icon %}
-{% block title %}{{ workspace.product.title }}{% endblock %}
+{% block title %}{{ workspace.title }}{% endblock %}
 {% block content %}
 {% include 'includes/shopify_product_state.html' %}
 {% set product = workspace.product %}
 <nav class="workspace-breadcrumb" aria-label="Breadcrumb">
-  <a href="{{ url_for('main.products') }}">Catalogue</a><span aria-hidden="true">/</span><span>Products</span><span aria-hidden="true">/</span><span aria-current="page">{{ product.title }}</span>
+  <a href="{{ url_for('main.products') }}">Catalogue</a><span aria-hidden="true">/</span><span>Products</span><span aria-hidden="true">/</span><span aria-current="page">{{ workspace.title }}</span>
 </nav>
 
 <header class="page-header metadata-page-header">
   <div>
     <p class="eyebrow">Resolved catalogue workspace</p>
-    <h1 class="page-title">{{ product.title }}</h1>
+    <h1 class="page-title">{{ workspace.title }}</h1>
     <p class="page-lede">Review the read-only scanner projection, its authoritative metadata sources, and product-owned images.</p>
   </div>
   <div class="page-actions">
@@ -28,14 +28,14 @@
   <article class="product-identity-card">
     <div class="product-detail-primary-image">
       {% if workspace.primary_preview and workspace.primary_preview.preview_url %}
-      <img src="{{ workspace.primary_preview.preview_url }}" alt="{{ workspace.primary_preview.alt_text or product.title }}" loading="eager">
+      <img src="{{ workspace.primary_preview.preview_url }}" alt="{{ workspace.primary_preview.alt_text or workspace.title }}" loading="eager">
       {% else %}<span class="product-image-fallback" aria-hidden="true">{{ icon('box') }}</span>{% endif %}
     </div>
     <div class="product-identity-copy">
       <span class="catalogue-pill is-{{ product.catalogue_status }}">Catalogue state: {{ product.catalogue_status|title }}</span>
       <p class="product-context-label">Parent product</p>
       {% if workspace.primary_preview and workspace.primary_preview.variation_fallback %}<span class="catalogue-pill is-shared">Parent fallback from variation</span>{% endif %}
-      <h2>{{ product.title }}</h2>
+      <h2>{{ workspace.title }}</h2>
       <code>{{ product.sku }}</code>
       <dl class="product-key-facts">
         <div><dt>Type</dt><dd>{{ product.product_type|title }}</dd></div>
@@ -109,7 +109,7 @@
   <div class="diagnostic-gallery">
     {% for image in workspace.parent_images %}
     <article class="diagnostic-image-card">
-      <div class="diagnostic-image-preview">{% if image.preview_url %}<img src="{{ image.preview_url }}" alt="{{ image.alt_text or product.title }}" loading="lazy">{% else %}<span aria-hidden="true">{{ icon('alert') }}</span>{% endif %}</div>
+      <div class="diagnostic-image-preview">{% if image.preview_url %}<img src="{{ image.preview_url }}" alt="{{ image.alt_text or workspace.title }}" loading="lazy">{% else %}<span aria-hidden="true">{{ icon('alert') }}</span>{% endif %}</div>
       <div class="diagnostic-image-body">
         <div class="diagnostic-image-heading"><strong>{{ image.role|title }}</strong><span class="catalogue-pill is-{{ 'active' if image.source_exists else 'missing' }}">{{ image.state|replace('_', ' ')|title }}</span></div>
         <dl><div><dt>Owner</dt><dd>Parent product</dd></div><div><dt>Order</dt><dd>{{ image.position + 1 }}</dd></div><div><dt>Source reference</dt><dd><code>{{ image.source_reference or 'Source unavailable' }}</code></dd></div><div><dt>Content type</dt><dd>{{ image.content_type or 'Unknown' }}</dd></div></dl>

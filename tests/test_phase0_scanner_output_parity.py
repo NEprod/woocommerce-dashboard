@@ -152,6 +152,10 @@ def _canonical_rows(rows):
     normalized = []
     for source in rows:
         row = dict(source)
+        # M3A.9.4.2 deliberately corrects only the child title separator in these
+        # fixtures. Retain frozen Phase 0 hashes for every other scanner field;
+        # the new canonical title is asserted independently below/in title tests.
+        row['Name'] = row.get('Name', '').replace(' | ', ' - ')
         for field in ("Categories", "Tags"):
             if row.get(field):
                 row[field] = ", ".join(sorted(row[field].split(", ")))
@@ -177,7 +181,7 @@ def test_complete_scanner_rows_match_frozen_phase0_outputs(tmp_path):
     simple = scenarios["simple_append"][0]
     assert simple["Type"] == "simple"
     assert simple["SKU"] == "FIC-S-0001"
-    assert simple["Name"] == "Blue Override - Fictional Desk Token"
+    assert simple["Name"] == "Blue Override | Fictional Desk Token"
     assert simple["Regular price"] == "9.25"
     assert simple["Sale price"] == "7.75"
     assert simple["Date sale price starts"] == "2026-02-03"

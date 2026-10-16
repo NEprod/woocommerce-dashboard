@@ -57,7 +57,7 @@ def test_existing_inheritance_and_partial_override_remain_valid():
     assert validate_product_info(override, "override").valid
     merged = merge_product_json(shared, override, path="Fictional Folder")
     assert validate_product_info(merged, "collection").valid
-    assert merged["title"].startswith("Fictional override - ")
+    assert merged["title"].startswith("Fictional override | ")
     assert set(merged["tags"]) == {"fictional", "variable", "override"}
 
 

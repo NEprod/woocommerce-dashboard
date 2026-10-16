@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import PurePosixPath
 
 """
 json_utils.py
@@ -78,13 +79,46 @@ def save_json(path, data):
 # SCAN + CSV SUPPORT
 # =========================
 
-def merge_product_json(shared, override, path=None):
+def title_components(shared, override, path=None, *, collection_path=None, layout=None):
+    """Resolve authored contributions, never infer authorship from a DB/display title.
+
+    Child layouts use Product | Collection. Single Variable retains its historical
+    root-folder - authored-root-title convention (one JSON owner, no parent scope).
+    No truncation or source mutation. Legacy scalar coercion remains read-only;
+    the editor's existing string schema still rejects invalid newly authored values.
+    """
+    folder = PurePosixPath(str(path).replace('\\', '/')) if path else None
+    collection = (PurePosixPath(str(collection_path).replace('\\', '/'))
+                  if collection_path else folder.parent if folder and folder.parent.name else None)
+    kind = layout or shared.get('collection_type')
+    own, common = _nonblank_title(override.get('title')), _nonblank_title(shared.get('title'))
+    product_name = folder.name if folder else ''
+    collection_name = collection.name if collection else ''
+    if kind == 'Single Variable':
+        # Historical scanner used the same root folder plus its authored title.
+        product_component, collection_component = product_name, common or ''
+        parts = [v for v in (product_component, collection_component) if v]
+        if len(parts) == 2 and parts[0] == parts[1]: parts.pop()
+        title = ' - '.join(parts)
+    elif folder and collection == folder:
+        product_component, collection_component = own or common or product_name, ''
+        title = product_component
+    else:
+        product_component, collection_component = own or product_name, common or collection_name
+        title = ' | '.join(v for v in (product_component, collection_component) if v)
+    return {'title': title or None, 'product_component': product_component,
+            'collection_component': collection_component, 'product_folder': product_name,
+            'collection_folder': collection_name, 'layout': kind,
+            'single_scope': kind == 'Single Variable' or bool(folder and collection == folder)}
+
+
+def merge_product_json(shared, override, path=None, *, collection_path=None, layout=None):
     """
     Merges shared (collection-level) and override (product-level) product_info.json data.
 
     Lists like tags and categories are additive.
     Scalars like price/weight are overwritten.
-    Title logic prioritizes: override - shared → folder - shared → shared → folder
+    Title uses the canonical authored-contribution/folder resolver below.
 
     Args:
         shared (dict): The collection-level shared JSON data
@@ -120,20 +154,10 @@ def merge_product_json(shared, override, path=None):
         result["live"] = override["shopify_status"] == "ACTIVE"
     elif "shopify_status" in shared and "live" not in shared:
         result["live"] = shared["shopify_status"] == "ACTIVE"
-    shared_title = _nonblank_title(shared.get("title"))
-    override_title = _nonblank_title(override.get("title"))
-    folder_name = os.path.basename(path) if path else ""
-
-    if override_title and shared_title:
-        result["title"] = f"{override_title} - {shared_title}"
-    elif override_title:
-        result["title"] = override_title
-    elif shared_title and folder_name:
-        result["title"] = f"{folder_name} - {shared_title}"
-    elif shared_title:
-        result["title"] = shared_title
-    elif folder_name:
-        result["title"] = folder_name
+    title = title_components(shared, override, path,
+        collection_path=collection_path, layout=layout)["title"]
+    if title is not None:
+        result["title"] = title
 
     return result
 

@@ -48,7 +48,7 @@ def catalogue_snapshot(product):
         from app.catalogue_fields import shipping_details
         from app.taxonomy_assignments import resolve
         data = {
-            "title": product.title, "description": product.description,
+            "title": authored.get('title') or product.title, "description": product.description,
             "short_description": product.short_description,
             "price": product.regular_price, "sale_price": product.sale_price,
             "shipping": shipping_details(authored, product),

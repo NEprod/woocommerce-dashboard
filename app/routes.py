@@ -1362,7 +1362,19 @@ def metadata_validate():
     result = validate_product_info(
         data, "collection" if kind == "shared" else "override"
     )
-    return jsonify(result.to_dict()), 200 if result.valid else 400
+    response = result.to_dict()
+    if result.valid and payload.get('product_id') is not None:
+        if not current_user.is_admin:
+            abort(403)
+        if type(payload['product_id']) is not int or payload['product_id'] < 1:
+            return jsonify(error='Invalid product context.', valid=False), 400
+        from app.metadata_workspace import metadata_source, title_preview
+        product = Product.query.filter_by(id=payload['product_id']).first_or_404()
+        shared = data if kind == 'shared' else metadata_source(product, 'shared')['data']
+        override = ({} if product.collection_type == 'Single Variable' else
+                    data if kind == 'override' else metadata_source(product, 'override')['data'])
+        response['title_preview'] = title_preview(product, shared, override)
+    return jsonify(response), 200 if result.valid else 400
 
 
 @main.route("/edit_products/<sku>/save", methods=["POST"])

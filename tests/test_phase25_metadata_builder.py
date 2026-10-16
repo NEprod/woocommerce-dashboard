@@ -237,8 +237,8 @@ def test_variable_title_preview_uses_existing_product_json_without_editing_it(me
     with app.app_context():
         preview = metadata_preview(intake, "Prepared/Variable Cards", document)
     titles = {item["folder"]: item["title"] for item in preview["analysis"]["title_previews"]}
-    assert titles["Hero A"] == "Product-specific Hero - Shared Cards"
-    assert titles["Hero B"] == "Hero B - Shared Cards"
+    assert titles["Hero A"] == "Product-specific Hero | Shared Cards"
+    assert titles["Hero B"] == "Hero B | Shared Cards"
     response = metadata_client.post(
         "/image-preparation/metadata/confirm",
         data={"path": preview["source"], "document": preview["json_text"], "digest": preview["digest"], "acknowledge": "yes"},

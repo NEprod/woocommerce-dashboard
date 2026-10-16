@@ -34,7 +34,7 @@ def test_simple_scan_resolves_shared_override_and_row_shape(tmp_path, quiet_log)
     assert len(rows) == 1
     assert rows[0]["Type"] == "simple"
     assert rows[0]["SKU"] == "FIC-S-0001"
-    assert rows[0]["Name"] == "Blue Token - Fictional Desk Token"
+    assert rows[0]["Name"] == "Blue Token | Fictional Desk Token"
     assert rows[0]["Regular price"] == "9.25"
     assert set(rows[0]["Tags"].split(", ")) == {"baseline", "shared", "override"}
     assert rows[0]["Images"] == "https://invalid.example/assets/fictional-blue.webp"

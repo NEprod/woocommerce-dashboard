@@ -79,7 +79,7 @@ def test_scanned_marker_payload_is_the_current_durable_identity_contract(
     marker = json.loads((product / ".scanned").read_text(encoding="utf-8"))
     assert set(marker) == {"sku", "title", "images_used", "scan_date"}
     assert marker["sku"] == "FIC-S-0001"
-    assert marker["title"] == "Blue Token - Fictional Desk Token"
+    assert marker["title"] == "Blue Token | Fictional Desk Token"
     assert marker["images_used"] == ["fictional-blue.png"]
 
 

@@ -172,7 +172,7 @@ def test_pending_marker_preserves_scanned_payload_and_delays_update_removal(
         "scan_date",
     }
     assert pending["marker"]["sku"] == "FIC-S-0001"
-    assert pending["marker"]["title"] == "Blue Token - Fictional Desk Token"
+    assert pending["marker"]["title"] == "Blue Token | Fictional Desk Token"
 
 
 def test_recoverable_pipeline_orders_pending_before_database_and_marker_after_commit(

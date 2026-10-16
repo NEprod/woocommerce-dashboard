@@ -1,5 +1,44 @@
 # Current State
 
+## M3A.9.4.2 — canonical authored/folder title resolution
+
+The user-confirmed child-product contract is now Product component + ` | ` +
+Collection component. Each contribution uses its own nonblank authored title or
+its own folder name. This applies to Simple and Variable Collection children;
+general metadata inheritance must not turn a shared title into a child title.
+The four exact acceptance cases and scope exceptions are in PRODUCT_INFO.md.
+
+Confirmed defects: merge_product_json used ` - ` and omitted the collection
+component when its authored title was missing; workspace resolution discarded
+the collection folder by passing only the child basename. The guided editor's
+generic inheritance populated a missing child title with its shared title, and
+intake preview maintained a separate formula. All now reuse the canonical scoped
+resolver. Existing child IDs, images, modifiers, customisations and pins are unchanged.
+
+Available Git history (d757db7 baseline onward) confirms hyphen composition, not
+an earlier pipe implementation, and no scanner/CSV title truncation. Single Variable
+retains its historical root-folder - authored-root-title convention, with identical
+components shown once; missing root title uses its root folder. Root-only intake
+Simple previews have no invented parent. UI CSS ellipsis and Discord bounds are
+presentation only; Shopify's existing 255-character safety validation remains.
+
+Mounted valid sources provide a read-only corrected title to Products/detail/editor
+and the immutable snapshot, including legacy indexed rows. Normal targeted/shared
+rescans persist the same canonical Name/title/marker without JSON rewrites or SKU
+allocation changes. Unavailable/invalid mounted sources keep the indexed display
+title. Database search/sort still use the indexed title until that normal rescan;
+there is no mass repair, new migration or automatic startup scan.
+
+The title input contains authored data only. A separate debounced local draft
+preview uses the existing validation endpoint and server resolver; stale responses
+cannot replace newer preview results. Shared preview identifies a representative
+child; shared acknowledgement and signed save/backup/scan controls remain intact.
+Shopify managed fingerprints detect genuine title drift, but correction never
+publishes: use Main Products → Review & Sync → explicit signed confirmation.
+Scanner notifications still require a genuinely new committed parent. Publishing
+notifications prefer the reviewed operation title, not a later/stale DB label.
+No live Shopify/Discord test or production source edit is performed.
+
 ## M3A.9.4.1 — customisation field controls and editing corrections
 
 Confirmed with a fictional catalogue in native Safari/WebKit: Required/Enabled

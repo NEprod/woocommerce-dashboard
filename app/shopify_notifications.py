@@ -70,7 +70,7 @@ def product_result(operation):
         outcome = "failed_before_write"
     else:
         outcome = "partial_completion"
-    result = {"title": product.title if product else scope.get("title") or plan.get("title"),
+    result = {"title": plan.get("title") or scope.get("title") or (product.title if product else None),
         "sku": identity.sku if identity else scope.get("sku") or (product.sku if product else "Unknown"),
         "operation": "Updated" if scope.get("mode") == "update" or summary.get("mode") == "update" or data.get("update_attempted") else "Created",
         "outcome": outcome, "stage": data.get("stage") or summary.get("stage"),

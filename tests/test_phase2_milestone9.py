@@ -34,13 +34,13 @@ def _simple_collection(root: Path, folder: str, prefix: str, shared_title=None):
 @pytest.mark.parametrize(
     ("override_title", "shared_title", "expected"),
     [
-        ("Ascending", "Choose Your Design & Direction", "Ascending - Choose Your Design & Direction"),
-        (None, "Choose Your Design & Direction", "Holiday Express Train - Choose Your Design & Direction"),
-        (None, None, "Holiday Express Train"),
-        ("   ", "Choose Your Design & Direction", "Holiday Express Train - Choose Your Design & Direction"),
-        ("Ascending", "  ", "Ascending"),
-        (" ", "\t", "Holiday Express Train"),
-        ("L’Ascension", "Café & Colour", "L’Ascension - Café & Colour"),
+        ("Ascending", "Choose Your Design & Direction", "Ascending | Choose Your Design & Direction"),
+        (None, "Choose Your Design & Direction", "Holiday Express Train | Choose Your Design & Direction"),
+        (None, None, "Holiday Express Train | Collection Display Name"),
+        ("   ", "Choose Your Design & Direction", "Holiday Express Train | Choose Your Design & Direction"),
+        ("Ascending", "  ", "Ascending | Collection Display Name"),
+        (" ", "\t", "Holiday Express Train | Collection Display Name"),
+        ("L’Ascension", "Café & Colour", "L’Ascension | Café & Colour"),
     ],
 )
 def test_product_title_fallback_contract(override_title, shared_title, expected):
@@ -114,7 +114,7 @@ def test_append_assignment_is_deterministic_and_uses_source_provenance(tmp_path,
                 projected = Product.query.filter_by(source_relpath="Bravo Collection/New Product").one()
                 bravo = Collection.query.filter_by(source_relpath="Bravo Collection").one()
                 assert projected.collection_id == bravo.id
-                assert projected.title == "New specific title - Bravo shared"
+                assert projected.title == "New specific title | Bravo shared"
                 assert Product.query.filter_by(source_relpath="Bravo Collection/New Product").count() == 1
                 assert Collection.query.count() == 3
     finally:
@@ -150,7 +150,7 @@ def test_update_refreshes_resolved_title_without_changing_identity(tmp_path, qui
             ingest_rows_to_db(first_rows, log=quiet_log)
             projected = Product.query.one()
             product_id, sku = projected.id, projected.sku
-            assert projected.title == "Original Product Title - Shared Product Title"
+            assert projected.title == "Original Product Title | Shared Product Title"
 
             _write_json(override_path, {"title": "Updated Product Title"})
             (product_folder / ".update").write_text("update", encoding="utf-8")
@@ -162,7 +162,7 @@ def test_update_refreshes_resolved_title_without_changing_identity(tmp_path, qui
             projected = Product.query.one()
             assert projected.id == product_id
             assert projected.sku == sku
-            assert projected.title == "Updated Product Title - Shared Product Title"
+            assert projected.title == "Updated Product Title | Shared Product Title"
             assert Collection.query.one().name == "Collection Folder Identity"
     finally:
         Config.SQLALCHEMY_DATABASE_URI = original_uri
@@ -187,10 +187,10 @@ def test_scanner_emits_all_title_fallback_cases_without_bad_separators(tmp_path,
     rows = scan_collection(titled, "https://invalid.example/images/", output, log=quiet_log)
     rows += scan_collection(untitled, "https://invalid.example/images/", output, log=quiet_log)
     assert {row["Name"] for row in rows} == {
-        "Product title - Shared title",
-        "Shared Only - Shared title",
-        "Blank Override - Shared title",
-        "Folder Fallback",
+        "Product title | Shared title",
+        "Shared Only | Shared title",
+        "Blank Override | Shared title",
+        "Folder Fallback | Untitled Display Collection",
     }
     assert all(not row["Name"].startswith("-") and not row["Name"].endswith("-") for row in rows)
 

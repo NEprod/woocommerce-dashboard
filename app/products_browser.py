@@ -168,11 +168,12 @@ def _product_view(product, variation_count, shopify):
     publishing_intent = projected_publishing_intent(shopify["intent_value"])
     publishing_intent["compact_label"] = shopify["intent"]
 
+    from app.metadata_workspace import current_title
     row = {
         "shopify": shopify,
         "id": product.id,
         "sku": product.sku or "",
-        "title": product.title or "Untitled product",
+        "title": current_title(product) or "Untitled product",
         "type": "variable" if product.product_type == "variable" else "simple",
         "collection": collection_display_name(product.collection) if product.collection else "Unassigned",
         "collection_id": product.collection_id,

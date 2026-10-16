@@ -285,10 +285,10 @@ def _folder_analysis(snapshot, document):
         if len(parent_variants) > 1:
             findings.append(_finding("duplicate_parent", "Multiple case variants of the reserved Parent directory are ambiguous."))
     titles = []
-    shared_title = str(document.get("title") or "").strip()
-    if collection_type == "Variable Collection":
+    from app.utils.json_utils import title_components
+    if collection_type in {"Simple", "Variable Collection"} and non_parent:
         for name in non_parent:
-            product_title = ""
+            product_data = {}
             candidate = next(
                 (item for item in snapshot.get("auxiliary_json", []) if item["path"] == f"{name}/{METADATA_FILENAME}"),
                 None,
@@ -296,15 +296,16 @@ def _folder_analysis(snapshot, document):
             if candidate:
                 try:
                     product_data = json.loads(candidate["file"].read_text(encoding="utf-8"))
-                    if isinstance(product_data, dict):
-                        product_title = str(product_data.get("title") or "").strip()
+                    if not isinstance(product_data, dict):
+                        product_data = {}
                 except (OSError, UnicodeError, json.JSONDecodeError):
                     findings.append(_finding("product_json_invalid", f"Product metadata in ‘{name}’ could not be used for title preview.", state="warning"))
-            base_title = product_title or name
-            titles.append({"folder": name, "title": f"{base_title} - {shared_title}" if shared_title else base_title})
+            titles.append({"folder": name, "title": title_components(document, product_data,
+                snapshot['folder'] / name, collection_path=snapshot['folder'])['title']})
     elif collection_type in {"Simple", "Single Variable"}:
         fallback = snapshot["folder"].name
-        titles.append({"folder": fallback, "title": shared_title or fallback})
+        titles.append({"folder": fallback, "title": title_components(document, {},
+            snapshot['folder'], collection_path=snapshot['folder'])['title']})
     return {
         "root_folders": root_children,
         "parent_folders": parent_variants,

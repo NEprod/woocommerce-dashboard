@@ -407,7 +407,7 @@ def test_shared_refresh_reuses_all_parent_and_variation_skus(
         if row["Type"] in ("variable", "simple")
     )
     if collection_name == "Simple Collection":
-        assert refreshed[0]["Name"] == "Blue Token - Fictional Desk Token"
+        assert refreshed[0]["Name"] == "Blue Token | Fictional Desk Token"
         assert set(refreshed[0]["Tags"].split(", ")) == {
             "baseline",
             "shared",

@@ -124,6 +124,7 @@
       return "";
     }
     if (Object.prototype.hasOwnProperty.call(authored, field)) return authored[field];
+    if (field === 'title') return ''; // shared title is a separate component, never a child override default
     if (!isShared && Object.prototype.hasOwnProperty.call(boot.collection || {}, field)) return boot.collection[field];
     return "";
   }
@@ -497,15 +498,38 @@
   }
 
   async function validateDocument(documentValue) {
-    const response = await fetch(boot.validate_url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: boot.kind, data: documentValue }) });
+    const response = await fetch(boot.validate_url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: boot.kind, data: documentValue, product_id:boot.product_id }) });
     const payload = await response.json().catch(() => ({ valid: false, errors: [{ path: "$", message: "Validation returned an unreadable response." }] }));
     if (!response.ok || !payload.valid) {
       showErrors(payload.errors || [{ path: "$", message: payload.error || "Metadata is invalid." }]);
       return null;
     }
     clearErrors();
+    showTitlePreview(payload.title_preview);
     showFeedback(payload.warnings?.length ? "warning" : "success", "Validation complete", payload.warnings?.length ? `${payload.warnings.length} documented warning(s) remain. No authored values were changed.` : "No blocking metadata issues were found.");
     return payload;
+  }
+
+  function showTitlePreview(value) {
+    if (!value) return;
+    root.querySelector('[data-title-preview]').textContent=value.title || 'Unavailable';
+    root.querySelector('[data-title-preview-status]').textContent=' · Local draft preview only; save and scan before reviewing Shopify.';
+  }
+  let titleTimer, titleGeneration=0;
+  function queueTitlePreview() {
+    const generation=++titleGeneration;
+    window.clearTimeout(titleTimer);
+    root.querySelector('[data-title-preview-status]').textContent=' · Checking local draft…';
+    titleTimer=window.setTimeout(async()=>{
+      try {
+        const data=activeMode==='advanced'?JSON.parse(jsonEditor.value):guidedDocument();
+        const response=await fetch(boot.validate_url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:boot.kind,data,product_id:boot.product_id})});
+        const payload=await response.json();
+        if(generation!==titleGeneration)return;
+        if(!response.ok||!payload.valid)throw new Error('invalid');
+        showTitlePreview(payload.title_preview);
+      }catch(_error){if(generation===titleGeneration)root.querySelector('[data-title-preview-status]').textContent=' · Preview unavailable; validate the current local draft.';}
+    },250);
   }
 
   function updateCodePresentation() {
@@ -678,9 +702,10 @@
     });
   }
 
-  guided.addEventListener("input", () => { setDirty(true); updateCharacterCounts(); });
+  guided.addEventListener("input", (event) => { setDirty(true); updateCharacterCounts(); if(event.target.matches('[data-field="title"]'))queueTitlePreview(); });
   guided.addEventListener("change", (event) => {
     if (event.target.matches("[data-override-toggle]")) setControlState(event.target.dataset.overrideToggle);
+    if (event.target.matches('[data-override-toggle="title"]')) queueTitlePreview();
     if (event.target.matches('[data-field="collection_type"]')) renderVariationState();
     setDirty(true);
   });
@@ -715,7 +740,7 @@
     const index = jsonEditor.value.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
     if (index >= 0) { jsonEditor.focus(); jsonEditor.setSelectionRange(index, index + query.length); }
   });
-  jsonEditor.addEventListener("input", () => { setDirty(true); updateCodePresentation(); });
+  jsonEditor.addEventListener("input", () => { setDirty(true); updateCodePresentation(); queueTitlePreview(); });
   document.querySelectorAll("[data-validate-metadata]").forEach((button) => button.addEventListener("click", () => {
     const value = activeMode === "advanced" ? advancedDocument() : guidedDocument();
     if (value) validateDocument(value);

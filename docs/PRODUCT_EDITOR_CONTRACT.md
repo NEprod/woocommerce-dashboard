@@ -1,5 +1,28 @@
 # M3A.9 Product Creator & Editor contract
 
+## M3A.9.4.2 — authored title versus resolved Shopify title
+
+General shows only this JSON owner's authored title. An absent child title stays
+blank, even if shared metadata has a title; enabling an override does not copy the
+shared title or computed title into that child. Unchanged/customisation-only saves
+must preserve absent title keys, opaque data, template pins and sparse semantics.
+See PRODUCT_INFO.md for the four mandatory `Product | Collection` combinations and
+Single Variable's historical one-root exception.
+
+A distinct read-only title preview reflects the local draft through the existing
+metadata validation endpoint and canonical server resolver. Requests are debounced,
+do not save/scan/query Shopify, and older responses are ignored. Invalid drafts or
+network failure are labelled unavailable, not represented as freshly calculated.
+Shared editors label their preview as one representative child, not all siblings
+having the same product component. Folder fallbacks and contribution labels are
+explicit. Shared-scope acknowledgement, admin/source review/CSRF/optimistic locking,
+backups and targeted scan handoff are unchanged. Save never authorises remote rename.
+
+Mounted-source read-only presentation corrects legacy titles immediately; the next
+ordinary targeted/shared scan updates the DB/marker. Missing source mounts retain
+the last indexed display title. Indexed title search/order needs that normal scan;
+no broad startup traversal or destructive row repair is introduced.
+
 ## M3A.9.4.1 — reliable customisation modal
 
 Add, Edit, Duplicate and Override Inherited Field have separate modal headings.

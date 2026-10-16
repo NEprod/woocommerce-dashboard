@@ -1,5 +1,40 @@
 # product_info.json Contract
 
+## M3A.9.4.2 — title contributions are separate authored scopes
+
+For a Simple or Variable Collection child:
+
+`(product.title OR product folder) + " | " + (shared.title OR collection folder)`
+
+Exactly one space surrounds the vertical bar. For collection folder
+`16-Bit Pixel Art Cards` and child `Fathers Day Level Complete`:
+
+| Product JSON title | Shared JSON title | Full canonical title |
+| --- | --- | --- |
+| Level Complete | Retro Gaming Cards | Level Complete \| Retro Gaming Cards |
+| Level Complete | Missing | Level Complete \| 16-Bit Pixel Art Cards |
+| Missing | Retro Gaming Cards | Fathers Day Level Complete \| Retro Gaming Cards |
+| Missing | Missing | Fathers Day Level Complete \| 16-Bit Pixel Art Cards |
+
+Absent, null, empty and whitespace-only titles fall back independently on read.
+The existing authored schema permits strings, including empty strings, but rejects
+new null/non-string title values; legacy scalar-to-string scan compatibility remains
+unchanged. Invalid legacy authoring must be deliberately corrected, never silently
+normalised by deployment. An actually authored complete-looking title is still an
+authored contribution; suffixes are not guessed or stripped automatically.
+
+Single Variable has one root JSON owner and retains the historical root-folder
+` - ` authored-root-title rule when both differ; identical components appear once,
+and no root title means the root folder alone. A root-only Simple intake preview
+uses its authored root title or root folder, not a nonexistent parent. Scanner
+layout classification is unchanged; scoped child layouts use the two-part rule above.
+
+Canonical titles are never truncated or written back into JSON. CSS may ellipsize
+display; Discord has independent transport/display limits. Shopify Review retains
+its existing 255-character title validation and blocks oversized titles rather than
+silently shortening them. Shared title edits affect all eligible child projections,
+not child source files or identities; each remote title change still needs review.
+
 ## M3A.9.4.1 editor corrections — schema unchanged
 
 Required/Enabled are independent authored booleans. `enabled:false,required:true`
@@ -270,11 +305,9 @@ The scanner starts from the collection object and applies the product override:
   customisation stable-field merge above;
 - lists are combined and deduplicated through a set, so membership is preserved
   but output ordering is not deterministic;
-- title uses one combination/fallback rule: nonblank product override and shared
-  title become `Override - Shared`; shared title alone becomes
-  `Product folder - Shared`; neither becomes the product folder name. Missing,
-  `null`, empty, and whitespace-only titles are absent. The collection folder
-  display name is separate;
+- title uses the M3A.9.4.2 scoped contribution/folder rule above. Missing,
+  `null`, empty and whitespace-only titles are absent on read; collection display
+  identity is separate from its authored title contribution;
 - partial overrides remain valid and inherited fields need not be repeated.
 
 The editor patches reviewed changed properties into the same authored file, with
