@@ -15,7 +15,9 @@ extensions to remove or replace. No installed app credentials/settings were chan
 Local config validation and Theme Check/build pass. Packaging fixes add a default
 locale and minify the byte-identical original readable source into an 8778-byte asset,
 below Shopify's 10000-byte threshold. esbuild's install warning was not a failure.
-Focused checks: 20 Python, 22 JavaScript, 14 offline browser assertions passed.
+Readable source lives in shopify/src/, outside the extension's deployable directories;
+Shopify staging validation rejects src/ inside a theme extension even when build passes.
+Focused checks: 20 Python, 23 JavaScript, 14 offline browser assertions passed.
 This setup checkpoint is intended for unreleased staging only, under version tag
 `tlc-customisations-m3a-9-5-20261016`, with the source commit attached by the CLI.
 The sole intended addition is TLC customer customisations, uid

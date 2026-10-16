@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 const root = new URL('../extensions/tlc-customisations/', import.meta.url);
 const outfile = fileURLToPath(new URL('assets/tlc-customer-fields.js', root));
 await build({
-  entryPoints: [fileURLToPath(new URL('src/tlc-customer-fields.js', root))],
+  entryPoints: [fileURLToPath(new URL('../src/tlc-customer-fields.js', import.meta.url))],
   outfile, bundle: true, minify: true, platform: 'browser', target: 'es2022',
   charset: 'utf8', legalComments: 'none',
   banner: {js:'/* Generated from src/tlc-customer-fields.js by npm run build:assets. */'}

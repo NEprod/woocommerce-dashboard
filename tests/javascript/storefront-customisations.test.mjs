@@ -3,12 +3,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const path = '../../shopify/extensions/tlc-customisations/src/tlc-customer-fields.js';
+const path = '../../shopify/src/tlc-customer-fields.js';
 const source = fs.readFileSync(new URL(path,import.meta.url),'utf8');
 const runtime = fs.readFileSync(new URL('../../shopify/extensions/tlc-customisations/assets/tlc-customer-fields.js',import.meta.url),'utf8');
 const context = vm.createContext({console,URL});vm.runInContext(runtime,context);
 const api = context.TLCStorefrontCustomisations;
 const plain = value => JSON.parse(JSON.stringify(value));
+test('theme extension contains only Shopify-supported deployable directories',()=>{
+  const root = new URL('../../shopify/extensions/tlc-customisations/',import.meta.url);
+  const allowed = new Set(['assets','blocks','locales','snippets']);
+  for (const entry of fs.readdirSync(root,{withFileTypes:true})) {
+    if (entry.isDirectory()) assert.ok(allowed.has(entry.name),`Unsupported theme extension directory: ${entry.name}`);
+    else assert.equal(entry.name,'shopify.extension.toml');
+  }
+});
 const configuration = fields => ({schema_version:1,enabled:true,revision:'a'.repeat(64),fields});
 const name = {id:'name',type:'text',label:'Name',required:true,max_length:30};
 

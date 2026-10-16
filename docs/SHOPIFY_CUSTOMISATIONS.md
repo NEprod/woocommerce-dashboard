@@ -131,14 +131,19 @@ postinstall exited 0 and the native compiler worked. No global npm-policy change
 CLI reinstall was necessary. Actual Theme Check exposed two packaging issues: absent
 `locales/` and a 12043-byte script exceeding the 10000-byte app-block threshold.
 An empty default locale and a reproducible asset build correct those issues. Readable
-source is now `extensions/tlc-customisations/src/tlc-customer-fields.js`, byte-identical
+source is now `shopify/src/tlc-customer-fields.js`, byte-identical
 to the original implementation. The generated asset is 8778 bytes. Shopify CLI added
 the extension's local uid; preserve it, do not regenerate a duplicate extension.
+
+Staging validation additionally rejects source directories inside the extension:
+only assets/, blocks/, locales/ and snippets/ are deployable. Readable src/ therefore
+lives at workspace level, outside extensions/. The build and tests use that source
+and still generate exactly the same deployable JavaScript asset.
 
 `npm run build -- --no-input` regenerates assets, enforces the byte limit and runs the
 Shopify app build/Theme Check. Configuration validation returned valid=true/issues=[];
 the corrected build had no Theme Check errors. Tests against the generated asset:
-22 JavaScript checks, 20 focused Python cases and 14 offline real-browser assertions.
+23 JavaScript checks, 20 focused Python cases and 14 offline real-browser assertions.
 No live theme/cart/order acceptance is claimed. The setup/build checkpoint can be
 committed to develop independently of the Docker release, which remains at 550c0e7.
 The generated JavaScript SHA-256 is
