@@ -5,6 +5,7 @@ from flask_wtf import FlaskForm
 from app import db
 from app.packaging_models import Package
 from app import packaging_catalogue as catalogue, packaging_workspace as workspace, shopify_packaging
+from app import package_reconciliation as reconciliation
 
 packaging=Blueprint('packaging',__name__,url_prefix='/packaging')
 
@@ -40,7 +41,9 @@ def index():
     rows=[p for p in workspace.packages() if q in p['name'].casefold()]
     if request.args.get('sort')=='readiness': rows.sort(key=lambda p:(p['readiness'],p['name']))
     if request.args.get('sort')=='weight': rows.sort(key=lambda p:(p['tare_g'] is None,float(p['tare_g'] or 0),p['name']))
-    return render_template('packaging/index.html',packages=rows,capability=shopify_packaging.current(),form=FlaskForm())
+    capability=shopify_packaging.current()
+    for row in rows:row['shopify_status']=reconciliation.status(row,capability)
+    return render_template('packaging/index.html',packages=rows,capability=capability,form=FlaskForm())
 
 
 @packaging.get('/choices')
@@ -50,7 +53,7 @@ def choices():
 
 @packaging.route('/new',methods=['GET','POST'])
 def new():
-    if request.method=='GET': return render_template('packaging/edit.html',package=None)
+    if request.method=='GET': return render_template('packaging/edit.html',package=None,capability=shopify_packaging.current())
     row=catalogue.save(body())
     return jsonify(id=row.id,name=row.name,url=url_for('packaging.edit',package_id=row.id)),201
 
@@ -59,7 +62,7 @@ def new():
 def edit(package_id):
     row=db.session.get(Package,package_id)
     if not row: abort(404)
-    if request.method=='GET': return render_template('packaging/edit.html',package=catalogue.view(row))
+    if request.method=='GET': return render_template('packaging/edit.html',package={k:v for k,v in catalogue.view(row).items() if k!='links'},capability=shopify_packaging.current())
     value=body(); version=value.get('version')
     if type(version) is not int: raise ValueError('Reload this package before saving.')
     catalogue.save(value,row,version=version)
@@ -116,6 +119,36 @@ def recommend():
     weight=apply_variation_modifiers(document,value['attributes'],log=lambda *a,**k:None)['weight'] if value.get('attributes') is not None else document.get('weight')
     item.setdefault('weight_g',weight)
     return jsonify(solo(item,workspace.packages()))
+
+
+@packaging.get('/reconcile')
+def reconcile():
+    return render_template('packaging/reconcile.html',capability=shopify_packaging.current(),form=FlaskForm())
+
+
+@packaging.post('/reconcile/compare')
+def compare():
+    return jsonify(reconciliation.compare(body().get('records')))
+
+
+@packaging.post('/reconcile/preview')
+def reconciliation_preview():
+    data=body();plan,token=reconciliation.preview(data.get('records'),data.get('choices'))
+    return jsonify(plan=plan,token=token)
+
+
+@packaging.post('/reconcile/confirm')
+def reconciliation_confirm():
+    data=body()
+    return jsonify(plan=reconciliation.confirm(data.get('token',''),data.get('approve')))
+
+
+@packaging.post('/sync')
+def sync_all():
+    if not FlaskForm().validate_on_submit():abort(400)
+    ids=request.form.getlist('package_id') or None
+    if ids and (len(ids)>reconciliation.LIMIT or any(db.session.get(Package,i) is None for i in ids)):abort(400)
+    return render_template('packaging/sync.html',plan=reconciliation.sync_preview(ids),form=FlaskForm())
 
 
 @packaging.post('/dimension-copy-preview')

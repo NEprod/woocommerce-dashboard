@@ -1,5 +1,17 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## Shipping Packages catalogue reconciliation
+
+The normal2026-10 read-only schema probe now reports package root/type/input/payload
+fields and current granted scopes. Official shippingPackageUpdate documents name,
+type, outside dimensions and empty weight but returns only userErrors; safe saved-
+package listing/identity/default/readback is not established. No mutation is enabled
+on that evidence alone. Merchant observations support signed local imports/retained
+relationships, explicitly not API-verified sync. Sync All skips blocked/unlinked
+records with manual instructions. No create/tube mapping is invented, no permission
+is added and no default/product association is written. Authenticated store package
+capability remains an Unraid probe/acceptance item. See [SHIPPING_PACKAGES.md](SHIPPING_PACKAGES.md).
+
 ## M3A.9.5.7 — finished-size destination ownership and optional local choices
 
 Read-only normal reviews now verify existing dimension metafield definitions for each

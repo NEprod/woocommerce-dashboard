@@ -21,7 +21,18 @@
     if(n.name==='cost_pence')value=value===''?null:Number(value);
     setPath(result,n.name,value);
   });return result;}
-  function populatePackage(form,data){form.querySelectorAll('[name]').forEach(n=>{let v=readPath(data,n.name);if(n.tagName==='SELECT' && v===undefined)return;if(n.name==='protection')v=(v || []).join(', ');if(n.type==='checkbox')n.checked=v===true;else n.value=v ?? '';});}
+  function populatePackage(form,data){form.querySelectorAll('[name]').forEach(n=>{let v=readPath(data,n.name);if(n.tagName==='SELECT' && v===undefined)return;if(n.name==='protection')v=(v || []).join(', ');if(n.type==='checkbox')n.checked=v===true;else n.value=v ?? '';});packageUnits(form);}
+  function packageUnits(form){form.querySelectorAll('[data-package-unit]').forEach(select=>{
+    if(select.dataset.bound)return;select.dataset.bound='yes';let previous=select.value;
+    const lengths={cm:1,mm:.1,in:2.54},weights={g:1,kg:1000,oz:28.349523125,lb:453.59237};
+    const isLength=select.dataset.packageUnit==='length',factors=isLength?lengths:weights;
+    select.addEventListener('change',()=>{const ratio=factors[previous]/factors[select.value];
+      form.querySelectorAll('input[name]').forEach(input=>{const name=input.name;
+        const relevant=isLength?(name.startsWith('external_cm.')||name.startsWith('internal_cm.')||['external_diameter_cm','internal_diameter_cm','end_cap_allowance_cm','clearance_cm'].includes(name)):['tare_g','max_contents_g','max_gross_g','protection_weight_g'].includes(name);
+        if(relevant&&input.value!=='')input.value=String(Number((Number(input.value)*ratio).toPrecision(14)));
+      });form.querySelectorAll(isLength?'[data-length-unit]':'[data-weight-unit]').forEach(n=>n.textContent=select.value);previous=select.value;
+    });
+  });}
   function output(target,result){
     target.replaceChildren();target.append(element('p',result.notice));
     (result.warnings || []).forEach(v=>target.append(element('p',v,'alert alert-warning')));
@@ -34,7 +45,7 @@
     if(!template)throw new Error('Package editor unavailable. Your draft is retained.');
     const returnFocus=document.activeElement,returnX=window.scrollX,returnY=window.scrollY;
     const dialog=template.content.firstElementChild.cloneNode(true);document.body.append(dialog);
-    const form=dialog.querySelector('form'),feedback=form.querySelector('[data-package-feedback]');
+    const form=dialog.querySelector('form'),feedback=form.querySelector('[data-package-feedback]');packageUnits(form);
     const close=()=>{dialog.close();dialog.remove();returnFocus?.focus({preventScroll:true});window.scrollTo(returnX,returnY);};
     dialog.querySelector('[data-package-cancel]').addEventListener('click',close);
     dialog.addEventListener('cancel',event=>{event.preventDefault();close();});

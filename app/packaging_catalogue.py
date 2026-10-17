@@ -90,7 +90,29 @@ def view(row):
         'readiness':state,'warnings':warnings,'links':links}
 
 
+def from_display_units(data):
+    """Package-form units only; canonical package storage stays cm/g."""
+    import copy
+    result=copy.deepcopy(data)
+    lengths={'cm':Decimal(1),'mm':Decimal('.1'),'in':Decimal('2.54')}
+    weights={'g':Decimal(1),'kg':Decimal(1000),'oz':Decimal('28.349523125'),'lb':Decimal('453.59237')}
+    try: lf=lengths[result.pop('dimension_unit','cm')];wf=weights[result.pop('weight_unit','g')]
+    except (KeyError,TypeError):raise ValueError('Choose supported package measurement and weight units.') from None
+    def convert(value,factor,label):
+        return str(number(value,label,zero=True)*factor) if value not in (None,'') else None
+    for group in ('external_cm','internal_cm'):
+        if group in result:
+            if not isinstance(result[group],dict):raise ValueError('Package dimensions must be an object.')
+            result[group]={k:convert(v,lf,k) for k,v in result[group].items()}
+    for key in ('external_diameter_cm','internal_diameter_cm','end_cap_allowance_cm','clearance_cm'):
+        if key in result:result[key]=convert(result[key],lf,key)
+    for key in ('tare_g','max_contents_g','max_gross_g','protection_weight_g'):
+        if key in result:result[key]=convert(result[key],wf,key)
+    return result
+
+
 def save(data, row=None, *, version=None):
+    data=from_display_units(data)
     name=str(data.get('name') or '').strip()
     if not 1<=len(name)<=191: raise ValueError('Package name is required (maximum 191 characters).')
     spec=clean(data)

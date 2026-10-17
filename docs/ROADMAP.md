@@ -1,5 +1,15 @@
 # Roadmap
 
+## Shipping Packages mini manager — acceptance after M3A.9.5.7
+
+Accept the reused six-package settings page, incomplete/unit-aware local saves and
+signed merchant-assisted comparison/import/link workflow without changing product
+choices or checkout. Probe the actual Unraid store schema before proposing further
+API integration. Automatic catalogue sync remains blocked until a supported identity,
+default-state and independent readback contract is established; a documented update
+mutation alone is insufficient. No permission/app release is needed for this local
+fallback. No new migration. See [SHIPPING_PACKAGES.md](SHIPPING_PACKAGES.md).
+
 ## M3A.9.5.6 — accept independent packed dimensions correction
 
 Original finished millimetres/modifiers remain authoritative. Accept independent

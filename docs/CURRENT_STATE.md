@@ -1,5 +1,17 @@
 # Current State
 
+## Shipping Packages mini manager — follow-up to M3A.9.5.7
+
+Settings links to the reused compact package manager, not another database/editor.
+Six UUID records and merchant values remain intact. Unit-aware local edits, manual
+Shopify observations, field-level signed import/link reviews, explicit conflict and
+duplicate protection and durable receipts are implemented. Sync/Sync All is a bounded
+capability/manual-action preview: no verified public saved-package readback contract
+or development merchant token was available, so remote writes remain blocked rather
+than reported successful. No new migration (0018), app scopes/version, product JSON,
+default package, checkout/rates or Orders changes. See [SHIPPING_PACKAGES.md](SHIPPING_PACKAGES.md)
+for precise API evidence, limitations and Unraid acceptance.
+
 ## M3A.9.5.7 — Review & Sync dimensional destination evidence
 
 Finished Product/Variant dimension values now include independently reviewed stable

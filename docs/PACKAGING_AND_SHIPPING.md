@@ -1,5 +1,11 @@
 # Packaging & Shipping — M3A.9.5.4 (final reduced scope)
 
+**Current package catalogue administration:** Settings → Shipping Packages reuses
+these records and forms, with unit controls and signed merchant-assisted reconciliation.
+Remote listing/readback has not been verified; Sync Preview is manual/skipped, not
+an automatic Shopify update. Six identities, usable-space rules and all product
+recommendations remain unchanged. See [SHIPPING_PACKAGES.md](SHIPPING_PACKAGES.md).
+
 **M3A.9.5.6 correction supersedes the historical dimensional/reuse policy below:**
 original `dimensions` is finished-product millimetres, not legacy data. Only explicit
 packed measurements publish natively, even with the old reuse flag. Independent

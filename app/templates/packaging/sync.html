@@ -1,0 +1,32 @@
+{% extends 'layouts/base.html' %}
+{% block title %}Shipping Packages Sync Preview{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><h1>Shipping Packages — Sync Preview</h1><p>No Shopify writes occurred. This is not a bidirectional merge.</p></div>
+  <a href="{{ url_for('packaging.index') }}">Shipping Packages</a>
+</header>
+{% if plan.failure %}<p class="alert alert-warning" role="status">{{ plan.failure }}</p>{% endif %}
+<p class="alert alert-warning">{{ plan.capability.limitation }} No remote confirmation is offered without verified identity/readback.</p>
+{% if plan.capability.admin_url %}<a href="{{ plan.capability.admin_url }}" target="_blank" rel="noopener noreferrer">Shopify Shipping and delivery settings</a>{% endif %}
+{% for row in plan.rows %}
+<section class="app-card">
+  <h2>{{ row.package.name }}</h2><p>{{ row.status.label }} · {{ row.result }}</p>
+  {% if row.fields %}
+  <table class="table shipping-packages-table">
+    <thead><tr><th>Field</th><th>Local value</th><th>Last manual observation — not current API evidence</th></tr></thead>
+    <tbody>{% for field in row.fields %}<tr>
+      <th>{{ field.field }}</th>
+      <td data-label="Local">{{ field.local if field.local is not none else 'Unknown' }}</td>
+      <td data-label="Observed">{{ field.remote if field.remote is not none else 'Unknown' }} · {{ 'Differs' if field.changed else 'Matching historical observation only' }}</td>
+    </tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+  <details>
+    <summary>Copyable manual setup values — no default included</summary>
+    <pre class="text-wrap text-break">{{ row.copy_values|tojson(indent=2) }}</pre>
+    <p>Only name, supported type, outside dimensions and empty weight have documented update-input equivalents. Tubes have no automatic Shopify type mapping. Incomplete measurements must not be entered as zero.</p>
+  </details>
+  <a href="{{ url_for('packaging.reconcile') }}">Reconcile / record manually checked package</a>
+</section>
+{% else %}<p>No active packages selected.</p>{% endfor %}
+{% endblock %}

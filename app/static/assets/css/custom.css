@@ -150,6 +150,17 @@ a:hover { color: var(--color-lime-hover); }
 .shopify-status-intent, .shopify-status-time, .shopify-status-evidence { font-size: 12px; color: var(--color-text-secondary); }
 .shopify-status-actions { margin-top: var(--space-4); }
 .shopify-review-table { width: 100%; table-layout: fixed; }
+.shipping-packages-table { width:100%; table-layout:fixed; }
+.shipping-packages-table small { display:block; margin-top:var(--space-2); color:var(--color-text-secondary); }
+.shipping-packages-table th,.shipping-packages-table td { overflow-wrap:anywhere; vertical-align:top; }
+.package-observation { padding:var(--space-4); margin-block:var(--space-4); border:var(--border-default); border-radius:var(--radius-card-small); }
+@media(max-width:767px) {
+  .table.shipping-packages-table { min-width:0; }
+  .shipping-packages-table,.shipping-packages-table tbody,.shipping-packages-table tr,.shipping-packages-table th,.shipping-packages-table td { display:block; width:100%; min-width:0; }
+  .shipping-packages-table thead { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .shipping-packages-table tr { padding:var(--space-4); margin-block:var(--space-4); border:var(--border-default); }
+  .shipping-packages-table td::before { content:attr(data-label) ': '; font-weight:650; }
+}
 .shopify-review-table th, .shopify-review-table td { overflow-wrap: anywhere; white-space: pre-wrap; vertical-align: top; }
 @media (max-width: 767px) {
   .shopify-status-actions { display: block; }
