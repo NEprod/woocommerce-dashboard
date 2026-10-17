@@ -112,5 +112,18 @@ def recommend():
     from app.packaging_contract import effective
     from app.packing import recommend as solo
     item=effective(document,value.get('attributes'))
-    item.setdefault('weight_g',document.get('weight'))
+    from app.utils.json_utils import apply_variation_modifiers
+    weight=apply_variation_modifiers(document,value['attributes'],log=lambda *a,**k:None)['weight'] if value.get('attributes') is not None else document.get('weight')
+    item.setdefault('weight_g',weight)
     return jsonify(solo(item,workspace.packages()))
+
+
+@packaging.post('/dimension-copy-preview')
+def dimension_copy_preview():
+    """Unsaved local draft only; never save, scan or request Shopify."""
+    value=body(); document=value.get('document')
+    if not isinstance(document,dict): raise ValueError('Enter the current local draft.')
+    from app.packaging_contract import dimension_configurations
+    configurations=dimension_configurations(document)
+    if not configurations: raise ValueError('Enter finished product dimensions before copying.')
+    return jsonify(configurations=configurations,remote_writes=0,local_writes=0)

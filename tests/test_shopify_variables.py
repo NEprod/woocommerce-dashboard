@@ -229,6 +229,7 @@ def test_uncertain_variant_create_is_read_only_recoverable(variable_world):
 
 
 def test_native_dimensions_are_per_actual_inventory_item(variable_world,monkeypatch):
+    rescan(variable_world,packaging={'packed_dimensions_cm':{'length':'16','width':'11','height':'.4'},'measured':True})
     monkeypatch.setenv("SHOPIFY_NATIVE_DIMENSIONS_ENABLED","true")
     monkeypatch.setenv("SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS","true")
     row,adapter=create(variable_world)
@@ -332,6 +333,7 @@ def test_signed_review_and_local_changes_are_protected(variable_world):
 
 
 def test_missing_native_permission_does_not_poison_verified_metadata(variable_world,monkeypatch):
+    rescan(variable_world,packaging={'packed_dimensions_cm':{'length':'16','width':'11','height':'.4'},'measured':True})
     monkeypatch.setenv("SHOPIFY_NATIVE_DIMENSIONS_ENABLED","true")
     monkeypatch.setenv("SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS","true")
     adapter=VariableAdapter(); adapter.native_permission=False
@@ -343,6 +345,7 @@ def test_missing_native_permission_does_not_poison_verified_metadata(variable_wo
 
 
 def test_uncertain_native_stops_remaining_writes_and_reconciles_without_retry(variable_world,monkeypatch):
+    rescan(variable_world,packaging={'packed_dimensions_cm':{'length':'16','width':'11','height':'.4'},'measured':True})
     monkeypatch.setenv("SHOPIFY_NATIVE_DIMENSIONS_ENABLED","true")
     monkeypatch.setenv("SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS","true")
     adapter=VariableAdapter(); adapter.failure_stage="native"
@@ -473,6 +476,7 @@ def test_variable_transport_uses_stable_api_except_narrow_packed_reads(monkeypat
 
 
 def test_shared_status_cache_and_native_freshness_are_bounded(variable_world,monkeypatch):
+    rescan(variable_world,packaging={'packed_dimensions_cm':{'length':'16','width':'11','height':'.4'},'measured':True})
     from app import shopify_status
     from app.models import ShopifyProductComparison
     from datetime import timedelta

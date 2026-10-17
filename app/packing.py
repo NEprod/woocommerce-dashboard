@@ -1,7 +1,7 @@
 """Conservative single-item fit only. No basket, parcel splitting or postage engine."""
 from decimal import Decimal
 from itertools import permutations
-from app.packaging_contract import AXES, number
+from app.packaging_contract import AXES, number, packed_cm
 from app.packaging_catalogue import readiness
 
 
@@ -11,7 +11,8 @@ def recommend(item, packages):
         'rejected_packages':[],'warnings':[],
         'notice':'No suitable package found. You can still save this product without assigning a package.'}
     try:
-        dims=tuple(number(item.get('packed_dimensions_cm',{}).get(k),k) for k in AXES)
+        size=packed_cm(item)
+        dims=tuple(number(size.get(k),k) for k in AXES)
         weight=number(item.get('weight_g'),'Shipping weight',zero=True)
         clearance=number(item.get('clearance_cm'),'Product protection allowance',zero=True)
         protection=number(item.get('protection_weight_g'),'Product protection weight',zero=True)

@@ -1,5 +1,16 @@
 # M3A.9 Product Creator & Editor contract
 
+## M3A.9.5.6 — original finished dimensions, independently authored packing
+
+Original `dimensions` and its existing modifiers remain finished millimetres, not
+legacy/parcel fields. Existing0017 explicit-unit finished objects remain compatible.
+Independent packaging supports mm/cm/in, broad→specific shipping patches, one-time
+unsaved effective-size copy Preview and explicit overwrite consent. Copy retains all
+other draft/modifier data, resets measurement confirmation and never binds future edits.
+Matching dimensional groups share non-size options; explicit variant exceptions stay
+ordinary modifier expressions. Solo checkbox/null/inherited/manual choices remain
+optional. Save/targeted scan never publishes. See [full contract](PACKED_DIMENSIONS.md).
+
 ## M3A.9.5.4 — shared Shipping & Dimensions component
 
 Intake, shared/product editor, Advanced JSON and variant modifiers support independent

@@ -59,7 +59,8 @@ def test_expired_configured_sale_is_not_current_catalogue_price(world, clock):
 def test_ten_minute_native_expiry_is_stale_not_needs_attention(world, clock, monkeypatch):
     clock[0] = datetime(2026, 10, 15, 16, 2)
     enable(monkeypatch)
-    change(world, weight='50', dimensions={'length':155, 'width':155, 'height':3})
+    change(world, weight='50', dimensions={'length':155, 'width':155, 'height':3},
+        packaging={'packed_dimensions_cm':{'length':'15.5','width':'15.5','height':'.3'},'measured':True})
     adapter = NativeAdapter()
     _, token = drafts.preview(world[0], adapter)
     row = drafts.confirm(token, True, adapter)
@@ -81,7 +82,8 @@ def test_1703_1708_1714_expiry_scan_and_reconciliation(world, clock, monkeypatch
     clock[0] = datetime(2026,10,15,15,50)
     product, folder, shared = world
     change(world, sku_prefix='TEST-', sale_price='1.50', sale_start_date='2026-10-15T15:55:00Z',
-        sale_end_date='2026-10-15T16:00:00Z', weight='50', dimensions={'length':155,'width':155,'height':3})
+        sale_end_date='2026-10-15T16:00:00Z', weight='50', dimensions={'length':155,'width':155,'height':3},
+        packaging={'packed_dimensions_cm':{'length':'15.5','width':'15.5','height':'.3'},'measured':True})
     (folder/'.scanned').write_text(json.dumps({'sku':product.sku}))
     from app.models import Settings
     output=Path(db.session.query(Settings).first().product_folder).parent/'processed'

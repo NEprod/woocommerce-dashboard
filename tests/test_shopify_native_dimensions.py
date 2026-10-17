@@ -66,7 +66,8 @@ def enable(monkeypatch):
 
 
 def product(world, monkeypatch):
-    change(world, dimensions={"length": "155", "width": "155", "height": "3"}, weight="50")
+    change(world, dimensions={"length": "155", "width": "155", "height": "3"}, weight="50",
+        packaging={'packed_dimensions_cm':{'length':'15.5','width':'15.5','height':'.3'},'measured':True})
     adapter = NativeAdapter()
     _, token = drafts.preview(world[0], adapter)
     row = drafts.confirm(token, True, adapter)
@@ -105,7 +106,8 @@ def test_native_only_success_removes_only_native_comparison_changes(world, monke
 
 def test_new_create_has_independently_verified_native_stage(world, monkeypatch):
     enable(monkeypatch)
-    change(world, dimensions={"length": 155, "width": 155, "height": 3}, weight=50)
+    change(world, dimensions={"length": 155, "width": 155, "height": 3}, weight=50,
+        packaging={'packed_dimensions_cm':{'length':'15.5','width':'15.5','height':'.3'},'measured':True})
     adapter = NativeAdapter()
     plan, token = drafts.preview(world[0], adapter)
     assert plan["native"]["classification"] == "create_stage"
@@ -118,7 +120,8 @@ def test_new_create_has_independently_verified_native_stage(world, monkeypatch):
 
 def test_missing_permission_retains_created_product_with_blocked_not_uncertain_native(world, monkeypatch):
     enable(monkeypatch)
-    change(world, dimensions={"length": 155, "width": 155, "height": 3})
+    change(world, dimensions={"length": 155, "width": 155, "height": 3},
+        packaging={'packed_dimensions_cm':{'length':'15.5','width':'15.5','height':'.3'},'measured':True})
     adapter = NativeAdapter()
     adapter.permission = False
     plan, token = drafts.preview(world[0], adapter)
@@ -152,7 +155,8 @@ def test_native_uncertainty_remains_visible_in_complete_product_operation(world,
         row, adapter = product(world, monkeypatch)
     else:
         enable(monkeypatch)
-        change(world, dimensions={"length": 155, "width": 155, "height": 3})
+        change(world, dimensions={"length": 155, "width": 155, "height": 3},
+            packaging={'packed_dimensions_cm':{'length':'15.5','width':'15.5','height':'.3'},'measured':True})
         adapter = NativeAdapter()
     adapter.native_error = "after"
     _, token = drafts.preview(world[0], adapter)
@@ -200,9 +204,10 @@ def test_incomplete_capability_response_is_a_known_blocker_not_recovery(world, m
 
 def test_product_dimensions_are_not_silently_assumed_packed(world, monkeypatch):
     row, adapter = product(world, monkeypatch)
+    change(world,packaging={})
     monkeypatch.setenv("SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS", "false")
     plan, token = native.review(world[0], adapter=adapter)
-    assert token is None and "policy unresolved" in plan["reason"]
+    assert token is None and "unconfigured" in plan["reason"]
     assert plan["capable"] is True and plan["desired"] is None
 
 

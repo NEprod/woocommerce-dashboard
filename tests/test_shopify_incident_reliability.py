@@ -249,7 +249,8 @@ def test_nine_variants_complete_readback_across_both_layouts(variable_world,monk
                     folder.mkdir(parents=True)
                     Image.new('RGB',(5,5),'green').save(folder/'original.png')
     modifiers={**authored.get('variation_modifiers',{}),f'{second}=Third':{'price':'23.00','weight':95,'dimensions':{'length':155,'width':100,'height':3}}}
-    rescan(variable_world,attributes=attrs,variation_modifiers=modifiers)
+    rescan(variable_world,attributes=attrs,variation_modifiers=modifiers,
+        packaging={'packed_dimensions_cm':{'length':'16','width':'11','height':'.4'},'measured':True})
     assert len(product.variations)==9 and old_skus.issubset({v.sku for v in product.variations})
     adapter=PaginatedVariableAdapter()
     plan,token=drafts.preview(product,adapter)

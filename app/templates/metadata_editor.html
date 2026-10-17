@@ -156,7 +156,7 @@
       </section>
 
       <section class="editor-workspace-section" aria-labelledby="shipping-title">
-        <header><div><h2 id="shipping-title">Legacy product measurements</h2><p>Historical millimetres retain their existing interpretation and modifier calculations. Use Finished Product below to explicitly confirm customer-facing size; prepared packed size is independent.</p></div></header>
+        <header><div><h2 id="shipping-title">Product Dimensions</h2><p>Existing finished-product measurements in millimetres, including dimension modifiers. They describe customer-facing size, not a parcel. Separately authored price and weight modifiers are unchanged.</p></div></header>
         <div class="editor-field-grid dimensions-grid">
           {% for key, label, unit in [('weight','Weight','grams; no quantity/location changes')] %}<div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}><div class="guided-field-label"><label for="metadata-{{ key }}">{{ label }}</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override</span></label>{% endif %}</div><input id="metadata-{{ key }}" data-field="{{ key }}"><p class="field-helper">{{ unit }}</p><p class="field-error" data-field-error="{{ key }}" hidden></p></div>{% endfor %}
           {% if not is_shared %}<label class="override-switch section-override"><input type="checkbox" data-override-toggle="dimensions" {% if 'dimensions' in workspace.override.data %}checked{% endif %}><span>Override dimensions</span></label>{% endif %}
@@ -169,7 +169,7 @@
         {{ extra_field('requires_shipping','Requires shipping','Missing remains unspecified.', [('true','Yes'),('false','No')]) }}
         {{ extra_field('manage_stock','Track finished-product inventory','No quantity or location changes.', [('true','Tracked'),('false','Untracked')]) }}
         {{ extra_field('backorders','Out-of-stock selling policy','Existing reviewed Shopify policy; notify does not send customer alerts.', [('no','Do not allow'),('yes','Allow'),('notify','Allow (legacy notify policy)')]) }}
-      </div><p>Product millimetres are not parcel dimensions. Native packed dimensions retain their separate opt-in measurement policy.</p></section>
+      </div><p>Finished product millimetres never substitute for packed shipping dimensions. Native packed publishing remains separately opt-in.</p></section>
       {% include 'packaging/_product.html' %}
       {% include 'includes/_customisation_designer.html' %}
       <section class="editor-workspace-section advanced-fields-section" aria-labelledby="advanced-fields-title">

@@ -57,7 +57,7 @@ def source_fingerprint(product, images):
         from app.packaging_contract import effective as packing_effective
         from app.shopify_variables import packed_policy
         packaging_values = [packing_effective(authored,dict(v['attributes'])) for v in parts['variations']]
-        if any('packed_dimensions_cm' in value for value in packaging_values):
+        if any(any(k in value for k in ('packed_dimensions','packed_dimensions_cm')) for value in packaging_values):
             data['variable_packed'] = [packed_policy(dict(zip(('length','width','height'),v['dimensions'])),value)
                 for v,value in zip(parts['variations'],packaging_values)]
         for child,value in zip(parts['variations'],packaging_values):

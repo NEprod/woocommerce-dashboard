@@ -1,5 +1,18 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.5.6 — superseding native-dimension mapping policy
+
+Original product/variant dimensions are finished size. Both native publisher fallbacks
+are removed even when SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS remains true.
+Only independently authored measured packaging size can publish; mm/cm/in normalise
+exactly through the existing isolated2027-01 capability. Normal operations stay2026-10.
+Signed ordinary reviews, scopes, durable reservations, GIDs, readback and uncertainty
+recovery are preserved. Historical reuse receipts support advisory findings, not
+automatic clearing. Original finished size still publishes Product/Variant dimension
+metafields; theme display is not claimed live. Solo package association/clear remains
+manual without supported readback. No app/theme/scopes/checkout/postage changes.
+This supersedes historical reuse-flag instructions below. See PACKED_DIMENSIONS.md.
+
 ## M3A.9.5.5 — Orders delivery boundary
 
 Orders Admin GraphQL stays2026-10 and is restricted by coordinator policy to startup/

@@ -1,5 +1,11 @@
 # Packaging & Shipping — M3A.9.5.4 (final reduced scope)
 
+**M3A.9.5.6 correction supersedes the historical dimensional/reuse policy below:**
+original `dimensions` is finished-product millimetres, not legacy data. Only explicit
+packed measurements publish natively, even with the old reuse flag. Independent
+mm/cm/in, modifier-aware copy and historical repair are in [PACKED_DIMENSIONS.md](PACKED_DIMENSIONS.md).
+Six packages, optional recommendations, no rates/checkout calculations remain unchanged.
+
 TLCDashboard manages **optional solo packaging** and independent finished/prepared
 measurements. Shopify handles checkout, its native multi-item package selection
 where supported, Royal Mail Tracked 24/48, and labels. This milestone does not change
@@ -138,9 +144,9 @@ Save Locally → existing targeted scanner projection → Review & Sync → sign
   `SHOPIFY_NATIVE_DIMENSIONS_ENABLED=true` and retain `write_inventory` plus read access.
   Explicit packed cm requires `measured:true`; complete independent capability,
   identity, signed review, readback and uncertainty protection remain mandatory.
-  `SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS` is the existing legacy opt-in;
-  it refers only to historical millimetres, **never new finished dimensions**. Prefer
-  explicit packed measurements; an incomplete explicit packed object blocks fallback.
+  `SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS` is retired and ignored;
+  there is no finished-to-packed fallback. Explicit unit-aware packed dimensions
+  or compatible packed cm are required; incomplete/unmeasured values stay outstanding.
 * Optional solo UUID is not sent as a fake Shopify ID. Selected/explicitly cleared
   packages show a manual-operation warning without blocking supported field updates.
   A local clear is not proof that a prior remote assignment cleared.

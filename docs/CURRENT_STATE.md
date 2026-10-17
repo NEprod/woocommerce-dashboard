@@ -1,5 +1,18 @@
 # Current State
 
+## M3A.9.5.6 — finished dimensions and independent packed shipping correction
+
+Confirmed Simple/Variable native publishers still fell back to original finished
+millimetres under the old reuse flag. That fallback is removed regardless of flag.
+Existing dimensions/modifiers remain finished size; no price/weight/SKU/variant
+engine changes. Existing packaging gains unit-explicit mm/cm/in size, stable size-
+group copy Preview, explicit overwrite/measurement confirmation and optional solo
+checkbox. Shipping patches inherit independently from price-only modifiers.
+Normal signed Review & Sync/readback owns all supported fields. Historical remote
+values require evidence-aware reviewed correction, never automatic clearing.
+No migration (0018), app/theme release, shipping pricing or checkout changes.
+See [contract, limitations and acceptance](PACKED_DIMENSIONS.md).
+
 ## M3A.9.5.5 — Orders startup/manual catch-up and encrypted webhook foundation
 
 Migration0018_orders_webhooks retains0016 order/line identities and0017 packaging.

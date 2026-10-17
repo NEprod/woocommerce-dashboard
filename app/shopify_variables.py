@@ -55,24 +55,13 @@ def source_parts(product):
 
 def packed_policy(dimensions, packaging=None):
     policy = {"enabled": native.flag("SHOPIFY_NATIVE_DIMENSIONS_ENABLED"),
-        "use_product_dimensions": native.flag("SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS"), "desired": None, "reason": ""}
+        "use_product_dimensions": False, 'source_policy':2, "desired": None, "reason": ""}
     if not policy["enabled"]:
         return policy
-    if packaging and 'packed_dimensions_cm' in packaging:
+    if packaging and native.has_packed(packaging):
         policy.update(native.explicit_packed(packaging))
         return policy
-    if not policy["use_product_dimensions"]:
-        policy["reason"] = "Packed-measurement policy unresolved; no physical-to-packed assumption."
-        return policy
-    try:
-        mm = {k: Decimal(str(dimensions[k])) for k in ("length", "width", "height")}
-        if any(isinstance(dimensions[k], bool) or not v.is_finite() or v <= 0 or v > 1000000000 for k,v in mm.items()):
-            raise ValueError()
-        policy["desired"] = {**{k: float((v/10).quantize(Decimal("0.0000001"))) for k,v in mm.items()}, "unit": "CENTIMETERS"}
-        if any(policy["desired"][k] <= 0 for k in mm):
-            raise ValueError()
-    except (ValueError, TypeError, ArithmeticError, KeyError):
-        policy.update(desired=None, reason="Complete positive per-variant dimensions are required; no packaging measurements invented.")
+    policy.update(unconfigured=True,reason='Packed shipping dimensions unconfigured; finished dimensions never substitute. Existing remote measurements are retained pending review.')
     return policy
 
 
@@ -325,6 +314,10 @@ def native_review(plan, row, data, config, shop, adapter):
             if v.get("remote_id"):
                 value["before"] = nodes[v["remote_id"]]["inventoryItem"]["measurement"]["packedDimensions"]
                 native.millimetres(value["before"])
+                prior=next((p['native'] for p in (data.get('plan') or {}).get('variants',[]) if p['identity']==v['identity']),{})
+                value['historical_finding']=native.historical_finding(value['before'],value['desired'],v['dimensions_mm'],dict(proof,plan=prior))
+                if value['historical_finding']!='Correct and verified':
+                    plan['warnings'].append(v['sku']+': '+value['historical_finding']+'. Remote values retained until an explicit measured packed-size correction is reviewed.')
             if value["desired"]:
                 value["classification"] = "no_change" if value["before"] is not None and native.equal(value["before"],value["desired"]) else "update"
                 if not allowed and value["classification"] != "no_change":
@@ -489,6 +482,8 @@ def _native_apply(row,data,config,adapter,operation_id):
     contract = data["plan"]["native"]
     if not contract["enabled"]:
         return "disabled"
+    if all(v.get('unconfigured') for v in contract['variants'].values()):
+        return 'unconfigured'  # preserve existing per-variant proof, no native write
     proofs = data.setdefault("variant_native",{})
     try:
         shop=adapter.test_connection(config)
@@ -510,6 +505,7 @@ def _native_apply(row,data,config,adapter,operation_id):
         key = wanted["identity"]
         target = contract["variants"][key]
         mapping = data["variant_maps"][key]
+        if target.get('unconfigured'): continue
         if target["reason"] or not target["desired"] or contract.get("reason") or monotonic()-started>120:
             proofs[key] = {"state":"blocked","message":target["reason"] or contract.get("reason") or "Native stage time budget reached; build a fresh reviewed completion.","desired":target["desired"]}
             drafts.save(row,data)
@@ -523,6 +519,9 @@ def _native_apply(row,data,config,adapter,operation_id):
             drafts.save(row,data); continue
         proof = {"version":1,"state":"verified" if native.equal(before,target["desired"]) else "pending",
             "desired":target["desired"],"inventory_id":mapping["inventory_id"],"operation_id":operation_id}
+        if proofs.get(key,{}).get('state')=='verified':
+            proof['prior_verified']={k:proofs[key][k] for k in ('desired','observed','checked_at','inventory_id') if k in proofs[key]}
+        proof['measurement_source']='authored_packed_size'
         proofs[key] = proof
         drafts.save(row,data)  # durable per-inventory reservation BEFORE mutation
         try:
@@ -546,7 +545,7 @@ def _native_apply(row,data,config,adapter,operation_id):
             drafts.save(row,data)
             return "uncertain"  # do not continue writes after uncertainty
         drafts.save(row,data)
-    return "verified" if all(proofs.get(v["identity"],{}).get("state")=="verified" for v in data["plan"]["variants"]) else "blocked"
+    return "verified" if all(v['native'].get('desired') is not None and proofs.get(v["identity"],{}).get("state")=="verified" for v in data["plan"]["variants"]) else "blocked"
 
 
 def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attribute_review=False):

@@ -87,11 +87,14 @@
       row.className = "structured-editor-row modifier-editor-row";
       row.dataset.modifierRow = "";
       row._originalModifier=structuredClone(modifier);
-      if(window.TLCPackaging){const finished=document.createElement('div');row.appendChild(finished);
+      const addShippingEditor=()=>{const finished=document.createElement('div');row.appendChild(finished);
         row._finishedEditor=new window.TLCPackaging.FinishedEditor(finished,{value:modifier.finished_dimensions,shared:authored.finished_dimensions,onChange:()=>{dirty=true;}});
         const target=document.createElement('div');row.appendChild(target);
         row._packagingEditor=new window.TLCPackaging.Editor(target,{value:modifier.packaging,shared:authored.packaging,
-          onChange:()=>{dirty=true;},getDocument:()=>({...guidedDocument(),packaging:window.TLCPackaging.merge(packagingDesigner?.get(),row._packagingEditor.get())})});}
+          getAttributes:()=>Object.fromEntries(row.querySelector('[data-modifier-field="expression"]').value.split('|').map(v=>v.split('='))),
+          onChange:()=>{dirty=true;},getDocument:()=>({...guidedDocument(),packaging:window.TLCPackaging.merge(packagingDesigner?.get(),row._packagingEditor.get())})});};
+      if(window.TLCPackaging && (modifier.dimensions || modifier.finished_dimensions || modifier.packaging))addShippingEditor();
+      else if(window.TLCPackaging){const control=document.createElement('button');control.type='button';control.className='btn btn-sm btn-outline-primary';control.textContent='Add packed shipping exception';control.addEventListener('click',()=>{addShippingEditor();control.remove();});row.append(control);}
       [["expression", expression, "Attribute=Value expression"], ["price", modifier.price, "Price"], ["sale_price", modifier.sale_price, "Sale price"], ["weight", modifier.weight, "Weight"], ["length", modifier.dimensions && modifier.dimensions.length, "Length"], ["width", modifier.dimensions && modifier.dimensions.width, "Width"], ["height", modifier.dimensions && modifier.dimensions.height, "Height"]].forEach(([name, value, label]) => {
         const input = document.createElement("input");
         input.dataset.modifierField = name;
@@ -115,9 +118,10 @@
       ['price','sale_price','weight','dimensions'].forEach(k=>delete modifier[k]);
       if(row._packagingEditor){const value=row._packagingEditor.get();if(value)modifier.packaging=value;else delete modifier.packaging;}
       if(row._finishedEditor){const value=row._finishedEditor.get();if(value)modifier.finished_dimensions=value;else delete modifier.finished_dimensions;}
-      ["price", "sale_price", "weight"].forEach((name) => { if (get(name)) modifier[name] = get(name); });
+      const retained=(text,original)=>original!=null && String(original)===text?original:text;
+      ["price", "sale_price", "weight"].forEach((name) => { if (get(name)) modifier[name] = retained(get(name),row._originalModifier?.[name]); });
       const dimensions = {};
-      ["length", "width", "height"].forEach((name) => { if (get(name)) dimensions[name] = get(name); });
+      ["length", "width", "height"].forEach((name) => { if (get(name)) dimensions[name] = retained(get(name),row._originalModifier?.dimensions?.[name]); });
       if (Object.keys(dimensions).length) modifier.dimensions = dimensions;
       result[expression] = modifier;
     });
@@ -218,6 +222,11 @@
   }
 
   root.addEventListener("click", (event) => {
+    if(event.target.closest('[data-copy-product-dimensions]')){
+      const control=event.target.closest('[data-copy-product-dimensions]');control.disabled=true;
+      window.TLCPackaging.copyDimensions(guidedDocument,value=>{populate(value);dirty=true;})
+        .catch(error=>{const node=root.querySelector('[data-json-error]');node.textContent=error.message;node.hidden=false;}).finally(()=>{control.disabled=false;});return;
+    }
     const mode = event.target.closest("[data-prepared-mode]");
     if (mode) switchMode(mode.dataset.preparedMode);
     if (event.target.closest("[data-return-guided]")) switchMode("guided");

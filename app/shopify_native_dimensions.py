@@ -27,51 +27,54 @@ def flag(name):
 
 def desired(product):
     enabled = flag("SHOPIFY_NATIVE_DIMENSIONS_ENABLED")
-    use_product = flag("SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS")
-    result = {"version": VERSION, "enabled": enabled, "use_product_dimensions": use_product,
+    result = {"version": VERSION, "enabled": enabled, "use_product_dimensions": False, 'source_policy':2,
         "desired": None, "local_mm": None, "reason": "Native packed dimensions disabled; product metafields are not shipping dimensions."}
     if not enabled:
         return result
     document = product_document(product)
-    packaging = document.get('packaging') or {}
-    if 'packed_dimensions_cm' in packaging:
+    from app.packaging_contract import effective
+    packaging = effective(document)
+    if has_packed(packaging):
         result.update(explicit_packed(packaging))
         return result
-    if not use_product:
-        result["reason"] = "Packed measurement policy unresolved. Explicitly approve reuse of authored product dimensions only when they accurately describe the packed item."
-        return result
-    try:
-        # The legacy opt-in refers only to historical millimetres, not the new
-        # independent customer-facing finished measurements.
-        local = document.get('dimensions', {k:getattr(product,k) for k in ('length','width','height')})
-        values = {key: Decimal(str(local[key])) for key in ("length", "width", "height")}
-        if any(isinstance(local[k], bool) or not v.is_finite() or v <= 0 or v > Decimal("1000000000") for k, v in values.items()):
-            raise ValueError()
-        # Float input at the boundary, Decimal source/comparison. 1e-7 cm
-        # rounding is at most half the 1e-6 mm comparison tolerance.
-        result.update(local_mm={k: format(v, "f") for k, v in values.items()}, reason="",
-            desired={**{k: float((v / 10).quantize(Decimal("0.0000001"))) for k, v in values.items()}, "unit": "CENTIMETERS"})
-        if any(result["desired"][k] <= 0 for k in values):
-            raise ValueError()
-    except (KeyError, ValueError, TypeError, InvalidOperation, OSError, RuntimeError):
-        result.update(desired=None, local_mm=None)
-        result["reason"] = "Complete positive authored length, width and height are required; no packaging values are invented."
+    result['unconfigured']=True
+    result["reason"] = "Packed shipping dimensions are unconfigured. Finished product dimensions are never reused, including with the retired reuse flag. Existing Shopify measurements are preserved pending review."
     return result
+
+
+def has_packed(packaging):
+    return any(k in packaging for k in ('packed_dimensions','packed_dimensions_cm'))
 
 
 def explicit_packed(packaging):
     """Authored measured shipping size wins; never silently fall back to artwork."""
-    from app.packaging_contract import validate, AXES, number
+    from app.packaging_contract import validate, AXES, number, packed_cm
     try:
         validate(packaging)
         if not packaging.get('measured'): raise ValueError('Confirm packed measurements before Shopify review.')
-        values={k:number(packaging.get('packed_dimensions_cm',{}).get(k),k) for k in AXES}
+        size=packed_cm(packaging)
+        values={k:number(size.get(k),k) for k in AXES}
         canonical={k:float(v.quantize(Decimal('0.0000001'))) for k,v in values.items()}
         if any(v<=0 for v in canonical.values()): raise ValueError('Packed size is below supported measurement precision.')
         return {'desired':{**canonical,'unit':'CENTIMETERS'},
             'local_mm':{k:str(v*10) for k,v in values.items()},'reason':'','measurement_source':'authored_packed_size'}
     except ValueError as exc:
         return {'desired':None,'local_mm':None,'reason':str(exc),'measurement_source':'authored_packed_size'}
+
+
+def historical_finding(before, desired, finished_size, previous=None):
+    """Evidence classification is advisory, never permission to clear or retry."""
+    if before is None: return 'Insufficient evidence'
+    observed=millimetres(before)
+    if not any(observed.values()): return 'Missing remote packed dimensions'
+    if desired is not None:
+        return 'Correct and verified' if equal(before,desired) else 'Different remote packed dimensions'
+    previous=previous or {}
+    old=previous.get('plan',previous)
+    if old.get('use_product_dimensions') and not old.get('measurement_source') and equal(before,previous.get('observed') or old.get('desired')):
+        return 'Likely previously mapped from finished dimensions'
+    # Equality with finished size alone is not proof of a publishing mistake.
+    return 'Insufficient evidence' if finished_size and all(finished_size.get(k) is not None and abs(observed[k]-Decimal(str(finished_size[k])))<=TOLERANCE_MM for k in observed) else 'Different remote packed dimensions'
 
 
 def millimetres(value):
@@ -140,7 +143,8 @@ def review(product, row=None, adapter=None, *, config=None, shop=None):
         raise ShopifyError("Native dimension publishing supports active Simple parents only.")
     plan = desired(product)
     plan.update(product_id=product.id, source=product.source_relpath, sku=product.sku,
-        classification="blocked", inventory_id=None, before=None, checked_at=None)
+        classification="blocked", inventory_id=None, before=None, checked_at=None,
+        source_revision=drafts.digest(product_document(product)))
     if not plan["enabled"]:
         return plan, None
     adapter = adapter or ShopifyAdapter()
@@ -164,6 +168,8 @@ def review(product, row=None, adapter=None, *, config=None, shop=None):
         can_write = capability(adapter, config, shop)
         if row:
             plan["inventory_id"], plan["before"] = identity_read(row, adapter, config)
+            from app.packaging_contract import finished_mm
+            plan['historical_finding']=historical_finding(plan['before'],plan['desired'],finished_mm(product_document(product)),drafts.evidence(row).get('native_dimensions'))
         plan["checked_at"] = drafts.now().isoformat()
         plan["capable"] = True
         if plan["desired"]:
@@ -200,6 +206,8 @@ def persist(row, value):
 def apply_reviewed(row, plan, adapter, *, operation_id=None):
     if not plan.get("enabled"):
         return "disabled"
+    if plan.get('unconfigured'):
+        return 'unconfigured'  # no write and no replacement of historical proof
     if plan.get("reason") or not plan.get("desired") or row.state != "verified":
         persist(row, {"version": 1, "state": "blocked", "plan": plan,
             "message": plan.get("reason") or "Product/media processing must finish before a separately reviewed native stage."})
@@ -223,6 +231,10 @@ def apply_reviewed(row, plan, adapter, *, operation_id=None):
         raise ShopifyError("Native store/capability/write_inventory permission changed; no native write attempted.")
     attempt = {"version": 1, "state": "pending", "plan": plan, "inventory_id": inventory_id,
         "operation_id": operation_id, "attempted_at": drafts.now().isoformat()}
+    previous=drafts.evidence(row).get('native_dimensions',{})
+    if previous.get('state')=='verified':
+        attempt['prior_verified']={k:previous[k] for k in ('observed','checked_at','inventory_id') if k in previous}
+        attempt['prior_verified']['used_product_dimensions']=(previous.get('plan') or {}).get('use_product_dimensions',False)
     persist(row, attempt)  # durable BEFORE the single, never-retried mutation
     try:
         response = adapter.write_packed(config, inventory_id, plan["desired"])
@@ -268,7 +280,9 @@ def attach_review(product, plan, row, config, shop, adapter):
     plan["taxonomy_review_digest"] = drafts.digest({"taxonomy": plan["taxonomy_review_digest"],
         "native": {k:v for k,v in native.items() if k != "checked_at"}})
     if native["enabled"]:
-        plan["warnings"].append("2027-01 release candidate: native packed dimensions are independently reviewed. Product measurements are reused only under the explicitly configured packed-measurement policy.")
+        plan["warnings"].append("Native shipping size uses only independently authored packed dimensions (opt-in2027-01). Finished sizes remain customer-facing metafields. Remote clearing is not supported by this workflow.")
+        if native.get('historical_finding'):
+            plan['warnings'].append('Historic packed-size check: '+native['historical_finding']+'. No remote value is cleared automatically; author measured packed dimensions to review a correction.')
         if native["reason"]:
             plan["warnings"].append(native["reason"])
         elif row:

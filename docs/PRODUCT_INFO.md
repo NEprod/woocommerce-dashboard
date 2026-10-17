@@ -1,5 +1,17 @@
 # product_info.json Contract
 
+## M3A.9.5.6 — dimensional authority correction
+
+`dimensions` is the original finished-product size in millimetres, with established
+dimension/price/weight modifiers unchanged. It never substitutes for native shipping.
+Existing `finished_dimensions` remains compatible as an optional explicit-unit form.
+`packaging.packed_dimensions` is independent `{length,width,height,unit}` (mm/cm/in);
+existing `packed_dimensions_cm` stays valid. Unit-explicit dimensions replace as one
+object; other shipping patches preserve sparse false/null and use existing modifier
+expressions. Never author both size representations in one layer. Copy Preview is
+one-time, never a saved link, and never marks a parcel measured. No JSON is rewritten
+on deployment. See [examples, precedence and safety](PACKED_DIMENSIONS.md).
+
 ## M3A.9.5.4 — optional authored packaging
 
 `finished_dimensions` explicitly records actual finished size (length/width/height,

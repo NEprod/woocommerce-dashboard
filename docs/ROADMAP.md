@@ -1,5 +1,14 @@
 # Roadmap
 
+## M3A.9.5.6 — accept independent packed dimensions correction
+
+Original finished millimetres/modifiers remain authoritative. Accept independent
+packed mm/cm/in, one-time copy Preview, optional six-package recommendations and
+reviewed native corrections without recreating variants. No migration beyond0018,
+price/weight calculation changes, basket/rate/checkout integration or app/theme
+release. Merchant readback/storefront acceptance remains separate from offline
+fixtures. See PACKED_DIMENSIONS.md. Preserve pending Orders permission approval.
+
 ## M3A.9.5.5 — Orders repair and event-driven delivery acceptance
 
 Accept the0018 upgrade, explicit startup/manual API triggers, retained IDs/checkpoints,

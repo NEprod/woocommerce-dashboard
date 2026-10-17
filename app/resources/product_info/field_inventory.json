@@ -9,9 +9,9 @@
     "example": {"length":"6","width":"6","unit":"in","label":"folded"}, "warning_error": "No silent reinterpretation of historical dimensions; no inferred packing."
   },
   {
-    "key": "packaging", "aliases": [], "type": "optional prepared shipping and solo-package configuration", "units": "cm and grams",
+    "key": "packaging", "aliases": [], "type": "optional prepared shipping and solo-package configuration", "units": "packed mm/cm/in; compatible cm object; grams",
     "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
-    "inheritance": "Recursive collection/product/matching variant merge preserves false and null.", "merge": "Sparse nested merge.",
+    "inheritance": "Collection/product/broad-to-specific shipping modifier patches preserve false and null independently of pricing.", "merge": "Sparse nested merge; unit-explicit packed dimensions replace atomically.",
     "parent_effect": "Measured packed size, shipping weight and optional advisory solo selection.", "variation_effect": "Independent exact/most-specific shipping overrides; no price calculation changes.",
     "woo_field": null, "sqlite_destination": "Authored JSON remains authoritative; central package UUID definitions are operational SQLite data.",
     "classification": "canonical and active", "implementation_status": "Existing signed packed-size/weight publisher; optional package association is manual without readback.",

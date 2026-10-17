@@ -175,7 +175,8 @@ def test_native_explicit_packed_size_only_2027_and_finished_never_fallback(monke
     p=type('Parent',(),{'length':155,'width':155,'height':3})()
     authored={'finished_dimensions':{'length':'42','width':'29.7','height':'.1','unit':'cm'}}
     monkeypatch.setattr(native,'product_document',lambda _:authored)
-    assert native.desired(p)['desired']['length']==15.5
+    assert native.desired(p)['desired'] is None
+    assert variables.packed_policy({'length':155,'width':155,'height':3})['desired'] is None
     authored['packaging']={'packed_dimensions_cm':{'length':'21','width':'3','height':'3'},'measured':True}
     assert native.desired(p)['desired']['length']==21
     assert variables.packed_policy({},authored['packaging'])['desired']['length']==21
