@@ -1,5 +1,17 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.5.5 — Orders delivery boundary
+
+Orders Admin GraphQL stays2026-10 and is restricted by coordinator policy to startup/
+restart and explicit manual reconciliation (including bounded recent-history repair).
+No recurring Orders schedule. Native product dimensions alone retain opt-in2027-01.
+The existing app/read_orders scope and customisations extension are unchanged.
+Supported event topics are orders/create, orders/updated, orders/cancelled, orders/paid
+and refunds/create at2026-10. HMAC receiver, encrypted gateway queue and private
+leased consumer are implemented but not activated. No endpoint/subscription or
+app version is invented without an approved real destination. Partial events never
+silently fetch an order; see [ORDERS_WEBHOOKS.md](ORDERS_WEBHOOKS.md).
+
 ## M3A.9.5.4 — packaging capability boundary
 
 The final merchant scope removes new mixed-basket/rate/callback code. Shopify retains

@@ -1,5 +1,17 @@
 # Roadmap
 
+## M3A.9.5.5 — Orders repair and event-driven delivery acceptance
+
+Accept the0018 upgrade, explicit startup/manual API triggers, retained IDs/checkpoints,
+safe diagnostic categories, encrypted durable inbox and no-API webhook processing.
+No recurring Orders API polling. Separately approve an always-on HTTPS gateway (or
+review a managed queue alternative), actual destination and subscription candidate;
+stage/inspect with existing app/extension and release only after merchant approval.
+Verify a real signed delivery, durable receipt and local apply before describing live
+Orders as webhook-driven. Resolve the original live failure using safe probe evidence
+and accept actual#TLC-1001 independently from synthetic tests. No order writes, public
+dashboard exposure, paid infrastructure or automatic Shopify release is authorised.
+
 ## M3A.9.5.4 — final reduced solo-packaging milestone
 
 This number was unused at HEAD7679198. Accept0016→0017 with six unverified UUID seeds,

@@ -56,8 +56,8 @@ def connection(value, after=None, *, maximum=50):
             or type(value['pageInfo'].get('hasNextPage')) is not bool):
         raise ShopifyError('Order connection evidence is incomplete; no existing data was removed.')
     page = value['pageInfo']
-    if page['hasNextPage'] and (not page.get('endCursor') or page['endCursor']==after):
-        raise ShopifyError('Order pagination did not advance; saved progress remains resumable.')
+    if page['hasNextPage'] and (not value['nodes'] or not page.get('endCursor') or page['endCursor']==after):
+        raise OrdersImportLimit('Order pagination did not advance; saved progress remains resumable.')
     if page.get('endCursor') is not None: _cursor(page['endCursor'])
     return value['nodes'],page
 
@@ -159,7 +159,7 @@ def normalise(raw, *, api_version):
 
 
 def read_order(adapter, config, remote_id):
-    """A targeted interface also suitable for future authenticated webhook hints."""
+    """Authorised startup/manual read only; webhook processing never calls this."""
     _gid(remote_id,'Order')
     after, version, raw, lines = None,None,None,[]
     for _ in range(40):
@@ -182,7 +182,7 @@ def read_order(adapter, config, remote_id):
     return normalise(raw,api_version=config.api_version)
 
 
-def persist(store_id, order, lines, *, fence=lambda:None):
+def persist(store_id, order, lines, *, fence=lambda:None, observed_before=None, outcome=None):
     """Single atomic order graph; SQLite writer fence before reading the current revision."""
     _gid(store_id,'Shop')
     fence()
@@ -190,8 +190,19 @@ def persist(store_id, order, lines, *, fence=lambda:None):
     # older in-flight response replace newer commerce or customer snapshot data.
     values = {**order,'store_id':store_id,'synced_at':now()}
     table = ShopifyOrder.__table__
-    existing = db.session.execute(select(table.c.redacted_at).where(
+    existing = db.session.execute(select(table).where(
         table.c.store_id==store_id,table.c.remote_id==order['remote_id'])).first()
+    if existing and (existing.updated_at>order['updated_at'] or observed_before and
+                     existing.synced_at>observed_before and existing.updated_at>=order['updated_at']):
+        if outcome is not None: outcome['result']='stale'
+        return False
+    if outcome is not None:
+        outcome['result']='created' if existing is None else 'updated' if any(
+            getattr(existing,k)!=v for k,v in order.items()) else 'unchanged'
+        if existing and outcome['result']=='unchanged':
+            previous=ShopifyOrderLine.query.filter_by(order_id=existing.id,is_current=True).order_by(ShopifyOrderLine.position).all()
+            if len(previous)!=len(lines) or any(any(getattr(a,k)!=v for k,v in b.items()) for a,b in zip(previous,lines)):
+                outcome['result']='updated'
     if existing and existing.redacted_at:
         for k in ('customer_id','customer_name','email','phone'): values[k]=None
         values['delivery_json']='null'; values['personalised']=False
@@ -234,9 +245,24 @@ def run_slice(run_id, owner, *, adapter=None):
     from app.models import ScheduledTaskRun
     from app.shopify_capacity import background_work, BackgroundYield
     adapter = adapter or ShopifyAdapter()
+    if isinstance(adapter,ShopifyAdapter) and not hasattr(adapter,'request_count'):adapter.request_count=0
     run = db.session.get(ScheduledTaskRun,run_id)
     data = json.loads(run.data_json)
     sync = None
+    phase='configuration'
+    budget={}
+    calls=0
+    initial_requests=getattr(adapter,'request_count',0)
+    initial_count=data['counts'].get('api_requests',0)
+    initial_throttled=data['counts'].get('throttled',0)
+    def call(method,*args):
+        nonlocal calls
+        calls+=1
+        return method(*args)
+    def account():
+        data['counts']['api_requests']=initial_count+(getattr(adapter,'request_count',0)-initial_requests if hasattr(adapter,'request_count') else calls)
+        data['counts']['throttled']=initial_throttled+budget.get('throttled',0)
+        data['auth_requests']=data.get('auth_requests',0)+budget.get('auth_requests',0)
     fence = lambda:tasks.fence(KEY,run_id,owner)
     try:
         if not db.session.get(ScheduledTask,KEY).enabled and run.trigger=='scheduled':
@@ -244,7 +270,8 @@ def run_slice(run_id, owner, *, adapter=None):
             return tasks.save_progress(KEY,run_id,owner,data,terminal='partially_completed')
         with background_work(lambda:tasks.renew(KEY,run_id,owner),fence=fence,requests=70,seconds=80) as budget:
             config = drafts.configuration()
-            shop = adapter.test_connection(config)
+            phase='preflight'
+            shop = call(adapter.test_connection,config)
             store_id = _gid(shop.get('shop_id'),'Shop')
             # Pin a continuing run to the same authenticated store, never reuse a
             # cursor if deployment credentials switch stores mid-import.
@@ -260,19 +287,23 @@ def run_slice(run_id, owner, *, adapter=None):
                 sync.state='authorisation_required';sync.error=AUTH_ERROR
                 save_receipt(run,data,sync);fence();db.session.commit()
                 raise OrdersPermissionRequired(AUTH_ERROR)
+            if data.get('rescan_recent') and not data.get('rescan_started'):
+                sync.window_end=None;sync.window_start=None;sync.pending_json='[]';sync.cursor=None
+                data['rescan_started']=True
             if sync.window_end is None:
                 lookback = setting('SHOPIFY_ORDERS_INITIAL_DAYS',30,1,60)
                 sync.window_end = now()-timedelta(seconds=30)
-                sync.window_start = sync.checkpoint-timedelta(hours=2) if sync.checkpoint else sync.window_end-timedelta(days=lookback)
+                sync.window_start = sync.checkpoint-timedelta(hours=2) if sync.checkpoint and not data.get('rescan_recent') else sync.window_end-timedelta(days=lookback)
                 # read_orders alone is limited to recent orders; don't send an
                 # inaccessible lower bound after a long application outage.
                 sync.window_start=max(sync.window_start,sync.window_end-timedelta(days=60))
                 sync.cursor=None;sync.pending_json='[]';sync.page_cursor=None;sync.page_more=False
-            sync.state='running';sync.error=None;fence();db.session.commit()
+            sync.state='running';sync.error=None;sync.error_category=None;sync.error_phase=None;fence();db.session.commit()
             pending=json.loads(sync.pending_json)
             if not pending:
                 query=f"updated_at:>='{sync.window_start.isoformat()}Z' updated_at:<='{sync.window_end.isoformat()}Z'"
-                result=adapter._read(config,queries.INDEX,{'after':sync.cursor,'query':query,'first':10})
+                phase='index'
+                result=call(adapter._read,config,queries.INDEX,{'after':sync.cursor,'query':query,'first':10})
                 nodes,page=connection(result.get('orders'),sync.cursor,maximum=10)
                 pending=[{'id':_gid(n.get('id'),'Order'),'updated_at':stamp(n.get('updatedAt')).isoformat()} for n in nodes]
                 if len({n['id'] for n in pending})!=len(pending): raise ShopifyError('Duplicate order index evidence.')
@@ -282,42 +313,67 @@ def run_slice(run_id, owner, *, adapter=None):
                 fence();db.session.commit()
             batch=setting('SHOPIFY_ORDERS_BATCH_SIZE',5,1,10)
             for item in pending[:batch]:
-                order,lines=read_order(adapter,config,item['id'])
+                phase='order_read'
+                observed_before=now()
+                before_calls=len(adapter.calls) if hasattr(adapter,'calls') else 0
+                try:order,lines=read_order(adapter,config,item['id'])
+                finally:
+                    if not hasattr(adapter,'request_count') and hasattr(adapter,'calls'): calls+=len(adapter.calls)-before_calls
                 if order['updated_at']<datetime.fromisoformat(item['updated_at']):
                     raise ShopifyError('Order detail is older than index evidence; checkpoint retained.')
-                changed=persist(store_id,order,lines,fence=fence)
+                phase='persist'
+                outcome={}
+                changed=persist(store_id,order,lines,fence=fence,observed_before=observed_before,outcome=outcome)
+                result_key=outcome.get('result','updated')
+                data['orders_'+result_key]=data.get('orders_'+result_key,0)+1
+                from app.order_models import ShopifyOrderEvent
+                ShopifyOrderEvent.query.filter(ShopifyOrderEvent.store_id==store_id,
+                    ShopifyOrderEvent.order_gid==order['remote_id'],ShopifyOrderEvent.state.in_(['incomplete','dead_letter','expired']),
+                    db.or_(ShopifyOrderEvent.source_updated_at<=order['updated_at'],ShopifyOrderEvent.source_updated_at.is_(None)),
+                    ShopifyOrderEvent.received_at<=observed_before).update({'state':'reconciled','payload':None},synchronize_session=False)
                 pending=pending[1:];sync.pending_json=dumps(pending);sync.imported+=int(changed)
-                data['counts']['checked']+=1;data['counts']['up_to_date']+=1
+                data['counts']['checked']+=1
+                data['counts']['deferred' if result_key=='stale' else 'up_to_date']+=1
                 save_receipt(run,data,sync)
                 fence();db.session.commit()
             if not pending:
                 if sync.page_more:
                     sync.cursor=sync.page_cursor
                 else:
+                    phase='checkpoint'
                     sync.checkpoint=sync.window_end;sync.window_start=None;sync.window_end=None
                     sync.cursor=None;sync.page_cursor=None
-                    sync.state='completed';sync.successful_at=now();fence();db.session.commit()
-                    data['counts']['api_requests']+=budget['requests'];data['counts']['throttled']+=budget['throttled']
+                    sync.state='completed';sync.successful_at=now()
+                    if run.trigger=='startup':sync.startup_successful_at=sync.successful_at
+                    if run.trigger=='manual':sync.manual_successful_at=sync.successful_at
+                    fence();db.session.commit()
+                    account()
                     return tasks.save_progress(KEY,run_id,owner,data,terminal='completed')
             sync.state='pending';fence();db.session.commit()
-            data['counts']['api_requests']+=budget['requests'];data['counts']['throttled']+=budget['throttled']
+            account()
             data['reason']='Bounded Orders batch saved; continuing from durable cursor.'
             tasks.save_progress(KEY,run_id,owner,data,pause=True)
     except BackgroundYield:
         db.session.rollback()
         data=json.loads(run.data_json)
+        account()
         data['reason']='Orders sync deferred for Shopify capacity/ownership; durable cursor retained.'
         try: tasks.save_progress(KEY,run_id,owner,data,pause=True)
         except BackgroundYield: db.session.rollback()
     except Exception as exc:
         db.session.rollback()
         data=json.loads(run.data_json)
+        from app.order_diagnostics import diagnostic
+        detail=diagnostic(exc,phase)
         permission=isinstance(exc,OrdersPermissionRequired)
-        message=AUTH_ERROR if permission else str(exc) if isinstance(exc,OrdersImportLimit) else SAFE_ERROR
+        message=detail['next_action']
+        account()
+        data['diagnostic']=detail
         # Never persist or log exception strings from customer/remote data.
         try:
             if sync is not None:
                 sync.state='authorisation_required' if permission else 'failed';sync.error=message
+                sync.error_category=detail['category'];sync.error_phase=phase
                 fence();db.session.commit()
             data['reason']=message;data['counts']['unavailable']+=1
             tasks.save_progress(KEY,run_id,owner,data,terminal='failed',error=message)
@@ -336,5 +392,9 @@ def redact_local_order(order):
     order.redacted_at=now()
     order.customer_id=order.customer_name=order.email=order.phone=None
     order.delivery_json='null';order.personalised=False
+    from app.order_models import ShopifyOrderEvent
+    ShopifyOrderEvent.query.filter_by(store_id=order.store_id,order_gid=order.remote_id).filter(
+        ShopifyOrderEvent.payload.isnot(None)).update({'payload':None,'state':'redacted',
+            'error':'Local personal data was redacted.'},synchronize_session=False)
     for line in order.lines:
         line.properties_json='[]';line.personalisation_json=dumps({'fields':[],'public':[],'warnings':['Local personal data was redacted.']});line.personalised=False

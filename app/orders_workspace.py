@@ -22,6 +22,17 @@ def sync_status():
     state['imported_orders']=ShopifyOrder.query.count()
     state['last_successful']=sync.successful_at if sync else None
     state['last_attempted']=sync.attempted_at if sync else None
+    from app.order_models import ShopifyOrderEvent, ShopifyOrderDelivery
+    from app.order_webhooks import configured
+    delivery=db.session.get(ShopifyOrderDelivery,'orders')
+    state.update(last_startup=sync.startup_successful_at if sync else None,
+        last_manual=sync.manual_successful_at if sync else None,
+        webhook_received=delivery.received_at if delivery else None,
+        webhook_processed=delivery.processed_at if delivery else None,
+        webhook_pending=ShopifyOrderEvent.query.filter_by(state='pending').count(),
+        webhook_incomplete=ShopifyOrderEvent.query.filter(ShopifyOrderEvent.state.in_(['incomplete','dead_letter','expired'])).count(),
+        webhook_configured=configured(),webhook_error=delivery.error if delivery else None,
+        error_category=sync.error_category if sync else None,error_phase=sync.error_phase if sync else None)
     if task.active_run_id:
         state['label']='Orders import running'
     elif task.state=='authorisation_required' or sync and sync.state=='authorisation_required':
@@ -32,6 +43,13 @@ def sync_status():
         state['label']='Orders imported — local snapshot'
     else:
         state['label']='No orders imported yet'
+    if not task.active_run_id and state['webhook_incomplete']:state['label']='Needs manual reconciliation'
+    elif not task.active_run_id and not state['webhook_configured'] and not (state['error'] or sync and sync.state in {'failed','authorisation_required'}):
+        state['label']='Webhook delivery not configured'
+    elif not task.active_run_id and state['webhook_error']:state['label']='Webhook delivery unavailable'
+    elif (not task.active_run_id and state['webhook_processed'] and not state['webhook_pending']
+          and sync and sync.state=='completed' and not state['error']):
+        state['label']='Latest received webhooks processed — local snapshot'
     state['message']=(sync.error if sync else None) or state['error'] or state['reason'] or 'Sync Now queues a bounded read-only import. No Shopify order is changed.'
     return state
 

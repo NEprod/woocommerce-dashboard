@@ -13,6 +13,9 @@ def main():
     with app.app_context():
         from app.scheduled_tasks import enqueue_startup
         enqueue_startup()
+        from app.scheduled_tasks import enqueue, ORDERS_KEY
+        if app.config.get('SHOPIFY_ORDERS_STARTUP_ENABLED',True):
+            enqueue(ORDERS_KEY,startup=True)
         db.session.remove();db.engine.dispose()
     children=[]
     stopping=False

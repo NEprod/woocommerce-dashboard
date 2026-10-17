@@ -2,11 +2,17 @@
 {% block title %}Orders{% endblock %}
 {% block content %}
 <header class="page-header"><div><p class="eyebrow">Shopify · Read only</p><h1 class="page-title">Orders</h1><p>Saved purchases and their original personalisations. Shopify remains authoritative for payment and fulfilment.</p></div>
-<form method="post" action="{{ url_for('orders.sync_now') }}">{{ form.hidden_tag() }}<button class="btn btn-primary">Sync Now</button></form></header>
+<form method="post" action="{{ url_for('orders.sync_now') }}">{{ form.hidden_tag() }}<button class="btn btn-primary">Sync Now</button><details><summary>Repair recent history</summary><p>Read the configured recent window again without deleting saved orders.</p><button class="btn btn-ghost" name="rescan" value="recent">Reconcile recent history</button></details></form></header>
 <section class="app-card order-sync" data-order-sync data-status-url="{{ url_for('orders.status') }}" data-active="{{ 'true' if sync.run_id else 'false' }}">
 <h2 data-order-sync-label>{{ sync.label }}</h2><p data-order-sync-message>{{ sync.message }}</p>
 <p>Last complete sync: <span data-order-sync-time>{{ sync.last_successful|order_uk_time }}</span> · {{ sync.imported_orders }} saved orders</p>
-<div class="panel-actions"><a href="{{ url_for('tasks.index',task='shopify_orders') }}">Schedule settings</a><a href="{{ url_for('tasks.history',key='shopify_orders') }}">Import history</a><a href="{{ url_for('commerce.settings') }}">Shopify connection</a><a href="{{ url_for('orders.index',**filters) }}">Refresh local list</a></div><p data-order-sync-feedback role="status" aria-live="polite"></p>
+<p>Startup catch-up: {{ sync.last_startup|order_uk_time }} · Manual sync: {{ sync.last_manual|order_uk_time }}</p>
+<p>Webhook received: {{ sync.webhook_received|order_uk_time }} · Processed: {{ sync.webhook_processed|order_uk_time }} · {{ sync.webhook_pending }} pending · {{ sync.webhook_incomplete }} need reconciliation.</p>
+{% if not sync.webhook_configured %}<p class="alert alert-warning">Live webhook updates are not configured. Orders refresh only on startup or explicit Sync Now; there is no recurring Orders API polling.</p>{% endif %}
+{% if sync.webhook_error %}<p class="alert alert-warning">{{ sync.webhook_error }}</p>{% endif %}
+{% if sync.webhook_incomplete %}<p class="alert alert-warning">Some authenticated events could not safely replace a complete order. Use Sync Now, or Repair recent history for older events. No automatic Orders API fetch was made.</p>{% endif %}
+{% if sync.error_category %}<p>Failure: {{ sync.error_category|replace('_',' ') }} · Phase: {{ sync.error_phase }}</p>{% endif %}
+<div class="panel-actions"><a href="{{ url_for('tasks.index',task='shopify_orders') }}">Sync activity</a><a href="{{ url_for('tasks.history',key='shopify_orders') }}">Import history</a><a href="{{ url_for('commerce.settings') }}">Shopify connection</a><a href="{{ url_for('orders.index',**filters) }}">Refresh local list</a></div><p data-order-sync-feedback role="status" aria-live="polite"></p>
 </section>
 <form class="app-card orders-filters" method="get" aria-label="Filter orders">
 <label>Order number or SKU<input class="form-control" name="q" value="{{ filters.q }}" maxlength="100" type="search"></label>

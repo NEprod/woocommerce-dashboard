@@ -87,4 +87,41 @@ class ShopifyOrderSync(db.Model):
     successful_at = db.Column(db.DateTime)
     error = db.Column(db.String(500))
     imported = db.Column(db.Integer, nullable=False, default=0)
+    startup_successful_at = db.Column(db.DateTime)
+    manual_successful_at = db.Column(db.DateTime)
+    error_category = db.Column(db.String(40))
+    error_phase = db.Column(db.String(40))
     __table_args__ = (db.CheckConstraint('length(pending_json) <= 32768', name='ck_order_sync_bound'),)
+
+
+class ShopifyOrderEvent(db.Model):
+    """Encrypted authenticated delivery inbox, not a second commerce database."""
+    __tablename__='shopify_order_event'
+    id=db.Column(db.Integer,primary_key=True)
+    store_id=db.Column(db.String(96),nullable=False)
+    delivery_id=db.Column(db.String(128),nullable=False)
+    topic=db.Column(db.String(40),nullable=False)
+    event_id=db.Column(db.String(128))
+    triggered_at=db.Column(db.DateTime)
+    order_gid=db.Column(db.String(96))
+    source_updated_at=db.Column(db.DateTime)
+    received_at=db.Column(db.DateTime,nullable=False)
+    processed_at=db.Column(db.DateTime)
+    digest=db.Column(db.String(64),nullable=False)
+    payload=db.Column(db.Text)
+    state=db.Column(db.String(32),nullable=False,default='pending')
+    attempts=db.Column(db.Integer,nullable=False,default=0)
+    error=db.Column(db.String(500))
+    __table_args__=(db.UniqueConstraint('store_id','delivery_id'),
+        db.Index('ix_order_event_pending','state','id'),db.Index('ix_order_event_order','store_id','order_gid'))
+
+
+class ShopifyOrderDelivery(db.Model):
+    __tablename__='shopify_order_delivery'
+    key=db.Column(db.String(32),primary_key=True)
+    owner=db.Column(db.String(100))
+    lease_until=db.Column(db.DateTime)
+    next_pull=db.Column(db.DateTime)
+    received_at=db.Column(db.DateTime)
+    processed_at=db.Column(db.DateTime)
+    error=db.Column(db.String(500))

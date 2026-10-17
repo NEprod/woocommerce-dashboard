@@ -272,7 +272,9 @@ def _media(connection, cursor=None):
 
 
 class ShopifyError(ValueError):
-    pass
+    def __init__(self, message, *, category=None):
+        super().__init__(message)
+        self.category = category
 
 
 class ShopifyIdentityConflict(ShopifyError):
@@ -368,13 +370,16 @@ def _access_token(config):
         session.trust_env = False
         try:
             started = monotonic()
+            from app.shopify_capacity import background
+            budget=background()
+            if budget is not None: budget['auth_requests']=budget.get('auth_requests',0)+1
             with session.post(f"https://{config.domain}/admin/oauth/access_token",
                     data={"grant_type": "client_credentials", "client_id": config.client_id,
                           "client_secret": config.client_secret},
                     headers={"Accept": "application/json"}, timeout=(5, 15),
                     allow_redirects=False, stream=True) as response:
                 if response.status_code != 200:
-                    raise ShopifyError("Shopify Client Credentials authentication failed. Check Dev Dashboard credentials, app installation and that app/store belong to the same organization.")
+                    raise ShopifyError("Shopify Client Credentials authentication failed. Check Dev Dashboard credentials, app installation and that app/store belong to the same organization.",category='authentication')
                 raw = bytearray()
                 for chunk in response.iter_content(8192):
                     raw.extend(chunk)
@@ -400,7 +405,7 @@ def _access_token(config):
                 _tokens.popitem(last=False)
             if isinstance(exc, ShopifyError):
                 raise
-            raise ShopifyError("Unable to authenticate with Shopify securely. Check connectivity and credentials; no automatic retry was attempted.") from None
+            raise ShopifyError("Unable to authenticate with Shopify securely. Check connectivity and credentials; no automatic retry was attempted.",category='network') from None
         finally:
             session.close()
 
@@ -409,6 +414,7 @@ class ShopifyReadThrottled(ShopifyError):
     def __init__(self, delay):
         super().__init__("Shopify read budget is exhausted; bounded read retries ended. Wait before another comparison.")
         self.delay=delay
+        self.category='rate_limited'
 
 
 class ShopifyAdapter:
@@ -481,6 +487,7 @@ class ShopifyAdapter:
         session = session or requests.Session()
         if own:
             session.trust_env = False  # Never send the token through an inherited proxy/netrc.
+        trace_before=getattr(self,'request_count',0)
         try:
             with session.post(
                 f"https://{config.domain}/admin/api/{version}/graphql.json",
@@ -494,7 +501,7 @@ class ShopifyAdapter:
                         _authentication_failed(config)
                     if query == NATIVE_WRITE:
                         raise ShopifyNativeWriteRejected("Shopify denied the native update before execution. Check credentials and write_inventory; rebuild Review after resolving access.")
-                    raise ShopifyError("Shopify rejected authentication or access. Check the installed app, token expiry and scopes.")
+                    raise ShopifyError("Shopify rejected authentication or access. Check the installed app, token expiry and scopes.",category='authentication' if response.status_code==401 else 'access_denied')
                 if response.status_code == 429:
                     from app.shopify_capacity import observed
                     observed(config, None, throttled=True)
@@ -506,9 +513,9 @@ class ShopifyAdapter:
                 if response.status_code != 200:
                     if writing:
                         raise ShopifyError("Shopify mutation failed with uncertain evidence. Reconcile the retained operation; do not blindly retry.")
-                    raise ShopifyError("Shopify connection failed. Check the domain and service availability; no store data was changed.")
+                    raise ShopifyError("Shopify connection failed. Check the domain and service availability; no store data was changed.",category='network')
                 if response.headers.get("X-Shopify-API-Version", version) != version:
-                    raise ShopifyError("Shopify served a different API version. Select a supported version and test again.")
+                    raise ShopifyError("Shopify served a different API version. Select a supported version and test again.",category='schema')
                 raw = bytearray()
                 started = monotonic()
                 for chunk in response.iter_content(8192):
@@ -531,18 +538,25 @@ class ShopifyAdapter:
                         deficit=max(0,(cost or {}).get("requestedQueryCost",0)-bucket.get("currentlyAvailable",0))
                         rate=bucket.get("restoreRate",0)
                         raise ShopifyReadThrottled(max(.25,deficit/rate) if rate else .5)
-                    raise ShopifyError("Shopify returned mutation errors. Reconcile retained evidence; no automatic retry." if writing else "Shopify could not complete the read query. Check token permissions or rate limits.")
+                    # Classify only fixed diagnostic codes. Never retain remote
+                    # messages, variables, customer values or response bodies.
+                    from app.order_diagnostics import graphql_category
+                    raise ShopifyError("Shopify returned mutation errors. Reconcile retained evidence; no automatic retry." if writing else "Shopify could not complete the read query. Check token permissions or rate limits.",category=None if writing else graphql_category(errors))
                 if not isinstance(data["data"], dict):
                     raise ShopifyError("Shopify returned incomplete mutation evidence. Reconcile before retrying." if writing else "Shopify returned incomplete read evidence. Retry later.")
                 return data["data"]
         except requests.Timeout:
-            self._note_request(query,version,"timeout")
-            raise ShopifyError("Shopify mutation timed out. Reconcile retained evidence; do not blindly retry." if writing else "Shopify timed out. Retry the read-only connection test later.") from None
+            if getattr(self,'request_count',0)==trace_before:self._note_request(query,version,"timeout")
+            raise ShopifyError("Shopify mutation timed out. Reconcile retained evidence; do not blindly retry." if writing else "Shopify timed out. Retry the read-only connection test later.",category='network') from None
         except requests.RequestException:
-            raise ShopifyError("Shopify mutation outcome is uncertain. Reconcile retained evidence; do not blindly retry." if writing else "Unable to reach Shopify securely. Check connectivity and the store domain.") from None
+            if getattr(self,'request_count',0)==trace_before:self._note_request(query,version,"network_error")
+            raise ShopifyError("Shopify mutation outcome is uncertain. Reconcile retained evidence; do not blindly retry." if writing else "Unable to reach Shopify securely. Check connectivity and the store domain.",category='network') from None
         except (KeyError, TypeError, AttributeError, json.JSONDecodeError, UnicodeError):
-            raise ShopifyError("Shopify returned invalid mutation evidence. Reconcile retained evidence; do not blindly retry." if writing else "Shopify returned incomplete or invalid connection evidence. Nothing was saved.") from None
+            if getattr(self,'request_count',0)==trace_before:self._note_request(query,version,'invalid_response')
+            raise ShopifyError("Shopify returned invalid mutation evidence. Reconcile retained evidence; do not blindly retry." if writing else "Shopify returned incomplete or invalid connection evidence. Nothing was saved.",category='invalid_response') from None
         finally:
+            if getattr(self,'request_count',0)==trace_before:
+                self._note_request(query,version,'incomplete_response')
             if own:
                 session.close()
 

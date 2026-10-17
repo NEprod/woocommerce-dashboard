@@ -180,8 +180,9 @@ def test_supervisor_queues_once_without_network_or_scanner(core,monkeypatch):
     assert calls==[{'recover':True}] and len(starts)==2
     assert starts[1][-2:]==['-m','app.scheduler_worker']
     with app.app_context():
-        assert ScheduledTaskRun.query.one().trigger=='startup'
-        assert ScheduledTaskRun.query.one().task_key==tasks.KEY
+        runs=ScheduledTaskRun.query.all()
+        assert len(runs)==2 and all(run.trigger=='startup' for run in runs)
+        assert {run.task_key for run in runs}=={tasks.KEY,tasks.ORDERS_KEY}
 
 
 def test_web_workers_do_not_enqueue_startup(preview_app):

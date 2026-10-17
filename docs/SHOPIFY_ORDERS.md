@@ -1,5 +1,16 @@
 # Shopify Orders — M3A.9.5.2
 
+## M3A.9.5.5 supersedes the original polling model below
+
+Orders no longer poll the Admin API every five minutes. Startup/manual catch-up,
+the optional encrypted webhook delivery path, safe diagnostic categories, privacy,
+configuration and activation gates are documented in [ORDERS_WEBHOOKS.md](ORDERS_WEBHOOKS.md).
+Migration0018 adds operational evidence only;0016 Orders and0017 Packaging survive.
+The historical M3A.9.5.2 schedule/release descriptions below are not current activation
+instructions. The active permission baseline has since been merchant-released as
+tlc-orders-foundation-7679198d2b0c, GID1170296569857. Merchant Connection Test now
+reports read_orders granted; that does not establish why an earlier import failed.
+
 ## M3A.9.5.4 boundary
 
 The final solo-packaging scope leaves Orders Foundation unchanged. Cancelled basket

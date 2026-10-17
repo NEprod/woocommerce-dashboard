@@ -1,6 +1,7 @@
 {% extends 'layouts/base.html' %}
 {% block title %}Order {{ order.name }}{% endblock %}
 {% block content %}
+{% if reconciliation_needed %}<p class="alert alert-warning">A received event needs manual reconciliation. This is the last complete saved order; use Orders → Sync Now.</p>{% endif %}
 <header class="page-header"><div><p class="eyebrow">Shopify · Saved read-only purchase</p><h1 class="page-title">{{ order.name }}</h1><p>{{ order.created_at|order_uk_time }}{% if order.test %} · <span class="status-pill is-warning">Test order — not ordinary production totals</span>{% endif %}</p></div><div class="panel-actions"><a class="btn btn-ghost" href="{{ url_for('orders.index') }}">All orders</a>{% if shopify_url %}<a class="btn btn-primary" href="{{ shopify_url }}" target="_blank" rel="noopener noreferrer">View in Shopify</a>{% endif %}</div></header>
 <section class="app-card order-summary"><h2>Purchase summary</h2><dl class="settings-definition-list">
 <div><dt>Payment</dt><dd>{{ order.financial_status|replace('_',' ')|title }}</dd></div><div><dt>Fulfilment</dt><dd>{{ order.fulfillment_status|replace('_',' ')|title }}</dd></div>

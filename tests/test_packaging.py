@@ -68,7 +68,7 @@ def test_six_seeds_unknown_measurements_restart_and_no_cancelled_tables(packagin
         assert not {'packaging_rates','packaging_plan'} & set(inspect(db.engine).get_table_names())
     ensure_database('sqlite:///'+str(path))
     with app.app_context(): assert {p.id for p in Package.query.all()}==identities
-    assert migration_head()=='0017_packaging'
+    assert migration_head()=='0018_orders_webhooks'
 
 
 @pytest.mark.parametrize('height,eligible',[('.2',True),('.3',True),('.31',False),('.4',False),(None,False)])

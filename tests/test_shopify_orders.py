@@ -353,7 +353,7 @@ def test_migration_upgrade_preserves_previous_tables_and_blocks_destructive_down
     assert result.revision==migration_head() and result.backup_path
     with sqlite3.connect(path) as conn:
         assert conn.execute('select username from user').fetchone()[0]=='fixture'
-        assert conn.execute("select enabled,interval_minutes from scheduled_task where key='shopify_orders'").fetchone()==(1,5)
+        assert conn.execute("select enabled,interval_minutes from scheduled_task where key='shopify_orders'").fetchone()==(0,5)
         assert conn.execute('pragma foreign_key_check').fetchall()==[]
     assert ensure_database(f'sqlite:///{path}').revision==migration_head()
 
@@ -479,7 +479,7 @@ def test_imported_source_link_is_fixed_verified_shopify_host(orders_app):
 
 def test_nonempty_orders_downgrade_requires_approval(orders_app):
     app,path=orders_app;save();db.session.remove()
-    with pytest.raises(RuntimeError,match='Orders contain historical|Packaging contains retained'):
+    with pytest.raises(RuntimeError,match='Orders contain historical|Packaging contains retained|Retained order events'):
         command.downgrade(_alembic_config(f'sqlite:///{path}'),'0015_customisation_templates')
     assert ShopifyOrder.query.count()==1
 

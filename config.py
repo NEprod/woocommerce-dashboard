@@ -16,3 +16,11 @@ class Config:
     # Bounded Orders history; read_orders alone does not grant older-than-60-day access.
     SHOPIFY_ORDERS_INITIAL_DAYS = int(os.getenv('SHOPIFY_ORDERS_INITIAL_DAYS', '30'))
     SHOPIFY_ORDERS_BATCH_SIZE = int(os.getenv('SHOPIFY_ORDERS_BATCH_SIZE', '5'))
+    SHOPIFY_ORDERS_STARTUP_ENABLED = os.getenv('SHOPIFY_ORDERS_STARTUP_ENABLED','true').lower()=='true'
+    # Optional outbound encrypted webhook queue. Never exposes the dashboard.
+    SHOPIFY_ORDERS_WEBHOOK_URL = os.getenv('SHOPIFY_ORDERS_WEBHOOK_URL','')
+    SHOPIFY_ORDERS_WEBHOOK_TOKEN = os.getenv('SHOPIFY_ORDERS_WEBHOOK_TOKEN','')
+    SHOPIFY_ORDERS_WEBHOOK_KEY = os.getenv('SHOPIFY_ORDERS_WEBHOOK_KEY','')
+    SHOPIFY_ORDERS_WEBHOOK_SECRET = os.getenv('SHOPIFY_ORDERS_WEBHOOK_SECRET','')
+    SHOPIFY_ORDERS_WEBHOOK_DOMAIN = os.getenv('SHOPIFY_ORDERS_WEBHOOK_DOMAIN','')
+    SHOPIFY_ORDERS_WEBHOOK_STORE_ID = os.getenv('SHOPIFY_ORDERS_WEBHOOK_STORE_ID','')

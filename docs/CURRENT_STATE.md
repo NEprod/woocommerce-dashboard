@@ -1,5 +1,30 @@
 # Current State
 
+## M3A.9.5.5 — Orders startup/manual catch-up and encrypted webhook foundation
+
+Migration0018_orders_webhooks retains0016 order/line identities and0017 packaging.
+Recurring Orders API polling is retired in both migration and enqueue policy; Products
+reconciliation and authorised sales remain scheduled. The single runtime supervisor
+queues Orders startup catch-up, with existing leases, resumable pages and a separate
+per-store checkpoint. Manual Sync Now remains incremental; an explicit recent-history
+repair action reuses the same importer. Authentication calls and failed GraphQL calls
+are accounted separately; fixed safe categories/phase/action replace generic errors.
+
+Confirmed defect: the previous exception path rolled back/reloaded counters before
+recording API work, so historical API Requests=0 was not proof of no request. The
+merchant now confirms read_orders in current token grants. The original live failure
+is not established by that counter or offline fixtures; merchant-side probe evidence
+is required. Do not assume missing scope, throttling or customer-data denial.
+
+An optional isolated HTTPS gateway accepts HMAC-authenticated2026-10 order events into
+an encrypted durable queue. Private Unraid consumes outbound over HTTPS; it does not
+expose dashboard routes. The existing worker processes a leased SQLite inbox using
+the same complete order normaliser/persistence. No webhook processing invokes Orders
+GraphQL. Ambiguous financial/refund/edit/partial payloads remain reconciliation-needed;
+previous complete orders and line personalisations remain intact. No live destination,
+subscription or public service has been activated. Read [ORDERS_WEBHOOKS.md](ORDERS_WEBHOOKS.md)
+before deployment/activation. A working offline pipeline is not live webhook acceptance.
+
 ## M3A.9.5.4 — final scope: finished size and optional solo packaging
 
 Migration0017_packaging follows deployed0016: six deterministic UUID package seeds,
