@@ -502,6 +502,10 @@ def test_current_scope_diff_and_unchanged_extension_identity():
     app=tomllib.loads((root/'shopify/shopify.app.toml').read_text())
     scopes=set(app['access_scopes']['scopes'].split(','))
     assert 'read_orders' in scopes and 'write_orders' not in scopes and 'read_all_orders' not in scopes
-    assert len(scopes)==12
+    baseline={'read_products','write_products','write_files','read_inventory','write_inventory',
+        'read_metaobject_definitions','write_metaobject_definitions','read_metaobjects','write_metaobjects',
+        'read_publications','write_publications','read_orders'}
+    assert scopes==baseline|{'read_customers'}
+    assert 'customer { id displayName }' in queries.DETAIL  # Preserve the complete order contract.
     extension=tomllib.loads((root/'shopify/extensions/tlc-customisations/shopify.extension.toml').read_text())
     assert extension['uid']=='32a543f0-9ad7-6dfe-9a1e-d4437bf366175766d7e5'

@@ -12,9 +12,11 @@ are accounted separately; fixed safe categories/phase/action replace generic err
 
 Confirmed defect: the previous exception path rolled back/reloaded counters before
 recording API work, so historical API Requests=0 was not proof of no request. The
-merchant now confirms read_orders in current token grants. The original live failure
-is not established by that counter or offline fixtures; merchant-side probe evidence
-is required. Do not assume missing scope, throttling or customer-data denial.
+merchant's subsequent live field probe confirms read_orders works, but order.customer
+returns ACCESS_DENIED explicitly requiring read_customers. Order email/phone, shipping
+address and line properties read successfully. The merchant approved adding only
+read_customers and staging an unreleased candidate; release/installation authorisation
+remain separate approval steps. Complete-order validation is unchanged.
 
 An optional isolated HTTPS gateway accepts HMAC-authenticated2026-10 order events into
 an encrypted durable queue. Private Unraid consumes outbound over HTTPS; it does not

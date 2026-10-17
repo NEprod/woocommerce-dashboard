@@ -7,11 +7,27 @@ remain the commerce foundation. No order-writing action, product change, Discord
 notification, catalogue scan or shipping activation is added. API2026-10 is retained.
 Product native packed dimensions alone remain opt-in2027-01.
 
-The historical16Oct22:37:49UTC failure cannot be diagnosed from API Requests=0:
-the old exception handler reloaded progress without recording this slice's requests.
-This reporting defect is confirmed in code. The original underlying live exception
-is not retained, so missing permission/protected-data/throttling are not proven causes.
-The merchant's current Connection Test explicitly grants read_orders on Shop103940129151.
+The historical16Oct22:37:49UTC API Requests=0 counter was unreliable: the old exception
+handler reloaded progress without recording this slice's requests. A fresh live field
+probe now establishes the current failure: minimal Order reads succeed, while
+order.customer returns ACCESS_DENIED explicitly requiring read_customers, absent from
+the token. Email, phone, shipping address and line properties succeed; no protected-
+data approval rejection or schema error is reported. The earlier historical exception
+itself was not retained, so that exact historical run is not independently proven.
+The merchant approved only read_customers plus unreleased staging. Existing scopes,
+app/extension identities, settings and complete-order validation remain unchanged.
+Release and installation authorisation require subsequent separate approval.
+
+Approved permission-only candidate staged on17Oct2026:
+`tlc-orders-customer-access-20261017`,
+`gid://shopify/Version/1170981650433` (inactive/unreleased).
+Its sole configuration change is adding read_customers to the12existing declared
+scopes. Remote readback confirms the existing app modules and theme extension are
+retained. `tlc-orders-foundation-7679198d2b0c` remains active. No installation
+permission grant is implied by staging. After separately approved release, approve
+any Shopify installation prompt, obtain a fresh token through the existing connection
+flow, verify read_customers in granted scopes, then rerun the read-only Orders probe
+and manual Sync Now. No Dashboard image change is needed for this scope correction.
 No merchant Admin credential is available in development. CLI app-management access
 is not an Orders token. Use the protected History diagnostic after deployment, or
 `python -m app.orders_probe` inside the container. This diagnostic does not initialise
@@ -156,9 +172,10 @@ topics = ["orders/create", "orders/updated", "orders/cancelled", "orders/paid", 
 uri = "https://APPROVED-GATEWAY/webhooks/shopify/orders"
 ```
 
-Do not deploy this literal placeholder. Retain current app clientID,12declared scopes,
+Do not deploy this literal placeholder. Retain current app clientID,all existing scopes,
 URLs,install settings and same tlc-customisations UID/asset. These order topics use
-read_orders; no additional Orders scope is proposed. Stage via existing CLI
+read_orders; read_customers is separately required by the existing order.customer
+detail selection, not by the webhook topics themselves. Stage via existing CLI
 `shopify app deploy --no-release --path shopify --version <approved-candidate-name>`;
 inspect complete diff/extension and report exact version for separate release approval.
 Review protected-customer-data/compliance and hosting retention obligations first.
