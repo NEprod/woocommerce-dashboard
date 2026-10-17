@@ -1,5 +1,21 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## M3A.9.5.7 — finished-size destination ownership and optional local choices
+
+Read-only normal reviews now verify existing dimension metafield definitions for each
+required PRODUCT/PRODUCTVARIANT owner, including PUBLIC_READ. Missing definitions and
+access-only corrections use the same signed durable operation and readback, preserving
+IDs and refusing incompatible replacements. Values remain product_length/width/height
+dimension types, not packed fields. Cache policy versioning requires a bounded fresh
+comparison for old products without resaving them. Differing variant sizes do not write
+an incorrect parent size. Local package changes are displayed separately and send no
+product mutation without a genuine supported remote difference. The documented package
+ID input lacks a verified association readback contract; assignment/clear remains local
+and unsupported, not “synchronised”. Authored native packed targets are visible even
+when2027-01 is disabled; pending capability cannot establish full successful freshness.
+No scope/theme/app release, migration or shipping setting is changed. Details:
+[DIMENSION_SYNC.md](DIMENSION_SYNC.md).
+
 ## M3A.9.5.6 — superseding native-dimension mapping policy
 
 Original product/variant dimensions are finished size. Both native publisher fallbacks

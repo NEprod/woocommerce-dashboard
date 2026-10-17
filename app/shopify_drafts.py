@@ -169,7 +169,7 @@ def common_plan(product, *, variable=False):
     plan["price"] = plan["managed"]["variant"]["price"]
     plan["unsupported"] = ["Storefront navigation publishing is deferred", "Customer-facing customisation",
         "Inventory quantities/locations", "Media replacement, addition or removal on existing drafts",
-        "Native Shopify Shipping/package dimensions (product metafields only)"]
+        "Shopify saved-package assignment/clearing has no verified readback contract"]
     from app.shopify_products import source_fingerprint
     plan["workspace_source_fingerprint"] = source_fingerprint(product, images)
     from app.shopify_native_dimensions import desired
@@ -277,6 +277,12 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
             result["native"] = {"enabled":False,"classification":"deferred","reason":"Native measurements are outside inventory-only policy correction."}
         else:
             attach_review(product, result, row, config, shop, adapter)
+            from app.shopify_dimension_metadata import attach as attach_dimensions
+            attach_dimensions(result, config, shop, adapter)
+            if any(f['changed'] for f in result['fields']):
+                result['classification'] = 'update'
+            from app.shopify_optional_packages import attach as attach_packages
+            attach_packages(product, result, row)
             from app.shopify_publication import annotate
             annotate(product,result,row,config,shop,adapter)
         if result["classification"] == "update":
@@ -309,6 +315,10 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
     attach_customisations(product, plan, config, shop, adapter)
     from app.shopify_attributes import attach
     attach(product, plan, config, shop, adapter)
+    from app.shopify_dimension_metadata import attach as attach_dimensions
+    attach_dimensions(plan, config, shop, adapter)
+    from app.shopify_optional_packages import attach as attach_packages
+    attach_packages(product, plan, None)
     from app.shopify_native_dimensions import attach_review
     attach_review(product, plan, None, config, shop, adapter)
     from app.shopify_publication import annotate
@@ -409,6 +419,10 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
     attach(product, plan, config, shop, adapter)
     if plan["blockers"]:
         raise ShopifyError("Required attribute/intent prerequisites are unresolved; rebuild Review.")
+    from app.shopify_dimension_metadata import attach as attach_dimensions
+    attach_dimensions(plan, config, shop, adapter)
+    from app.shopify_optional_packages import attach as attach_packages
+    attach_packages(product, plan, None)
     from app.shopify_native_dimensions import attach_review
     attach_review(product, plan, None, config, shop, adapter)
     from app.shopify_publication import annotate
@@ -503,6 +517,8 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         apply(row, data, config, adapter)
         from app.shopify_customisations import apply as apply_customisations
         apply_customisations(row, data, config, adapter)
+        from app.shopify_dimension_metadata import apply as apply_dimensions
+        apply_dimensions(row, data, config, adapter)
         apply_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]), adapter)
         from app.shopify_publication import apply_reviewed, complete as publication_complete
         if apply_reviewed(row,data,config,adapter):
@@ -815,6 +831,10 @@ def confirm_update(reviewed, adapter=None):
         if (plan.get('customisations') or {}).get('changed'):
             attempted = True
         apply_customisations(row, data, config, adapter)
+        from app.shopify_dimension_metadata import apply as apply_dimensions
+        if any(s['changed'] for s in (plan.get('dimension_metadata') or {}).get('definitions', [])):
+            attempted = True
+        apply_dimensions(row, data, config, adapter)
         from app.shopify_publication import apply_reviewed
         if (plan.get('publication') or {}).get('pending') and (plan.get('publication') or {}).get('read_complete') and not (plan.get('publication') or {}).get('blockers'):
             attempted=True
@@ -895,6 +915,8 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
     data["verification"]["attributes"]="remaining_review" if remaining else "verified"
     from app.shopify_customisations import verify as verify_customisations
     verify_customisations(row, data, configuration(), adapter or ShopifyAdapter())
+    from app.shopify_dimension_metadata import verify as verify_dimensions
+    verify_dimensions(row, data, configuration(), adapter or ShopifyAdapter())
     data["verification"]["memberships"] = "verified"
     data["stage"] = "media_verification"
     save(row, data)

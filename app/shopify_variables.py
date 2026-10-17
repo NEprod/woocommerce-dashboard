@@ -56,10 +56,10 @@ def source_parts(product):
 def packed_policy(dimensions, packaging=None):
     policy = {"enabled": native.flag("SHOPIFY_NATIVE_DIMENSIONS_ENABLED"),
         "use_product_dimensions": False, 'source_policy':2, "desired": None, "reason": ""}
-    if not policy["enabled"]:
-        return policy
     if packaging and native.has_packed(packaging):
         policy.update(native.explicit_packed(packaging))
+        if not policy['enabled']:
+            policy['reason'] = 'Packed Dimensions — Awaiting Shopify API capability. Enable the opt-in 2027-01 adapter to check store support; no measurement is published while disabled.'
         return policy
     policy.update(unconfigured=True,reason='Packed shipping dimensions unconfigured; finished dimensions never substitute. Existing remote measurements are retained pending review.')
     return policy
@@ -147,6 +147,11 @@ def local_plan(product):
     variants = projection(product)
     plan = drafts.common_plan(product, variable=True)
     plan.update(kind="variable", variants=variants, options=[])
+    # A varying size belongs to its real variant, never a generic parent size.
+    sizes = [v['managed'].get('metafields', []) for v in variants]
+    if any(size != sizes[0] for size in sizes[1:]):
+        plan['managed']['product'].pop('metafields', None)
+        plan['warnings'].append('Finished sizes differ by variant. Variant metafields are authoritative; any historical parent size is retained, not silently cleared. Bind theme display to the selected variant.')
     prices=[Decimal(v["managed"]["price"]) for v in variants]
     plan["price_summary"]={"minimum":format(min(prices),".2f"),"maximum":format(max(prices),".2f")}
     for option in variants[0]["options"]:
@@ -301,6 +306,8 @@ def native_review(plan, row, data, config, shop, adapter):
     plan["native"] = {"enabled":native.flag("SHOPIFY_NATIVE_DIMENSIONS_ENABLED"), "variants":plans,
         "version":"2027-01", "checked_at":None, "classification":"disabled", "reason":""}
     if not plan["native"]["enabled"]:
+        plan['native']['reason'] = 'Packed Dimensions — Awaiting Shopify API capability. Opt-in 2027-01 is disabled; no native measurements are published.'
+        plan['native']['pending_capability'] = any(v.get('measurement_source') for v in plans.values())
         return
     try:
         allowed = native.capability(adapter,config,shop)
@@ -332,6 +339,7 @@ def native_review(plan, row, data, config, shop, adapter):
         for value in plans.values():
             value["reason"] = str(exc)
         plan["warnings"].append(str(exc))
+    plan['native']['pending_capability'] = any(v.get('measurement_source') and v.get('reason') for v in plans.values())
 
 
 def preview(product, adapter=None, *, context=None, seed=None, scope="full", started=None):
@@ -407,6 +415,10 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
         attach(product,plan,config,shop,adapter,remote_id)
         from app.shopify_customisations import attach as attach_customisations
         attach_customisations(product,plan,config,shop,adapter,remote_id)
+        from app.shopify_dimension_metadata import attach as attach_dimensions
+        attach_dimensions(plan, config, shop, adapter)
+        from app.shopify_optional_packages import attach as attach_packages
+        attach_packages(product, plan, row if remote_id else None)
         native_review(plan,row if remote_id else None,data,config,shop,adapter)
     plan["classification"] = "create" if not remote_id else "update" if any(f["changed"] for f in plan["fields"]) or any(c["action"] in {"Join","Create & Join"} for c in plan["collections"]) else "no_change"
     if scope == "inventory":
@@ -430,6 +442,7 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
     from app.shopify_publication import review_binding
     plan["taxonomy_review_digest"] = drafts.digest({"collections":plan["collections"],"standard":standard,"attributes":plan["attribute_review_digest"],
         "customisations":plan.get('customisations'),
+        "finished_dimensions":plan.get('dimension_metadata'),
         "native":{k:v for k,v in plan["native"].items() if k!="checked_at"},
         "publication":review_binding(plan.get('publication') or {})})
     # Leave room for durable media/maps/native receipts BEFORE any remote write.
@@ -481,7 +494,7 @@ def _payload(wanted,media):
 def _native_apply(row,data,config,adapter,operation_id):
     contract = data["plan"]["native"]
     if not contract["enabled"]:
-        return "disabled"
+        return "blocked" if any(v.get('measurement_source') for v in contract.get('variants', {}).values()) else "disabled"
     if all(v.get('unconfigured') for v in contract['variants'].values()):
         return 'unconfigured'  # preserve existing per-variant proof, no native write
     proofs = data.setdefault("variant_native",{})
@@ -604,6 +617,8 @@ def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attri
     data["verification"]["attributes"]="remaining_review" if remaining else "verified"
     from app.shopify_customisations import verify as verify_customisations
     verify_customisations(row, data, config, adapter)
+    from app.shopify_dimension_metadata import verify as verify_dimensions
+    verify_dimensions(row, data, config, adapter)
     data["verification"]["memberships"] = "verified"
     expected = [m.get("id") for m in data.get("created_media",[])]
     observed = remote["media"]["nodes"]
@@ -796,6 +811,10 @@ def confirm(reviewed, adapter=None):
         if (plan.get('customisations') or {}).get('changed'):
             attempted=True
         apply_customisations(row,data,config,adapter)
+        from app.shopify_dimension_metadata import apply as apply_dimensions
+        if any(s['changed'] for s in (plan.get('dimension_metadata') or {}).get('definitions', [])):
+            attempted=True
+        apply_dimensions(row,data,config,adapter)
         from app.shopify_publication import apply_reviewed
         if creating and plan.get('publication'):
             verify(row,data,config,adapter)
@@ -867,6 +886,10 @@ def native_status(product,row=None,compared=None):
     if any(v.get("state") in {"pending","uncertain"} for v in proofs.values()):
         return {"state":"uncertain","message":"A per-variant native InventoryItem outcome requires read-only reconciliation."}
     if not enabled:
+        from app.packaging_contract import effective
+        document = product_document(product)
+        if any(native.has_packed(effective(document, {a.name: a.value for a in v.attributes})) for v in product.variations):
+            return {'state': 'pending_capability', 'message': 'Authored packed dimensions await the opt-in Shopify 2027-01 capability; no native publication is claimed.'}
         return {"state":"disabled","message":"Native packed dimensions disabled; per-variant metafields are separate."}
     from app.shopify_comparison import recent, MAX_AGE
     try:

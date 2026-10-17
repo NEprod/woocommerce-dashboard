@@ -119,7 +119,7 @@ def test_scoped_review_uses_existing_update_and_no_change_path(world, monkeypatc
     assert b'Confirm draft creation' not in page.data and "product_create" not in adapter.calls
     change(world, description="Reviewed edit")
     page = client.post("/products/1/shopify/review", data={"action": "preview"})
-    assert page.status_code == 200 and b'Confirm reviewed update' in page.data
+    assert page.status_code == 200 and b'Confirm reviewed changes &amp; Sync' in page.data
     assert ShopifyProductIdentity.query.one().shopify_product_id == row.shopify_product_id
 
 

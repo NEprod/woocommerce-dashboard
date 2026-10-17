@@ -156,7 +156,8 @@ a:hover { color: var(--color-lime-hover); }
   .shopify-status-actions > .btn-primary { width: 100%; min-height: 44px; }
   .shopify-status-secondary { margin-top: var(--space-3); }
   .shopify-status-secondary .btn { flex: 1 1 auto; min-height: 44px; }
-  .shopify-review-table, .shopify-review-table tbody, .shopify-review-table tr, .shopify-review-table th, .shopify-review-table td { display: block; width: 100%; }
+  .shopify-review-table, .shopify-review-table tbody, .shopify-review-table tr, .shopify-review-table th, .shopify-review-table td { display: block; width: 100%; min-width: 0; }
+  .table.shopify-review-table { min-width: 0; }
   .shopify-review-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .shopify-review-table tr { margin-bottom: var(--space-4); border: var(--border-default); border-radius: var(--radius-card-small); padding: var(--space-3); }
   .shopify-review-table td::before { content: attr(data-label) ': '; font-weight: 650; color: var(--color-text-secondary); }

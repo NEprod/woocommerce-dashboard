@@ -42,11 +42,14 @@ def test_optional_manual_package_and_clear_are_not_false_remote_updates(world):
     change(world,packaging={'selected_package_id':str(uuid.uuid4()),'assignment_kind':'manual','override_reason':'Measured locally'})
     plan,token=drafts.preview(product,adapter)
     assert plan['classification']=='no_change' and not plan['blockers']
-    assert any('manually in Shopify Admin' in w for w in plan['warnings'])
+    assert any('manual controls in Shopify Admin' in w for w in plan['warnings'])
+    assert plan['local_package_changes'] == 1
+    assert plan['optional_packages'][0]['state'] == 'Selected Locally — Remote Assignment Unsupported'
     assert not any('update' in c or 'create' in c for c in adapter.calls)
     change(world,packaging={'selected_package_id':None})
     plan,_=drafts.preview(product,adapter)
     assert plan['classification']=='no_change'
+    assert plan['optional_packages'][0]['state'] == 'Explicitly Unassigned'
 
 
 def test_create_without_package_supports_separate_finished_and_packed(world,monkeypatch):

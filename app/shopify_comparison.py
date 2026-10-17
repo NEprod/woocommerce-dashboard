@@ -110,7 +110,10 @@ def record(product, plan, identity=None, *, post_write=False):
     # comparison evidence. Keep its previous success checkpoint, if any.
     read_failed = bool(plan.get('publication')) and plan['publication'].get('read_complete') is not True or bool(plan.get("attribute_diagnostics")) and not scoped or bool(
         (plan.get("native") or {}).get("enabled") and (plan.get("native") or {}).get("classification") == "blocked")
-    incomplete = scoped or read_failed
+    native = plan.get('native') or {}
+    pending_native = native.get('pending_capability', False) or bool(not native.get('enabled') and (native.get('desired') or
+        any(v.get('desired') for v in native.get('variants', {}).values())))
+    incomplete = scoped or read_failed or pending_native
     changes = [{"field": r["field"], "after": summary_value(r["after"])} for r in plan["fields"] if r["changed"] and not r.get("deferred")]
     changes += [{"field": "collections." + r["key"], "after": r["name"]} for r in plan.get("collections", []) if r["action"] in {"Join","Create & Join"}]
     summary = {"version": 1, "product_id": product.id, "source": product.source_relpath,
@@ -118,7 +121,9 @@ def record(product, plan, identity=None, *, post_write=False):
         "local": expected_local, "images": [{"source": i["source"]} for i in plan["images"]],
         "remote_digest": plan.get("remote_digest"), "classification": plan["classification"],
         "changes": changes[:100], "change_count": len(changes), "scope":plan.get("scope","full"),
-        "blockers": plan.get("blockers", []) + (plan.get('publication') or {}).get('blockers',[]) + (["Inventory-only comparison: metadata, attributes, collections and publication are not fully compared."] if scoped else []),
+        "blockers": plan.get("blockers", []) + (plan.get('publication') or {}).get('blockers',[]) +
+            ([native.get('reason') or 'Packed dimensions await verified Shopify capability/permission; supported metadata can complete independently.'] if pending_native else []) +
+            (["Inventory-only comparison: metadata, attributes, collections and publication are not fully compared."] if scoped else []),
         "identity": digest(identity.media_evidence_json) if identity else None,
         "mappings": {r["key"]: r.get("mapping_fingerprint") for r in plan.get("collections", [])},
         "actual_status": plan.get("actual_status", "Not yet created")}
@@ -128,6 +133,8 @@ def record(product, plan, identity=None, *, post_write=False):
         for a in plan.get("attributes",[]) for r in a["resources"]}
     summary["attribute_capability_policy"] = plan.get("attribute_capability_policy")
     summary["native"] = plan.get("native")
+    summary['dimension_metadata_policy'] = (plan.get('dimension_metadata') or {}).get('policy')
+    summary['local_package_changes'] = plan.get('local_package_changes', 0)
     summary['publication'] = plan.get('publication')
     summary["conflicting_changes"] = bool(plan.get("conflicting_changes")) and plan["classification"] == "update"
     stamp = now().isoformat()
@@ -209,6 +216,9 @@ def current(product, row, identity, mappings, *, freshness=True):
     from app.shopify_drafts import now, digest
     from app.shopify_drafts import configuration
     data = json.loads(row.summary_json)
+    from app.shopify_dimension_metadata import POLICY_VERSION
+    if data.get('dimension_metadata_policy') != POLICY_VERSION and data.get('scope', 'full') == 'full':
+        return None  # old value-only evidence cannot attest definitions/access
     from app.shopify_attributes import CAPABILITY_POLICY_VERSION
     if data.get("attribute_mappings") and data.get("attribute_capability_policy") != CAPABILITY_POLICY_VERSION:
         return None  # access-only historical proof cannot attest newly managed flags

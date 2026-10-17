@@ -20,6 +20,19 @@ from test_shopify_foundation import TOKEN, Session, Response, isolated_transport
 
 
 class FakeDraftAdapter:
+    def dimension_definitions(self, config, namespace, owner):
+        self.calls.append('dimension_definitions_read')
+        defaults = {axis: {'id': f'gid://shopify/MetafieldDefinition/{800+i+(10 if owner=="PRODUCTVARIANT" else 0)}',
+            'namespace': namespace, 'key': 'product_' + axis, 'ownerType': owner,
+            'type': {'name': 'dimension'}, 'access': {'storefront': 'PUBLIC_READ'}}
+            for i, axis in enumerate(('length', 'width', 'height'))}
+        return copy.deepcopy(getattr(self, 'dimension_fields', {}).get(owner, defaults))
+
+    def update_dimension_definition(self, config, spec):
+        self.calls.append('dimension_definition_update')
+        self.dimension_fields[spec['ownerType']][spec['key'].removeprefix('product_')]['access'] = spec['access']
+        return {'metafieldDefinitionUpdate': {'updatedDefinition': {'id': 'gid://shopify/MetafieldDefinition/800'}, 'userErrors': []}}
+
     def collection_state(self, config, remote_id, product_id="gid://shopify/Product/0"):
         return {"id": remote_id, "title": "Preview Cards", "ruleSet": None,
             "hasProduct": bool(self.remote), "metafield": None, "sources": []}

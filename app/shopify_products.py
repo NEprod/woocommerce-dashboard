@@ -37,7 +37,8 @@ def source_fingerprint(product, images):
             "price": fields.number(authored.get("price", product.regular_price), "price", money=True),
             "sku": product.sku}
     managed, _ = fields.contract(snapshot, base)
-    data = {"managed": managed, "intent": authored.get("live"), "sku": product.sku,
+    from app.shopify_dimension_metadata import POLICY_VERSION
+    data = {"dimension_metadata_policy": POLICY_VERSION, "managed": managed, "intent": authored.get("live"), "sku": product.sku,
             "source": product.source_relpath, "type": product.product_type,
             "images": [(i.url, i.position, i.alt_text) for i in product.images],
             "image_stats": stats}
@@ -86,7 +87,7 @@ def source_fingerprint(product, images):
     data['publication_intent'] = intent(authored, required=False)
     from app.shopify_native_dimensions import desired
     native_policy = desired(product)
-    if native_policy["enabled"]:
+    if native_policy["enabled"] or native_policy.get('desired'):
         data["native_policy"] = native_policy
     return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 

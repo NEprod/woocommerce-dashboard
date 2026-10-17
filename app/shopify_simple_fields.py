@@ -59,7 +59,7 @@ def contract(snapshot, base):
     warnings = ["Metadata publishing preserves existing status/channels; new products start as unpublished Drafts. No inventory quantities, locations or fulfilment configuration will change."]
     packaging=authored.get('packaging') or {}
     if 'selected_package_id' in packaging:
-        warnings.append('Solo package selection is optional and retained locally. Shopify package association/readback is not verified; set or clear the package manually in Shopify Admin → Product → Variant → Shipping. Other reviewed fields remain publishable.')
+        warnings.append('Solo package selection is optional and retained locally. Shopify package association/readback is not verified; inspect available manual controls in Shopify Admin. No remote assignment or clearing is claimed. Other reviewed fields remain publishable.')
     if authored.get('finished_dimensions'):
         warnings.append('Explicit finished size uses product_length/width/height dimension metafields. Theme display requires merchant setup; packed size and package IDs are not customer-facing size.')
     from app.product_defaults import effective
@@ -200,6 +200,12 @@ def review_rows(plan):
         elif row["field"] == "metafields":
             expanded = [("dimensions." + item["key"].removeprefix("product_"), None, item)
                 for item in row["after"]]
+        elif row['field'].startswith('variants.') and row['field'].endswith('.create'):
+            sku = row['field'].split('.')[1]
+            variant = next((v for v in plan.get('variants', []) if v['sku'] == sku), None)
+            if variant:
+                expanded += [('variants.' + sku + '.dimensions.' + item['key'].removeprefix('product_'), None, item)
+                    for item in variant['managed'].get('metafields', [])]
         for key, before, after in expanded:
             label=row.get("label") or labels.get(key, key.replace("dimensions.", "Product ").replace("media.alt.", "Image alt "))
             if key.startswith("variants."):
@@ -210,10 +216,16 @@ def review_rows(plan):
             elif key.startswith("attribute_access."):
                 access={"PUBLIC_READ":"Public storefront read","NONE":"Internal only"}
                 before,after=access.get(before,before),access.get(after,after)
-            rows.append({"label": label,
+            dimensional = key.startswith(('dimensions.', 'dimension_definitions.')) or '.dimensions.' in key
+            if dimensional and not key.startswith('dimension_definitions.'):
+                label = 'Finished Product Dimensions · ' + label
+            action = "Deferred (inventory-only scope)" if row.get("deferred") else "Set on create" if plan["classification"] == "create" and after is not None else "Change" if row["changed"] else "Already matching"
+            if dimensional and row['changed'] and not row.get('deferred'):
+                action = 'New Shopify field — Finished Product Dimensions' if before is None else 'Changed Shopify field — Finished Product Dimensions'
+            rows.append({"label": label, 'group': 'finished' if dimensional else 'packed' if key.startswith('native.') else 'general',
+                'owner': ('Variant ' + key.split('.')[1]) if key.startswith('variants.') else 'Product',
                 "before": "Not created" if plan["classification"] == "create" and after is not None else value(before),
-                "after": value(after), "action": "Deferred (inventory-only scope)" if row.get("deferred") else "Set on create" if plan["classification"] == "create" and after is not None
-                    else "Change" if row["changed"] else "Already matching"})
+                "after": value(after), "action": action})
     return rows
 
 

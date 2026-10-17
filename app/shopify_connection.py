@@ -182,10 +182,15 @@ ATTRIBUTE_FIELD = '''query AttributeField($namespace: String!, $key: String!) {
  nodes { id namespace key ownerType type { name } validations { name value } access { storefront } } pageInfo { hasNextPage } } }'''
 ATTRIBUTE_FIELD_CAPABILITIES = {}
 CUSTOMISATION_DEFINITION = ATTRIBUTE_FIELD.replace('access { storefront }', 'access { admin storefront }')
+DIMENSION_DEFINITIONS = '''query FinishedDimensionDefinitions($namespace: String!, $owner: MetafieldOwnerType!) { ''' + ' '.join(
+    axis + ''': metafieldDefinitions(first: 2, ownerType: $owner, namespace: $namespace, key: "product_''' + axis + '''") {
+    nodes { id namespace key ownerType type { name } access { storefront } } pageInfo { hasNextPage } }'''
+    for axis in ('length', 'width', 'height')) + ' }'
 CUSTOMISATION_VALUE = '''query CustomerConfiguration($id: ID!, $namespace: String!, $key: String!) {
  product(id: $id) { id metafield(namespace: $namespace, key: $key) {
  id namespace key type value compareDigest } } }'''
 READ_QUERIES |= frozenset((CUSTOMISATION_DEFINITION, CUSTOMISATION_VALUE))
+READ_QUERIES |= frozenset((DIMENSION_DEFINITIONS,))
 for _keys in (("adminFilterable",), ("smartCollectionCondition",), ("adminFilterable", "smartCollectionCondition")):
     _selection = " ".join(key + " { eligible enabled" + (" status" if key == "adminFilterable" else "") + " }" for key in _keys)
     ATTRIBUTE_FIELD_CAPABILITIES[_keys] = ATTRIBUTE_FIELD.replace("access { storefront }", "access { storefront } capabilities { " + _selection + " }")
@@ -709,6 +714,24 @@ class ShopifyAdapter:
                 or not isinstance(part.get('nodes'), list) or len(part['nodes']) > 1):
             raise ShopifyError('Customer configuration definition read is incomplete or ambiguous.')
         return part['nodes'][0] if part['nodes'] else None
+
+    def dimension_definitions(self, config, namespace, owner):
+        if owner not in {'PRODUCT', 'PRODUCTVARIANT'}:
+            raise ShopifyError('Unsupported finished-size owner type.')
+        data = self._read(config, DIMENSION_DEFINITIONS, {'namespace': namespace, 'owner': owner})
+        result = {}
+        for axis in ('length', 'width', 'height'):
+            part = data.get(axis)
+            if (not isinstance(part, dict) or part.get('pageInfo', {}).get('hasNextPage') is not False
+                    or not isinstance(part.get('nodes'), list) or len(part['nodes']) > 1):
+                raise ShopifyError('Finished-size definition read is incomplete or ambiguous.')
+            result[axis] = part['nodes'][0] if part['nodes'] else None
+        return result
+
+    def update_dimension_definition(self, config, spec):
+        if spec.get('ownerType') not in {'PRODUCT', 'PRODUCTVARIANT'}:
+            raise ShopifyError('Unsupported finished-size owner type.')
+        return self._write(config, ATTRIBUTE_FIELD_ACCESS, {'definition': spec})
 
     def customisation_value(self, config, product_id, namespace, key):
         product = self._read(config, CUSTOMISATION_VALUE,

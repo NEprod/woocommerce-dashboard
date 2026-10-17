@@ -29,13 +29,13 @@ def desired(product):
     enabled = flag("SHOPIFY_NATIVE_DIMENSIONS_ENABLED")
     result = {"version": VERSION, "enabled": enabled, "use_product_dimensions": False, 'source_policy':2,
         "desired": None, "local_mm": None, "reason": "Native packed dimensions disabled; product metafields are not shipping dimensions."}
-    if not enabled:
-        return result
     document = product_document(product)
     from app.packaging_contract import effective
     packaging = effective(document)
     if has_packed(packaging):
         result.update(explicit_packed(packaging))
+        if not enabled:
+            result['reason'] = 'Packed Dimensions — Awaiting Shopify API capability. Enable the opt-in 2027-01 adapter to check store support; no measurement is published while disabled.'
         return result
     result['unconfigured']=True
     result["reason"] = "Packed shipping dimensions are unconfigured. Finished product dimensions are never reused, including with the retired reuse flag. Existing Shopify measurements are preserved pending review."
@@ -146,6 +146,9 @@ def review(product, row=None, adapter=None, *, config=None, shop=None):
         classification="blocked", inventory_id=None, before=None, checked_at=None,
         source_revision=drafts.digest(product_document(product)))
     if not plan["enabled"]:
+        if row:
+            # Retained identity is useful context, not fresh native-value proof.
+            plan['inventory_id'] = drafts.evidence(row).get('inventory_item_id')
         return plan, None
     adapter = adapter or ShopifyAdapter()
     config = config or drafts.configuration()
@@ -264,7 +267,7 @@ def apply_reviewed(row, plan, adapter, *, operation_id=None):
 def after_publish(row, plan, adapter, operation_id):
     reviewed = plan.get("native")
     if not reviewed or not reviewed.get("enabled"):
-        return "disabled"
+        return "blocked" if reviewed and reviewed.get('measurement_source') else "disabled"
     try:
         return apply_reviewed(row, reviewed, adapter, operation_id=operation_id)
     except ShopifyError as exc:
@@ -276,6 +279,7 @@ def after_publish(row, plan, adapter, operation_id):
 
 def attach_review(product, plan, row, config, shop, adapter):
     native, _ = review(product, row, adapter, config=config, shop=shop)
+    native['pending_capability'] = bool(native.get('measurement_source') and (not native['enabled'] or native.get('reason')))
     plan["native"] = native
     plan["taxonomy_review_digest"] = drafts.digest({"taxonomy": plan["taxonomy_review_digest"],
         "native": {k:v for k,v in native.items() if k != "checked_at"}})
@@ -373,7 +377,7 @@ def local_status(product, row=None, compared=None):
     if state in {"pending", "uncertain"}:
         return {"state": "uncertain", "message": "Native packed-dimension outcome requires explicit read-only reconciliation. Metadata verification remains separate."}
     if not wanted["enabled"]:
-        return {"state": "disabled", "message": wanted["reason"]}
+        return {"state": "pending_capability" if wanted.get('measurement_source') else "disabled", "message": wanted["reason"]}
     if not wanted["desired"]:
         return {"state": "blocked", "message": wanted["reason"]}
     if value.get("state") == "blocked" or plan.get("reason"):

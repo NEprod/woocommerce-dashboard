@@ -865,3 +865,12 @@ The approved Phase 1 work remains divided into Milestones 0–10:
 Milestones 4–9 must not publish, replace, or modify any Docker Hub tag. Final publication belongs exclusively to Milestone 10 after all preceding acceptance criteria pass.
 
 Phase 1 production publication must use one multi-platform build result for `neprod/woocommerce-dashboard:phase-1`, `neprod/woocommerce-dashboard:0.2.0`, and `neprod/woocommerce-dashboard:latest`. The shared manifest must include `linux/amd64` and `linux/arm64`. Existing `phase-0` and `0.1.0` tags are immutable and must not be republished. See [Phase 1 Acceptance](PHASE_1_ACCEPTANCE.md).
+
+## M3A.9.5.7 — dimensional Review & Sync correction
+
+Implemented: stable finished-size definition/readback policy and public access repair;
+bounded discovery for previously synced products; accurate native2027-01 capability
+gating; separate local package change display. No editor rebuild or schema migration.
+No rates, basket packing, checkout, theme/app release or package-default changes.
+Remaining merchant acceptance: actual Unraid destination values, authorised native
+correction/readback, and future unpublished-theme size rendering. See DIMENSION_SYNC.md.

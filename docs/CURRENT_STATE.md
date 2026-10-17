@@ -1,5 +1,18 @@
 # Current State
 
+## M3A.9.5.7 — Review & Sync dimensional destination evidence
+
+Finished Product/Variant dimension values now include independently reviewed stable
+definition/type/identity/public-storefront access requirements. Existing namespace/keys
+are reused; missing destination fields are detected without local edits. A policy
+version expires old cached value-only evidence through bounded reconciliation. Varying
+sizes never propose a generic parent size. Optional packages have a separate saved-local
+change group and never trigger a fake remote association. Authored packed values remain
+visible when the isolated2027-01 capability is disabled/unavailable; full verification
+is not claimed. Normal APIs remain2026-10. No migration beyond0018, scope/app/theme,
+shipping rates, price/weight/modifier or live checkout changes. See [DIMENSION_SYNC.md](DIMENSION_SYNC.md)
+for confirmed code paths, limitations and safe Unraid acceptance.
+
 ## M3A.9.5.6 — finished dimensions and independent packed shipping correction
 
 Confirmed Simple/Variable native publishers still fell back to original finished

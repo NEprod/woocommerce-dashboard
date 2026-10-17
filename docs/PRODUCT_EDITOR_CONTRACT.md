@@ -674,3 +674,13 @@ all-layout SKU/modifier/image parity and affected rescan/retained mappings; 150-
 customisation merge/removal/order; v1/v2 roundtrip; sale boundaries/DST/fingerprints;
 theme/cart/checkout/order identity; private-upload expiry/security; duplicate exclusions.
 No broad scanner/editor rewrite is needed.
+
+## M3A.9.5.7 Review destination clarification
+
+The editor schema, finished dimensions, packed units/inheritance/modifier controls,
+copy workflow, pricing and shipping weights are unchanged. Review separately shows
+finished Product/Variant metafield values/definitions, native packed targets and saved
+optional local packages. No package choice is required for save or sync. Explicit null
+still rejects inherited selection. Package-only changes never authorise Shopify writes;
+their local saved state remains visible even without remote association support.
+See [DIMENSION_SYNC.md](DIMENSION_SYNC.md) for destination evidence and acceptance.

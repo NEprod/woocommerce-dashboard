@@ -352,7 +352,7 @@ def test_media_order_alt_and_processing_use_existing_ids(world, preview_app):
     previous = adapter.calls[:]
     drafts.reconcile(row, adapter=adapter)
     assert row.state == "verified"
-    assert adapter.calls[len(previous):] == ["connection_read", "product_read"]
+    assert adapter.calls[len(previous):] == ["connection_read", "product_read", "dimension_definitions_read"]
 
 
 def test_alt_scope_is_required_only_for_alt_changes(world):
@@ -390,7 +390,7 @@ def test_uncertain_updates_block_retry_and_reconcile_without_writes(world, failu
     with pytest.raises(ShopifyError): drafts.confirm(token, True, adapter)
     previous = adapter.calls[:]
     drafts.reconcile(row, adapter=adapter)
-    assert adapter.calls[len(previous):] == ["connection_read", "product_read"]
+    assert adapter.calls[len(previous):] == ["connection_read", "product_read"] + (["dimension_definitions_read"] if failure == "after" else [])
     assert row.state == ("verified" if failure == "after" else "uncertain")
     if failure != "after":
         # Explicit operator correction in Shopify Admin, not a retry by the app.
