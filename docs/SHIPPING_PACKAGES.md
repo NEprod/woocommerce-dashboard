@@ -107,9 +107,12 @@ does not expose the assigned shippingPackageId. Therefore:
 
 * A complete response with matching InventoryItem ID and empty userErrors records
   **Shopify accepted — not independently verified**.
-* Required package evidence cannot establish unqualified Up to Date. Review shows
-  accepted-only evidence; otherwise matching product metadata can show Verification
-  Unavailable with this limitation explained.
+* Package acceptance is separate from independently readable product evidence.
+  Matching complete readable fields can show Up to Date with an explicit Optional
+  Package notice; this does not independently verify the assignment. Missing package
+  readback alone does not invalidate product freshness. Pending assignment proposals
+  still show Update Available, and uncertain writes still require recovery.
+  [Reconciliation repair](RECONCILIATION_REPAIR.md) supersedes the prior blocking policy.
 * The overall operation is partial when a new assignment has acceptance-only evidence.
   Progress/history explain this, and Discord must not claim full verified success.
 * Authoritative userErrors/authentication rejection records rejected, not success.

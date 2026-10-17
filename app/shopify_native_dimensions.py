@@ -376,6 +376,8 @@ def local_status(product, row=None, compared=None):
     fresh = recent(value.get("checked_at"), MAX_AGE)
     if state in {"pending", "uncertain"}:
         return {"state": "uncertain", "message": "Native packed-dimension outcome requires explicit read-only reconciliation. Metadata verification remains separate."}
+    if wanted.get('unconfigured'):
+        return {'state': 'disabled', 'message': wanted['reason']}
     if not wanted["enabled"]:
         return {"state": "pending_capability" if wanted.get('measurement_source') else "disabled", "message": wanted["reason"]}
     if not wanted["desired"]:

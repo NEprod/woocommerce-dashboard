@@ -905,8 +905,12 @@ def native_status(product,row=None,compared=None):
         wanted=projection(product)
         plans=(compared or {}).get("variants",{})
         stale = False
+        configured = False
         for v in wanted:
             proof=proofs.get(v["identity"],{})
+            if v['native'].get('unconfigured'):
+                continue  # no authored target; historical remote values are not cleared
+            configured = True
             read=plans.get(v["identity"],{})
             if (proof.get("state")=="verified" and recent(proof.get("checked_at"),MAX_AGE) and proof.get("desired")==v["native"]["desired"]):
                 continue
@@ -922,6 +926,8 @@ def native_status(product,row=None,compared=None):
                 "message":"Per-variant packed dimensions need independent review/readback; no Product.updatedAt equality assumed."}
         if stale:
             return {'state':'stale','message':'Last per-variant packed-dimension checks matched; freshness expired. Bounded readback is due, not a confirmed mismatch.'}
+        if not configured:
+            return {'state':'disabled','message':'Packed shipping dimensions are unconfigured; finished dimensions never substitute. Existing remote measurements are retained pending review.'}
         return {"state":"verified","message":"All managed variants have fresh, identity-bound packed-dimension comparison evidence."}
     except (ValueError,ShopifyError):
         return {"state":"blocked","message":"Per-variant packed source/projection needs validation."}

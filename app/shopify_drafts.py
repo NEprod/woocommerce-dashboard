@@ -145,8 +145,11 @@ def common_plan(product, *, variable=False):
     if variable:
         from app.shopify_variables import gallery_diagnostics
         diagnostics = gallery_diagnostics(product, diagnostics)
-    if len(diagnostics) > (20 if variable else MAX_IMAGES) or not diagnostics:
-        raise ShopifyError("Select a product with 1–20 resolvable original catalogue/gallery images. No images are truncated or removed.")
+    limit = 20 if variable else MAX_IMAGES
+    if not diagnostics:
+        raise ShopifyError('Gallery evidence unavailable: no original catalogue/gallery images resolved. Check the catalogue mount, source identity and image references; no images are removed.')
+    if len(diagnostics) > limit:
+        raise ShopifyError(f'Gallery evidence exceeds the supported bound: {len(diagnostics)} images; limit {limit}. No images are truncated or removed.')
     images = []
     for row in diagnostics:
         if not row["source_exists"] or not row["source_reference"]:

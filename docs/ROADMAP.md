@@ -1,5 +1,13 @@
 # Roadmap
 
+## Priority regression repair — Shopify Product evidence after8f83e6e
+
+Restore readable managed-field freshness independently of write-only optional package
+acknowledgements and unconfigured native targets. Keep real native/definition/media
+failures and recovery visible, with specific bounded diagnostics. No new feature,
+scope/app/theme release, scanner rewrite or migration. Live Unraid acceptance remains
+separate from mocked regression/Docker evidence. See RECONCILIATION_REPAIR.md.
+
 ## Accept manual package IDs and reviewed product assignments
 
 Merchant reduced scope: retain local packages/recommendations; no automatic package

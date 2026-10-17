@@ -107,11 +107,52 @@ def catalogue(row,adapter=None):
     return result
 
 
+def verification(row):
+    """Local read-only evidence index. Never initializes workers or calls Shopify."""
+    from app.catalogue_images import product_image_diagnostics
+    from app.utils.operation_control import sanitize_operation_error
+    product = db.session.get(Product, row.product_id)
+    data = drafts.evidence(row)
+    result = {'read_only': True, 'database_writes': 0, 'api_requests': 0,
+        'sku': row.sku, 'state': row.state, 'verification': row.verification_state,
+        'package_receipts': [{'state': p.get('state'), 'independently_verified': p.get('independently_verified')}
+            for p in data.get('package_assignments', {}).values()]}
+    try:
+        images = product_image_diagnostics(product) if product else []
+        if product and product.product_type == 'variable':
+            from app.shopify_variables import gallery_diagnostics
+            images = gallery_diagnostics(product, images)
+        result['gallery'] = {'count': len(images), 'unresolved': sum(not r.get('source_exists') or not r.get('source_reference') for r in images), 'limit': 20}
+    except (ValueError, OSError, RuntimeError):
+        result['gallery'] = {'unavailable': True, 'action': 'Check catalogue mount/source layout.'}
+    comparison = ShopifyProductComparison.query.filter_by(store_id=row.store_id, source_identity=row.source_identity).first()
+    if comparison:
+        saved = json.loads(comparison.summary_json)
+        publication, native = saved.get('publication') or {}, saved.get('native') or {}
+        result['comparison'] = {k: saved.get(k) for k in ('classification', 'read_complete', 'scope',
+            'full_compared_at', 'related_checked_at', 'revision_checked_at', 'missing_evidence',
+            'package_assignments_unverified', 'dimension_metadata_policy')}
+        result['comparison'].update(
+            failure=sanitize_operation_error((saved.get('refresh_failure') or {}).get('message', ''))[:500],
+            blockers=[sanitize_operation_error(v)[:500] for v in saved.get('blockers', [])[:20]],
+            publication={'read_complete': publication.get('read_complete'), 'reason': sanitize_operation_error(publication.get('reason', ''))[:500]},
+            native={'enabled': native.get('enabled'), 'classification': native.get('classification'),
+                'reason': sanitize_operation_error(native.get('reason', ''))[:500]})
+        targets = native.get('variants') or {'product': native.get('plan', native)}
+        result['comparison']['native']['targets'] = [
+            {'identity': key, 'sku': target.get('sku', row.sku), 'inventory_item_id': target.get('inventory_id'),
+                'unconfigured': target.get('unconfigured'), 'classification': target.get('classification'),
+                'reason': sanitize_operation_error(target.get('reason', ''))[:350]}
+            for key, target in targets.items()]
+    return result
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--sku',required=True)
     parser.add_argument('--instance',default=str(Path(__file__).resolve().parent.parent/'instance'))
     parser.add_argument('--catalogue',action='store_true',help='Inspect product/variant/InventoryItem readback and operation receipts, without attribute reads/writes')
+    parser.add_argument('--verification',action='store_true',help='Inspect only local verification components and gallery counts; no Shopify API requests or customer/field values')
     args=parser.parse_args()
     instance=Path(args.instance).resolve(); database=instance/'site.db'
     if not database.is_file(): parser.error('Existing database is unavailable; no database will be created.')
@@ -123,7 +164,7 @@ def main():
     with app.app_context():
         rows=ShopifyProductIdentity.query.filter_by(sku=args.sku).all()
         if len(rows)!=1 or not rows[0].shopify_product_id: parser.error('One exact retained remote identity is required.')
-        try: print(json.dumps(catalogue(rows[0]) if args.catalogue else inspect(rows[0]),indent=2,default=str))
+        try: print(json.dumps(verification(rows[0]) if args.verification else catalogue(rows[0]) if args.catalogue else inspect(rows[0]),indent=2,default=str))
         except ShopifyError as exc: parser.exit(1,str(exc)+'\n')
 
 

@@ -1,5 +1,17 @@
 # Current State
 
+## Urgent Product reconciliation repair — after8f83e6e
+
+Write-only package acknowledgement no longer blocks complete readable Product evidence
+or its ten-minute checkpoint; separate warnings and uncertain-write recovery remain.
+The2027-01 opt-in no longer makes unconfigured packed sizes mandatory; authored targets
+still require real native evidence. Incomplete historical cache entries require fresh
+bounded reads, not timestamp resets. Specific component failures, grouped Task History
+and a local read-only `--verification` diagnostic replace vague failure reporting.
+Gallery bounds/safety and finished-size definition/access checks remain. No scanner,
+Orders, JSON, scope/theme/shipping changes or migration (head0018). Proven code causes
+are distinct from unavailable production diagnostics: [repair and acceptance](RECONCILIATION_REPAIR.md).
+
 ## Superseding Shipping Packages scope — manual IDs and reviewed assignments
 
 The intermediate package catalogue reconciliation/sync screens were removed before

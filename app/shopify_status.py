@@ -82,7 +82,7 @@ def refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, sc
             except (OSError,ValueError,KeyError,TypeError,RuntimeError):
                 valid = None  # source failures need their own bounded comparison, not a batch abort
             native_due = product.product_type == "variable" and (data.get("native") or {}).get("enabled") and not comparison.recent((data.get("native") or {}).get("checked_at") or data.get("full_compared_at"),comparison.MAX_AGE)
-            if valid and not force and not native_due and not data.get("refresh_failure") and comparison.current(product, saved, identity, mappings):
+            if valid and valid.get('read_complete') is True and not force and not native_due and not data.get("refresh_failure") and comparison.current(product, saved, identity, mappings):
                 results.append(product.id)
                 continue
             item = (product, saved, identity, valid)
@@ -115,7 +115,7 @@ def refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, sc
                         continue  # no tight polling/automatic write-resume
                     saved = ShopifyProductComparison.query.filter_by(store_id=shop["shop_id"], source_identity=product.source_relpath).first()
                     valid = comparison.current(product, saved, identity, mappings) if saved else None
-                    if valid:
+                    if valid and valid.get('read_complete') is True:
                         results.append(product.id)
                         continue  # complete retained-plan readback already recorded comparison
                 if identity and (identity.state != "verified" or identity.verification_state != "verified"):
@@ -130,7 +130,7 @@ def refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, sc
                 attributes_due=bool(valid and valid.get("attribute_mappings") and not comparison.recent(valid.get("related_checked_at"),comparison.MAX_AGE))
                 # Product updatedAt cannot prove shared definition access or term references.
                 # Reuse the bounded canonical comparison at the related-evidence deadline.
-                needs_full = force or native_due or attributes_due or not valid or valid.get("scope","full") != "full" or not identity or not revision or not comparison.recent(valid.get("full_compared_at"), comparison.FULL_AGE) or not comparison.recent(valid.get("related_checked_at"), comparison.MAX_AGE) or bool(valid.get("blockers"))
+                needs_full = force or native_due or attributes_due or not valid or valid.get('read_complete') is not True or valid.get("scope","full") != "full" or not identity or not revision or not comparison.recent(valid.get("full_compared_at"), comparison.FULL_AGE) or not comparison.recent(valid.get("related_checked_at"), comparison.MAX_AGE) or bool(valid.get("blockers"))
                 if revision and valid and (revision["updatedAt"] != valid.get("remote_updated_at") or revision["status"] != valid.get("actual_status")):
                     needs_full = True
                 if identity and identity.shopify_product_id in revisions and revision is None:

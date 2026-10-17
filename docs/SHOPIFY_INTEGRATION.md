@@ -1,5 +1,17 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## Product verification repair — superseding package freshness policy
+
+The8f83e6e package flag incorrectly made write-only assignment readback mandatory for
+ordinary Product freshness. It is now separate: accepted-only remains labelled, pending
+assignments remain reviewed updates and unknown writes retain Recovery Required.
+Only authored packed targets require2027-01 evidence; an opt-in alone is not a target.
+Missing finished-size definitions/access are still real reviewed differences, not
+silently ignored. Incomplete cached reads cannot renew/reuse successful checkpoints.
+Specific component diagnostics and grouped task outcomes preserve genuine failures.
+No live Shopify or Unraid evidence is invented; see [RECONCILIATION_REPAIR.md](RECONCILIATION_REPAIR.md)
+for exact causes, limitations, read-only collection and safe recovery acceptance.
+
 ## Superseding package-assignment policy
 
 Manual IDs replace catalogue discovery/reconciliation/sync. Existing local package

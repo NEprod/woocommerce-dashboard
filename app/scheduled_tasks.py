@@ -230,7 +230,7 @@ def recent_success(product,config,*,mappings=None,as_of=None):
         timestamps=[valid.get(k) for k in ("full_compared_at","related_checked_at","revision_checked_at")]
         if valid.get("classification")=="create":timestamps=[valid.get("absence_checked_at")]
         native=valid.get("native") or {}
-        if native.get("enabled"):
+        if comparison.native_required(native):
             if native.get("classification") in {"blocked","pending","uncertain"}:continue
             timestamps.append(native.get("checked_at"))
         from datetime import datetime
@@ -281,7 +281,24 @@ def item_result(data,product,state):
     counts=data["counts"];counts["checked"]+=1
     bucket="up_to_date" if state["state"]=="no_change" and state["label"]=="Up to Date" else "updates" if state["state"]=="update" else "unavailable" if state["state"] in {"unavailable","unknown","local_changes"} else "attention"
     counts[bucket]+=1
-    data["items"]=(data["items"]+[{"id":product.id,"sku":product.sku[:64],"state":state["label"]}])[-100:]
+    item = {"id":product.id,"sku":product.sku[:64],"state":state["label"]}
+    if bucket in {'unavailable', 'attention'}:
+        item['reason'] = sanitize_operation_error('; '.join(state.get('blockers', [])) or state.get('message', ''))[:220]
+    data["items"]=(data["items"]+[item])[-100:]
+
+
+def group_errors(data, errors):
+    """Bounded grouped summary; SKU-specific reasons remain in recent outcomes."""
+    if 'error_counts' not in data:
+        errors = [{'message': message} for message in data.get('errors', [])] + errors
+    groups = data.setdefault('error_counts', {})
+    for error in errors:
+        message = sanitize_operation_error(error['message'])[:500]
+        if message not in groups and len(groups) >= 10:
+            message = 'Additional distinct failures; expand recent product outcomes.'
+        groups[message] = groups.get(message, 0) + 1
+    data['errors'] = [message + (f' ({count} products)' if count > 1 else '')
+        for message, count in groups.items()]
 
 
 def run_slice(key,run_id,owner,*,adapter=None):
@@ -343,7 +360,7 @@ def run_slice(key,run_id,owner,*,adapter=None):
                     consumed.add(product.id);item_result(data,product,states[product.id])
             data["reason"]=result.get("deferred_reason")
             if result["errors"]:
-                data["errors"]=(data.get("errors",[])+[sanitize_operation_error(e["message"]) for e in result["errors"]])[-10:]
+                group_errors(data, result['errors'])
         data["queue"]=[i for i in data["queue"] if i not in consumed]
         # A costly parent must not monopolise the front of the queue. Do not
         # manufacture unavailable evidence from a local budget/priority deferral.

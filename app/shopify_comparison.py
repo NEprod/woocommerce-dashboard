@@ -11,6 +11,31 @@ FULL_AGE = MAX_AGE
 ABSENCE_AGE = MAX_AGE
 
 
+def native_required(native):
+    """An opt-in flag alone does not author a managed measurement target."""
+    return bool(native.get('enabled') and (any(not v.get('unconfigured') for v in native['variants'].values())
+        if 'variants' in native else not native.get('unconfigured')))
+
+
+def missing_evidence(plan):
+    """Safe component diagnostics, not desired values or fabricated read receipts."""
+    from app.utils.operation_control import sanitize_operation_error
+    result = []
+    def add(component, reason):
+        result.append({'component': component, 'reason': sanitize_operation_error(reason)[:350]})
+    publication = plan.get('publication') or {}
+    if publication and publication.get('read_complete') is not True:
+        add('publication', publication.get('reason') or 'Status/channel membership readback is incomplete.')
+    if plan.get('scope') != 'inventory':
+        for diagnostic in plan.get('attribute_diagnostics', []):
+            add('informational_attributes', diagnostic.get('action') or 'Required attribute readback is incomplete.')
+    native = plan.get('native') or {}
+    if native_required(native) and native.get('classification') == 'blocked':
+        add('native_packed_dimensions', native.get('reason') or 'Native InventoryItem measurement readback is incomplete.')
+    # One shared failure can affect many attributes/variants; retain it once.
+    return list({(r['component'], r['reason']): r for r in result}.values())[:20]
+
+
 def recent(value, age):
     from datetime import datetime
     from app.shopify_drafts import now
@@ -108,12 +133,15 @@ def record(product, plan, identity=None, *, post_write=False):
     prior = json.loads(row.summary_json) if row.summary_json else {}
     # A diagnostic for a failed required attribute read is not successful
     # comparison evidence. Keep its previous success checkpoint, if any.
-    read_failed = bool(plan.get('publication')) and plan['publication'].get('read_complete') is not True or bool(plan.get("attribute_diagnostics")) and not scoped or bool(
-        (plan.get("native") or {}).get("enabled") and (plan.get("native") or {}).get("classification") == "blocked")
+    failures = missing_evidence(plan)
+    read_failed = bool(failures)
     native = plan.get('native') or {}
     pending_native = native.get('pending_capability', False) or bool(not native.get('enabled') and (native.get('desired') or
         any(v.get('desired') for v in native.get('variants', {}).values())))
-    incomplete = scoped or read_failed or pending_native or bool(plan.get('package_assignments_unverified'))
+    # Package assignment is write-only. Its acknowledgement/warnings remain in
+    # the separate receipt/group; it cannot supply OR invalidate readable fields.
+    # Pending/uncertain writes are still fenced by the identity/recovery guards.
+    incomplete = scoped or read_failed or pending_native
     changes = [{"field": r["field"], "after": summary_value(r["after"])} for r in plan["fields"] if r["changed"] and not r.get("deferred")]
     changes += [{"field": "collections." + r["key"], "after": r["name"]} for r in plan.get("collections", []) if r["action"] in {"Join","Create & Join"}]
     summary = {"version": 1, "product_id": product.id, "source": product.source_relpath,
@@ -136,6 +164,8 @@ def record(product, plan, identity=None, *, post_write=False):
     summary['dimension_metadata_policy'] = (plan.get('dimension_metadata') or {}).get('policy')
     summary['local_package_changes'] = plan.get('local_package_changes', 0)
     summary['package_assignments_unverified']=plan.get('package_assignments_unverified',False)
+    summary['package_readback_policy'] = 2
+    summary['missing_evidence'] = failures
     summary['publication'] = plan.get('publication')
     summary["conflicting_changes"] = bool(plan.get("conflicting_changes")) and plan["classification"] == "update"
     stamp = now().isoformat()
@@ -150,7 +180,9 @@ def record(product, plan, identity=None, *, post_write=False):
         absence_checked_at=stamp if plan["classification"] == "create" else None,
         equality_at=stamp if plan["classification"] == "no_change" and not plan.get("blockers") and not incomplete else prior.get("equality_at"))
     if read_failed:
-        summary["refresh_failure"] = {"at": stamp, "message": "Required managed evidence is incomplete; no successful freshness checkpoint was renewed."}
+        reason = '; '.join(r['component'] + ': ' + r['reason'] for r in failures)
+        summary["refresh_failure"] = {"at": stamp, "kind": "incomplete_evidence",
+            "message": ('Required managed evidence is incomplete: ' + reason)[:500], "components": failures}
         summary["retry_after"] = (now() + timedelta(seconds=30)).isoformat()
         summary["failure_local"] = expected_local
     equality = plan["classification"] == "no_change" and not plan.get("blockers") and not incomplete
@@ -217,6 +249,8 @@ def current(product, row, identity, mappings, *, freshness=True):
     from app.shopify_drafts import now, digest
     from app.shopify_drafts import configuration
     data = json.loads(row.summary_json)
+    if data.get('package_assignments_unverified') and data.get('read_complete') is not True and data.get('package_readback_policy') != 2:
+        return None  # an8f83e6e incomplete checkpoint requires a real fresh read
     from app.shopify_dimension_metadata import POLICY_VERSION
     if data.get('dimension_metadata_policy') != POLICY_VERSION and data.get('scope', 'full') == 'full':
         return None  # old value-only evidence cannot attest definitions/access

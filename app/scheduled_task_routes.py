@@ -68,6 +68,7 @@ def run_detail(run_id):
     if request.accept_mimetypes.best=="application/json":
         return jsonify(id=run.id,state=run.state,counts=data.get("counts",{}),reason=data.get("reason"),
             error=run.error,diagnostic=data.get('diagnostic'),auth_requests=data.get('auth_requests',0),
+            errors=data.get('errors', []),
             order_results={k:data.get('orders_'+k,0) for k in ('created','updated','unchanged','stale')},
             outstanding=data.get('pending_orders',len(data.get("queue",[]))),items=data.get("items",[])),200,{"Cache-Control":"no-store"}
     return render_template("scheduled_task_history.html",runs=[run],detail=data,definition=service.definition(run.task_key))

@@ -220,13 +220,13 @@ def product_state(product, rows, comparisons=(), mappings=None):
                             message="Verification is due. Saved comparison only; the background Scheduled Task refreshes it independently. Manual Refresh remains available.")
                     if classification == "no_change" and (data["blockers"] or (data.get('publication') or {}).get('pending') or publication_pending and not data.get('publication')):
                         state.update(state="attention", label="Needs Attention", message="Metadata matches, but publication or taxonomy blockers remain.")
-                    if classification=='no_change' and data.get('package_assignments_unverified'):
-                        state.update(state='unavailable',label='Verification Unavailable',
-                            message='Managed metadata compared. Package selection requires an ID/acceptance or has accepted-only evidence; Shopify exposes no independent assignment readback. Inspect the Optional Package group.')
+                    if data.get('package_assignments_unverified'):
+                        state['package_assignment_notice'] = 'Optional package: ID/acceptance or manual action may be needed; accepted assignments are not independently verified. Inspect Optional Package in Review & Sync.'
+                        state['message'] += ' ' + state['package_assignment_notice']
                     if data.get("refresh_failure"):
                         state.update(state="unavailable", label="Verification Unavailable", change_count=None,
                             change_summary=[], blockers=[data["refresh_failure"]["message"]],
-                            message="Last refresh failed; retained publication verification and last comparison are historical. Review again before writing.")
+                            message=data['refresh_failure']['message'])
                         kind=data["refresh_failure"].get("kind")
                         if kind in {"identity_conflict","variant_missing"}:
                             state.update(state="recovery_required" if kind=="identity_conflict" else "attention",label="Recovery Required" if kind=="identity_conflict" else "Needs Attention",message=data["refresh_failure"]["message"])
