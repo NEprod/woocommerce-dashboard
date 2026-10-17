@@ -1,4 +1,4 @@
-"""Local operational packaging, immutable rate revisions and packing evidence."""
+"""Local package catalogue and retained Shopify association evidence."""
 from datetime import datetime
 from app import db
 
@@ -23,21 +23,6 @@ class PackageLink(db.Model):
     observed = db.Column(db.Text, nullable=False)
     checked_at = db.Column(db.DateTime, nullable=False)
     __table_args__ = (db.UniqueConstraint('store_id','remote_id'), db.UniqueConstraint('store_id','package_id'))
-
-
-class ShippingRates(db.Model):
-    __tablename__ = 'packaging_rates'
-    id = db.Column(db.String(36), primary_key=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    configuration = db.Column(db.Text, nullable=False)
-
-
-class PackingRecord(db.Model):
-    __tablename__ = 'packaging_plan'
-    id = db.Column(db.String(36), primary_key=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
-    order_id = db.Column(db.Integer, db.ForeignKey('shopify_order.id'))
-    result = db.Column(db.Text, nullable=False)
 
 
 class PackagingEvidence(db.Model):

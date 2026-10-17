@@ -1,284 +1,244 @@
-# Packaging & Shipping — M3A.9.5.4
+# Packaging & Shipping — M3A.9.5.4 (final reduced scope)
 
-## Honest release boundary
+TLCDashboard manages **optional solo packaging** and independent finished/prepared
+measurements. Shopify handles checkout, its native multi-item package selection
+where supported, Royal Mail Tracked 24/48, and labels. This milestone does not change
+any live shipping profile, default package, carrier, app scope, order or theme.
+No basket planner, simulator, rate tables, CarrierService or public callback remains.
 
-Local Packaging Management, product/shared/variant authoring, inline package creation,
-solo recommendations, actual mixed-item/multi-parcel planning, simulator, versioned
-merchant rate tables and read-only Orders suggestions are implemented. **Checkout
-pricing is not fixed or independently verified by this release.** No public callback,
-shipping profile/default change, carrier registration, permission change, label purchase
-or fulfilment is enabled. Saving JSON never authorises a Shopify write.
+## Catalogue and migration
 
-## Confirmed store audit (16 October 2026)
+Migration **0017_packaging**, after deployed **0016_shopify_orders**, creates only
+`packaging_package`, `packaging_link`, `packaging_evidence`. UUIDv5 seed identities
+make the six initial local definitions stable across clean installs; names are not
+identities. No source JSON is rewritten. Existing operational links survive local
+renames/archives. Packages created later use UUIDv4. Startup does not reseed duplicates.
 
-Authenticated read-only Dev Dashboard: existing TLC installation, **Basic**. Shopify
-Admin: one General profile, all products, one fulfilment location, one UK zone;
-Royal Mail **Calculated**, Tracked 24 and Tracked 48; Carrier accounts: None.
-All seven requested packages already exist. Default: TLC 6x6 Card Mailer (Envelope).
-No settings were saved and no live product/order/checkout mutations were performed.
-Admin visibility is not public API identity verification: no package GIDs were returned
-by the visible list. Local records remain unlinked, never linked by title alone.
+| Package | Proposed/advertised exterior (cm) | Unconfirmed |
+| --- | --- | --- |
+| TLC C5+ Board Back Envelope | 24 × 16.5 × unknown | Interior, thickness, tare |
+| TLC Large Letter Box | 35.3 × 25 × 2.5 | Physical exterior, interior, tare |
+| TLC Small Parcel Box | 45 × 35 × 16 | Physical exterior, interior, tare |
+| TLC Medium Parcel Box | 61 × 46 × 46 | Physical exterior, interior, tare |
+| TLC A4 Poster Tube | 24 long, diameter 5 | Physical exterior, usable length/diameter, end caps, tare |
+| TLC A3 Poster Tube | Unknown | All measurements, end caps, tare |
 
-Official sources checked:
+All seeds are **Measurements needed**, unlinked, not automatic-fit verified. Empty
+weights are unknown, not the previous provisional 40 g. C5+ alone starts with a
+merchant `max_contents_thickness_mm: "3"` rule. It is not a universal Royal Mail
+limit and is not applied to the Large Letter Box.
 
-- [Packages and native packed product size](https://help.shopify.com/en/manual/fulfillment/setup/packaging/setting-up-packages).
-- [CarrierService eligibility, protocol and timeouts](https://shopify.dev/docs/api/admin-graphql/2026-10/queries/carrierService).
-- [Third-party carrier-calculated shipping](https://help.shopify.com/en/manual/fulfillment/setup/shipping-rates/third-party-carrier-calculated-shipping).
-- [Package update](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/shippingPackageUpdate).
-- [Inventory measurement input](https://shopify.dev/docs/api/admin-graphql/2026-10/input-objects/InventoryItemMeasurementInput).
-- [Royal Mail through Shopify](https://help.shopify.com/en/manual/fulfillment/fulfilling-orders/shipping-labels/shipping-carriers/royal-mail).
+Use Packaging → Add/Edit/Duplicate. Enter exterior and independently measured usable
+interior, tare, capacity, protective clearance/material weight, suitability and cost
+in integer GBP pence. Unknown is never zero. Review Usage before archiving; archive
+does not remove authored references, retained links or any Shopify package. Archived
+packages are excluded from new recommendations. No remote deletion or default action.
 
-### Exact remote checkout blockers
+The unreleased 0017 was simplified before publication. Do not deploy an intermediate
+development 0017 database; the supported upgrade starts at deployed 0016. Normal
+startup makes a verified backup under the existing instance/appdata backup directory.
+Restore the pre-upgrade database with the previous image for rollback; destructive
+downgrade is intentionally refused. Existing mounts/Orders data remain unchanged.
 
-There is no supported per-checkout API here for injecting TLC's parcel plan into the
-existing Shopify Royal Mail service. Solo variant package assignments apply to
-single-item orders only. Shopify's own packed-size algorithm can select a saved **Box**
-for a shipment, but excludes envelopes/soft/carrier packages. It falls back to the
-default when the default is not a Box, any item lacks packed size, no Box fits, or
-platform item/package-count limits are exceeded.
+## Three independent measurement meanings
 
-TLC currently has an Envelope default and no Box longer than 35 cm; a flat 42 cm A3
-cannot fit those Boxes. C3 is an Envelope, excluded from native box selection. These
-are documented unsafe fallback conditions, not proof of a historical checkout's
-internal computation. Native selection's applicability to this exact Royal Mail rate
-path still requires controlled checkout acceptance; no multi-parcel/TLC-rule guarantee.
+1. `dimensions` retains historical millimetre semantics and modifier calculations.
+   It is **not silently reclassified** as finished size or packed size.
+2. New optional `finished_dimensions` explicitly confirms customer-received size:
 
-A separately approved native trial requires a **real measured A3-capable Box**, a
-deliberately approved Box default and accurate packed size/weight for every physical
-item. Never mislabel a physical envelope as a Box or assume prints can roll. Test the
-actual two-card+A5+A3 checkout against independent parcel/charge evidence, including
-missing-size/no-fit fallbacks. No default change or automatic activation occurs here.
+   ```json
+   {"finished_dimensions":{"length":"6","width":"6","height":"0.1","unit":"in","label":"folded"}}
+   ```
 
-Using **TLC's actual complete packing algorithm** at checkout requires a separate
-CarrierService. Basic is ineligible. Documented options: Advanced/Plus, or Grow with
-annual billing / paid CCS enablement (confirm exact UK terms with Shopify; no unverified
-price quoted). Existing app scopes lack read_shipping/write_shipping. No gateway,
-authorised external Royal Mail quote source or approved fallback is configured.
-Functions are not a parcel quote API; custom-app Functions on Basic are not a workaround.
+   Units are `mm`, `cm`, `in`; Decimal conversion, 25.4 mm/in. A4 example29.7×21cm,
+   A3 example42×29.7cm; thickness is product-specific, never invented. Shared
+   collection → product → exact/most-specific variation modifier replaces this
+   complete object (unit travels with measurements). Missing inherits. `{}` clears
+   explicit finished interpretation locally and restores historical compatibility;
+   it does not authorise remote dimension deletion. Missing individual axes are not
+   managed/cleared remotely; inspect existing values before using them in a theme.
+3. `packaging.packed_dimensions_cm` is the measured **prepared individual item**,
+   including its individual sleeve/protection, **not the selected outer package**.
+   It is independent of finished size. Do not count an outer box/tube twice.
+   A measured roll must have its own axial length and diameter; flat A3 geometry
+   cannot establish rolled size. Changing finished size never changes packed size;
+   the editor prompts the merchant to review shipping measurements separately.
 
-Manual reviewed profiles/real weight bands/conservative flat rates may reduce interim
-risk but cannot prove basket geometry. Different profiles can combine charges. Do not
-falsify product weights, silently remove Tracked24/48, or invent a safe flat-rate price.
-Current checkout remains unchanged pending merchant approval of a specific proposal.
-
-### Package API boundary
-
-2026-10 documents package update/default/delete mutations and a write-only inventory
-measurement shippingPackageId. A tested public list/read/create/assignment-readback
-contract is absent. The in-app capability refresh introspects the actual configured
-store/schema through the existing bounded transport, recording store/plan/scopes and
-field availability. No generic query/GID is guessed. Failure retains prior evidence.
-The development machine has no configured merchant Admin API credentials for a live
-schema probe; this must be run in the configured installation. No authenticated
-package API readback is claimed from documentation or Admin observation alone.
-
-Mutation availability is not safe verified sync. Package creation/linking/update/default
-and inventory-package assignment are explicitly **blocked**, not falsely reported
-successful. Copyable external measurements and exact Admin setup instructions are
-provided. Do not recreate the seven already present packages. New packages can be
-created locally and manually in Admin → Settings → Shipping and delivery → Packages;
-independent public ID/readback support is needed before enabling remote links/writes.
-No remote deletion is offered. No additional permission version is staged because
-shipping permission approval alone would not resolve the blockers. Existing app,
-12 declared scopes, Orders access and customisation UID/assets remain unchanged.
-
-## Initial catalogue and local management
-
-Migration **0017_packaging**, after 0016_shopify_orders, inserts seven deterministic
-UUIDv5 identities once. Restart/scan/upgrade never resets them or duplicates edits.
-
-| Package | Type | External size cm | Provisional tare |
-|---|---|---|---|
-| TLC 6x6 Card Mailer | Envelope | 18 × 18 × unknown | 40 g |
-| TLC C3 Reinforced Mailer | Envelope | 45.7 × 32.4 × unknown | 40 g |
-| TLC C4 Rigid Mailer | Envelope | 32.4 × 22.9 × unknown | 40 g |
-| TLC C5 Large Letter Box | Box | 23 × 16 × 2 | 40 g |
-| TLC Large Postal Box | Box | 35 × 25 × 10 | 200 g |
-| TLC Medium Postal Box | Box | 25 × 18 × 8 | 150 g |
-| TLC Small Postal Box | Box | 18 × 13 × 6 | 100 g |
-
-All start Measurements needed, automatic=false, unlinked. Unknown is not zero.
-Measure usable interiors, filled envelope thickness, exteriors, tare, safe contents/
-gross weight limits, clearance and protective material weight. Explicit zero clearance/
-protection weight is permitted only when accurate. Confirm dimensions/tare measured,
-flat/fragile/material suitability, stackability and automatic eligibility separately.
-
-Packaging supports search/sort, add/edit, duplicate (new UUID/no copied remote link),
-on-demand current assignments and recent usage, confirmed archive and copyable native
-fields. Version compare-and-swap rejects stale edits. Archive never deletes remote or
-historic data; dependent product assignments require attention. Costs are integer GBP
-pence; dimensions/weights are decimal strings in cm/g. Soft/rolled packages may be
-stored, but deformable geometry/automatic rolling is deliberately manual-only.
-
-## One authored product packaging contract
-
-Intake, existing Product/Shared Editor and variant modifier editor use one reusable
-component/modal. Product information remains product_info.json, not package SQLite.
-Collection packaging → sparse product packaging → matching variant modifier packaging
-merge by property, including dimensions. False remains false; missing inherits;
-selected_package_id:null explicitly clears inherited selection. Removing an override
-restores inheritance. Variant selection reuses exact/longest modifier matching and
-insertion-order ties without changing modifier prices, SKUs or combinations.
-New packaging-only modifier rules are excluded from the pricing selector so they
-cannot mask an existing partial price/weight rule. Every historical rule, including
-explicit empty exact rules, retains its previous semantics and detailed logging.
-
-Illustrative fictional data, not measured TLC values:
+Example optional shipping configuration:
 
 ```json
-{"requires_shipping":true,"packaging":{
-  "packed_dimensions_cm":{"length":"42","width":"29.7","height":"0.3"},
-  "weight_g":"150","measured":true,"orientation":"flat","classification":"flat",
-  "clearance_cm":"0.2","protection_weight_g":"10","fragile":false,
-  "may_share":true,"ship_separately":false,"may_stack":true,"stack_limit":10,
-  "requirements":["rigid backing"],"selected_package_id":null,"override_reason":""
-},"variation_modifiers":{"Size=A3":{"packaging":{"ship_separately":true}}}}
+{"packaging":{
+  "packed_dimensions_cm":{"length":"16","width":"16","height":"0.3"},
+  "weight_g":"50","measured":true,"method":"flat","orientation":"flat",
+  "classification":"flat","fragile":false,"rollable":false,
+  "clearance_cm":"0","protection_weight_g":"0","requirements":["rigid backing"],
+  "selected_package_id":null
+}}
 ```
 
-Manufacturing/product dimensions remain mm, finished packed item dimensions are cm,
-per-face protective clearance is additional, and carrier parcel exteriors are separate.
-No artwork-to-packed assumption. Authored weight_g overrides individual shipping weight;
-otherwise existing resolved product/variant weight is reused. Package tare is added
-per parcel, never folded into a product's weight. Additional protection weights are
-included explicitly in planner gross weights. Requires shipping uses existing defaults.
+Zero clearance/protection weight is only accurate when already included or unnecessary;
+do not copy example values into real products without measuring. `requires_shipping`
+keeps the existing root field/default convention; no competing flag is introduced.
+Optional `weight_g` overrides the historical grams for shipping only, including at
+variant level; pricing/scanner modifiers and existing stored weights are not rewritten.
 
-Use recommendation/override explicitly; ordinary edits never overwrite a manual
-choice. A selected solo package is a conservative packing constraint, not proof of
-remote assignment or combined fit. The one inline modal preserves unsaved product
-values and position; Cancel changes nothing. Saving a package selects a locally valid
-definition, not an automatic-ready guarantee; it neither saves nor scans the product.
-Import review uses the existing Intake metadata editor, not another creator.
+`packaging` merges recursively across collection/product then the existing exact or
+longest-match variation expression. Explicit false and `selected_package_id:null`
+survive. A new packaging/finished-only modifier cannot mask historical price/weight
+rules. Historical empty exact modifiers retain their established semantics.
 
-### Existing Shopify publisher
+## Optional selection and recommendations
 
-SHOPIFY_NATIVE_DIMENSIONS_ENABLED=true retains the existing signed/CSRF/identity/
-durable evidence/readback/uncertainty workflow on **2027-01 only**. Explicit measured
-packed_dimensions_cm takes priority, independently per variant. Incomplete/unmeasured
-explicit size blocks fallback; absence retains legacy product-dimension reuse only
-with its existing explicit opt-in flag. Other operations stay **2026-10**. Managed
-shipping-weight/packed-size fingerprints change when their effective values change;
-private packaging notes do not invent Shopify metadata. Save Locally never publishes.
-Native matching evidence is not checkout or package-preset verification.
+* Missing `selected_package_id`: inherit, or no selection when no parent value.
+* Explicit null: **No Package Assigned**, do not inherit parent selection.
+* UUID: explicit local package; `assignment_kind:accepted` or `manual` records how
+  chosen, with optional `override_reason`. Inherited UUID remains distinguishable.
 
-## Planner, simulator and uncertainty
+Recommendation is advisory, never automatically accepted. Use Recommendation, select
+a different package, inherit or choose No Package Assigned. A manual choice survives
+unrelated price/SEO edits. No package does not block save, create, weight, native
+packed size or normal Review & Sync and does not alone cause Needs Attention.
 
-Pure Decimal largest-face-first 3-D guillotine packing creates disjoint free cuboids.
-Right/front splits preserve free floor; top splits are limited to the fully supported
-item footprint. Orientation, full-support stack limits (including supporting items),
-clearance, flat/fragile/material approval, sharing/separate rules, quantity and gross/
-contents weight limits must pass. No volume-only fit, bending, diagonal/soft packing,
-rolling or unsupported bridging. A feasible arrangement may be rejected conservatively.
+Solo checks use **prepared packed size** only, Decimal geometry, permitted fixed/flat/
+any orientation, clearance on each face, materials, fragility and weight capacities.
+They require measured item/package dimensions and tare/protection/capacity evidence;
+missing measurements return an actionable warning, not an optimistic fit. Soft-pack
+deformation remains manual. The C5+ cap uses actual packed thickness before orientation:
+2/3mm may fit subject to all other checks;3.1/4mm and unknown thickness cannot qualify.
+Large Letter Boxes use measured interior/protection, not the C5+ cap.
 
-Three deterministic package-choice heuristics produce feasible complete plans, ranked
-by verified safety, available complete service price, parcel count, material cost and
-stable tie-break. No global optimum claim. Up to two candidate alternatives are retained
-in evidence, not guaranteed distinct. Bounds: 200 physical units, 64 package candidates,
-60,000 orientation checks. Limit/missing-data/no-fit returns no invented postage.
+Tubes require explicit `method:rolled`, `rollable:true`, measured prepared roll,
+approved rolled suitability and measured interior length/diameter. Length is the
+roll axis; usable length minus total end-cap reserve must fit it; the maximum measured
+cross-section/diameter plus protection must fit the usable diameter. Flat prints are
+never auto-rolled. Confirm a circular prepared roll; these fields do not authorise
+bending a rigid item. No A3 tube dimensions are inferred from its name.
 
-Unknown internal size/thickness cannot be rescued by estimate mode. Complete estimated
-dimensions can be explored explicitly but **never quoted for automatic rating**.
-Missing dimensions/weight/protection/orientation/shipping intent gives actionable errors.
-Explicit nonphysical items are excluded. The default mailer is never a fallback.
+Rank safe candidates deterministically by practical external size then known packaging
+cost/name/UUID; return a recommendation and at most two alternatives. No global-optimum,
+carrier-eligibility or postage-price claim. Rejections explain measurements/suitability.
 
-Simulator uses local product/variant search and quantities, not current Shopify reads.
-It shows parcels, contents, weights, dimensions, rates, rejected packages and warnings.
-Synthetic two-card+A5+A3 fixtures consolidate four units into a measured 45 × 32 × 2 cm
-usable package, 390 g gross using fictional weights. A3 plus separately shipped fragile
-ornament splits into two parcels; every parcel is charged. Production seed interiors
-remain unmeasured and cannot claim those results. No real checkout test was performed.
+Intake, Product Editor and variant modifier rows reuse the same components. Advanced
+JSON shows actual authored fields. Inline Add Package uses one modal, saves only the
+local package, preserves unsaved product state/focus/scroll, refreshes choices and
+recommends again. **It does not force selection.** Cancel/Escape leaves the draft alone.
 
-## Pricing sources and Royal Mail
+## Ordinary Shopify Review & Sync
 
-Shopify Shipping prices use Shopify's Royal Mail account; no authorised external
-discounted-price API was established. No negotiated/public prices are seeded. Enter
-actual agreed all-in customer charges with a source/contract label, UTC effective/
-expiry dates, explicit Tracked24/48 dimensional/weight bands, handling and optional
-packaging charge. Revisions are immutable UUIDs. VAT/surcharges/transit guarantees
-are not invented. Every parcel needs a valid band; charges sum across the entire plan.
-Missing/expired rates or missing included material costs block a complete quote.
+Save Locally → existing targeted scanner projection → Review & Sync → signed confirm
+→ independent readback. No new product-packaging queue/publisher, no publish-on-save.
 
-Conservative format hints: large letter 35.3×25×2.5 cm/750 g; small parcel
-45×35×16 cm/2 kg; medium parcel 61×46×46 cm/20 kg. Approved service-band limits also
-apply; hints aren't carrier-contract eligibility. Verify current service rules, restricted
-goods, Northern Ireland/Windsor constraints and destination coverage. This release has
-UK/GBP simulator context only, no regional or international live quote. Label quotes
-as merchant tables, not live Royal Mail/Shopify Shipping.
+* Explicit finished size uses existing configured namespace (default `tlc_dashboard`)
+  `product_length`, `product_width`, `product_height`, Shopify `dimension` type on
+  Product / ProductVariant. Exact source units remain authored, API values normalize
+  to millimetres. Existing IDs and ordinary metafield difference/readback rules remain.
+  With no explicit finished object, legacy metadata publishing is unchanged.
+* Weight / requiresShipping / origin use normal2026-10 inventory-item handling.
+* Opt-in native packed size stays **2027-01 only**. Set
+  `SHOPIFY_NATIVE_DIMENSIONS_ENABLED=true` and retain `write_inventory` plus read access.
+  Explicit packed cm requires `measured:true`; complete independent capability,
+  identity, signed review, readback and uncertainty protection remain mandatory.
+  `SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS` is the existing legacy opt-in;
+  it refers only to historical millimetres, **never new finished dimensions**. Prefer
+  explicit packed measurements; an incomplete explicit packed object blocks fallback.
+* Optional solo UUID is not sent as a fake Shopify ID. Selected/explicitly cleared
+  packages show a manual-operation warning without blocking supported field updates.
+  A local clear is not proof that a prior remote assignment cleared.
 
-## Future public gateway — approval required
+### Package API limitation and actual evidence
 
-Do not expose Unraid/dashboard/SQLite/catalogue files. A separate isolated HTTPS gateway
-should receive versioned allowlisted variant identities, measurements/rules/packages/
-rates, not customer answers or order-writing credentials. Add strict body/item limits,
-secrets, callback authentication/request controls, redacted logs, rate limits, monitoring
-and internal deadlines. Do not assume CarrierService uses webhook HMAC or Tailscale
-is public. Shopify documents dynamic 10/5/3-second read deadlines by request volume,
-no automatic callback retries and caching. Avoid per-callback Shopify queries. Quote
-every parcel under consistent GBP minor-unit service codes; fail without an invented
-rate. No availability guarantee for a home-hosted gateway.
+Official2026-10 schema documents `shippingPackageUpdate` and write-only
+`InventoryItemMeasurementInput.shippingPackageId`; the public returned measurement
+does not establish a matching package association readback. Mutation presence alone
+does not make an update safely verifiable. Package listing/creation/reset and direct
+association readback are **not enabled** without a tested authenticated contract.
+The explicit read-only capability probe reports schema names, store, scopes and time
+using the existing transport, never writes. No new permission is added/requested.
+Missing shipping scopes are reported, not silently broadened.
 
-Activation needs CCS eligibility, approved exact scope diff staged on the existing app,
-verified rate source, gateway/failure testing, General profile/zone/duplicate-service review,
-and actual checkout acceptance. A new carrier must not be assumed automatically attached
-to the profile in 2026-10. Backup rates appear only when calculated rates fail with no
-other eligible option; always-eligible flat rates may still be selected. Agree a safe
-fallback and preserve existing Tracked24/48 rollback before any activation.
+The16October authenticated Admin UI audit observed the old seven TLC packages and
+6×6 Envelope default with Tracked24/48. That is historical, not proof of today's six
+replacements or any remote package GID. No configured merchant Admin token was
+available locally for a fresh authenticated package API import in this release.
+No actual remote package IDs have been invented or linked. The seed list is **local
+initial configuration, not remote reconciliation success**. The previous saved
+packages and oversized A3 test package must be inspected by the merchant; no automated
+archive/remote overwrite occurs. Retained mapping storage is ready but new links are
+blocked until actual remote identity/readback is obtainable.
 
-## Orders, security, persistence and rollback
+Manual: Shopify Admin → Settings → Shipping and delivery → Packages. Inspect existing
+records/default before creating anything. Match exact type and physically verified
+measurements; do not recreate similarly named records. Create only missing packages
+using copyable local measurements. For a product/variant, use its Shipping section's
+package selector if available. Verify manually there, including clearing an assignment.
+Do not expose Unraid, change profiles, default, Royal Mail services or permissions.
 
-Orders suggestions map exact store/product/variant GIDs and preserve historical order/
-line GIDs and outstanding quantities, not SKU/name. Same-SKU lines stay separate.
-Current measurements are suggestions, not historical measurement assertions. Missing/
-deleted/uncertain mappings block complete plans. No labels/fulfilment/order mutations.
+### Customer-facing finished size
 
-Package/rate/plan/evidence tables use existing persistent SQLite appdata/mounts. Plans
-snapshot package versions, geometry, item identities/placements, quantities, weights,
-rates/source/version and warnings. Later package edits/archive never change a saved plan.
-No addresses/emails/customer answers enter packing records. All routes require existing
-admin/session protection, POST CSRF and private/no-store responses. Request bodies are
-bounded to 256 KiB before CSRF parsing. No new Discord event, scanner or worker.
+This is a **data foundation**, not an activated storefront feature. Shopify Liquid
+supports `dimension` metafields and `metafield_tag`; supported theme text settings can
+connect compatible product dynamic sources after definitions/setup. A merchant can
+use a Custom Liquid block on **unpublished** Tinker for axis display, for example:
 
-Back up site.db with existing SQLite-aware backup tooling plus catalogue before upgrade.
-The migration runner backs up the old database. No destructive downgrade: restore the
-pre-0017 backup with the previous image for rollback; do not delete operational history.
-No XML/mount/environment replacement is needed. Local original images, JSON, SKU indexes,
-.scanned/.update, product/variant/InventoryItem IDs, sales and Orders remain unchanged.
+```liquid
+{% assign size_owner = product.selected_or_first_available_variant %}
+{% unless size_owner.metafields.tlc_dashboard.product_length %}{% assign size_owner = product %}{% endunless %}
+{% if size_owner.metafields.tlc_dashboard.product_length %}
+  Finished size: {{ size_owner.metafields.tlc_dashboard.product_length | metafield_tag }}
+  × {{ size_owner.metafields.tlc_dashboard.product_width | metafield_tag }}
+{% endif %}
+```
 
-## Controlled acceptance
+Only label historical values as Finished after the merchant confirms explicit finished
+semantics. Configure the actual namespace if changed. Size labels (A4/folded) remain
+authored/editor previews; they are not separately published in this version. Dynamic
+variant switching and exact Tinker layout require a separate theme acceptance check;
+the example alone does not prove live updates. Storefront API access is a separate
+definition `PUBLIC_READ` decision, not implied by Admin readback/Liquid. No definitions
+or theme were changed, no extension version was necessary or staged, and no live
+storefront dimension display is claimed.
 
-1. Deploy tested immutable image manually after backup, preserving mounts. Confirm 0017
-   and seven unverified seeds, unchanged after restart. Do not recreate remote packages.
-2. Measure packages, protection and limits; confirm readiness locally.
-3. Test inline add/cancel in Intake and Product/variant editor with unsaved fictional
-   values; confirm no JSON save/scan/Shopify publish occurs until separately requested.
-4. Author accurate packed values in the proper scope; save locally → targeted scan.
-   Review only intended Shopify native/weight changes via existing signed workflow.
-5. Simulate card/A3/mixed basket/fragile split; verify fit and every weight/rate. Unknown
-   data must block, not fall back. Enter real rate tables only with verified sources.
-6. Confirm Orders retains separate line identities, restart persistence and offline views.
-7. Refresh capabilities explicitly in configured installation. Missing shipping scopes or
-   absent readback never becomes a successful package sync.
-8. Stop for merchant approval of a specific native Box trial or custom carrier rollout.
-   Record existing profile/default/Tracked24/48 and exact rollback first.
-9. Final gate: actual two-card+A5+A3 Shopify checkout, controlled UK destination, independent
-   package/charge evidence; then missing sizes/no-fit/multi-parcel/failure cases. A displayed
-   rate alone does not prove geometry. No checkout fixed/live claim before this passes.
+References: [native packed API](https://shopify.dev/changelog/posts/manage-packed-product-dimensions-with-the-admin-graphql-api),
+[package update](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/shippingPackageUpdate),
+[Liquid dimension](https://shopify.dev/docs/api/liquid/objects/metafield),
+[theme dynamic sources](https://shopify.dev/docs/storefronts/themes/architecture/settings/dynamic-sources),
+[Storefront API access](https://shopify.dev/docs/storefronts/headless/building-with-the-storefront-api/products-collections/metafields).
 
-## Verification evidence
+## Acceptance / rollback
 
-Focused synthetic packaging tests cover seeds/readiness/CRUD, geometry/stacking,
-A3/mixed/multiple parcels, weight/protection, rates/expiry, inheritance and both native
-measurement paths, request protection and historical order-line identity. A bounded
-existing Python regression covers publishing, native dimensions, both Variable
-layouts, Orders, editors/Intake, scanner contracts, sales/startup, migrations and Discord.
-Two old Orders migration assertions were aligned with 0017 without relaxing rollback
-protection. JavaScript tests cover sparse controls, preserved IDs/false values, modal
-boundaries and existing editor/sale/order/designer behaviour.
+### Offline verification recorded
 
-Native Chrome desktop/mobile (390px) fictional browser checks confirm local package
-save/cancel preserves unsaved product title, package selection returns to the editor,
-modal actions remain visible and the complete mixed basket yields one feasible parcel,
-390 g, with rates unavailable rather than fabricated. No horizontal overflow was seen.
-These are not Safari or live checkout tests. The offline Docker script extends the
-existing two-worker Orders smoke with 0017, package/plan persistence and local pages;
-no network is available to its disposable containers. Release results are recorded in
-the final delivery report, not inferred from source/test existence.
+Final focused package/schema/publishing/native pass: **80 passed**. Bounded regression:
+**402 passed**, one stale supported-field inventory assertion updated for the two new
+fields, then its complete affected file **23 passed**. JavaScript bounded pass:
+**67 passed** (the final package-only rerun also8 passed). Fixtures cover ordinary
+signed Create/Update/No Change, retained variant/inventory IDs, separate finished and
+packed values, no-package save, targeted scan/SKUs, tubes and3mm boundaries. No live
+Shopify or Discord calls. In-app browser desktop/mobile checks confirmed independent
+finished-size preview, advisory fit, explicit acceptance/clear, inline save/cancel
+retaining an unsaved title and no horizontal overflow. Real mobile Safari and active
+storefront size display have not been verified. The release also requires the
+offline two-worker migration/restart script before publication; its actual result
+and image identity are recorded in the completion report, not inferred here.
+
+1. Back up existing appdata/SQLite consistently. Select tested `develop` or immutable
+   `shopify-packaging-<commit>`; retain all existing mounts, environment and credentials.
+2. Update manually, confirm0017 and Orders/history present. No auto-deployment.
+3. Open Packaging: six unverified seeds, no invented tare/interiors. Inspect actual
+   Shopify packages manually; do not duplicate old records or alter default.
+4. Measure a fictional/test solo package and product: verify2/3mm C5+ acceptance,
+   3.1mm rejection, larger-box fit and measured rolled tube checks.
+5. In an existing Draft editor keep an unsaved title, open/cancel/save an inline
+   package; verify the title survives and no package is automatically selected.
+6. Save with no package, then with a local choice, then null overriding a shared
+   choice. Confirm JSON, targeted rescan/SKUs, ordinary Preview warning and unchanged
+   remote assignment unless manually changed. Review supported fields independently.
+7. On an explicitly reviewed Draft, confirm separate finished/packed values, shipping
+   weight and readback through normal product review; do not publish Live/channel
+   changes inadvertently. No live product mutation was made by automated tests.
+8. Confirm historical dimensions/legacy policy and variable modifiers remain stable.
+9. If testing size display, use unpublished Tinker only and verify selected variant
+   changes before any separate theme approval. Do not claim live visibility yet.
+10. Rollback image plus pre0017 database backup together. No Shopify rollback needed
+    for this release: it performs no automatic shipping changes. Later reviewed
+    product mutations require their own reviewed reversal, never blind retry.

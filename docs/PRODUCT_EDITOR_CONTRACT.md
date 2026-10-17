@@ -1,13 +1,18 @@
 # M3A.9 Product Creator & Editor contract
 
-## M3A.9.5.4 — shared Shipping & Packaging component
+## M3A.9.5.4 — shared Shipping & Dimensions component
 
-Intake, shared/product editor and variant modifiers reuse one sparse packing component
-and inline local package modal. Cancel retains drafts; package save never saves/scans/
-publishes a product. Explicit child/manual choices survive inherited changes. Existing
-atomic/source-reviewed local saves, backups and .update handoff remain authoritative.
-Measured packed size can use the existing signed native publisher; preset sync/checkout
-is separately gated. See PACKAGING_AND_SHIPPING.md.
+Intake, shared/product editor, Advanced JSON and variant modifiers support independent
+finished size (explicit unit), prepared packed size (cm), grams and optional solo UUID.
+Missing selection inherits; null explicitly unassigns. Recommendation requires separate
+acceptance; inline package save refreshes options without forcing selection. Cancel
+preserves unsaved data/focus/scroll. Finished-size changes do not change accepted packed
+measurements; review them separately. Historical dimensions retain their meaning.
+Existing atomic/source-reviewed saves, backups and .update handoff remain authoritative.
+Only ordinary Review & Sync publishes supported values. No selected package is valid;
+unsupported remote association/clear shows a manual warning, not a false success or
+unrelated publishing blocker. No new packaging publisher or basket tools remain.
+See PACKAGING_AND_SHIPPING.md.
 
 ## M3A.9.5.2 — historical order boundary
 

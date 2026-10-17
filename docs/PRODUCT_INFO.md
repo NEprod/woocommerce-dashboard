@@ -2,10 +2,16 @@
 
 ## M3A.9.5.4 — optional authored packaging
 
-`packaging` stores measured packed_dimensions_cm, optional shipping weight_g,
-orientation/classification, protection/clearance, sharing/stacking and selected local
-package UUID/reason. Nested collection → sparse product → matching variation modifier
-merges preserve explicit false/null. Manufacturing dimensions remain separate mm.
+`finished_dimensions` explicitly records actual finished size (length/width/height,
+unit mm/cm/in, optional local display label). Whole-object inheritance keeps units
+together; an exact/most-specific variation object can override it. Legacy `dimensions`
+retains its historical millimetre interpretation; nothing is automatically rewritten.
+`packaging` stores independent measured packed_dimensions_cm, optional shipping weight_g,
+method (flat/rolled/rigid/protected), orientation/classification, fragility, rollability,
+protection/clearance and optional selected local UUID/reason/assignment_kind. Nested
+collection → sparse product → matching variation modifier merge preserves false/null.
+Missing selected_package_id inherits; null explicitly unassigns; UUID explicitly selects.
+No selection is valid. Recommendations are advisory, never automatically accepted.
 Existing JSON remains valid; deployment/time passing never rewrites authored files.
 The [packaging guide](PACKAGING_AND_SHIPPING.md) defines fields and safety gates.
 

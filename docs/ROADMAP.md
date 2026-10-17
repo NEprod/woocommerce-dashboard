@@ -1,15 +1,16 @@
 # Roadmap
 
-## M3A.9.5.4 — local packing accepted separately from remote checkout
+## M3A.9.5.4 — final reduced solo-packaging milestone
 
-This number was unused at HEAD 7679198. Accept migration 0017, seven unverified UUID
-seeds, measured local management, sparse shared/product/variant data, inline draft
-preservation, actual mixed/multi-parcel simulation, rates and line-safe Orders suggestions.
-Before checkout claims, approve native A3-capable Box/default trial or obtain eligible
-custom carrier entitlement, exact scope approval, isolated HTTPS gateway and authorised
-rates. Preserve Tracked24/48 and rollback. Real two-card+A5+A3 checkout geometry/rate
-acceptance is mandatory. No live shipping change/public endpoint/permission release
-is included. See PACKAGING_AND_SHIPPING.md for conditions and limitations.
+This number was unused at HEAD7679198. Accept0016→0017 with six unverified UUID seeds,
+measured package management (including tubes), independent finished/prepared dimensions,
+optional solo recommendations, C5+3mm rule and draft-preserving inline creation.
+Ordinary signed product Review & Sync owns supported shipping/metafield changes.
+Package association/readback and current remote-package reconciliation remain manual/
+unverified; theme display requires separate unpublished-theme acceptance. No scopes,
+default/profile/carrier/Orders changes. Mixed-basket simulator, rate tables and custom
+checkout integration were explicitly cancelled and removed, not retained as dormant
+features. Shopify handles native checkout/postage. See PACKAGING_AND_SHIPPING.md.
 
 ## M3A.9.5.2 — accept read-only Orders before production work
 

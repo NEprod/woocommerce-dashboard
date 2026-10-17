@@ -64,6 +64,10 @@ def source_fingerprint(product, images):
             if 'weight_g' in value:
                 from decimal import Decimal
                 child['shipping_weight_g'] = str(Decimal(str(value['weight_g'])).normalize())
+        from app.packaging_contract import finished_mm
+        for child in parts['variations']:
+            size=finished_mm(authored,dict(child['attributes']))
+            if size: child['finished_mm']=size
         from app.sale_pricing import project, variant_sale
         data['managed'] = managed['product']
         data['inventory_policy']={key:value for key,value in managed['variant'].items() if key=='inventoryPolicy'}

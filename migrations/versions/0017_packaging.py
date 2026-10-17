@@ -1,4 +1,4 @@
-"""Operational packaging and rate/plan evidence; no authored catalogue changes."""
+"""Optional solo packaging; no basket/rate tables or authored catalogue changes."""
 from alembic import op
 import sqlalchemy as sa
 revision='0017_packaging'
@@ -18,12 +18,6 @@ def upgrade():
         sa.Column('store_id',sa.String(96),nullable=False),sa.Column('remote_id',sa.String(96),nullable=False),
         sa.Column('observed',sa.Text(),nullable=False),sa.Column('checked_at',sa.DateTime(),nullable=False),
         sa.UniqueConstraint('store_id','remote_id'),sa.UniqueConstraint('store_id','package_id'))
-    op.create_table('packaging_rates',sa.Column('id',sa.String(36),primary_key=True),
-        sa.Column('created_at',sa.DateTime(),nullable=False),sa.Column('configuration',sa.Text(),nullable=False))
-    op.create_table('packaging_plan',sa.Column('id',sa.String(36),primary_key=True),
-        sa.Column('created_at',sa.DateTime(),nullable=False),sa.Column('order_id',sa.Integer(),sa.ForeignKey('shopify_order.id')),
-        sa.Column('result',sa.Text(),nullable=False))
-    op.create_index('ix_packaging_plan_created_at','packaging_plan',['created_at'])
     op.create_table('packaging_evidence',sa.Column('key',sa.String(100),primary_key=True),
         sa.Column('value',sa.Text(),nullable=False),sa.Column('checked_at',sa.DateTime(),nullable=False))
     from app.packaging_catalogue import initial_rows

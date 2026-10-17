@@ -1,21 +1,27 @@
 # Current State
 
-## M3A.9.5.4 — local packaging and mixed-basket shipping preparation
+## M3A.9.5.4 — final scope: finished size and optional solo packaging
 
-Migration 0017_packaging adds UUID package definitions, rate revisions and immutable
-packing evidence. Existing Intake/product/shared/modifier forms gain sparse packing
-authoring and one inline package modal. A bounded Decimal geometric planner supports
-actual mixed items, supported stacks and multiple parcels; local simulator and
-read-only Orders suggestions reuse it. Explicit measured packed cm joins the existing
-signed opt-in 2027-01 review; normal operations stay 2026-10. No automatic publication.
+Migration0017_packaging follows deployed0016: six deterministic UUID package seeds,
+retained links and capability evidence only. Proposed dimensions/tare/interiors are
+not marked measured. C5+ alone has a3mm contents-thickness cap; Large Letter Box does
+not. Tubes use measured length/diameter/end-cap geometry and explicit rolled permission.
+Existing Intake/shared/product/variant forms add separate finished and prepared packed
+measurements plus an optional solo choice and draft-preserving inline package modal.
+No-package/null/inherited/accepted/manual choices are distinct; recommendations never
+auto-assign. No package alone blocks neither local save nor normal product sync.
 
-Read-only authenticated Admin audit confirms Basic, seven existing TLC packages,
-Envelope default and calculated Royal Mail Tracked24/48 services. Local seeds remain
-unlinked/unmeasured. Unsupported package discovery/readback blocks remote package
-writes. Checkout remains **unfixed/unverified**: Basic cannot register TLC's carrier
-callback; no scope/public gateway/rate change is made. Native Box-only/default fallbacks
-mean current Envelope default and undersized Boxes cannot establish safe A3 mixing.
-See [Packaging & Shipping](PACKAGING_AND_SHIPPING.md) for exact gates and acceptance.
+Explicit finished sizes convert exact units into the existing reviewed Product/Variant
+dimension metafields. Historical millimetres remain compatible and are never silently
+relabelled. Explicit measured packed cm uses the existing signed2027-01 native stage;
+normal API remains2026-10. Package assignment/readback is manual/unsupported until a
+safe authenticated contract exists; no fake GIDs or remote-success claim. Current
+six-package remote reconciliation and storefront display remain unverified.
+
+**Superseding decision:** Shopify owns checkout/native basket packing/postage. Newly
+developed mixed packing, simulator, rate tables, callbacks and Orders packing tools
+were removed before release. No shipping profiles/default/scopes/theme or Orders
+Foundation change. See [setup, limitations and acceptance](PACKAGING_AND_SHIPPING.md).
 
 ## M3A.9.5.2 — local read-only Shopify Orders foundation
 

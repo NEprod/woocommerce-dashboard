@@ -41,7 +41,9 @@ def desired(product):
         result["reason"] = "Packed measurement policy unresolved. Explicitly approve reuse of authored product dimensions only when they accurately describe the packed item."
         return result
     try:
-        local = shipping_details(document, product)["dimensions_mm"]
+        # The legacy opt-in refers only to historical millimetres, not the new
+        # independent customer-facing finished measurements.
+        local = document.get('dimensions', {k:getattr(product,k) for k in ('length','width','height')})
         values = {key: Decimal(str(local[key])) for key in ("length", "width", "height")}
         if any(isinstance(local[k], bool) or not v.is_finite() or v <= 0 or v > Decimal("1000000000") for k, v in values.items()):
             raise ValueError()
@@ -64,7 +66,9 @@ def explicit_packed(packaging):
         validate(packaging)
         if not packaging.get('measured'): raise ValueError('Confirm packed measurements before Shopify review.')
         values={k:number(packaging.get('packed_dimensions_cm',{}).get(k),k) for k in AXES}
-        return {'desired':{**{k:float(v) for k,v in values.items()},'unit':'CENTIMETERS'},
+        canonical={k:float(v.quantize(Decimal('0.0000001'))) for k,v in values.items()}
+        if any(v<=0 for v in canonical.values()): raise ValueError('Packed size is below supported measurement precision.')
+        return {'desired':{**canonical,'unit':'CENTIMETERS'},
             'local_mm':{k:str(v*10) for k,v in values.items()},'reason':'','measurement_source':'authored_packed_size'}
     except ValueError as exc:
         return {'desired':None,'local_mm':None,'reason':str(exc),'measurement_source':'authored_packed_size'}

@@ -156,7 +156,7 @@
       </section>
 
       <section class="editor-workspace-section" aria-labelledby="shipping-title">
-        <header><div><h2 id="shipping-title">Shipping & product dimensions</h2><p>Base values inherited by the parent and variations unless a matching modifier replaces them.</p></div></header>
+        <header><div><h2 id="shipping-title">Legacy product measurements</h2><p>Historical millimetres retain their existing interpretation and modifier calculations. Use Finished Product below to explicitly confirm customer-facing size; prepared packed size is independent.</p></div></header>
         <div class="editor-field-grid dimensions-grid">
           {% for key, label, unit in [('weight','Weight','grams; no quantity/location changes')] %}<div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}><div class="guided-field-label"><label for="metadata-{{ key }}">{{ label }}</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override</span></label>{% endif %}</div><input id="metadata-{{ key }}" data-field="{{ key }}"><p class="field-helper">{{ unit }}</p><p class="field-error" data-field-error="{{ key }}" hidden></p></div>{% endfor %}
           {% if not is_shared %}<label class="override-switch section-override"><input type="checkbox" data-override-toggle="dimensions" {% if 'dimensions' in workspace.override.data %}checked{% endif %}><span>Override dimensions</span></label>{% endif %}

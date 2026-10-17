@@ -1,12 +1,10 @@
 # Shopify Orders — M3A.9.5.2
 
-## M3A.9.5.4 — read-only suggested packaging
+## M3A.9.5.4 boundary
 
-Order details can explicitly request local mixed-basket planning, joining exact retained
-store/product/variant GIDs and preserving each historical order/line identity/quantity.
-Current measurements are suggestions, not historical dimensions. Unavailable/uncertain
-mappings block complete plans; no answers/addresses enter packaging evidence. No labels,
-fulfilment or Shopify order writes. See PACKAGING_AND_SHIPPING.md.
+The final solo-packaging scope leaves Orders Foundation unchanged. Cancelled basket
+and fulfilment-time packing tools are not installed. Existing order/line identities,
+historical personalisations, private storage and import scheduler remain intact.
 
 ## Authority, permissions and release gates
 

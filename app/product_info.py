@@ -52,8 +52,9 @@ def load_schema(name):
     schema = _load_json(SCHEMA_ROOT / f"{name}.schema.json")
     schema["properties"]["customisation"] = CUSTOMISATION_SCHEMA
     schema["properties"].update(SHOPIFY_EDITOR_FIELDS)
-    from app.packaging_contract import PACKAGING_SCHEMA
+    from app.packaging_contract import PACKAGING_SCHEMA, FINISHED_SCHEMA
     schema['properties']['packaging'] = PACKAGING_SCHEMA
+    schema['properties']['finished_dimensions'] = FINISHED_SCHEMA
     for key in ('sale_start_date','sale_end_date'):
         schema['properties'][key] = {'type':'string','anyOf':[{'format':'date'},{'format':'date-time'}, {'pattern':r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$'}]}
     schema['properties']['shopify_status'] = {'enum':['DRAFT','ACTIVE','ARCHIVED']}
@@ -145,7 +146,7 @@ def _warnings(data, kind):
     for key in data:
         field = FIELD_BY_KEY.get(key)
         if not field:
-            if key in SHOPIFY_EDITOR_FIELDS or key in {'shopify_status','shopify_channels','packaging'}:
+            if key in SHOPIFY_EDITOR_FIELDS or key in {'shopify_status','shopify_channels','packaging','finished_dimensions'}:
                 continue
             warnings.append(
                 ValidationIssue(

@@ -57,6 +57,11 @@ def contract(snapshot, base):
     product = {"title": base["title"], "descriptionHtml": base["description"]}
     variant = {"price": base["price"], "compareAtPrice": None, "inventoryItem": {"sku": base["sku"]}}
     warnings = ["Metadata publishing preserves existing status/channels; new products start as unpublished Drafts. No inventory quantities, locations or fulfilment configuration will change."]
+    packaging=authored.get('packaging') or {}
+    if 'selected_package_id' in packaging:
+        warnings.append('Solo package selection is optional and retained locally. Shopify package association/readback is not verified; set or clear the package manually in Shopify Admin → Product → Variant → Shipping. Other reviewed fields remain publishable.')
+    if authored.get('finished_dimensions'):
+        warnings.append('Explicit finished size uses product_length/width/height dimension metafields. Theme display requires merchant setup; packed size and package IDs are not customer-facing size.')
     from app.product_defaults import effective
     try:
         policy, _ = effective(authored)

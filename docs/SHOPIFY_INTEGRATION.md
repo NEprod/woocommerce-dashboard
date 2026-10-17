@@ -2,14 +2,17 @@
 
 ## M3A.9.5.4 — packaging capability boundary
 
-Local mixed-basket planning is implemented, not activated checkout rating. Read-only
-Admin confirms Basic, seven packages, 6x6 Envelope default and calculated Tracked24/48.
-No shipping scopes/settings change. A fixed 2026-10 schema probe uses the existing
-transport; no package query/GID is invented. Package/default/assignment writes stay
-blocked without independent readback. Native 2027-01 accepts explicit measured packed
-cm, otherwise retaining legacy opt-in product-size reuse. Basic CarrierService eligibility,
-native Box/default fallback, rates and isolated public infrastructure are separate gates.
-Actual mixed-basket checkout acceptance remains mandatory: PACKAGING_AND_SHIPPING.md.
+The final merchant scope removes new mixed-basket/rate/callback code. Shopify retains
+checkout/native packing/Royal Mail. Six initial local packages have unverified measures,
+no invented remote IDs and no default/profile/permission writes. A read-only2026-10
+schema probe uses the existing transport; package/default/association mutations stay
+blocked without independent public readback. Optional local selection/null does not
+block unrelated product sync; remote assignment or clearing requires manual Admin work.
+Explicit finished sizes use the existing namespace/product_* dimension metafields on
+Product/Variant through normal signed reviews/readback. Historical data remains unchanged
+unless explicitly reviewed. Measured prepared packed cm uses the existing opt-in2027-01
+stage, never inferred from new finished size. Weight/shipping stay2026-10. No theme or
+extension change/live finished-size display is claimed. See PACKAGING_AND_SHIPPING.md.
 
 ## M3A.9.5.2 — read-only Orders foundation and separate scope gate
 

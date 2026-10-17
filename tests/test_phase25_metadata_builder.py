@@ -151,6 +151,7 @@ def test_eligibility_uses_durable_workflow_state(metadata_app):
 def test_supported_inventory_and_collection_types_match_contract():
     assert COLLECTION_TYPES == ("Simple", "Variable Collection", "Single Variable")
     assert SUPPORTED_FIELDS == (
+        "finished_dimensions", "packaging",
         "primary_category", "manage_stock", "backorders", "country_of_origin",
         "requires_shipping", "customisation",
         "storefront_collections", "collection_type", "title", "sku_prefix", "price", "sale_price",

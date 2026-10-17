@@ -1,6 +1,6 @@
 """Fixed read-only 2026-10 packaging capability query (no shipping writes)."""
 CAPABILITY='''query TLCPackagingCapability {
- shop { id plan { displayName } }
+ shop { id }
  queryRoot: __type(name: "QueryRoot") { fields { name } }
  mutations: __type(name: "Mutation") { fields { name } }
  measurement: __type(name: "InventoryItemMeasurement") { fields { name } }

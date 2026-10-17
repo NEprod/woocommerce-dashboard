@@ -22,7 +22,7 @@
     "image_attributes", "variation_attributes", "variation_modifiers", "shipping_class", "grouped_ids",
     "grouped_products", "upsell_ids", "cross_sell_ids", "upsells", "crosssells",
     "meta_title", "meta_description", "vendor", "handle", "shopify_product_type",
-    "country_of_origin", "requires_shipping", "manage_stock", "backorders", "primary_category", "shopify_status", "shopify_channels", "packaging"
+    "country_of_origin", "requires_shipping", "manage_stock", "backorders", "primary_category", "shopify_status", "shopify_channels", "packaging", "finished_dimensions"
   ]);
   let authored = structuredClone(boot.authored || {});
   let originalDocument = structuredClone(boot.authored || {});
@@ -38,6 +38,7 @@
   let channelDraft = {};
   let customisationDesigner = null;
   let packagingDesigner = null;
+  let finishedDesigner = null;
 
   function channelValues() {
     const result = structuredClone(channelDraft);
@@ -154,6 +155,7 @@
     if (field === "variation_modifiers") {
       guided.querySelectorAll("[data-modifiers-editor] input, [data-modifiers-editor] button, [data-add-modifier]").forEach((control) => { control.disabled = !enabled; });
       guided.querySelectorAll('[data-modifier-row]').forEach(row=>row._packagingEditor?.setEnabled(enabled));
+      guided.querySelectorAll('[data-modifier-row]').forEach(row=>row._finishedEditor?.setEnabled(enabled));
     }
     if (field === "dimensions") {
       guided.querySelectorAll("[data-dimension]").forEach((control) => { control.disabled = !enabled; });
@@ -314,6 +316,9 @@
       row.dataset.modifierRow = "";
       row._originalModifier = structuredClone(modifier);
       if (window.TLCPackaging) {
+        const finished = document.createElement('div'); row.appendChild(finished);
+        row._finishedEditor = new window.TLCPackaging.FinishedEditor(finished,{value:modifier.finished_dimensions,
+          shared:authored.finished_dimensions || boot.collection?.finished_dimensions,onChange:()=>setDirty(true)});
         const packaging = document.createElement('div'); row.appendChild(packaging);
         row._packagingEditor = new window.TLCPackaging.Editor(packaging, {value:modifier.packaging,
           shared:window.TLCPackaging.merge(boot.collection?.packaging,authored.packaging),onChange:()=>setDirty(true),
@@ -349,6 +354,7 @@
       const modifier = structuredClone(row._originalModifier || {});
       ['price','sale_price','weight','dimensions'].forEach(k=>delete modifier[k]);
       if (row._packagingEditor) { const packing=row._packagingEditor.get();if(packing)modifier.packaging=packing;else delete modifier.packaging; }
+      if(row._finishedEditor){const value=row._finishedEditor.get();if(value)modifier.finished_dimensions=value;else delete modifier.finished_dimensions;}
       ["price", "sale_price", "weight"].forEach((name) => { if (value(name)) modifier[name] = value(name); });
       const dimensions = {};
       ["length", "width", "height"].forEach((name) => { if (value(name)) dimensions[name] = value(name); });
@@ -360,6 +366,9 @@
 
   function populate(documentValue) {
     authored = structuredClone(documentValue || {});
+    const finishedRoot=guided.querySelector('[data-finished-controls]');
+    if(finishedRoot && window.TLCPackaging)finishedDesigner=new window.TLCPackaging.FinishedEditor(finishedRoot,{
+      value:authored.finished_dimensions,shared:isShared?{}:boot.collection?.finished_dimensions,onChange:()=>setDirty(true)});
     const packingRoot=guided.querySelector('[data-packaging-controls]');
     if(packingRoot && window.TLCPackaging) packagingDesigner=new window.TLCPackaging.Editor(packingRoot,{
       value:authored.packaging,shared:isShared?{}:boot.collection?.packaging,onChange:()=>setDirty(true),
@@ -429,6 +438,7 @@
       if (definition === undefined) delete result.customisation; else result.customisation = definition;
     }
     if(packagingDesigner){const value=packagingDesigner.get();if(value)result.packaging=value;}
+    if(finishedDesigner){const value=finishedDesigner.get();if(value)result.finished_dimensions=value;}
     guided.querySelectorAll("[data-field]").forEach((control) => {
       const field = control.dataset.field;
       if (!overrideEnabled(field)) return;

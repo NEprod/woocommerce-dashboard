@@ -20,12 +20,13 @@ function fixture(){
 const plain=v=>JSON.parse(JSON.stringify(v));
 test('sparse child retains inherited false and measures without copying parent fields',()=>{
   const api=fixture();const own={fragile:false,packed_dimensions_cm:{height:'0.3'}};
-  const editor=new api.Editor(new Node('div'),{value:own,shared:{fragile:true,may_share:true,packed_dimensions_cm:{length:'42',width:'29.7'}}});
+  const editor=new api.Editor(new Node('div'),{value:own,shared:{fragile:true,rollable:true,packed_dimensions_cm:{length:'42',width:'29.7'}}});
   assert.deepEqual(plain(editor.get()),own);
 });
 test('explicit false and package unassignment survive roundtrip',()=>{
-  const api=fixture();const editor=new api.Editor(new Node('div'),{value:{may_share:false,selected_package_id:null}});
-  assert.deepEqual(plain(editor.get()),{may_share:false,selected_package_id:null});
+  const api=fixture();const editor=new api.Editor(new Node('div'),{value:{fragile:false,selected_package_id:null},shared:{selected_package_id:'parent-id'}});
+  assert.deepEqual(plain(editor.get()),{fragile:false,selected_package_id:null});
+  assert.match(editor.assignmentStatus.textContent,/Explicitly no package/);
 });
 test('editing only packed height creates one sparse field, never a price or SKU',()=>{
   const api=fixture();let changes=0;const editor=new api.Editor(new Node('div'),{shared:{packed_dimensions_cm:{length:'42',height:'0.2'}},onChange:()=>changes++});
@@ -34,8 +35,8 @@ test('editing only packed height creates one sparse field, never a price or SKU'
   assert.deepEqual(plain(editor.get()),{packed_dimensions_cm:{height:'0.4'}});
 });
 test('reset field restores inheritance and keeps independent authoring',()=>{
-  const api=fixture();const editor=new api.Editor(new Node('div'),{value:{may_share:false,override_reason:'Retain me'}});
-  editor.controls.find(r=>r.path==='may_share').inherit.value='inherit';
+  const api=fixture();const editor=new api.Editor(new Node('div'),{value:{fragile:false,override_reason:'Retain me'}});
+  editor.controls.find(r=>r.path==='fragile').inherit.value='inherit';
   assert.deepEqual(plain(editor.get()),{override_reason:'Retain me'});
 });
 test('render only requests local choices, not Shopify or product writes',async()=>{
@@ -44,6 +45,18 @@ test('render only requests local choices, not Shopify or product writes',async()
 });
 test('inline creation is isolated and CSRF protected in one shared component',()=>{
   assert.match(script,/document\.body\.append\(dialog\)/);assert.match(script,/'X-CSRFToken':csrf\(\)/);
-  assert.match(script,/data-package-cancel/);assert.match(script,/await onSelect\(saved\)/);
+  assert.match(script,/data-package-cancel/);assert.match(script,/await onSaved\(saved\)/);
+  assert.match(script,/inlinePackage\(async\(\)=>\{await refresh\(\);this.queueRecommendation/);
   assert.doesNotMatch(script,/innerHTML|shopify\.com|orders\/.*fulfill/);
+});
+test('finished dimensions retain units and whole-object inheritance independently',()=>{
+  const api=fixture();const own={length:'6',width:'6',unit:'in',label:'folded'};
+  const editor=new api.FinishedEditor(new Node('div'),{value:own,shared:{length:'42',unit:'cm'}});
+  assert.deepEqual(plain(editor.get()),own);assert.match(editor.summary.textContent,/6 × 6 in/);
+  editor.source.value='inherit';assert.equal(editor.get(),undefined);
+});
+test('no package is a valid default and recommendation has no automatic acceptance',()=>{
+  const api=fixture();const editor=new api.Editor(new Node('div'),{});assert.equal(editor.get(),undefined);
+  assert.match(editor.assignmentStatus.textContent,/No package selected/);
+  assert.doesNotMatch(script,/simulator|shipping\/rates|multi.parcel/);
 });

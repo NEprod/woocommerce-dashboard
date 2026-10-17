@@ -119,13 +119,14 @@ def projection(product):
         shipping = shipping_details(authored, product)
         from app.packaging_contract import effective as packing_effective
         packaging = packing_effective(authored,dict(selection))
-        shipping.update(weight_g=packaging.get('weight_g',v.weight), dimensions_mm=dimensions)
+        from app.packaging_contract import finished_mm
+        shipping.update(weight_g=packaging.get('weight_g',v.weight), dimensions_mm=finished_mm(authored,dict(selection)) or dimensions)
         from app.sale_pricing import variant_sale
         # Scanner identity/regular/measurement checks above stay authoritative.
         # Sale modifiers previously omitted by legacy CSV are read explicitly
         # through the existing modifier selector, not a new combination engine.
         sale = variant_sale(authored, dict(selection), v.sale_price)
-        variant_authored = dict(authored, sale_price=sale)
+        variant_authored = dict(authored, sale_price=sale, packaging=packaging)
         managed, warnings = fields.contract(SimpleNamespace(data={"authored": variant_authored,
             "sale_price": v.sale_price, "shipping": shipping}), {"title": product.title, "description": "",
             "price": fields.number(v.regular_price, "effective variant price", money=True), "sku": v.sku})
@@ -164,6 +165,14 @@ def local_plan(product):
         values = list(dict.fromkeys(next(o["value"] for o in v["options"] if o["name"] == name) for v in variants))
         plan["options"].append({"name": name, "position": len(plan["options"])+1, "values": [{"name": value} for value in values]})
     plan["warnings"].append("Parent SKU is a local grouping identity; existing child SKUs belong to Shopify variants. Tracking/selling policy is explicitly reviewed; quantities and locations remain unmanaged. Remote-only variants are retained.")
+    from app.packaging_contract import effective as packing_effective
+    authored=product_document(product)
+    for variant in variants:
+        selection={o['name']:o['value'] for o in variant['options']}
+        packing=packing_effective(authored,selection)
+        if 'selected_package_id' in packing:
+            assignment='selected locally' if packing['selected_package_id'] else 'explicitly unassigned locally'
+            plan['warnings'].append(f"{variant['sku']}: optional solo package {assignment}. Shopify association/clearing requires manual Admin action until readback is supported; other fields remain publishable.")
     if any(isinstance(v,dict) and "sale_price" in v for v in product_document(product).get("variation_modifiers",{}).values()):
         plan["warnings"].append("Per-variant sale amounts use existing exact/most-specific modifiers. The legacy scanner sale column is unchanged; Review shows the effective Shopify prices.")
     plan["unsupported"] = ["Storefront navigation publishing is deferred", "Customer-facing customisation", "Inventory quantities/locations",

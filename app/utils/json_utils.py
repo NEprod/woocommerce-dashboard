@@ -246,7 +246,7 @@ def apply_variation_modifiers(base_data, variation_attrs, log=print):
     # weight modifier. All historical (including empty) rules keep their exact
     # matching behaviour; only the new non-pricing extension is excluded here.
     modifiers = {key: value for key, value in base_data.get("variation_modifiers", {}).items()
-                 if not (isinstance(value, dict) and set(value) == {"packaging"})}
+                 if not (isinstance(value, dict) and value and set(value) <= {"packaging", "finished_dimensions"})}
     result = {
         "price": base_data.get("price"),
         "sale_price": base_data.get("sale_price"),

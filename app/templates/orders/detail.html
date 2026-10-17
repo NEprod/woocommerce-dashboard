@@ -10,7 +10,6 @@
 </dl><p class="field-helper">Current commerce snapshot, not proof of production readiness. No fulfilment, payment or order-edit actions are available here.</p></section>
 <div class="order-columns"><section class="app-card"><h2>Customer</h2><p>{{ order.customer_name or 'Not available' }}</p><p>{{ order.email or '' }}</p><p>{{ order.phone or '' }}</p>{% if order.redacted_at %}<p>Personal data redacted locally at {{ order.redacted_at|order_uk_time }}.</p>{% endif %}</section>
 <section class="app-card"><h2>Delivery</h2>{% if address %}<address>{% for key in ['name','company','address1','address2','city','province','zip','country','phone'] %}{% if address.get(key) %}{{ address[key] }}<br>{% endif %}{% endfor %}</address>{% else %}<p>Not available or not required.</p>{% endif %}<h3>Shipping service</h3>{% for service in shipping %}<p>{{ service.title }}{% if service.code %} · {{ service.code }}{% endif %}</p>{% else %}<p>No shipping service supplied.</p>{% endfor %}</section></div>
-<section class="app-card"><h2>Suggested packaging</h2><p>Read-only local analysis using current measurements and exact retained product/variant identities. Not a fulfilment action, purchased label or historical measurement assertion.</p><button type="button" class="btn btn-outline-primary" data-order-packing="{{ url_for('packaging.order_suggestion',order_id=order.id) }}">Calculate suggested packaging</button><div data-order-packing-output role="status"></div></section>
 <h2>Purchased line items</h2><p>Each item retains its own purchase-time answers, even when SKUs or variants are identical.</p>
 {% for item in lines %}{% set line=item.row %}{% set personal=item.personalisation %}<article class="app-card order-line" id="line-{{ line.id }}"><header><h3>{{ line.title }}</h3><p><code>{{ line.sku or 'No SKU supplied' }}</code>{% if line.variant_title %} · {{ line.variant_title }}{% endif %} · Quantity {{ line.quantity }}{% if not line.is_current %} · <strong>Historical removed line</strong>{% endif %}</p></header>
 <p>Current quantity {{ line.current_quantity }} · Outstanding {{ line.unfulfilled_quantity }} · Refundable {{ line.refundable_quantity }}</p>
@@ -23,4 +22,3 @@
 </article>{% endfor %}
 <details class="app-card"><summary>Source identity and full saved monetary amounts</summary><p>{{ order.store_id }} · {{ order.remote_id }} · API {{ order.api_version }}</p><pre>{{ money|tojson(indent=2) }}</pre></details>
 {% endblock %}
-{% block javascripts %}<script src="{{ url_for('static',filename='assets/js/packaging.js') }}"></script>{% endblock %}
