@@ -1,5 +1,13 @@
 # M3A.9 Product Creator & Editor contract
 
+## Shipping Packages follow-up — central manual IDs
+
+Package choices still use stable local UUIDs, inheritance and explicit null. Settings
+owns manually entered Shopify IDs; products never repeat them. Linked choices can be
+approved in normal Review for2026-10 InventoryItem assignment, recording acceptance
+only, not unavailable readback. No price/weight or finished/packed dimension calculation
+changes. See [SHIPPING_PACKAGES.md](SHIPPING_PACKAGES.md).
+
 ## M3A.9.5.6 — original finished dimensions, independently authored packing
 
 Original `dimensions` and its existing modifiers remain finished millimetres, not

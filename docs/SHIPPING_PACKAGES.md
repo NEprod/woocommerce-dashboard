@@ -1,156 +1,158 @@
-# Shipping Packages — mini manager and safe reconciliation
+# Shipping Packages — manual IDs and reviewed product assignments
 
-This follow-up to M3A.9.5.7 reuses `/packaging/`, the existing three packaging tables
-and stable local UUIDs. Open **Settings → Shipping Packages** (also in the sidebar).
-No migration is added: the head remains `0018_orders_webhooks`. No product JSON,
-dimensions, price/weight modifiers, recommendations, Orders, checkout, Royal Mail,
-default package, app configuration or permissions are changed.
+This is the merchant-approved reduced scope following M3A.9.5.7. The intermediate
+catalogue-reconciliation screens/handlers were removed before publication. Existing
+package records, links and historical evidence are preserved. No new database
+migration: head remains `0018_orders_webhooks`.
 
-## What is implemented
+## Local settings
 
-* Search/sort and compact desktop/mobile package listing, physical readiness,
-  Shopify relationship state, last successful verification, Edit and Sync Preview.
-* Add/Edit/Save Locally, including incomplete records, unit selection (`mm/cm/in`,
-  `g/kg/oz/lb`), independent optional usable space and existing local fit rules.
-  Values are normalised using Decimal to cm/g; unknowns remain unknown. Tubes retain
-  their separate length/diameter/end-cap geometry. Existing inline Add is reused.
-* Explicit read-only schema/scope refresh using the normal2026-10 transport. Page
-  rendering itself makes no Shopify call. Evidence is bound to the current store
-  configuration; a stale/different-store record cannot supply an Admin link.
-* Merchant-assisted comparison of 1–50 observations copied from Shopify Admin.
-  Normalised names only suggest candidates. Retained store/GID matches take priority;
-  names alone never link records. Type, converted dimensions and tare are compared.
-* Per-package Import Shopify → TLC, manual TLC → Shopify checklist, Keep Local/record
-  relationship or Skip. A bulk direction helper applies only to unambiguous complete
-  compatible candidates; every selected row still has an individual signed preview.
-* Explicit confirmation, 15-minute signed reviews, package-version/store/relationship
-  conflict checks, atomic local batches and durable idempotent completion receipts.
-  Missing observed values do not clear known local values. Changed imported outside
-  size/tare resets the corresponding physical-measurement flag visibly in Preview.
-  Usable interiors, C5+ thickness cap and all TLC-only rules survive imports.
-* Optional retention of a real merchant-provided `ShippingPackage` GID against the
-  verified store, without changing the local UUID. Blank GID is allowed: import data
-  without creating a relationship. Never invent a GID. Unique constraints prevent
-  duplicate links. Manual observations are explicitly **not API verification**.
-* Individual/Sync All Preview probes capability, reports each unlinked/blocked package
-  as skipped and supplies manual setup values. It is not a destructive merge and
-  never claims that a manual checklist has remotely synchronised a package.
+Open **Settings → Shipping Packages**, reusing `/packaging/`. The six existing TLC
+packages retain their UUIDs, merchant edits, unknown measurements, tube geometry,
+verification flags and C5+3mm contents restriction. No reseeding/duplicates. Exterior
+size never becomes usable interior. Unknown tare/thickness is not zero.
 
-## API findings and hard boundary
+Add/Edit/Save Locally supports mm/cm/in and g/kg/oz/lb and all existing fitting rules.
+Product Editor and Catalogue Intake/JSON Creator still share this catalogue, stable
+local IDs, inheritance, per-size/variant choices, advisory recommendations, explicit
+no-package state and draft-safe inline Add. No automatic product assignment occurs
+when creating a package or entering its Shopify ID.
 
-Official reference checked on17 October2026 for Admin GraphQL2026-10:
+On Edit, use the separate **Shopify Package ID** form. It accepts the actual complete
+`gid://shopify/…Package/<positive numeric ID>` copied from the merchant's Shopify
+Admin, preserving its package object name verbatim. Format validation is not identity
+verification. Raw numbers, names, unrelated object IDs, query strings and fabricated
+IDs are rejected. Shopify's public docs specify an ID scalar, not a queryable package
+type; if the actual supplied ID uses another format, inspect that evidence rather
+than manufacturing or converting an identifier.
 
-| Operation/field | Verified evidence and release behaviour |
-| --- | --- |
-| `shippingPackageUpdate(id:, shippingPackage:)` | Documented. Payload exposes `userErrors`, not the updated package. **Not registered as a writable operation here.** |
-| `CustomShippingPackageInput` | Name, type, outside dimensions and empty weight have documented equivalents. The additional `default` field is outside scope and is never sent. Its defaultfalse makes independent default-state readback especially important. |
-| `ShippingPackageType` | `BOX`, `ENVELOPE`, `SOFT_PACK`, `FLAT_RATE`; no native tube mapping. Carrier-specific flat-rate geometry is not imported as an ordinary local box. |
-| List/read saved packages | No public supported listing/individual readback contract was established from QueryRoot/Shop reference. Runtime probe reports actual installed schema flags; no guessed query is sent. |
-| Create package | No supported create operation was established. Create in Shopify Admin, then reconcile. |
-| Product/inventory association | Separate, still unverified; no product selection or association is changed by catalogue reconciliation. |
+IDs are retained in the existing PackageLink table and scoped to the configured shop
+domain/retained store identity. Duplicate IDs on different local packages, conflicting
+old links and stale edits are refused. Renames preserve the link. Changing/unlinking
+archives the previous relationship evidence. Unlink requires explicit confirmation;
+it removes only the local relationship, not the package or any remote assignment.
+Unsaved package measurements remain in the form when an ID is saved.
 
-References: [update mutation](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/shippingPackageUpdate),
-[input](https://shopify.dev/docs/api/admin-graphql/2026-10/input-objects/CustomShippingPackageInput),
-[types](https://shopify.dev/docs/api/admin-graphql/2026-10/enums/ShippingPackageType),
-[queries](https://shopify.dev/docs/api/admin-graphql/2026-10/objects/QueryRoot),
-[Shop](https://shopify.dev/docs/api/admin-graphql/2026-10/objects/Shop).
+There is **no Sync All, automatic discovery, package import/update/create queue or
+bidirectional reconciliation**. No package catalogue mutation is registered. The
+old read-only schema probe can remain an administrative diagnostic; it is not needed
+to enter IDs or assign a package and does not discover saved packages.
 
-**Authenticated saved-package discovery was not verified in development:** merchant
-Admin API credentials were unavailable. CLI app authentication is not a store token.
-This is not proof that every store lacks these fields. If the installed schema exposes
-more functionality, inspect its exact arguments, identity and default/readback contract
-before implementing another adapter. The present release deliberately enables no
-remote package writes, even if an update mutation appears in introspection.
+## One-time merchant-assisted ID collection
 
-The update reference requires “Any of shipping access scopes or
-manage_delivery_settings user permission.” This is not evidence that both
-`read_shipping` and `write_shipping` must be added. The probe reports which of those
-names are absent, not an automatic permission request. No app candidate is staged:
-extra scopes alone would not establish safe readback. Any later permission change
-needs a separately approved exact diff and staged app version.
+1. In your own authenticated Shopify Admin on a desktop browser, open Settings →
+   Shipping and delivery → Packages.
+2. Use the browser's developer tools Network panel while opening an existing package.
+   Inspect the responses the Shopify Admin UI itself has already requested. Match
+   the actual package name, type and measurements and copy its complete package GID.
+   Do not run/replay undocumented Admin requests from TLCDashboard or a console script.
+3. If a URL exposes only a number, do not construct a GID from it. Obtain the real
+   complete ID from the UI's existing data or ask Shopify support. Do not guess.
+4. Enter each ID against its existing TLC record. Never share a HAR, cookies, tokens,
+   headers or unrelated customer data. A selected format-valid ID is labelled
+   **Entered manually — not remotely verified**.
 
-On Unraid's existing container console, run the small read-only probe if needed:
+The six actual merchant IDs were **not obtained or validated live during development**.
+This collection is a separate merchant-assisted step, not an automatic capability.
 
-```sh
-python -m app.packages_probe
+## Supported reviewed assignment
+
+Official2026-10 references confirm:
+[InventoryItemMeasurementInput.shippingPackageId](https://shopify.dev/docs/api/admin-graphql/2026-10/input-objects/InventoryItemMeasurementInput)
+and [inventoryItemUpdate](https://shopify.dev/docs/api/admin-graphql/2026-10/mutations/inventoryItemUpdate).
+The mutation requires `write_inventory` and inventory-item update permission. Existing
+read_products/read_inventory support retained identity reads. No new scope or app
+version is requested/released. Actual token/user permission remains a live acceptance
+check, not a fixture result.
+
+Normal **Save Locally → Product Review & Sync → signed approval** resolves the selected
+local UUID centrally to its store-bound Shopify ID, retained variant and InventoryItem.
+A package-only change is actionable without an unrelated product/price/weight write.
+The stage sends only:
+
+```graphql
+mutation TLCPackageAssignment($id: ID!, $input: InventoryItemInput!) {
+  inventoryItemUpdate(id: $id, input: $input) {
+    inventoryItem { id }
+    userErrors { field message }
+  }
+}
 ```
 
-It prints schema field names/flags, granted scopes, store identity and request counts,
-not credentials or package/customer values. It does not initialise the app, run
-migrations, write SQLite, change Shopify or send Discord. Alternatively use **Refresh
-Shopify capabilities** on the page; this stores only local capability evidence. A
-Shipping and delivery link is shown only after validating the returned merchant shop
-domain. Otherwise navigate in Shopify Admin → Settings → Shipping and delivery.
+Variables contain only `id` = the retained InventoryItem GID and
+`input.measurement.shippingPackageId` = the merchant-entered package GID. They contain
+no weight, SKU, packed dimensions, package exterior, default or price field.
+This2026-10 write is independent of the deliberate native packed-dimensions2027-01
+opt-in. Finished-size metafields, packed dimensions and existing modifiers/calculations
+are unchanged.
 
-## Six packages and meanings
+Before each mutation, the existing operation ledger and identity evidence durably
+record pending intent (visible from a separate database connection). Scope/source/
+mapping changes invalidate signed reviews. Successful acknowledgements retain variant,
+InventoryItem, local package, Shopify package, source revision, operation and timestamp.
+Both active identity evidence and per-operation history retain the result. An unchanged
+accepted target is not resent after later edits, refreshes, restart or receipt polling.
 
-Existing merchant edits, UUIDs and links are never replaced with reference values.
-No startup reseed or duplicate records are introduced.
+No selected package/ID or missing write_inventory does not prevent other supported
+product updates. It produces a specific package warning. Changing the linked ID or
+selected package produces a fresh signed assignment proposal. Explicit no-package
+overrides stay explicit: nullable ID input alone does not document clearing semantics,
+so no automatic null/clearing mutation is sent. Clear in Shopify Admin deliberately;
+local unlink/no-package is never reported as remote removal.
 
-| Initial package | Reference exterior only; not usable-space evidence |
-| --- | --- |
-| TLC C5+ Board Back Envelope | 24×16.5cm, unknown package thickness; local contents cap3mm |
-| TLC Large Letter Box | 35.3×25×2.5cm, pending physical verification |
-| TLC Small Parcel Box | 45×35×16cm, pending physical verification |
-| TLC Medium Parcel Box | 61×46×46cm, pending physical verification |
-| TLC A4 Poster Tube | Advertised length24cm/diameter5cm, pending physical verification |
-| TLC A3 Poster Tube | Measurements pending |
+## Honest outcomes and recovery
 
-External dimensions never become internal dimensions automatically. Unknown tare or
-thickness is not zero. Measurement readiness and Shopify relationship state are
-separate: a linked package can still be unsafe for recommendations. Local package
-UUIDs remain the product references, so renaming/linking does not rewrite selections.
+[InventoryItemMeasurement output](https://shopify.dev/docs/api/admin-graphql/2026-10/objects/InventoryItemMeasurement)
+does not expose the assigned shippingPackageId. Therefore:
 
-## Daily workflow and status
+* A complete response with matching InventoryItem ID and empty userErrors records
+  **Shopify accepted — not independently verified**.
+* Required package evidence cannot establish unqualified Up to Date. Review shows
+  accepted-only evidence; otherwise matching product metadata can show Verification
+  Unavailable with this limitation explained.
+* The overall operation is partial when a new assignment has acceptance-only evidence.
+  Progress/history explain this, and Discord must not claim full verified success.
+* Authoritative userErrors/authentication rejection records rejected, not success.
+* Lost/partial/GraphQL/transport acknowledgements conservatively retain uncertainty.
+  The identity becomes Recovery Required. No blind retry, readback-based invented
+  verification, new Create or deletion is allowed. A normal read-only reconciliation
+  cannot resolve a field Shopify does not return.
+* A crash after committed pending intent similarly protects the receipt. Inspect the
+  exact variant/package in Shopify Admin. This release has no automated override of
+  uncertain package evidence; administrator-assisted resolution needs separate review.
 
-1. Edit a package and Save Locally; this never writes Shopify.
-2. If a retained relationship exists, native-equivalent changes become **Local changes
-   pending**. TLC-only rule changes do not create a permanent remote pending state.
-3. Use Sync Preview/Sync All Preview. Without verified readback, follow its manual
-   Shopify checklist; the result is skipped/manual action, not success.
-4. In Shopify Admin create/edit the package deliberately, preserving the store default.
-5. Reconcile: copy observed name/type/outside size/tare, compare, explicitly choose the
-   existing local package and direction, inspect Preview and confirm local actions.
-6. Import updates only supported known values; Keep Local leaves them untouched.
-   Recording a relationship requires an actual GID and current verified store evidence.
+No live Shopify mutations, checkout rate verification, theme change or app release
+was performed during development. No claim is made that manual IDs or a fixture
+acknowledgement proves a particular checkout package or price.
 
-Manual evidence can show **Shopify changes detected** or **Conflict — review needed**;
-these describe the retained observation, not an autonomous fresh remote read. Otherwise
-the related record shows **Shopify API unavailable**, **Not linked**, and/or
-**Measurements incomplete**. No manual relationship displays **Linked and in sync** or
-a successful API verification timestamp. Uncertain historical evidence is preserved
-for explicit review, not silently overwritten.
+## Release and one-card Unraid acceptance
 
-## Verification and safe Unraid acceptance
+1. Back up existing appdata/SQLite consistently. Update only the image to the published
+   immutable `shopify-package-assignments-<shortcommit>` tag (or verified develop).
+   Keep existing mounts, environment and credentials. No XML/new mount/migration.
+2. Confirm the six package IDs/measurements/rules and existing product choices survived.
+   Enter the real card-mailer Shopify ID through its package Edit page.
+3. Open a single-card product. Preserve finished and independent packed dimensions,
+   price/weight/modifiers and SKU. Select that local mailer explicitly, Save Locally,
+   wait for normal scanner projection, then open Product Review & Sync.
+4. Confirm the displayed SKU, retained variant/InventoryItem GID and Shopify package ID.
+   Inspect all other proposed fields; do not approve unexpected changes. Approve only
+   after checking the actual package in Shopify Admin.
+5. Expect an acceptance-only receipt, not independent assignment verification. Build
+   Preview again: no repeated assignment write. Check another size/variant separately.
+6. On a controlled storefront test, add exactly one eligible card, choose the same
+   destination/service, and compare Shopify's offered rate/package behaviour while
+   retaining the parcel default. Do not hard-code/assume£2.29,£2.95 or a66p saving.
+   Stop before payment; no order or shipping-setting edit is required.
+7. Restart Unraid: local IDs, product choices and acceptance receipts persist. Inspect
+   Orders/customisations normally. Missing API access must not erase local history.
+8. For rollback select the prior tested immutable Dashboard image with the same
+   database/mounts. Previously accepted Shopify assignments do not automatically undo;
+   review any remote reversal in Shopify Admin. Retain backups and operation evidence.
 
-Focused Python:70 cases (24 new manager +46 existing packaging); bounded publishing,
-dimension, editor, Orders/webhooks, sales and startup regression:260 cases. JavaScript:
-21 cases including unit controls and existing draft-safe inline packaging. Synthetic
-browser checks cover CSRF-enabled add/reopen, manual compare/import confirmation,
-Sync All skip results, desktop/mobile layouts without horizontal overflow. Offline
-Docker smoke uses isolated mounts/networknone, upgrades0017→0018, two non-root web
-workers and restart, retaining six UUIDs, manual links, receipts, separate order-line
-personalisations and independent finished/packed measurements. No live Shopify writes
-or Discord test messages; no claim of actual merchant-package reconciliation.
-
-1. Back up the existing Unraid appdata/SQLite with the container stopped, or use a
-   consistent SQLite backup. Keep all current mounts, credentials and environment.
-2. Select the published immutable `shopify-packages-manager-<commit>` image (or pull
-   develop after checking its revision). Do not add a new mount or change XML paths.
-3. Open Settings → Shipping Packages: confirm the existing six records/merchant edits,
-   unknowns and C5+3mm rule. Inspect existing product choices without changing them.
-4. Refresh capabilities/run the probe; report its safe output if discovery is blocked.
-   Do not add scopes or assume that a successful Connection test verifies packages.
-5. Try a local-only note/measurement change, Save Locally, reopen and verify the same
-   UUID. Do not mark physically unmeasured geometry measured merely to pass a check.
-6. Copy one real Shopify package observation into Reconcile. Inspect the candidate,
-   select the intended existing local record, Preview, then explicitly confirm only
-   the desired local import/relationship. Check that usable space/rules survive.
-7. Sync All must show honest skipped/manual results, not a fake remote success. Follow
-   manual Shopify actions only after your own review; leave the store default intact.
-8. Restart Unraid: six records, UUIDs, links/receipts and product choices remain. Verify
-   Orders and existing Product Review still open. No checkout test/rate change is needed.
-
-Rollback uses the prior tested immutable image with the existing database: this release
-adds no schema migration. Keep appdata backups; do not delete retained relationships
-or review evidence to roll back the UI.
+Tests use synthetic data, mocked Shopify and isolated offline Docker mounts. They
+cover both Variable layouts, durable intent/acknowledgement, idempotence, errors,
+manual ID validation/duplicates/rename/unlink, existing recommendations, Orders,
+customisations, sales and dimensions. Docker checks upgrade0017→0018, two non-root
+web workers, restart persistence and independent order personalisations. No live
+postage calculation is claimed or implemented.

@@ -1,5 +1,12 @@
 # Packaging & Shipping — M3A.9.5.4 (final reduced scope)
 
+**Current reduced manager scope:** automatic catalogue reconciliation/sync was removed.
+Settings keeps the six local records and manually entered Shopify Package IDs. The
+normal reviewed product publisher can submit2026-10 InventoryItem assignments and
+record acceptance only; independent readback/automatic clearing remains unavailable.
+No default/rate/checkout change. [SHIPPING_PACKAGES.md](SHIPPING_PACKAGES.md) supersedes
+the intermediate reconciliation description immediately below.
+
 **Current package catalogue administration:** Settings → Shipping Packages reuses
 these records and forms, with unit controls and signed merchant-assisted reconciliation.
 Remote listing/readback has not been verified; Sync Preview is manual/skipped, not

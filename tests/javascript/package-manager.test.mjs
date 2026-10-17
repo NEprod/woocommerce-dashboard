@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 const script=fs.readFileSync(new URL('../../app/static/assets/js/packaging.js',import.meta.url),'utf8');
-const reconcile=fs.readFileSync(new URL('../../app/static/assets/js/package-reconciliation.js',import.meta.url),'utf8');
 function formFixture(){
   const input=(name,value='',type='number')=>({name,value,type,tagName:'INPUT',dataset:{},events:{},addEventListener(event,run){this.events[event]=run;}});
   const size=input('dimension_unit','cm');size.tagName='SELECT';size.dataset.packageUnit='length';
@@ -28,15 +27,12 @@ test('unit conversions retain unknown values and support reverse display',()=>{
   const f=formFixture();f.get('internal_cm.length').value='';f.size.value='mm';f.size.events.change();f.size.value='cm';f.size.events.change();
   assert.equal(f.get('external_cm.length').value,'18');assert.equal(f.get('internal_cm.length').value,'');
 });
-test('reconciliation never inserts untrusted HTML or requests product/shipping mutations',()=>{
-  assert.doesNotMatch(reconcile,/innerHTML|productUpdate|shippingPackageUpdate|carrierService|localStorage/);
-  assert.match(reconcile,/textContent/);assert.match(reconcile,/retain_link/);assert.match(reconcile,/approve:true/);
-  assert.match(reconcile,/unambiguous/);assert.match(reconcile,/candidate\.identity_match\|\|candidate\.compatible/);
-  assert.match(reconcile,/token=null;review.hidden=true/);assert.match(reconcile,/checked.disabled=!record.remote.id/);
+test('manual IDs are central local changes only, not catalogue sync',()=>{
+  assert.match(script,/data-package-id-form/);assert.match(script,/expected:retained.expected/);
+  assert.match(script,/data-confirm-unlink/);assert.match(script,/Remote assignments are not cleared/);
+  assert.doesNotMatch(script,/shippingPackageUpdate|carrierService|\/reconcile\/confirm|innerHTML/);
 });
-test('only explicit local confirmation submits a signed review; read/compare never confirms',()=>{
-  assert.match(reconcile,/api\('\/packaging\/reconcile\/compare'/);
-  assert.match(reconcile,/api\('\/packaging\/reconcile\/preview'/);
-  assert.match(reconcile,/api\('\/packaging\/reconcile\/confirm',\{token,approve:true\}/);
-  assert.match(reconcile,/event.currentTarget.disabled=true/);
+test('product editor still stores local IDs and explicit no-package state',()=>{
+  assert.match(script,/selected_package_id/);assert.match(script,/this\.queueRecommendation/);
+  assert.match(script,/data-package-cancel/);assert.doesNotMatch(script,/shippingPackageId/);
 });

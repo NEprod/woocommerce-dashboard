@@ -9,7 +9,6 @@ smoke=previous.smoke
 smoke.IMPORT+='''
 from app.packaging_models import Package,PackageLink,PackagingEvidence
 from app import packaging_catalogue as catalogue
-from app.package_reconciliation import native
 with app.app_context():
  package=Package.query.filter_by(seed_key='c5-plus').one()
  spec=catalogue.view(package)
@@ -17,9 +16,17 @@ with app.app_context():
  assert all(v is None for v in spec['internal_cm'].values())
  db.session.add(PackageLink(package_id=package.id,store_id=payload['store'],
   remote_id='gid://shopify/ShippingPackage/123',checked_at=orders.now(),
-  observed=json.dumps({'source':'merchant','api_verified':False,'values':{},'local_baseline':native(catalogue.view(package))})))
+  observed=json.dumps({'source':'manual_id','api_verified':False})))
  db.session.add(PackagingEvidence(key='package-review:offline-smoke',checked_at=orders.now(),
   value=json.dumps({'state':'completed','remote_writes':0,'source':'synthetic-only'})))
+ from app.models import Product,ShopifyProductIdentity
+ product=Product(title='Fictional persisted package receipt',sku='SMOKE-PACKAGE-1',product_type='simple',source_relpath='Fictional/Smoke')
+ db.session.add(product);db.session.flush()
+ db.session.add(ShopifyProductIdentity(product_id=product.id,sku=product.sku,source_identity=product.source_relpath,
+  store_key='b'*64,store_id=payload['store'],store_domain='fictional.myshopify.com',reviewed_digest='c'*64,
+  state='verified',verification_state='verified',media_evidence_json=json.dumps({'version':1,'plan':{},
+   'package_assignments':{'product':{'state':'accepted','inventory_id':'gid://shopify/InventoryItem/250',
+    'shipping_package_id':'gid://shopify/ShippingPackage/123','independently_verified':False}}})))
  db.session.commit()
 '''
 smoke.CHECK+='''
@@ -34,7 +41,10 @@ with sqlite3.connect('/app/instance/site.db') as connection:
  assert json.loads(link[2])['api_verified'] is False
  receipt=connection.execute("select value from packaging_evidence where key='package-review:offline-smoke'").fetchone()
  assert json.loads(receipt[0])['state']=='completed' and json.loads(receipt[0])['remote_writes']==0
-for path in ['/settings','/packaging/','/packaging/reconcile','/packaging/'+c5[0]+'/edit']:
+ proof=json.loads(connection.execute('select media_evidence_json from shopify_product_identity').fetchone()[0])['package_assignments']['product']
+ assert proof['state']=='accepted' and proof['independently_verified'] is False
+ assert proof['shipping_package_id']==link[1]
+for path in ['/settings','/packaging/','/packaging/'+c5[0]+'/edit']:
  response=opener.open('http://127.0.0.1:7485'+path,timeout=5)
  assert response.status==200 and 'built-in method' not in response.read().decode()
 print(json.dumps({'package_ids_stable':True,'packages':6,'manual_links_not_api_verified':True,'review_receipt_retained':True,'orders_and_dimensions_preserved':True}))

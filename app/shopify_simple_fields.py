@@ -59,7 +59,7 @@ def contract(snapshot, base):
     warnings = ["Metadata publishing preserves existing status/channels; new products start as unpublished Drafts. No inventory quantities, locations or fulfilment configuration will change."]
     packaging=authored.get('packaging') or {}
     if 'selected_package_id' in packaging:
-        warnings.append('Solo package selection is optional and retained locally. Shopify package association/readback is not verified; inspect available manual controls in Shopify Admin. No remote assignment or clearing is claimed. Other reviewed fields remain publishable.')
+        warnings.append('Solo package selection is optional. A linked real ID can be submitted in the reviewed2026-10 InventoryItem stage; acceptance is not readback verification. Unlinked choices and clearing require available manual controls in Shopify Admin. Other reviewed fields remain publishable.')
     if authored.get('finished_dimensions'):
         warnings.append('Explicit finished size uses product_length/width/height dimension metafields. Theme display requires merchant setup; packed size and package IDs are not customer-facing size.')
     from app.product_defaults import effective

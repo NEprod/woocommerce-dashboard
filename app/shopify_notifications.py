@@ -79,6 +79,8 @@ def product_result(operation):
         "completed_at": operation.finished_at.isoformat() + "Z",
         "deferred": [str(v)[:300] for v in plan.get("blockers", [])[:5]],
         "reason": operation.error or data.get("error")}
+    if data.get('package_assignments'):
+        result['deferred'].append('Saved-package assignment evidence is acceptance-only, not independent readback; inspect the product receipt.')
     from app.shopify_publication import complete as publication_complete
     publication=plan.get('publication') or {}
     if not publication_complete(data):

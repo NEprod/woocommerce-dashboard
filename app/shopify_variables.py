@@ -166,7 +166,7 @@ def local_plan(product):
         packing=packing_effective(authored,selection)
         if 'selected_package_id' in packing:
             assignment='selected locally' if packing['selected_package_id'] else 'explicitly unassigned locally'
-            plan['warnings'].append(f"{variant['sku']}: optional solo package {assignment}. Shopify association/clearing requires manual Admin action until readback is supported; other fields remain publishable.")
+            plan['warnings'].append(f"{variant['sku']}: optional solo package {assignment}. Linked IDs can be submitted for reviewed acceptance, not independent readback. Clearing/unlinked choices need manual Admin action; other fields remain publishable.")
     if any(isinstance(v,dict) and "sale_price" in v for v in product_document(product).get("variation_modifiers",{}).values()):
         plan["warnings"].append("Per-variant sale amounts use existing exact/most-specific modifiers. The legacy scanner sale column is unchanged; Review shows the effective Shopify prices.")
     plan["unsupported"] = ["Storefront navigation publishing is deferred", "Customer-facing customisation", "Inventory quantities/locations",
@@ -418,7 +418,7 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
         from app.shopify_dimension_metadata import attach as attach_dimensions
         attach_dimensions(plan, config, shop, adapter)
         from app.shopify_optional_packages import attach as attach_packages
-        attach_packages(product, plan, row if remote_id else None)
+        attach_packages(product, plan, row if remote_id else None, config, shop)
         native_review(plan,row if remote_id else None,data,config,shop,adapter)
     plan["classification"] = "create" if not remote_id else "update" if any(f["changed"] for f in plan["fields"]) or any(c["action"] in {"Join","Create & Join"} for c in plan["collections"]) else "no_change"
     if scope == "inventory":
@@ -440,9 +440,11 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
             if not isinstance(matches,dict) or not isinstance(matches.get("nodes"),list) or matches.get("pageInfo",{}).get("hasNextPage") is not False or matches["nodes"]:
                 plan["blockers"].append("New variant SKU candidate already exists or discovery is incomplete; resolve before creation.")
     from app.shopify_publication import review_binding
+    from app.shopify_package_assignments import binding as package_binding
     plan["taxonomy_review_digest"] = drafts.digest({"collections":plan["collections"],"standard":standard,"attributes":plan["attribute_review_digest"],
         "customisations":plan.get('customisations'),
         "finished_dimensions":plan.get('dimension_metadata'),
+        "package_assignments":package_binding(plan),
         "native":{k:v for k,v in plan["native"].items() if k!="checked_at"},
         "publication":review_binding(plan.get('publication') or {})})
     # Leave room for durable media/maps/native receipts BEFORE any remote write.
@@ -562,6 +564,8 @@ def _native_apply(row,data,config,adapter,operation_id):
 
 
 def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attribute_review=False):
+    from app.shopify_package_assignments import guard as package_guard
+    package_guard(data)
     plan = data["plan"]
     remote = adapter.read_variable(config,row.shopify_product_id,plan["managed"]["namespace"])
     from app.shopify_publication import expected_status
@@ -832,15 +836,20 @@ def confirm(reviewed, adapter=None):
             if summary:
                 value=json.loads(summary.summary_json); value.update(identity=drafts.digest(row.media_evidence_json),native=plan["native"])
                 store_summary(summary,value)
+        from app.shopify_package_assignments import apply as apply_packages
+        package_state=apply_packages(row,adapter,lease.id)
         from app.shopify_publication import complete as publication_complete
-        finish_catalogue_operation(lease.id,status="succeeded" if row.state=="verified" and native_state in {"disabled","verified"} and publication_complete(data) else "partial",
+        finish_catalogue_operation(lease.id,status="succeeded" if row.state=="verified" and native_state in {"disabled","verified"} and package_state=='none' and publication_complete(data) else "partial",
             recovery_state="review_required" if row.state=="uncertain" else "none",
             products_attempted=1,products_succeeded=int(row.state=="verified"),
-            operation_summary={"identity_id":row.id,"mode":"variable","stage":data["stage"],"variants":len(plan["variants"]),"native_dimensions":native_state})
+            operation_summary={"identity_id":row.id,"mode":"variable","stage":drafts.evidence(row)['stage'],"variants":len(plan["variants"]),"native_dimensions":native_state,'package_assignment':package_state})
         return row
     except Exception as exc:
         db.session.rollback()
         if row and data:
+            from app.shopify_package_assignments import attempted as package_attempted
+            retained=drafts.evidence(row)
+            if package_attempted(retained,lease.id):data=retained;attempted=True
             if not attempted and creating is False and previous:
                 row.operation_id,row.reviewed_digest,row.verification_state=previous["operation_id"],previous["reviewed_digest"],"verified"
                 drafts.save(row,previous["data"],"verified")

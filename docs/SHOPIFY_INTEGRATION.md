@@ -1,5 +1,18 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## Superseding package-assignment policy
+
+Manual IDs replace catalogue discovery/reconciliation/sync. Existing local package
+UUIDs resolve centrally to store-bound IDs. Signed Product Review includes independent
+2026-10 inventoryItemUpdate measurement.shippingPackageId writes, requiring existing
+write_inventory and merchant update permission. Payload contains no weight, packed
+size or default. Public output lacks assignment readback: durable acknowledgement is
+accepted-only, not independently verified; identical accepted assignments are not
+resent. Transport uncertainty blocks recovery/replay; nullable input does not justify
+automatic clearing. Other supported fields can complete when package IDs are absent.
+No scope/app/theme/checkout change or migration. [SHIPPING_PACKAGES.md](SHIPPING_PACKAGES.md)
+supersedes historical statements below that all package writes remain unsupported.
+
 ## Shipping Packages catalogue reconciliation
 
 The normal2026-10 read-only schema probe now reports package root/type/input/payload

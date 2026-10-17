@@ -1,5 +1,16 @@
 # Roadmap
 
+## Accept manual package IDs and reviewed product assignments
+
+Merchant reduced scope: retain local packages/recommendations; no automatic package
+catalogue discovery/import/sync. Collect the six real IDs separately from the merchant's
+Shopify Admin, enter centrally, then accept one reviewed card InventoryItem assignment.
+Distinguish mutation acceptance from unavailable readback; preserve uncertain receipts.
+Perform the controlled one-card checkout comparison with Shopify's parcel default
+unchanged. No postage engine, new scope/app release or migration. Current acceptance:
+[SHIPPING_PACKAGES.md](SHIPPING_PACKAGES.md). This supersedes the intermediate mini
+manager plan below.
+
 ## Shipping Packages mini manager — acceptance after M3A.9.5.7
 
 Accept the reused six-package settings page, incomplete/unit-aware local saves and

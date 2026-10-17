@@ -9,6 +9,8 @@ from flask import g, url_for
 from sqlalchemy import func, case
 
 STAGES = {
+    'package_assignment':'Submitting reviewed saved-package assignment',
+    'package_assignment_accepted':'Shopify accepted package assignment — independent readback unavailable',
     'customisation_definition':'Updating reviewed public configuration definition',
     'customisation_configuration':'Publishing reviewed customer field configuration',
     'customisation_verified':'Customer configuration verified; theme activation is separate',
@@ -66,6 +68,8 @@ def finalise_unfinished(operation_id, error=None):
     data=drafts.evidence(row) if row else {}
     attempted=bool(data.get("create_attempted") or data.get("update_attempted") or data.get("inventory_update") or data.get('customisation_update')
         or data.get('publication_update',{}).get('attempted') or data.get('sale_transition',{}).get('write_attempted'))
+    from app.shopify_package_assignments import attempted as package_attempted
+    attempted=attempted or package_attempted(data,operation_id)
     finish_catalogue_operation(operation_id,status="partial" if attempted else "failed",
         error=error or ("Publishing finalisation was interrupted. Inspect retained stages and reconcile read-only; no retry." if attempted else "Confirmation validation did not finish; no Shopify product write was attempted."),
         recovery_state="review_required" if attempted else "none")

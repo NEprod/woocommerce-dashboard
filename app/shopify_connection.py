@@ -108,9 +108,13 @@ NATIVE_READ = '''query PackedRead($id: ID!) { product(id: $id) {
 NATIVE_WRITE = '''mutation PackedUpdate($id: ID!, $input: InventoryItemInput!) {
  inventoryItemUpdate(id: $id, input: $input) { inventoryItem { id } userErrors { field message } }
 }'''
+PACKAGE_ASSIGN = '''mutation TLCPackageAssignment($id: ID!, $input: InventoryItemInput!) {
+ inventoryItemUpdate(id: $id, input: $input) { inventoryItem { id } userErrors { field message } }
+}'''
 NATIVE_QUERIES = frozenset((NATIVE_CAPABILITY, NATIVE_READ, NATIVE_WRITE))
 READ_QUERIES = READ_QUERIES | frozenset((NATIVE_CAPABILITY, NATIVE_READ))
 WRITE_QUERIES = WRITE_QUERIES | frozenset((NATIVE_WRITE,))
+WRITE_QUERIES |= frozenset((PACKAGE_ASSIGN,))
 VARIABLE_FIELDS = '''id title handle status updatedAt descriptionHtml vendor tags productType category { id fullName } seo { title description }
  metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
  options { id name position optionValues { id name } }
@@ -774,6 +778,12 @@ class ShopifyAdapter:
     def write_packed(self, config, inventory_id, dimensions):
         return self._transport(config, NATIVE_WRITE, {"id": _gid(inventory_id, "InventoryItem"),
             "input": {"measurement": {"packedDimensions": dimensions}}}, api_version="2027-01")
+
+    def assign_package(self,config,inventory_id,package_id):
+        from app.package_links import validate
+        if config.api_version!='2026-10':raise ShopifyError('Package assignment uses2026-10 independently of native packed dimensions.')
+        return self._transport(config,PACKAGE_ASSIGN,{'id':_gid(inventory_id,'InventoryItem'),
+            'input':{'measurement':{'shippingPackageId':validate(package_id)}}})
 
     def country_codes(self, configuration):
         values = (self._read(configuration, COUNTRIES_QUERY).get("__type") or {}).get("enumValues")

@@ -19,6 +19,8 @@ requests.sessions.Session.request=lambda *a,**k:(_ for _ in ()).throw(AssertionE
 patch=pytest.MonkeyPatch();root=Path(tempfile.mkdtemp(prefix='tlc-package-manager-browser-'))
 fixture=setup_app.__wrapped__(root,patch);app,path=next(fixture)
 app.config['WTF_CSRF_ENABLED']=True
+os.environ['SHOPIFY_STORE_DOMAIN']='fictional.myshopify.com'
+os.environ['SHOPIFY_ADMIN_ACCESS_TOKEN']='fictional_browser_token_0000000000'
 with app.app_context():
     db.session.add(User(username='package-browser',email='fixture@example.test',password='not-for-login',is_admin=True));db.session.commit()
 cap={'store_id':'gid://shopify/Shop/42','config':'synthetic-only','package_sync_enabled':False,

@@ -169,7 +169,7 @@ def common_plan(product, *, variable=False):
     plan["price"] = plan["managed"]["variant"]["price"]
     plan["unsupported"] = ["Storefront navigation publishing is deferred", "Customer-facing customisation",
         "Inventory quantities/locations", "Media replacement, addition or removal on existing drafts",
-        "Shopify saved-package assignment/clearing has no verified readback contract"]
+        "Shopify saved-package assignment readback/clearing is unavailable; reviewed writes record acceptance only"]
     from app.shopify_products import source_fingerprint
     plan["workspace_source_fingerprint"] = source_fingerprint(product, images)
     from app.shopify_native_dimensions import desired
@@ -249,6 +249,9 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
             raise ShopifyError("Shopify media/order is still processing. Refresh status shortly; no retry or new upload is needed.")
     if row and evidence(row).get("native_dimensions", {}).get("state") in {"pending", "uncertain"}:
         raise ShopifyError("Recovery required for native packed dimensions. Open the native dimension review and reconcile using reads only; normal product/media verification is retained.")
+    if row:
+        from app.shopify_package_assignments import guard as package_guard
+        package_guard(evidence(row))
     from app.models import ShopifyProductComparison
     previous_comparison = ShopifyProductComparison.query.filter_by(store_id=shop["shop_id"], source_identity=product.source_relpath).first()
     if previous_comparison and json.loads(previous_comparison.summary_json).get("conflicting_changes"):
@@ -282,7 +285,7 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
             if any(f['changed'] for f in result['fields']):
                 result['classification'] = 'update'
             from app.shopify_optional_packages import attach as attach_packages
-            attach_packages(product, result, row)
+            attach_packages(product, result, row, config, shop)
             from app.shopify_publication import annotate
             annotate(product,result,row,config,shop,adapter)
         if result["classification"] == "update":
@@ -318,7 +321,7 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
     from app.shopify_dimension_metadata import attach as attach_dimensions
     attach_dimensions(plan, config, shop, adapter)
     from app.shopify_optional_packages import attach as attach_packages
-    attach_packages(product, plan, None)
+    attach_packages(product, plan, None, config, shop)
     from app.shopify_native_dimensions import attach_review
     attach_review(product, plan, None, config, shop, adapter)
     from app.shopify_publication import annotate
@@ -422,7 +425,7 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
     from app.shopify_dimension_metadata import attach as attach_dimensions
     attach_dimensions(plan, config, shop, adapter)
     from app.shopify_optional_packages import attach as attach_packages
-    attach_packages(product, plan, None)
+    attach_packages(product, plan, None, config, shop)
     from app.shopify_native_dimensions import attach_review
     attach_review(product, plan, None, config, shop, adapter)
     from app.shopify_publication import annotate
@@ -526,9 +529,11 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         state = row.state
         from app.shopify_native_dimensions import after_publish
         native_state = after_publish(row, plan, adapter, lease.id)
-        finish_catalogue_operation(lease.id, status="succeeded" if state == "verified" and native_state in {"disabled", "verified"} and publication_complete(evidence(row)) else "partial",
-            products_attempted=1, products_succeeded=int(state == "verified"), recovery_state="none" if state == "verified" and native_state != "uncertain" else "review_required",
-            operation_summary={"identity_id": row.id, "shopify_product_id": row.shopify_product_id, "stage": data["stage"], "state": state, "native_dimensions": native_state})
+        from app.shopify_package_assignments import apply as apply_packages
+        package_state=apply_packages(row,adapter,lease.id)
+        finish_catalogue_operation(lease.id, status="succeeded" if state == "verified" and native_state in {"disabled", "verified"} and package_state=='none' and publication_complete(evidence(row)) else "partial",
+            products_attempted=1, products_succeeded=int(state == "verified"), recovery_state="none" if state == "verified" and native_state != "uncertain" and package_state!='uncertain' else "review_required",
+            operation_summary={"identity_id": row.id, "shopify_product_id": row.shopify_product_id, "stage": evidence(row)['stage'], "state": row.state, "native_dimensions": native_state,'package_assignment':package_state})
         return row
     except Exception as exc:
         # Raw transport exceptions/payloads must never leak tokens or signed targets.
@@ -545,6 +550,8 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
 
 
 def apply_readback(row, data, remote, adapter=None, *, allow_attribute_review=False):
+    from app.shopify_package_assignments import guard as package_guard
+    package_guard(data)
     if data["plan"].get("managed"):
         return apply_simple_readback(row, data, remote, adapter, allow_attribute_review=allow_attribute_review)
     plan = data["plan"]
@@ -842,15 +849,19 @@ def confirm_update(reviewed, adapter=None):
         apply_simple_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]), adapter)
         from app.shopify_native_dimensions import after_publish
         native_state = after_publish(row, plan, adapter, lease.id)
+        from app.shopify_package_assignments import apply as apply_packages
+        package_state=apply_packages(row,adapter,lease.id)
         from app.shopify_publication import complete as publication_complete
-        finish_catalogue_operation(lease.id, status="succeeded" if row.state == "verified" and native_state in {"disabled", "verified"} and publication_complete(evidence(row)) else "partial",
+        finish_catalogue_operation(lease.id, status="succeeded" if row.state == "verified" and native_state in {"disabled", "verified"} and package_state=='none' and publication_complete(evidence(row)) else "partial",
             products_attempted=1, products_succeeded=int(row.state == "verified"),
             recovery_state="none" if row.state == "verified" and native_state != "uncertain" else "review_required",
-            operation_summary={"identity_id": row.id, "mode": "update", "stage": data["stage"], "completed_steps": data.get("completed_steps", []), "native_dimensions": native_state})
+            operation_summary={"identity_id": row.id, "mode": "update", "stage": evidence(row)['stage'], "completed_steps": evidence(row).get("completed_steps", []), "native_dimensions": native_state,'package_assignment':package_state})
         return row
     except Exception as exc:
         db.session.rollback()
         message = str(exc) if isinstance(exc, ShopifyError) else "Update failed with uncertain evidence. Reconcile before another write."
+        from app.shopify_package_assignments import attempted as package_attempted
+        attempted=attempted or package_attempted(evidence(row),lease.id)
         if attempted:
             row = db.session.get(ShopifyProductIdentity, row.id)
             data = evidence(row)
@@ -876,6 +887,8 @@ def confirm_update(reviewed, adapter=None):
 
 
 def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_review=False):
+    from app.shopify_package_assignments import guard as package_guard
+    package_guard(data)
     plan = data["plan"]
     from app.shopify_publication import expected_status
     if remote.get('status') != expected_status(data):
@@ -1000,6 +1013,8 @@ def finalize_processing(row, adapter=None, *, force=True):
 
 
 def _reconcile(row, candidate_id=None, adapter=None, approval=None, *, allow_attribute_review=False):
+    from app.shopify_package_assignments import guard as package_guard
+    package_guard(evidence(row))
     operation = db.session.get(CatalogueOperation, row.operation_id) if row.operation_id else None
     if operation and operation.status == "running":
         raise ShopifyError("This publishing operation is still active. Wait for completion; reconciliation cannot overlap writes.")

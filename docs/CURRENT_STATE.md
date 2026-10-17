@@ -1,5 +1,20 @@
 # Current State
 
+## Superseding Shipping Packages scope — manual IDs and reviewed assignments
+
+The intermediate package catalogue reconciliation/sync screens were removed before
+release at the merchant's request. The reused settings page keeps six local UUIDs,
+measurements and recommendations, adding manually entered store-bound Package IDs,
+duplicate/stale-link checks and confirmed local unlink. Normal Product Review & Sync
+submits documented2026-10 InventoryItem measurement.shippingPackageId using existing
+write_inventory. Durable per-operation acknowledgement is **accepted, not readback
+verified**; unchanged accepted targets are not replayed. Missing IDs/permissions defer
+only that stage. Uncertain responses retain Recovery Required and cannot be resolved
+by a read that lacks the field. No clearing/default/catalogue/checkout mutation,
+new scope, app release or migration beyond0018. Finished and packed dimensions stay
+independent and unchanged. [Current guide](SHIPPING_PACKAGES.md) supersedes the
+intermediate mini-manager description below.
+
 ## Shipping Packages mini manager — follow-up to M3A.9.5.7
 
 Settings links to the reused compact package manager, not another database/editor.

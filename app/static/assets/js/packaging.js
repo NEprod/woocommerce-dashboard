@@ -12,6 +12,21 @@
   const element=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
   const button=(text,run)=>{const n=element('button',text,'btn btn-sm btn-outline-primary');n.type='button';n.addEventListener('click',run);return n;};
   const clone=value=>structuredClone(value || {});
+  const idForm=document.querySelector('[data-package-id-form]');
+  if(idForm){const retained=JSON.parse(document.getElementById('package-link-bootstrap').textContent);
+    async function saveId(unlink){const feedback=idForm.querySelector('[data-package-id-feedback]');
+      if(unlink&&!idForm.querySelector('[data-confirm-unlink]')?.checked){feedback.textContent='Confirm unlinking first. Remote assignments are not cleared.';return;}
+      idForm.querySelectorAll('button').forEach(b=>b.disabled=true);
+      try{const result=await api(idForm.dataset.url,{id:idForm.elements.shopify_package_id.value,expected:retained.expected,unlink,confirm:unlink});
+        Object.assign(retained,result.package_link);idForm.elements.shopify_package_id.value=retained.id || '';
+        idForm.querySelector('[data-package-id-status]').textContent=retained.status;
+        const packageForm=document.querySelector('[data-package-form]');if(packageForm)packageForm.dataset.version=String(result.package_version);
+        idForm.querySelectorAll('button').forEach(b=>b.disabled=false);idForm.querySelector('[data-unlink-package]').disabled=!retained.id;
+        idForm.querySelector('[data-confirm-unlink]').checked=false;feedback.textContent='Saved locally. ID is not remotely verified. Unsaved package measurements are retained.';
+      }catch(error){feedback.textContent=error.message;idForm.querySelectorAll('button').forEach(b=>b.disabled=false);}}
+    idForm.addEventListener('submit',event=>{event.preventDefault();saveId(false);});
+    idForm.querySelector('[data-unlink-package]')?.addEventListener('click',()=>saveId(true));
+  }
   const merge=(a,b)=>{const r=clone(a);Object.entries(b || {}).forEach(([k,v])=>{if(k==='packed_dimensions'){delete r.packed_dimensions_cm;r[k]=clone(v);}else {if(k==='packed_dimensions_cm')delete r.packed_dimensions;r[k]=v && typeof v==='object' && !Array.isArray(v)?merge(r[k],v):structuredClone(v);}});return r;};
   const readPath=(o,path)=>path.split('.').reduce((v,k)=>v?.[k],o);
   function setPath(o,path,value){const parts=path.split('.');const key=parts.pop();let target=o;parts.forEach(k=>{target[k] ||= {};target=target[k];});if(value===undefined)delete target[key];else target[key]=value;}
@@ -194,7 +209,7 @@
   const form=document.querySelector('[data-package-form]');
   if(form){const data=JSON.parse(document.getElementById('package-bootstrap').textContent || 'null') || {};populatePackage(form,data);
     const copy=document.querySelector('[data-native-package-copy]');if(copy)copy.textContent=JSON.stringify({name:data.name,type:data.type,dimensions:data.external_cm,diameter_cm:data.external_diameter_cm,weight_g:data.tare_g},null,2);
-    form.addEventListener('submit',async e=>{e.preventDefault();try{const result=await api(form.dataset.saveUrl,{...packageData(form),version:data.version});window.location.assign(result.url);}catch(error){form.querySelector('[data-package-feedback]').textContent=error.message;}});
+    form.addEventListener('submit',async e=>{e.preventDefault();try{const result=await api(form.dataset.saveUrl,{...packageData(form),version:Number(form.dataset.version || data.version)});window.location.assign(result.url);}catch(error){form.querySelector('[data-package-feedback]').textContent=error.message;}});
     form.querySelector('[data-package-duplicate]')?.addEventListener('click',async()=>{try{const r=await api(`/packaging/${data.id}/duplicate`,{});window.location.assign(r.url);}catch(e){form.querySelector('[data-package-feedback]').textContent=e.message;}});
   }
   document.querySelector('[data-package-archive]')?.addEventListener('click',async e=>{const n=e.currentTarget;if(!confirm(`Archive locally? ${n.dataset.dependentCount} assignments may need review. Shopify packages stay unchanged.`))return;try{await api(`/packaging/${n.dataset.packageArchive}/archive`,{confirm:true,version:Number(n.dataset.packageVersion)});window.location.assign('/packaging/');}catch(error){document.querySelector('[data-package-feedback]').textContent=error.message;}});

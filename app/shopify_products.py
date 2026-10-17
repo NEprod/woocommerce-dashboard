@@ -28,6 +28,7 @@ def source_fingerprint(product, images):
     from app.catalogue_fields import shipping_details
     from app import shopify_simple_fields as fields
     authored = product_document(product)
+    from app.shopify_package_assignments import fingerprint as package_fingerprint
     # Reuse the publisher's field semantics without loading variations/taxonomy or
     # reading image bytes. Unsupported metadata cannot invent a publishable update.
     snapshot = SimpleNamespace(data={"authored": authored, "sale_price": product.sale_price,
@@ -39,6 +40,7 @@ def source_fingerprint(product, images):
     managed, _ = fields.contract(snapshot, base)
     from app.shopify_dimension_metadata import POLICY_VERSION
     data = {"dimension_metadata_policy": POLICY_VERSION, "managed": managed, "intent": authored.get("live"), "sku": product.sku,
+            "package_assignment_policy":1,"package_assignments":package_fingerprint(product,authored),
             "source": product.source_relpath, "type": product.product_type,
             "images": [(i.url, i.position, i.alt_text) for i in product.images],
             "image_stats": stats}
@@ -157,6 +159,10 @@ def product_state(product, rows, comparisons=(), mappings=None):
                 state['channel_evidence']=observed_publication
                 state['publication']='Channel-specific cached evidence; inspect Review & Sync'
             state["can_delete"] = row.state == "verified" and row.verification_state == "verified" and not any(p.get("state") in {"pending","uncertain"} for p in data.get("variant_native",{}).values()) and data.get("native_dimensions",{}).get("state") not in {"pending","uncertain"}
+            if any(p.get('state') in {'pending','uncertain'} for p in data.get('package_assignments',{}).values()):
+                state.update(state='recovery_required',label='Recovery Required',can_delete=False,
+                    message='Saved-package assignment outcome is uncertain. No public assignment readback exists; inspect Shopify Admin before any retry.')
+                return state
             if row.state == "processing":
                 state.update(state="processing", label="Processing", message="Read-only reconciliation is required to check media processing.")
             elif row.state=="attribute_review_required":
@@ -214,6 +220,9 @@ def product_state(product, rows, comparisons=(), mappings=None):
                             message="Verification is due. Saved comparison only; the background Scheduled Task refreshes it independently. Manual Refresh remains available.")
                     if classification == "no_change" and (data["blockers"] or (data.get('publication') or {}).get('pending') or publication_pending and not data.get('publication')):
                         state.update(state="attention", label="Needs Attention", message="Metadata matches, but publication or taxonomy blockers remain.")
+                    if classification=='no_change' and data.get('package_assignments_unverified'):
+                        state.update(state='unavailable',label='Verification Unavailable',
+                            message='Managed metadata compared. Package selection requires an ID/acceptance or has accepted-only evidence; Shopify exposes no independent assignment readback. Inspect the Optional Package group.')
                     if data.get("refresh_failure"):
                         state.update(state="unavailable", label="Verification Unavailable", change_count=None,
                             change_summary=[], blockers=[data["refresh_failure"]["message"]],

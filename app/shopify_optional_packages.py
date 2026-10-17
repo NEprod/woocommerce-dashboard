@@ -1,4 +1,4 @@
-"""Local assignment presentation, deliberately outside Shopify mutation fields."""
+"""Local choices and separately reviewed saved-package acceptance evidence."""
 from app import shopify_drafts as drafts
 from app.taxonomy_assignments import product_document
 from app.packaging_contract import effective
@@ -15,7 +15,7 @@ def snapshot(product, plan):
     return values
 
 
-def attach(product, plan, row):
+def attach(product, plan, row, config=None, shop=None):
     from app.packaging_models import Package
     from app.packaging_catalogue import view
     from app.packing import recommend
@@ -45,5 +45,8 @@ def attach(product, plan, row):
             'remote_state': 'No verified assignment/clearing readback contract; no package mutation will be sent.'})
     plan['optional_packages'] = entries
     plan['local_package_changes'] = sum(e['changed'] for e in entries)
-    # Local snapshot is still signed/source-bound, but never changes the remote
-    # classification or adds a product mutation. Saving has already applied it.
+    if config is not None and shop is not None:
+        from app.shopify_package_assignments import attach as attach_assignments
+        attach_assignments(plan,row,config,shop)
+    # Local snapshots alone never authorize a write. The assignment adapter adds
+    # an actionable field only for an explicitly selected, centrally linked ID.

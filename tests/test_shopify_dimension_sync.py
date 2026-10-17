@@ -159,7 +159,7 @@ def test_local_only_package_change_visible_without_remote_write(world):
     plan, token = drafts.preview(product, adapter)
     assert plan['classification'] == 'no_change' and token is None
     assert plan['local_package_changes'] == 1 and plan['optional_packages'][0]['selected_id'] == package_id
-    assert plan['optional_packages'][0]['state'] == 'Selected Locally — Remote Assignment Unsupported'
+    assert plan['optional_packages'][0]['state'] == 'Shopify Package ID required'
     assert before == adapter.remote and not adapter.inputs
     change(world, packaging={'selected_package_id': None})
     plan, _ = drafts.preview(product, adapter)

@@ -49,6 +49,8 @@ def review(product, adapter=None):
     data = drafts.evidence(row)
     if data.get("native_dimensions", {}).get("state") in {"pending", "uncertain"} or any(v.get("state") in {"pending", "uncertain"} for v in data.get("variant_native", {}).values()):
         raise ShopifyError("Reconcile uncertain inventory stages before deletion.")
+    from app.shopify_package_assignments import guard as package_guard
+    package_guard(data)
     remote = trusted(row, adapter.lifecycle_product(config, row.shopify_product_id))
     if "write_products" not in shop["scopes"]:
         raise ShopifyError("Missing write_products or product deletion permission.")

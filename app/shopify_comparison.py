@@ -113,7 +113,7 @@ def record(product, plan, identity=None, *, post_write=False):
     native = plan.get('native') or {}
     pending_native = native.get('pending_capability', False) or bool(not native.get('enabled') and (native.get('desired') or
         any(v.get('desired') for v in native.get('variants', {}).values())))
-    incomplete = scoped or read_failed or pending_native
+    incomplete = scoped or read_failed or pending_native or bool(plan.get('package_assignments_unverified'))
     changes = [{"field": r["field"], "after": summary_value(r["after"])} for r in plan["fields"] if r["changed"] and not r.get("deferred")]
     changes += [{"field": "collections." + r["key"], "after": r["name"]} for r in plan.get("collections", []) if r["action"] in {"Join","Create & Join"}]
     summary = {"version": 1, "product_id": product.id, "source": product.source_relpath,
@@ -135,6 +135,7 @@ def record(product, plan, identity=None, *, post_write=False):
     summary["native"] = plan.get("native")
     summary['dimension_metadata_policy'] = (plan.get('dimension_metadata') or {}).get('policy')
     summary['local_package_changes'] = plan.get('local_package_changes', 0)
+    summary['package_assignments_unverified']=plan.get('package_assignments_unverified',False)
     summary['publication'] = plan.get('publication')
     summary["conflicting_changes"] = bool(plan.get("conflicting_changes")) and plan["classification"] == "update"
     stamp = now().isoformat()
