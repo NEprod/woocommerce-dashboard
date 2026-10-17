@@ -10,7 +10,7 @@ smoke.IMPORT += '''
 from app.models import ShopifyProductComparison
 with app.app_context():
  for source,complete in [('Fictional/Smoke',False),('Fictional/Readable',True)]:
-  db.session.add(ShopifyProductComparison(store_id=payload['store'],source_identity=source,
+  db.session.add(ShopifyProductComparison(store_id=payload['store'],source_identity=source,compared_at=orders.now(),
    summary_json=json.dumps({'read_complete':complete,'full_compared_at':'2026-10-12T00:00:00',
     'package_assignments_unverified':True,**({'package_readback_policy':2} if complete else {})})))
  db.session.commit()
