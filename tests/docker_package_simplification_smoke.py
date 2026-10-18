@@ -26,7 +26,7 @@ with app.app_context():
  package_links.set_id(package,'gid://shopify/ShippingPackageV2/116237992319',[])
  catalogue.save({'name':package.name,'purchase_price':'0.42','purchase_url':'https://supplier.example.test/package'},package,version=package.version)
  assert package_links.current(package.id)['id']=='gid://shopify/ShippingPackageV2/116237992319'
- assert all(json.loads(package.specification)[key]==value for key,value in old.items())
+ assert all(json.loads(package.specification)[key]==value for key,value in old.items() if key not in {'purchase_price','purchase_url'})
 '''
 smoke.CHECK+='''
 assert spec['purchase_price']=='0.42' and spec['purchase_url']=='https://supplier.example.test/package'
