@@ -169,6 +169,41 @@ def test_c5_limit_in_estimated_recommendations(height, eligible):
     if eligible: assert result['state']=='estimated'
 
 
+@pytest.mark.parametrize('outside_height',[None,'.01','2'])
+@pytest.mark.parametrize('height,eligible',[('.2',True),('.3',True),('.31',False),(None,False)])
+def test_envelope_contents_limit_independent_of_external_height_and_clearance(outside_height,height,eligible):
+    p=package(type='ENVELOPE',external_cm={'length':'24','width':'16.5','height':outside_height},
+        internal_cm={},max_contents_thickness_mm='3',clearance_cm='99')
+    before=json.dumps(p,sort_keys=True)
+    assert catalogue.usable_bounds(p)[0][2] is None  # rule never becomes a dimension
+    result=packing.recommend(item(dims=('24','16.5',height),orientation='fixed',clearance_cm='99'),[p])
+    assert bool(result['recommendation']) is eligible
+    if eligible: assert result['state']=='estimated'
+    else: assert result['state']!='size_checked'
+    assert json.dumps(p,sort_keys=True)==before
+
+
+def test_envelope_rule_does_not_replace_length_width_or_internal_height_checks():
+    p=package(type='ENVELOPE',external_cm={'length':'24','width':'16.5','height':'.01'},
+        internal_cm={},max_contents_thickness_mm='3')
+    assert packing.recommend(item(dims=('24.1','16.5','.2'),orientation='any'),[p])['recommendation'] is None
+    p['internal_cm']['height']='.2'
+    assert packing.recommend(item(dims=('15','15','.3')),[p])['recommendation'] is None
+    # Storage preserves independently authored exterior height and usable height.
+    assert catalogue.clean(p)['external_cm']['height']=='0.01'
+    assert catalogue.clean(p)['internal_cm']['height']=='0.2'
+
+
+def test_no_c5_rule_is_inherited_and_external_envelope_height_is_not_capacity():
+    p=package(type='ENVELOPE',external_cm={'length':'24','width':'16.5','height':'2'},internal_cm={})
+    assert packing.recommend(item(),[p])['recommendation'] is None
+    assert catalogue.readiness(p)[0]=='Measurements needed'
+    p['internal_cm']['height']='1'
+    assert packing.recommend(item(dims=('15','15','.4')),[p])['recommendation']
+    assert p['max_contents_thickness_mm'] is None
+    assert packing.recommend(item(dims=('15','15','1')),[package()])['recommendation']
+
+
 def test_internal_size_recommendation_precedes_estimates_and_never_reassigns():
     source=item(selected_package_id='cf513dd4-d976-47dd-9f15-96fe6eb320ef')
     original=json.dumps(source,sort_keys=True)
@@ -215,12 +250,13 @@ def test_tube_external_fallback_is_estimated_and_ignores_retired_end_cap_setting
     assert packing.recommend(item(dims=('24.1','3','3'),method='rolled'),[p])['recommendation'] is None
 
 
-def test_simplified_form_has_only_internal_dimensions_and_thickness_in_advanced(manager):
+def test_simplified_form_has_internal_dimensions_in_advanced_and_contents_limit_in_main(manager):
     app,_=manager
     page=logged(app).get('/packaging/'+Package.query.first().id+'/edit')
     assert page.status_code==200
     text=page.get_data(as_text=True)
     assert 'Advanced · optional internal usable dimensions' in text and '<details open' not in text
+    assert text.index('name="max_contents_thickness_mm"') < text.index('Advanced · optional internal usable dimensions')
     assert 'Save locally also saves this field' in text and 'ShippingPackageV2' in text
     for name in ('purchase_price','purchase_url','internal_cm.length','max_contents_thickness_mm'):
         assert 'name="'+name+'"' in text

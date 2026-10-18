@@ -54,6 +54,7 @@ def clean(value):
             if len(result['purchase_url'])>2048 or url.scheme not in {'http','https'} or not url.hostname or url.username or url.password or any(ord(c)<33 for c in result['purchase_url']): raise ValueError()
         except ValueError: raise ValueError('Use a complete http/https purchase URL without embedded credentials.') from None
     for key in AXES:
+        if result['type']=='ENVELOPE' and key=='height': continue  # exterior envelope thickness is not contents capacity
         outer,inner=result['external_cm'][key],result['internal_cm'][key]
         if inner and outer and Decimal(inner)>Decimal(outer): raise ValueError('Usable interior cannot exceed external dimensions.')
     if result['internal_diameter_cm'] and result['external_diameter_cm'] and Decimal(result['internal_diameter_cm'])>Decimal(result['external_diameter_cm']):
@@ -69,19 +70,24 @@ def usable_bounds(spec):
         inner=spec.get('internal_diameter_cm') if axis=='diameter' else spec.get('internal_cm',{}).get(axis)
         outer=spec.get('external_diameter_cm') if axis=='diameter' else spec.get('external_cm',{}).get(axis)
         value=inner
+        if spec['type']=='ENVELOPE' and axis=='height':
+            # A flat envelope's exterior thickness is not its usable capacity.
+            # Keep the separately authored contents restriction out of dimensions.
+            bounds.append(Decimal(inner) if inner is not None else None)
+            if inner is None: warnings.append('Usable envelope height unknown; only an explicitly configured contents-thickness rule can establish thickness capacity.')
+            continue
         if value is None:
             value=outer
             warnings.append('Usable '+axis+' unknown; external dimensions are an estimate, not proof of physical fit.')
-        if value is None and axis=='height' and spec['type']=='ENVELOPE' and spec.get('max_contents_thickness_mm') is not None:
-            value=Decimal(spec['max_contents_thickness_mm'])/10
-            warnings.append('Thickness bounded only by the merchant contents limit, not measured usable height.')
         bounds.append(Decimal(value) if value is not None else None)
     return bounds,warnings
 
 
 def readiness(spec):
     bounds,warnings=usable_bounds(spec)
-    if any(v is None for v in bounds): return 'Measurements needed',['Package size is incomplete; manual selection remains available.']+warnings
+    required=bounds
+    if spec['type']=='ENVELOPE' and spec.get('max_contents_thickness_mm') is not None: required=bounds[:2]
+    if any(v is None for v in required): return 'Measurements needed',['Package size is incomplete; manual selection remains available.']+warnings
     if warnings: return 'Estimated Fit',warnings
     return 'Internal size available',[]
 

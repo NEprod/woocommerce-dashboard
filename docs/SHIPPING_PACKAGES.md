@@ -20,12 +20,19 @@ owned artwork/staged Shopify assets, not a supported general package-image store
 Package images remain a small deferred gap.
 
 Collapsed **Advanced** contains optional usable interior axes (and tube diameter)
-in the same dimension unit, plus the explicit maximum contents thickness exception.
+in the same dimension unit. The main form shows the optional envelope/letter
+**Maximum Contents Thickness** rule separately.
 Interior axes take precedence individually. Each missing axis falls back to the
 corresponding exterior axis with **Estimated Fit / unverified** presentation. A
-known envelope contents-thickness limit can bound missing usable height, still an
-estimate; an unknown axis without any bound never becomes zero. C5+ accepts at most
-3mm; this restriction does not apply to the separate Large Letter Box. Cylindrical
+known envelope contents-thickness limit is compared directly with prepared item
+thickness, separately from length/width and any authored internal usable height.
+It never fills in a stored dimension, adds clearance/padding, or requires exterior
+height to equal the rule. Exterior envelope height is an independent optional
+measurement, **not** an implicit contents-capacity limit, even when known. An
+envelope without either a configured contents limit or known internal usable height
+has unverified capacity and remains manually selectable. Unknown item thickness
+never becomes zero. C5+ allows2mm and exactly3mm, rejects3.1mm; an absent rule never
+inherits C5+'s3mm restriction, including the separate Large Letter Box. Cylindrical
 tubes require explicitly prepared rolled geometry, not automatic rolling of prints.
 
 The active package model and basic solo size checker no longer use fragility,

@@ -14,9 +14,11 @@ The active package model/form and solo size checker no longer require protection
 fragility/flat/rolled approvals, clearance/end-cap/material-weight/capacity fields
 or physical-verification checkboxes. Historical JSON is preserved without a
 migration (head0018), but those values no longer gate or rank recommendations.
-Collapsed Advanced contains only optional usable measurements and the explicit
-contents-thickness exception. Internal axes win; missing axes use exterior bounds
-as estimated/unverified. Unknown is not zero, C5+3mm remains, and incomplete packages
+Collapsed Advanced contains only optional usable measurements. The main form exposes
+the optional envelope/letter contents-thickness rule. Internal axes win; missing axes use exterior bounds
+as estimated/unverified, except that exterior envelope height never establishes
+contents capacity. C5+3mm is a separate direct packed-thickness limit (inclusive),
+not height, clearance or padding. Unknown is not zero, and incomplete packages
 remain manually selectable. Internal size checks are not physical fit certification.
 Optional GBP purchase price and supplier URL are local-only. Package image upload
 is deferred: no suitable existing generic package asset store was found.
