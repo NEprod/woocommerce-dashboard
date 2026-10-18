@@ -24,7 +24,7 @@ def package(key='card',dims=('18','18','2'),**changes):
         'cost_pence':20,'dimensions_measured':True,'tare_measured':True,'automatic':True,'flat':True,
         'fragile':False,'protection':['rigid backing']}
     raw.update(changes)
-    return dict(catalogue.clean(raw),id=key,name=key,version=1,archived=False)
+    return dict({**raw,**catalogue.clean(raw)},id=key,name=key,version=1,archived=False)
 
 
 def item(dims=('15.5','15.5','.3'),**changes):
@@ -59,7 +59,7 @@ def test_six_seeds_unknown_measurements_restart_and_no_cancelled_tables(packagin
         identities={p.id for p in rows}
         assert all(uuid.UUID(p.id) for p in rows)
         views=[catalogue.view(r) for r in rows]
-        assert all(v['readiness']=='Measurements needed' and v['tare_g'] is None for v in views)
+        assert all(v['readiness'] in {'Measurements needed','Estimated Fit'} and v['tare_g'] is None for v in views)
         mailer=next(v for v in views if v['type']=='ENVELOPE')
         assert mailer['external_cm']=={'length':'24','width':'16.5','height':None}
         assert mailer['max_contents_thickness_mm']=='3'
@@ -79,14 +79,15 @@ def test_c5_three_mm_rule_boundaries(height,eligible):
     if height in ('.31','.4'): assert '3 mm' in result['rejected_packages'][0]['reason']
 
 
-def test_exact_three_mm_still_needs_verified_interior_and_protection():
-    assert packing.recommend(item(),[package(internal_cm={})])['recommendation'] is None
-    assert packing.recommend(item(clearance_cm='.1'),[package(dims=('15.5','15.5','.3'))])['recommendation'] is None
+def test_exact_three_mm_with_external_estimate_and_internal_axis_precedence():
+    estimated=packing.recommend(item(),[package(internal_cm={})])
+    assert estimated['state']=='estimated' and estimated['recommendation']['fit']=='Estimated Fit (unverified)'
+    assert packing.recommend(item(),[package(internal_cm={'length':'15','width':'18','height':'2'})])['recommendation'] is None
 
 
 def test_large_letter_box_is_not_restricted_to_three_mm():
     p=package('Large Letter',('35.3','25','2.5'))
-    assert packing.recommend(item(dims=('15','15','1')),[p])['state']=='verified'
+    assert packing.recommend(item(dims=('15','15','1')),[p])['state']=='size_checked'
 
 
 @pytest.mark.parametrize('dims,expected',[ (('29.7','21','.3'),'c4'),(('42','29.7','.3'),'c3')])
@@ -101,21 +102,21 @@ def tube(**changes):
     return package('tube',('24',None,None),**dict(values,**changes))
 
 
-@pytest.mark.parametrize('dims,eligible',[(('21','3','3'),True),(('22','4','4'),True),(('22.1','3','3'),False),(('21','4.1','4.1'),False)])
-def test_tube_uses_roll_axis_diameter_and_end_cap_reserve(dims,eligible):
+@pytest.mark.parametrize('dims,eligible',[(('21','3','3'),True),(('23','4','4'),True),(('23.1','3','3'),False),(('21','4.1','4.1'),False)])
+def test_tube_uses_roll_axis_and_diameter_only(dims,eligible):
     result=packing.recommend(item(dims=dims,method='rolled',rollable=True),[tube()])
     assert bool(result['recommendation']) is eligible
 
 
 def test_tube_cannot_roll_a_flat_print_or_assume_unknown_sizes():
     assert packing.recommend(item(),[tube()])['recommendation'] is None
-    assert packing.recommend(item(method='rolled',rollable=False),[tube()])['state']=='insufficient_information'
-    assert packing.recommend(item(method='rolled',rollable=True),[tube(internal_diameter_cm=None)])['recommendation'] is None
+    assert packing.recommend(item(dims=('21','3','3'),method='rolled'),[tube(internal_diameter_cm=None)])['state']=='estimated'
+    assert packing.recommend(item(dims=('21','3','3'),method='rolled'),[tube(internal_diameter_cm=None,external_diameter_cm=None)])['recommendation'] is None
 
 
-@pytest.mark.parametrize('change',[{'fragile':True},{'weight_g':'3000'},{'packed_dimensions_cm':{}},{'measured':False},
-    {'clearance_cm':None},{'method':None},{'orientation':None},{'requirements':['bubble wrap']}])
-def test_incomplete_or_unsafe_item_has_no_verified_fit(change):
+@pytest.mark.parametrize('change',[{'packed_dimensions_cm':{}},{'packed_dimensions_cm':{'length':'0'}},
+    {'packed_dimensions_cm':{'length':'15','width':'15'}}, {'packed_dimensions_cm':{'length':'500','width':'15','height':'1'}}])
+def test_incomplete_or_oversized_item_has_no_size_recommendation(change):
     assert packing.recommend(item(**change),[package(type='ENVELOPE')])['recommendation'] is None
 
 
@@ -123,7 +124,7 @@ def test_solo_decimal_weight_alternatives_and_determinism():
     source=item(weight_g='10.25',protection_weight_g='.125');original=copy.deepcopy(source)
     packages=[package('B'),package('A',tare_g='40.1',protection_weight_g='2.2'),package('C')]
     result=packing.recommend(source,packages)
-    assert result['recommendation']['name']=='A' and Decimal(result['recommendation']['gross_weight_g'])==Decimal('52.675')
+    assert result['recommendation']['name']=='A' and Decimal(result['recommendation']['gross_weight_g'])==Decimal('50.35')
     assert len(result['alternatives'])==2 and result==packing.recommend(source,packages)
     assert source==original and 'selected_package_id' not in source
 
@@ -262,6 +263,6 @@ def test_editor_components_and_orders_unchanged(packaging_app):
     assert 'data-order-packing' not in app.jinja_loader.get_source(app.jinja_env,'orders/detail.html')[0]
 
 
-@pytest.mark.parametrize('changes',[{'tare_g':'NaN'},{'cost_pence':'1.2'},{'internal_cm':{'length':'1000'}},{'external_diameter_cm':'2','internal_diameter_cm':'3'}])
+@pytest.mark.parametrize('changes',[{'tare_g':'NaN'},{'purchase_price':'.001'},{'internal_cm':{'length':'1000'}},{'external_diameter_cm':'2','internal_diameter_cm':'3'}])
 def test_invalid_values(changes):
     with pytest.raises(ValueError): catalogue.clean(dict(package(),**changes))

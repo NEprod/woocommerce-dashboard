@@ -1,18 +1,22 @@
 {% extends 'layouts/base.html' %}
 {% block title %}{{ 'Edit' if package else 'Add' }} Package{% endblock %}
 {% block content %}
-<header class="page-header"><div><h1 class="page-title">{{ 'Edit' if package else 'Add' }} Package</h1><p>Local operational definition. Existing product assignments and Shopify links are preserved.</p></div><a href="{{ url_for('packaging.index') }}" class="btn btn-ghost">All packages</a></header>
+<header class="page-header"><div><h1 class="page-title">{{ 'Edit' if package else 'Add' }} Package</h1><p>Save locally keeps measurements and the entered Shopify ID together. Existing product references and Shopify settings are unchanged.</p></div><a href="{{ url_for('packaging.index') }}" class="btn btn-ghost">All packages</a></header>
 <form class="app-card" data-package-form data-save-url="{{ url_for('packaging.edit',package_id=package.id) if package else url_for('packaging.new') }}">
-{% include 'packaging/_form.html' %}<p data-package-feedback role="status"></p><div class="page-actions"><button class="btn btn-primary">Save locally</button>{% if package %}<button type="button" class="btn btn-outline-primary" data-package-duplicate>Duplicate</button><a class="btn btn-ghost" href="{{ url_for('packaging.usage',package_id=package.id) }}">Inspect usage / archive</a>{% endif %}</div>
-</form><script id="package-bootstrap" type="application/json">{{ package|tojson }}</script>
-<section class="app-card"><h2>Shopify Package ID</h2>
-<p>This saved package must already exist in Shopify Admin → Settings → Shipping and delivery → Packages. Copy its complete package GID using the separately agreed merchant-assisted browser process. A number/name alone is not enough; TLCDashboard does not query Shopify Admin's private endpoints. Never invent an ID.</p>
-{% if package %}<form data-package-id-form data-url="{{ url_for('packaging.shopify_id',package_id=package.id) }}">
-<label>Shopify Package ID<input class="form-control" name="shopify_package_id" value="{{ package_link.id or '' }}" placeholder="Paste the complete Shopify package GID" maxlength="96"></label>
-<p data-package-id-status>{{ package_link.status }}</p><button class="btn btn-outline-primary">Set Shopify Package ID</button>
-<label><input type="checkbox" data-confirm-unlink> Confirm unlink locally — existing Shopify assignments are not cleared</label><button class="btn btn-ghost" type="button" data-unlink-package {% if not package_link.id %}disabled{% endif %}>Unlink Shopify Package ID</button>
-<p data-package-id-feedback role="status"></p></form><script id="package-link-bootstrap" type="application/json">{{ package_link|tojson }}</script>
-{% else %}<p>Save this package locally first, then set its Shopify Package ID on Edit.</p>{% endif %}
-<p>Linking does not assign products or change Shopify packages. Product Review &amp; Sync records an accepted assignment separately from unavailable remote readback.</p></section>
+{% include 'packaging/_form.html' %}
+<section data-package-id-form {% if package %}data-url="{{ url_for('packaging.shopify_id',package_id=package.id) }}"{% endif %}>
+<h2>Shopify Package ID</h2>
+<label>Shopify Package ID<input class="form-control" name="shopify_package_id" value="{{ package_link.id if package_link and package_link.id else '' }}" placeholder="gid://shopify/ShippingPackageV2/…" maxlength="96"></label>
+<p class="field-helper">Copy the complete ID from your own Shopify Admin → Settings → Shipping and delivery → Packages using the merchant-assisted process. Keep ShippingPackageV2 exactly as supplied; never construct an ID from a number. Save locally also saves this field.</p>
+<p data-package-id-status>{{ package_link.status if package_link else 'Optional — Shopify Package ID required for a reviewed assignment' }}</p>
+{% if package %}<div class="page-actions"><button type="button" class="btn btn-outline-primary" data-save-package-id>Save ID only</button><button class="btn btn-ghost" type="button" data-unlink-package {% if not package_link.id %}disabled{% endif %}>Unlink Shopify Package ID</button></div>
+<label><input type="checkbox" data-confirm-unlink> Confirm unlink locally — existing Shopify assignments are not cleared</label>{% endif %}
+<p data-package-id-feedback role="status"></p>
+<p class="field-helper">An entered ID is not remotely verified. No product is assigned until normal signed Product Review &amp; Sync.</p>
+</section>
+<p data-package-feedback role="status"></p><div class="page-actions"><button class="btn btn-primary">Save locally</button>{% if package %}<button type="button" class="btn btn-outline-primary" data-package-duplicate>Duplicate</button><a class="btn btn-ghost" href="{{ url_for('packaging.usage',package_id=package.id) }}">Inspect usage / archive</a>{% endif %}</div>
+</form>
+<script id="package-bootstrap" type="application/json">{{ package|tojson }}</script>
+<script id="package-link-bootstrap" type="application/json">{{ package_link|tojson }}</script>
 {% endblock %}
 {% block javascripts %}<script src="{{ url_for('static',filename='assets/js/packaging.js') }}"></script>{% endblock %}

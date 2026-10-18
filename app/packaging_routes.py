@@ -32,7 +32,31 @@ def body():
 
 
 @packaging.errorhandler(ValueError)
-def invalid(error): return jsonify(error=str(error)),400
+def invalid(error):
+    db.session.rollback()
+    return jsonify(error=str(error)),400
+
+
+def save_local(value,row=None,version=None):
+    """One local transaction for measurements and an explicitly entered ID."""
+    link=value.get('shopify_link')
+    if link is not None and not isinstance(link,dict): raise ValueError('Package link must be an object.')
+    try:
+        saved=catalogue.save(value,row,version=version,commit=False)
+        if link is not None:
+            target=link.get('id')
+            if link.get('unlink') is True:
+                package_links.set_id(saved,None,link.get('expected'),unlink=True,confirmed=link.get('confirm') is True,commit=False)
+            elif isinstance(target,str) and target.strip():
+                package_links.set_id(saved,target,link.get('expected'),commit=False)
+            elif link.get('expected'):
+                raise ValueError('Confirm unlinking before clearing a saved Shopify Package ID.')
+            elif target not in (None,''):
+                package_links.validate(target)
+        db.session.commit();db.session.expire_all()
+        return saved
+    except Exception:
+        db.session.rollback();raise
 
 
 @packaging.get('/')
@@ -53,7 +77,7 @@ def choices():
 @packaging.route('/new',methods=['GET','POST'])
 def new():
     if request.method=='GET': return render_template('packaging/edit.html',package=None,package_link=None)
-    row=catalogue.save(body())
+    row=save_local(body())
     return jsonify(id=row.id,name=row.name,url=url_for('packaging.edit',package_id=row.id)),201
 
 
@@ -64,7 +88,7 @@ def edit(package_id):
     if request.method=='GET': return render_template('packaging/edit.html',package={k:v for k,v in catalogue.view(row).items() if k!='links'},package_link=package_links.current(row.id))
     value=body(); version=value.get('version')
     if type(version) is not int: raise ValueError('Reload this package before saving.')
-    catalogue.save(value,row,version=version)
+    save_local(value,row,version=version)
     return jsonify(id=row.id,name=row.name,url=url_for('packaging.edit',package_id=row.id))
 
 

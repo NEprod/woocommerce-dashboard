@@ -8,18 +8,47 @@ migration: head remains `0018_orders_webhooks`.
 ## Local settings
 
 Open **Settings → Shipping Packages**, reusing `/packaging/`. The six existing TLC
-packages retain their UUIDs, merchant edits, unknown measurements, tube geometry,
-verification flags and C5+3mm contents restriction. No reseeding/duplicates. Exterior
-size never becomes usable interior. Unknown tare/thickness is not zero.
+packages retain their UUIDs, merchant edits, unknown measurements, tube geometry
+and C5+3mm contents restriction. No reseeding/duplicates. Exterior fallback is never
+saved as usable interior. Unknown tare/thickness is not zero.
 
-Add/Edit/Save Locally supports mm/cm/in and g/kg/oz/lb and all existing fitting rules.
+Add/Edit/Save Locally supports mm/cm/in and g/kg/oz/lb, name/type, external size,
+empty weight and Shopify ID. Optional purchasing information is a GBP unit purchase
+price (exact decimal, not a shipping/product price) and supplier URL. URLs are not
+fetched. No new image store/upload was introduced: existing storage is catalogue-
+owned artwork/staged Shopify assets, not a supported general package-image store.
+Package images remain a small deferred gap.
+
+Collapsed **Advanced** contains optional usable interior axes (and tube diameter)
+in the same dimension unit, plus the explicit maximum contents thickness exception.
+Interior axes take precedence individually. Each missing axis falls back to the
+corresponding exterior axis with **Estimated Fit / unverified** presentation. A
+known envelope contents-thickness limit can bound missing usable height, still an
+estimate; an unknown axis without any bound never becomes zero. C5+ accepts at most
+3mm; this restriction does not apply to the separate Large Letter Box. Cylindrical
+tubes require explicitly prepared rolled geometry, not automatic rolling of prints.
+
+The active package model and basic solo size checker no longer use fragility,
+flat/rigid/rolled approvals, protective materials/weight, extra clearance, end-cap
+reserve, maximum gross/contents weight or physical verification flags. These are
+**not moved to Advanced**. Existing historical JSON is retained on sparse saves,
+but ignored by recommendations. New records do not acquire these retired settings.
+No columns are dropped, migration is unnecessary, and no catalogue JSON is rewritten.
+Internal-size checks are not physical fit, protection, weight-capacity or carrier
+certification. Manual selection is allowed even when measurements are incomplete,
+with unverified fit. Known item weight plus tare may be displayed; unknown weight
+stays unknown. No protective-material weight or postage calculation is performed.
+
 Product Editor and Catalogue Intake/JSON Creator still share this catalogue, stable
 local IDs, inheritance, per-size/variant choices, advisory recommendations, explicit
 no-package state and draft-safe inline Add. No automatic product assignment occurs
 when creating a package or entering its Shopify ID.
 
-On Edit, use the separate **Shopify Package ID** form. It accepts the actual complete
-`gid://shopify/…Package/<positive numeric ID>` copied from the merchant's Shopify
+On Edit, enter **Shopify Package ID** and click the main **Save locally** (measurements
+and link are one transaction), or use **Save ID only** to preserve unsaved edits.
+It accepts the actual complete `gid://shopify/…Package/<positive numeric ID>` or
+version-suffixed package GID, including the merchant-supplied
+`gid://shopify/ShippingPackageV2/116237992319`, copied from the merchant's Shopify
 Admin, preserving its package object name verbatim. Format validation is not identity
 verification. Raw numbers, names, unrelated object IDs, query strings and fabricated
 IDs are rejected. Shopify's public docs specify an ID scalar, not a queryable package
@@ -32,6 +61,13 @@ old links and stale edits are refused. Renames preserve the link. Changing/unlin
 archives the previous relationship evidence. Unlink requires explicit confirmation;
 it removes only the local relationship, not the package or any remote assignment.
 Unsaved package measurements remain in the form when an ID is saved.
+
+Confirmed save defects: the previous regex required the object name to end in
+`Package`, rejecting genuine `ShippingPackageV2`. In addition, the main Save action
+did not submit the separate ID field. Both regressions are covered through route,
+JavaScript-handler, browser and offline Docker persistence checks. No identifier
+conversion or change to `inventoryItemUpdate` is made. Shopify accepting a specific
+V2 assignment still requires separately authorised live acceptance.
 
 There is **no Sync All, automatic discovery, package import/update/create queue or
 bidirectional reconciliation**. No package catalogue mutation is registered. The
@@ -131,10 +167,13 @@ acknowledgement proves a particular checkout package or price.
 ## Release and one-card Unraid acceptance
 
 1. Back up existing appdata/SQLite consistently. Update only the image to the published
-   immutable `shopify-package-assignments-<shortcommit>` tag (or verified develop).
+   immutable `shopify-packages-simplified-<shortcommit>` tag (or verified develop).
    Keep existing mounts, environment and credentials. No XML/new mount/migration.
 2. Confirm the six package IDs/measurements/rules and existing product choices survived.
-   Enter the real card-mailer Shopify ID through its package Edit page.
+   Enter the real card-mailer Shopify ID through its package Edit page and use the
+   main Save Locally button. Reopen/reload, then restart once and confirm it remains
+   verbatim and labelled manually entered, not remotely verified. No publishing is
+   needed for this local acceptance test.
 3. Open a single-card product. Preserve finished and independent packed dimensions,
    price/weight/modifiers and SKU. Select that local mailer explicitly, Save Locally,
    wait for normal scanner projection, then open Product Review & Sync.

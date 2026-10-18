@@ -1,5 +1,12 @@
 # Packaging & Shipping — M3A.9.5.4 (final reduced scope)
 
+**Current package simplification:** the [Shipping Packages guide](SHIPPING_PACKAGES.md)
+supersedes historical protection/capacity/physical-verification requirements below.
+Those values are historical data only, not active controls or recommendation gates.
+Solo recommendations check basic size: internal axes, otherwise exterior bounds
+explicitly estimated/unverified, and the C5+3mm exception. No carrier approval,
+shipping-rate calculation or physical fit certification is implied.
+
 **Current reduced manager scope:** automatic catalogue reconciliation/sync was removed.
 Settings keeps the six local records and manually entered Shopify Package IDs. The
 normal reviewed product publisher can submit2026-10 InventoryItem assignments and

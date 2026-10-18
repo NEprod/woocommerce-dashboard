@@ -13,8 +13,8 @@ def validate(value):
     value=value.strip()
     # The documented scalar is ID; its package object name is not publicly readable.
     # Preserve the actual package GID, never manufacture one from a number or name.
-    if len(value)>96 or not re.fullmatch(r'gid://shopify/(?:[A-Za-z][A-Za-z0-9]*)?Package/[1-9][0-9]{0,29}',value):
-        raise ValueError('Use the complete gid://shopify/…Package/… identifier copied from your own Shopify Admin. Do not invent or convert an ID.')
+    if len(value)>96 or not re.fullmatch(r'gid://shopify/(?:[A-Za-z][A-Za-z0-9]*)?Package(?:V[1-9][0-9]*)?/[1-9][0-9]{0,29}',value):
+        raise ValueError('Use the complete Shopify package GID (including ShippingPackageV2 when supplied) copied from your own Shopify Admin. Do not invent or convert an ID.')
     return value
 
 
@@ -41,7 +41,7 @@ def current(package_id):
     except ValueError as exc:return {'id':None,'status':str(exc),'revision':None,'expected':[]}
 
 
-def set_id(package,value,expected,*,unlink=False,confirmed=False):
+def set_id(package,value,expected,*,unlink=False,confirmed=False,commit=True):
     from app.shopify_drafts import configuration
     config=configuration();scope=stores(config)
     rows=PackageLink.query.filter(PackageLink.package_id==package.id,PackageLink.store_id.in_(scope)).all()
@@ -64,7 +64,8 @@ def set_id(package,value,expected,*,unlink=False,confirmed=False):
             db.session.flush()
         if target:db.session.add(PackageLink(package_id=package.id,store_id='domain:'+config.domain,remote_id=target,
             observed=json.dumps({'source':'manual_id','api_verified':False}),checked_at=datetime.utcnow()))
-        db.session.commit()
+        if commit: db.session.commit()
+        else: db.session.flush()
     except IntegrityError:
         db.session.rollback();raise ValueError('Concurrent or duplicate package link; reload. No link was replaced.') from None
     except Exception:

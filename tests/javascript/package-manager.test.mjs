@@ -18,7 +18,7 @@ function formFixture(){
 test('package unit controls convert dimensions and weights but never money or C5 thickness rule',()=>{
   const f=formFixture();f.size.value='mm';f.size.events.change();f.weight.value='kg';f.weight.events.change();
   assert.equal(f.get('external_cm.length').value,'180');assert.equal(f.get('internal_cm.length').value,'170');
-  assert.equal(f.get('tare_g').value,'0.04');assert.equal(f.get('max_contents_g').value,'1');
+  assert.equal(f.get('tare_g').value,'0.04');assert.equal(String(f.get('max_contents_g').value),'1000'); // retired control is not converted
   assert.equal(String(f.get('max_contents_thickness_mm').value),'3');assert.equal(String(f.get('cost_pence').value),'20');
   assert.equal(f.lengthLabel.textContent,'mm');assert.equal(f.weightLabel.textContent,'kg');
   const payload=f.api.packageData(f.form);assert.equal(payload.dimension_unit,'mm');assert.equal(payload.weight_unit,'kg');

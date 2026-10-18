@@ -13,37 +13,43 @@
   const button=(text,run)=>{const n=element('button',text,'btn btn-sm btn-outline-primary');n.type='button';n.addEventListener('click',run);return n;};
   const clone=value=>structuredClone(value || {});
   const idForm=document.querySelector('[data-package-id-form]');
-  if(idForm){const retained=JSON.parse(document.getElementById('package-link-bootstrap').textContent);
+  let packageIdRequest;
+  if(idForm){const retained=JSON.parse(document.getElementById('package-link-bootstrap').textContent) || {id:null,expected:[]};
+    packageIdRequest=()=>({id:idForm.querySelector('[name="shopify_package_id"]').value,expected:retained.expected,
+      unlink:!!idForm.querySelector('[data-confirm-unlink]')?.checked,confirm:!!idForm.querySelector('[data-confirm-unlink]')?.checked});
     async function saveId(unlink){const feedback=idForm.querySelector('[data-package-id-feedback]');
+      const parent=document.querySelector('[data-package-form]');
+      if(parent?.dataset.saving==='yes'){feedback.textContent='A local save is already in progress.';return;}
       if(unlink&&!idForm.querySelector('[data-confirm-unlink]')?.checked){feedback.textContent='Confirm unlinking first. Remote assignments are not cleared.';return;}
+      if(parent)parent.dataset.saving='yes';
       idForm.querySelectorAll('button').forEach(b=>b.disabled=true);
-      try{const result=await api(idForm.dataset.url,{id:idForm.elements.shopify_package_id.value,expected:retained.expected,unlink,confirm:unlink});
-        Object.assign(retained,result.package_link);idForm.elements.shopify_package_id.value=retained.id || '';
+      try{const result=await api(idForm.dataset.url,{id:idForm.querySelector('[name="shopify_package_id"]').value,expected:retained.expected,unlink,confirm:unlink});
+        Object.assign(retained,result.package_link);idForm.querySelector('[name="shopify_package_id"]').value=retained.id || '';
         idForm.querySelector('[data-package-id-status]').textContent=retained.status;
         const packageForm=document.querySelector('[data-package-form]');if(packageForm)packageForm.dataset.version=String(result.package_version);
         idForm.querySelectorAll('button').forEach(b=>b.disabled=false);idForm.querySelector('[data-unlink-package]').disabled=!retained.id;
         idForm.querySelector('[data-confirm-unlink]').checked=false;feedback.textContent='Saved locally. ID is not remotely verified. Unsaved package measurements are retained.';
-      }catch(error){feedback.textContent=error.message;idForm.querySelectorAll('button').forEach(b=>b.disabled=false);}}
-    idForm.addEventListener('submit',event=>{event.preventDefault();saveId(false);});
+      }catch(error){feedback.textContent=error.message;idForm.querySelectorAll('button').forEach(b=>b.disabled=false);}
+      finally{if(parent)delete parent.dataset.saving;}}
+    idForm.querySelector('[data-save-package-id]')?.addEventListener('click',()=>saveId(false));
     idForm.querySelector('[data-unlink-package]')?.addEventListener('click',()=>saveId(true));
   }
   const merge=(a,b)=>{const r=clone(a);Object.entries(b || {}).forEach(([k,v])=>{if(k==='packed_dimensions'){delete r.packed_dimensions_cm;r[k]=clone(v);}else {if(k==='packed_dimensions_cm')delete r.packed_dimensions;r[k]=v && typeof v==='object' && !Array.isArray(v)?merge(r[k],v):structuredClone(v);}});return r;};
   const readPath=(o,path)=>path.split('.').reduce((v,k)=>v?.[k],o);
   function setPath(o,path,value){const parts=path.split('.');const key=parts.pop();let target=o;parts.forEach(k=>{target[k] ||= {};target=target[k];});if(value===undefined)delete target[key];else target[key]=value;}
   function packageData(form){const result={};form.querySelectorAll('[name]').forEach(n=>{
+    if(n.name==='shopify_package_id')return;
     let value=n.type==='checkbox'?n.checked:n.value;
-    if(n.name==='protection')value=value.split(',').map(s=>s.trim()).filter(Boolean);
-    if(n.name==='cost_pence')value=value===''?null:Number(value);
     setPath(result,n.name,value);
   });return result;}
-  function populatePackage(form,data){form.querySelectorAll('[name]').forEach(n=>{let v=readPath(data,n.name);if(n.tagName==='SELECT' && v===undefined)return;if(n.name==='protection')v=(v || []).join(', ');if(n.type==='checkbox')n.checked=v===true;else n.value=v ?? '';});packageUnits(form);}
+  function populatePackage(form,data){form.querySelectorAll('[name]').forEach(n=>{if(n.name==='shopify_package_id')return;let v=readPath(data,n.name);if(n.tagName==='SELECT' && v===undefined)return;if(n.type==='checkbox')n.checked=v===true;else n.value=v ?? '';});packageUnits(form);}
   function packageUnits(form){form.querySelectorAll('[data-package-unit]').forEach(select=>{
     if(select.dataset.bound)return;select.dataset.bound='yes';let previous=select.value;
     const lengths={cm:1,mm:.1,in:2.54},weights={g:1,kg:1000,oz:28.349523125,lb:453.59237};
     const isLength=select.dataset.packageUnit==='length',factors=isLength?lengths:weights;
     select.addEventListener('change',()=>{const ratio=factors[previous]/factors[select.value];
       form.querySelectorAll('input[name]').forEach(input=>{const name=input.name;
-        const relevant=isLength?(name.startsWith('external_cm.')||name.startsWith('internal_cm.')||['external_diameter_cm','internal_diameter_cm','end_cap_allowance_cm','clearance_cm'].includes(name)):['tare_g','max_contents_g','max_gross_g','protection_weight_g'].includes(name);
+        const relevant=isLength?(name.startsWith('external_cm.')||name.startsWith('internal_cm.')||['external_diameter_cm','internal_diameter_cm'].includes(name)):name==='tare_g';
         if(relevant&&input.value!=='')input.value=String(Number((Number(input.value)*ratio).toPrecision(14)));
       });form.querySelectorAll(isLength?'[data-length-unit]':'[data-weight-unit]').forEach(n=>n.textContent=select.value);previous=select.value;
     });
@@ -51,8 +57,9 @@
   function output(target,result){
     target.replaceChildren();target.append(element('p',result.notice));
     (result.warnings || []).forEach(v=>target.append(element('p',v,'alert alert-warning')));
-    if(result.recommendation){const value=result.recommendation;target.append(element('p',`${value.name} · ${value.fit} fit · ${value.gross_weight_g} g gross. ${value.reason}`));}
-    if(result.alternatives?.length){const d=element('details');d.append(element('summary','Alternative solo packages'));result.alternatives.forEach(p=>d.append(element('p',`${p.name} · ${p.gross_weight_g} g gross`)));target.append(d);}
+    const gross=value=>value==null?'Gross weight unknown':`${value} g gross`;
+    if(result.recommendation){const value=result.recommendation;target.append(element('p',`${value.name} · ${value.fit} · ${gross(value.gross_weight_g)}. ${value.reason}`));}
+    if(result.alternatives?.length){const d=element('details');d.append(element('summary','Alternative solo packages'));result.alternatives.forEach(p=>d.append(element('p',`${p.name} · ${p.fit || 'Inspect fit'} · ${gross(p.gross_weight_g)}`)));target.append(d);}
     if(result.rejected_packages?.length){const d=element('details');d.append(element('summary','Fit checks / measurements needed'));result.rejected_packages.forEach(p=>d.append(element('p',`${p.name}: ${p.reason}`)));target.append(d);}
   }
   async function inlinePackage(onSaved){
@@ -125,8 +132,8 @@
       this.assignmentStatus=element('p',null,'field-helper');details.append(this.assignmentStatus);
       const state=()=>{const row=this.controls.find(c=>c.kind==='package');if(!row)return;
         if(this.assignmentCheckbox)this.assignmentCheckbox.checked=!!row.input.value;
-        this.assignmentStatus.textContent=row.inherit.value==='inherit'?(this.shared.selected_package_id?'Inherited package':'No package selected · advisory recommendations only'):
-          !row.input.value?'Explicitly no package assigned · parent selection not inherited':this.value.assignment_kind==='accepted'?'Recommendation accepted':'Manually selected package';};
+        this.assignmentStatus.textContent=row.inherit.value==='inherit'?(this.shared.selected_package_id?'Inherited package · fit unverified':'No package selected · advisory recommendations only'):
+          !row.input.value?'Explicitly no package assigned · parent selection not inherited':this.value.assignment_kind==='accepted'?'Recommendation accepted · size check only':'Manually selected package · fit unverified';};
       definitions.forEach(([definitionPath,definitionLabel,kind])=>{
         const isSize=definitionPath.startsWith('packed_dimensions_cm.'),axis=definitionPath.split('.')[1];
         const path=isSize?this.sizePath+'.'+axis:definitionPath,label=isSize?definitionLabel.replace(' (cm)',''):definitionLabel;
@@ -209,7 +216,11 @@
   const form=document.querySelector('[data-package-form]');
   if(form){const data=JSON.parse(document.getElementById('package-bootstrap').textContent || 'null') || {};populatePackage(form,data);
     const copy=document.querySelector('[data-native-package-copy]');if(copy)copy.textContent=JSON.stringify({name:data.name,type:data.type,dimensions:data.external_cm,diameter_cm:data.external_diameter_cm,weight_g:data.tare_g},null,2);
-    form.addEventListener('submit',async e=>{e.preventDefault();try{const result=await api(form.dataset.saveUrl,{...packageData(form),version:Number(form.dataset.version || data.version)});window.location.assign(result.url);}catch(error){form.querySelector('[data-package-feedback]').textContent=error.message;}});
+    form.addEventListener('submit',async e=>{e.preventDefault();if(form.dataset.saving==='yes')return;form.dataset.saving='yes';
+      const submit=form.querySelector('button:not([type])');if(submit)submit.disabled=true;
+      try{const result=await api(form.dataset.saveUrl,{...packageData(form),version:Number(form.dataset.version || data.version),...(packageIdRequest?{shopify_link:packageIdRequest()}: {})});window.location.assign(result.url);}
+      catch(error){form.querySelector('[data-package-feedback]').textContent=error.message;}
+      finally{delete form.dataset.saving;if(submit)submit.disabled=false;}});
     form.querySelector('[data-package-duplicate]')?.addEventListener('click',async()=>{try{const r=await api(`/packaging/${data.id}/duplicate`,{});window.location.assign(r.url);}catch(e){form.querySelector('[data-package-feedback]').textContent=e.message;}});
   }
   document.querySelector('[data-package-archive]')?.addEventListener('click',async e=>{const n=e.currentTarget;if(!confirm(`Archive locally? ${n.dataset.dependentCount} assignments may need review. Shopify packages stay unchanged.`))return;try{await api(`/packaging/${n.dataset.packageArchive}/archive`,{confirm:true,version:Number(n.dataset.packageVersion)});window.location.assign('/packaging/');}catch(error){document.querySelector('[data-package-feedback]').textContent=error.message;}});

@@ -1,18 +1,19 @@
 <div class="editor-field-grid" data-package-fields>
-<label>Name<input class="form-control" name="name" required maxlength="191"></label>
-<label>Type<select class="form-select" name="type"><option value="BOX">Box</option><option value="ENVELOPE">Envelope</option><option value="TUBE">Cylindrical tube</option><option value="SOFT_PACK">Soft Pack (manual only)</option></select></label>
-<label>Dimension unit<select class="form-select" name="dimension_unit" data-package-unit="length"><option value="cm">cm</option><option value="mm">mm</option><option value="in">inches</option></select></label>
-{% for axis in ['length','width','height'] %}<label>Outside {{ axis }} (<span data-length-unit>cm</span>)<input class="form-control" name="external_cm.{{ axis }}" type="number" min="0.000001" step="any" placeholder="Unknown"></label>{% endfor %}
+<label>Package name<input class="form-control" name="name" required maxlength="191"></label>
+<label>Package type<select class="form-select" name="type"><option value="BOX">Box</option><option value="ENVELOPE">Envelope</option><option value="TUBE">Cylindrical tube</option><option value="SOFT_PACK">Soft Pack</option></select></label>
+<label>Measurement units<select class="form-select" name="dimension_unit" data-package-unit="length"><option value="cm">cm</option><option value="mm">mm</option><option value="in">inches</option></select></label>
+{% for axis in ['length','width','height'] %}<label>External {{ axis }} (<span data-length-unit>cm</span>)<input class="form-control" name="external_cm.{{ axis }}" type="number" min="0.000001" step="any" placeholder="Unknown"></label>{% endfor %}
+<label>External tube diameter (<span data-length-unit>cm</span>)<input class="form-control" name="external_diameter_cm" type="number" min="0.000001" step="any" placeholder="Tubes only"></label>
 <label>Weight unit<select class="form-select" name="weight_unit" data-package-unit="weight"><option>g</option><option>kg</option><option>oz</option><option>lb</option></select></label>
 <label>Empty package weight (<span data-weight-unit>g</span>)<input class="form-control" name="tare_g" type="number" min="0" step="any" placeholder="Unknown"></label>
-</div><details><summary>Optional usable measurements and TLC fitting rules</summary><p>These rules remain local. Outside dimensions are not usable space. Tube measurements do not imply a native Shopify tube type.</p><div class="editor-field-grid">
-{% for axis in ['length','width','height'] %}<label>Internal usable {{ axis }} (<span data-length-unit>cm</span>)<input class="form-control" name="internal_cm.{{ axis }}" type="number" min="0.000001" step="any" placeholder="Unknown"></label>{% endfor %}
-{% for key,label in [('external_diameter_cm','External tube diameter'),('internal_diameter_cm','Usable tube diameter'),('end_cap_allowance_cm','Total tube length reserved for end caps'),('clearance_cm','Additional clearance, each face')] %}<label>{{ label }} (<span data-length-unit>cm</span>)<input class="form-control" name="{{ key }}" type="number" min="0" step="any" placeholder="Unknown"></label>{% endfor %}
-{% for key,label in [('max_contents_g','Maximum contents weight'),('max_gross_g','Maximum gross weight'),('protection_weight_g','Protective material weight')] %}<label>{{ label }} (<span data-weight-unit>g</span>)<input class="form-control" name="{{ key }}" type="number" min="0" step="any" placeholder="Unknown"></label>{% endfor %}
-<label>Maximum contents thickness (mm; TLC rule)<input class="form-control" name="max_contents_thickness_mm" type="number" min="0" step="any" placeholder="Unknown / no constraint"></label><label>Unit cost (GBP pence)<input class="form-control" name="cost_pence" type="number" min="0" step="1" placeholder="Unknown"></label>
-<label>Approved protection/materials (comma separated)<input class="form-control" name="protection" placeholder="e.g. rigid backing, bubble wrap"></label>
 </div>
-</details>
-<div class="packaging-checks">{% for key,label in [('dimensions_measured','External and usable dimensions physically measured'),('tare_measured','Empty weight physically measured'),('automatic','Eligible for solo recommendations'),('flat','Approved protection for flat/rigid goods'),('fragile','Approved for fragile contents'),('rolled','Approved for measured rolled goods')] %}<label><input type="checkbox" name="{{ key }}"> {{ label }}</label>{% endfor %}</div>
-<label>Notes<textarea class="form-control" name="notes" maxlength="2000" rows="2"></textarea></label>
-<p class="field-helper">Unknown is not zero. Tube length is axial; diameter is cylindrical, not a rectangular width. Enter usable length before the separately specified end-cap reserve. The 3 mm C5+ contents rule is merchant-specific, not a universal postal limit. Confirm interior, weight and protection before recommendations. Nothing here changes Shopify checkout.</p>
+<details><summary>Advanced · optional internal usable dimensions</summary><p>Internal dimensions take precedence axis by axis. Missing axes use external bounds with Estimated Fit only, never proof of physical fit.</p><div class="editor-field-grid">
+{% for axis in ['length','width','height'] %}<label>Internal usable {{ axis }} (<span data-length-unit>cm</span>)<input class="form-control" name="internal_cm.{{ axis }}" type="number" min="0.000001" step="any" placeholder="Unknown"></label>{% endfor %}
+<label>Internal tube diameter (<span data-length-unit>cm</span>)<input class="form-control" name="internal_diameter_cm" type="number" min="0.000001" step="any" placeholder="Tubes only"></label>
+<label>Maximum contents thickness (mm; optional)<input class="form-control" name="max_contents_thickness_mm" type="number" min="0.000001" step="any" placeholder="No constraint"></label>
+</div></details>
+<details><summary>Optional purchasing information · TLC only</summary><div class="editor-field-grid">
+<label>Purchase price per package (GBP)<input class="form-control" name="purchase_price" type="number" min="0" step="0.01" placeholder="Unknown"></label>
+<label>Supplier / purchase URL<input class="form-control" name="purchase_url" type="url" maxlength="2048" placeholder="https://…"></label>
+</div><p class="field-helper">Local reference only, not a product price or shipping charge. Package image uploads are not yet supported; catalogue artwork is unchanged.</p></details>
+<p class="field-helper">Unknown is not zero. Tube length is axial; diameter is cylindrical, not a rectangular width. The C5+ 3 mm contents limit is retained and is not applied to the Large Letter Box. Recommendations check basic size only, not protection or carrier suitability. Manual selection is allowed with unverified fit. Nothing here changes Shopify checkout or selected product packages.</p>

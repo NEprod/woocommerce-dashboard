@@ -1,5 +1,28 @@
 # Current State
 
+## Shipping Packages simplification and Shopify Package V2 ID saving
+
+The package-GID validator rejected Shopify's genuine `ShippingPackageV2` object
+name; the main Save Locally action also omitted the separate ID input. Both are
+corrected: V2 IDs are preserved verbatim and the main save commits measurements
+and ID atomically, retaining duplicate/stale-link checks and confirmed unlink.
+ID-only saves still preserve unsaved measurement edits. IDs remain manually
+entered, not remotely verified. Assignment transport and Product reconciliation
+are unchanged.
+
+The active package model/form and solo size checker no longer require protection,
+fragility/flat/rolled approvals, clearance/end-cap/material-weight/capacity fields
+or physical-verification checkboxes. Historical JSON is preserved without a
+migration (head0018), but those values no longer gate or rank recommendations.
+Collapsed Advanced contains only optional usable measurements and the explicit
+contents-thickness exception. Internal axes win; missing axes use exterior bounds
+as estimated/unverified. Unknown is not zero, C5+3mm remains, and incomplete packages
+remain manually selectable. Internal size checks are not physical fit certification.
+Optional GBP purchase price and supplier URL are local-only. Package image upload
+is deferred: no suitable existing generic package asset store was found.
+See [the current guide](SHIPPING_PACKAGES.md). No shipping rates/checkout/default,
+product measurement/modifier, Orders, scope, theme or live Shopify changes.
+
 ## Urgent Product reconciliation repair — after8f83e6e
 
 Write-only package acknowledgement no longer blocks complete readable Product evidence
