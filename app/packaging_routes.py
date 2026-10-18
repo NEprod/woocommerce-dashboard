@@ -135,13 +135,32 @@ def capabilities():
 def recommend():
     value=body(); document=value.get('document')
     if not isinstance(document,dict): raise ValueError('Enter the current local draft.')
-    from app.packaging_contract import effective
+    from app.packaging_contract import effective, packed_cm, finished_mm, AXES
     from app.packing import recommend as solo
     item=effective(document,value.get('attributes'))
     from app.utils.json_utils import apply_variation_modifiers
     weight=apply_variation_modifiers(document,value['attributes'],log=lambda *a,**k:None)['weight'] if value.get('attributes') is not None else document.get('weight')
     item.setdefault('weight_g',weight)
-    return jsonify(solo(item,workspace.packages()))
+    provisional=[]
+    if value.get('display_finished_fallback') is True:
+        # A temporary recommendation input only. Never persist this document or
+        # expose this fallback through packed_cm/the Shopify publisher.
+        from decimal import Decimal
+        size=packed_cm(item)
+        finished=finished_mm(document,value.get('attributes')) or {}
+        for axis in AXES:
+            if axis not in size and finished.get(axis) is not None:
+                size[axis]=str(Decimal(finished[axis])/10);provisional.append(axis)
+        if provisional:
+            item.pop('packed_dimensions',None);item['packed_dimensions_cm']=size
+    result=solo(item,workspace.packages())
+    if provisional:
+        warning='Estimated Fit: provisional finished dimensions used for '+', '.join(provisional)+'. Copy or enter independent packed measurements before Shopify review.'
+        result['warnings'].insert(0,warning)
+        for fit in [result['recommendation'],*result['alternatives']]:
+            if fit: fit['fit']='Estimated Fit (provisional finished size)'
+        if result['recommendation']: result['state']='estimated'
+    return jsonify(result)
 
 
 @packaging.post('/<package_id>/shopify-id')

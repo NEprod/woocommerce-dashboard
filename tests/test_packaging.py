@@ -182,9 +182,11 @@ def test_native_explicit_packed_size_only_2027_and_finished_never_fallback(monke
     assert native.desired(p)['desired']['length']==21
     assert variables.packed_policy({},authored['packaging'])['desired']['length']==21
     authored['packaging']['measured']=False
-    assert native.desired(p)['desired'] is None
+    # The retired physical-verification checkbox is not an authoring gate.
+    # Complete explicit sizes still require signed review and the API opt-in.
+    assert native.desired(p)['desired']['length']==21
     monkeypatch.setenv('SHOPIFY_NATIVE_DIMENSIONS_ENABLED','false')
-    assert native.desired(p)['desired'] is None and native.VERSION=='2027-01'
+    assert native.desired(p)['enabled'] is False and native.VERSION=='2027-01'
 
 
 def test_native_precision_and_invalid_finished_values():

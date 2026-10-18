@@ -68,8 +68,8 @@ Existing attribute/value expressions identify groups. Crossed geometry exception
 that cannot be represented by one broad rule retain full option expressions.
 
 A modal shows old/new sizes before applying. Overwriting authored or inherited sizes
-requires its checkbox. Copy changes only packed size and resets `measured:false`:
-a copy is not proof of physical measurement. Prices, weights, finished values,
+requires its checkbox. Copy changes only packed size; it no longer adds the retired
+`measured` flag. A copy is not proof of physical fit. Prices, weights, finished values,
 unknown JSON and unsaved edits are preserved. Existing specific shipping exceptions
 remain. Cancel writes nothing. Subsequent finished edits never recopy automatically;
 the UI reminds the merchant to review shipping independently.
@@ -88,7 +88,8 @@ unpublished-theme validation using the existing guide's Liquid/dynamic-source se
 
 Only `SHOPIFY_NATIVE_DIMENSIONS_ENABLED=true` enables the existing2027-01 adapter.
 The retired reuse flag is ignored, even if left true in Unraid. Only complete,
-independently authored `measured:true` packed dimensions can be proposed. Existing
+independently authored packed dimensions can be proposed, without the retired measured
+checkbox. Provisional editor placeholders are never included. Existing
 capability introspection, installed scope check (`write_inventory`, with product/
 inventory read access), signed source review, retained variant/InventoryItem mapping,
 durable pre-write receipt, independent readback and read-only uncertain-write recovery

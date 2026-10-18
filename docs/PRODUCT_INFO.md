@@ -1,5 +1,14 @@
 # product_info.json Contract
 
+## Shipping editor correction
+
+Shipping-only child `variation_modifiers` patches extend inherited modifier entries
+without replacing parent commercial rules. Historical commercial override objects
+retain replacement behaviour. Root/modifier shipping use the same schema. Explicit
+null package choices survive Intake serialization. Display fallback never writes
+packed axes. Retired verification/protection keys stay compatible, not new requirements.
+See [current rules and examples](PRODUCT_SHIPPING_EDITOR_REPAIR.md).
+
 ## M3A.9.5.6 — dimensional authority correction
 
 `dimensions` is the original finished-product size in millimetres, with established

@@ -1,5 +1,17 @@
 # Current State
 
+## Compact Product Shipping Editor and sparse override repair
+
+Saved package UUIDs survive asynchronous options; shipping-only size exceptions no
+longer depend on the commercial modifier switch or fail the closed schema. Child
+patches preserve inherited price/weight rules. Packed axes and package choice remain
+independent; one selector supports inherit/selected/explicit none. Blank axes show
+provisional finished placeholders only, never saved/native targets. Fallback-based
+local recommendations are estimated. No measured checkbox, duplicate weight or
+protection controls; historical JSON remains. Complete explicit packed sizes still
+require signed capability-gated review. No migration beyond0018 or live Shopify,
+checkout/rate/app/theme change. [Repair and acceptance](PRODUCT_SHIPPING_EDITOR_REPAIR.md).
+
 ## Final package-type UI and explicit historical thickness review
 
 Envelope editors show external length/width, boxes length/width/height, and local

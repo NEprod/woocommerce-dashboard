@@ -1,5 +1,13 @@
 # Roadmap
 
+## Accept compact Product Shipping Editor repair
+
+Validate child package and independent packed overrides on one single-size and one
+multi-size product, without editing Shared Collection Data. Check saved UUIDs, targeted
+scanner and signed Review & Sync; provisional placeholders must not become native
+updates. No schema migration beyond0018, new shipping system or live activation.
+See [acceptance procedure](PRODUCT_SHIPPING_EDITOR_REPAIR.md).
+
 ## Priority regression repair — Shopify Product evidence after8f83e6e
 
 Restore readable managed-field freshness independently of write-only optional package

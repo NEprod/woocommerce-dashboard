@@ -46,6 +46,7 @@
 {% for id, name in [('basic-information-title','General'),('publishing-title','Publishing'),('pricing-title','Pricing'),('attributes-title','Variations & attributes'),('image-attributes-title','Images'),('categories-tags-title','Organisation'),('shipping-title','Shipping'),('seo-title','SEO'),('customisations-title','Customisations'),('advanced-fields-title','Advanced')] %}<a href="#{{ id }}">{{ name }}</a>{% endfor %}
 </nav>
 <div class="metadata-owner-actions">
+<span data-save-state role="status" aria-live="polite">Saved</span>
 {% if is_shared and workspace.can_override %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='override') }}">Edit Product Overrides</a>{% elif not is_shared %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='shared') }}">Edit Shared Collection Data</a>{% endif %}
 <p>SKU <code>{{ product.sku }}</code> · Source <code>{{ workspace.authored.reference }}</code> · {{ 'Shared defaults' if is_shared else 'Sparse product overrides' }}</p>
 </div>

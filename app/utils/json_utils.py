@@ -135,6 +135,19 @@ def merge_product_json(shared, override, path=None, *, collection_path=None, lay
         if key == "packaging":
             from app.packaging_contract import merge
             result[key] = merge(shared.get(key), value)
+        elif key == "variation_modifiers" and value and all(
+                isinstance(mod, dict) and mod and set(mod) <= {"packaging", "finished_dimensions"}
+                for mod in value.values()):
+            # Shipping-only child exceptions must not replace the collection's
+            # existing commercial modifier table. Historical commercial override
+            # tables retain their established replacement semantics below.
+            from copy import deepcopy
+            from app.packaging_contract import merge
+            result[key] = deepcopy(shared.get(key, {}))
+            for expression, patch in value.items():
+                target = result[key].setdefault(expression, {})
+                for field, item in patch.items():
+                    target[field] = merge(target.get(field), item) if field == 'packaging' else deepcopy(item)
         elif key == "customisation":
             continue  # resolve the two authored layers once, below
         elif key in {"variation_attributes", "storefront_collections"}:

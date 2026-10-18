@@ -1,5 +1,15 @@
 # M3A.9 Product Creator & Editor contract
 
+## Compact shipping and independent sparse overrides
+
+Packed axes and package choice have independent inheritance. A child can inherit,
+select or explicitly decline a package without copying parent dimensions. Size-only
+shipping exceptions serialize without enabling the commercial modifier-table override;
+the schema accepts packaging/finished extensions at both levels. Provisional finished
+values are placeholders only, not authored packed measurements. Save Metadata compares
+actual authored values and clears dirty state on revert. See the [current correction](PRODUCT_SHIPPING_EDITOR_REPAIR.md),
+which supersedes earlier measured-switch and duplicate package-control descriptions.
+
 ## Shipping Packages follow-up — central manual IDs
 
 Package choices still use stable local UUIDs, inheritance and explicit null. Settings

@@ -57,7 +57,7 @@ No scope/theme/app release, migration or shipping setting is changed. Details:
 
 Original product/variant dimensions are finished size. Both native publisher fallbacks
 are removed even when SHOPIFY_PACKED_DIMENSIONS_USE_PRODUCT_DIMENSIONS remains true.
-Only independently authored measured packaging size can publish; mm/cm/in normalise
+Only complete independently authored packaging size can publish; mm/cm/in normalise
 exactly through the existing isolated2027-01 capability. Normal operations stay2026-10.
 Signed ordinary reviews, scopes, durable reservations, GIDs, readback and uncertainty
 recovery are preserved. Historical reuse receipts support advisory findings, not

@@ -14,6 +14,8 @@
   "sale_end_date": "2026-02-28",
   "weight": 120,
   "dimensions": {"length": 210, "width": 148, "height": 4},
+  "finished_dimensions": {"length": 210, "width": 148, "height": 4, "unit": "mm"},
+  "packaging": {"packed_dimensions": {"length": 220, "width": 155, "height": 6, "unit": "mm"}, "selected_package_id": null},
   "categories": ["Fictional Reference"],
   "tags": ["fictional", "complete"],
   "live": false,
@@ -31,7 +33,8 @@
       "price": "24.00",
       "sale_price": "19.00",
       "weight": 150,
-      "dimensions": {"length": 297, "width": 210, "height": 5}
+      "dimensions": {"length": 297, "width": 210, "height": 5},
+      "packaging": {"packed_dimensions": {"length": 310, "width": 220, "height": 7, "unit": "mm"}}
     }
   },
   "shipping_class": "fictional-class",

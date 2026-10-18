@@ -47,11 +47,10 @@ def has_packed(packaging):
 
 
 def explicit_packed(packaging):
-    """Authored measured shipping size wins; never silently fall back to artwork."""
+    """Only explicit complete shipping measurements; no display fallback."""
     from app.packaging_contract import validate, AXES, number, packed_cm
     try:
         validate(packaging)
-        if not packaging.get('measured'): raise ValueError('Confirm packed measurements before Shopify review.')
         size=packed_cm(packaging)
         values={k:number(size.get(k),k) for k in AXES}
         canonical={k:float(v.quantize(Decimal('0.0000001'))) for k,v in values.items()}

@@ -55,6 +55,10 @@ def load_schema(name):
     from app.packaging_contract import PACKAGING_SCHEMA, FINISHED_SCHEMA
     schema['properties']['packaging'] = PACKAGING_SCHEMA
     schema['properties']['finished_dimensions'] = FINISHED_SCHEMA
+    # Modifier editors use the same shipping contract as the product root.
+    # Previously the closed modifier schema rejected their otherwise valid saves.
+    schema['$defs']['variationModifier']['properties'].update(
+        packaging=PACKAGING_SCHEMA, finished_dimensions=FINISHED_SCHEMA)
     for key in ('sale_start_date','sale_end_date'):
         schema['properties'][key] = {'type':'string','anyOf':[{'format':'date'},{'format':'date-time'}, {'pattern':r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$'}]}
     schema['properties']['shopify_status'] = {'enum':['DRAFT','ACTIVE','ARCHIVED']}

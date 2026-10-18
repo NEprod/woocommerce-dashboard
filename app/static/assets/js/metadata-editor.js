@@ -91,6 +91,7 @@
   }
 
   function setDirty(value) {
+    if (value && activeMode === 'guided') value = JSON.stringify(guidedDocument()) !== JSON.stringify(originalDocument);
     dirty = value;
     saveStates.forEach((node) => { node.textContent = value ? "Unsaved changes" : "Saved"; });
     window.TLCSaleEditor?.refresh();
@@ -153,9 +154,11 @@
       guided.querySelectorAll("[data-attributes-editor] input:not([data-use-variation]), [data-attributes-editor] button, [data-add-attribute]").forEach((control) => { control.disabled = !enabled; });
     }
     if (field === "variation_modifiers") {
-      guided.querySelectorAll("[data-modifiers-editor] input, [data-modifiers-editor] button, [data-add-modifier]").forEach((control) => { control.disabled = !enabled; });
-      guided.querySelectorAll('[data-modifier-row]').forEach(row=>row._packagingEditor?.setEnabled(enabled));
-      guided.querySelectorAll('[data-modifier-row]').forEach(row=>row._finishedEditor?.setEnabled(enabled));
+      guided.querySelectorAll("[data-modifiers-editor] input, [data-modifiers-editor] button, [data-add-modifier]").forEach((control) => { if(!control.matches('[data-add-shipping-exception]'))control.disabled = !enabled; });
+      // Shipping exceptions have independent sparse ownership, not this legacy
+      // whole-table price/weight override gate.
+      guided.querySelectorAll('[data-modifier-row]').forEach(row=>row._packagingEditor?.setEnabled(true));
+      guided.querySelectorAll('[data-modifier-row]').forEach(row=>row._finishedEditor?.setEnabled(true));
     }
     if (field === "dimensions") {
       guided.querySelectorAll("[data-dimension]").forEach((control) => { control.disabled = !enabled; });
@@ -310,23 +313,29 @@
   function renderModifiers(value) {
     const target = guided.querySelector("[data-modifiers-editor]");
     target.replaceChildren();
+    const shippingGroups=guided.querySelector('[data-shipping-configurations]');shippingGroups?.replaceChildren();
     Object.entries(value && typeof value === "object" && !Array.isArray(value) ? value : {}).forEach(([expression, modifier], index) => {
       const row = document.createElement("div");
       row.className = "structured-editor-row modifier-editor-row";
       row.dataset.modifierRow = "";
       row._originalModifier = structuredClone(modifier);
       const addShippingEditor=()=>{
+        const own=isShared?modifier:authored.variation_modifiers?.[expression] || {};
+        const parent=isShared?{}:boot.collection?.variation_modifiers?.[expression] || {};
+        const group=document.createElement('div');group.className='shipping-size-group';
+        const title=document.createElement('h3');title.textContent=expression;group.append(title);(shippingGroups || row).append(group);
         const finished = document.createElement('div'); row.appendChild(finished);
-        row._finishedEditor = new window.TLCPackaging.FinishedEditor(finished,{value:modifier.finished_dimensions,
-          shared:authored.finished_dimensions || boot.collection?.finished_dimensions,onChange:()=>setDirty(true)});
-        const packaging = document.createElement('div'); row.appendChild(packaging);
-        row._packagingEditor = new window.TLCPackaging.Editor(packaging, {value:modifier.packaging,
-          shared:window.TLCPackaging.merge(boot.collection?.packaging,authored.packaging),onChange:()=>setDirty(true),
+        row._finishedEditor = new window.TLCPackaging.FinishedEditor(finished,{value:own.finished_dimensions,
+          shared:parent.finished_dimensions || authored.finished_dimensions || boot.collection?.finished_dimensions,onChange:()=>setDirty(true)});
+        const packaging = document.createElement('div'); group.appendChild(packaging);
+        row._packagingEditor = new window.TLCPackaging.Editor(packaging, {value:own.packaging,inherited:!isShared,
+          shared:window.TLCPackaging.merge(window.TLCPackaging.merge(boot.collection?.packaging,authored.packaging),parent.packaging),onChange:()=>setDirty(true),
+          getShared:()=>window.TLCPackaging.merge(window.TLCPackaging.merge(isShared?{}:boot.collection?.packaging,packagingDesigner?.get()),parent.packaging),
           getAttributes:()=>Object.fromEntries(row.querySelector('[data-modifier-field="expression"]').value.split('|').map(v=>v.split('='))),
-          getDocument:()=>({...guidedDocument(),packaging:window.TLCPackaging.merge(window.TLCPackaging.merge(boot.collection?.packaging,packagingDesigner?.get()),row._packagingEditor.get())})});
+          getDocument:()=>window.TLCPackaging.sourceDocument(isShared?{}:boot.collection,guidedDocument())});
       };
       if (window.TLCPackaging && (modifier.dimensions || modifier.finished_dimensions || modifier.packaging)) addShippingEditor();
-      else if(window.TLCPackaging){const shippingButton=document.createElement('button');shippingButton.type='button';shippingButton.className='btn btn-sm btn-outline-primary';shippingButton.textContent='Add packed shipping exception';shippingButton.addEventListener('click',()=>{addShippingEditor();shippingButton.remove();setControlState('variation_modifiers');});row.append(shippingButton);}
+      else if(window.TLCPackaging){const shippingButton=document.createElement('button');shippingButton.type='button';shippingButton.dataset.addShippingException='';shippingButton.className='btn btn-sm btn-outline-primary';shippingButton.textContent='Add packed shipping exception';shippingButton.addEventListener('click',()=>{addShippingEditor();shippingButton.remove();setControlState('variation_modifiers');});row.append(shippingButton);}
       const fields = [
         ["expression", expression, "Modifier expression"], ["price", modifier.price, "Price"],
         ["sale_price", modifier.sale_price, "Sale price"], ["weight", modifier.weight, "Weight"],
@@ -348,16 +357,22 @@
     setControlState("variation_modifiers");
   }
 
-  function modifierValues() {
+  function modifierValues(shippingOnly = false) {
+    if(shippingOnly && overrideEnabled('variation_modifiers') && Array.from(guided.querySelectorAll('[data-modifier-row]')).some(row=>
+      ['price','sale_price','weight','length','width','height'].some(name=>{
+        const original=['length','width','height'].includes(name)?row._originalModifier?.dimensions?.[name]:row._originalModifier?.[name];
+        return row.querySelector(`[data-modifier-field="${name}"]`).value.trim()!==String(original ?? '');
+      })))return modifierValues(false);
     const result = {};
     guided.querySelectorAll("[data-modifier-row]").forEach((row) => {
       const value = (name) => row.querySelector(`[data-modifier-field="${name}"]`).value.trim();
       const expression = value("expression");
       if (!expression) return;
-      const modifier = structuredClone(row._originalModifier || {});
+      const modifier = structuredClone(shippingOnly ? authored.variation_modifiers?.[expression] || {} : row._originalModifier || {});
       ['price','sale_price','weight','dimensions'].forEach(k=>delete modifier[k]);
       if (row._packagingEditor) { const packing=row._packagingEditor.get();if(packing)modifier.packaging=packing;else delete modifier.packaging; }
       if(row._finishedEditor){const value=row._finishedEditor.get();if(value)modifier.finished_dimensions=value;else delete modifier.finished_dimensions;}
+      if(shippingOnly){if(Object.keys(modifier).length)result[expression]=modifier;return;}
       const retained=(text,original)=>original!=null && String(original)===text?original:text;
       ["price", "sale_price", "weight"].forEach((name) => { if (value(name)) modifier[name] = retained(value(name),row._originalModifier?.[name]); });
       const dimensions = {};
@@ -375,8 +390,8 @@
       value:authored.finished_dimensions,shared:isShared?{}:boot.collection?.finished_dimensions,onChange:()=>setDirty(true)});
     const packingRoot=guided.querySelector('[data-packaging-controls]');
     if(packingRoot && window.TLCPackaging) packagingDesigner=new window.TLCPackaging.Editor(packingRoot,{
-      value:authored.packaging,shared:isShared?{}:boot.collection?.packaging,onChange:()=>setDirty(true),
-      getDocument:()=>window.TLCPackaging.merge(isShared?{}:boot.collection,guidedDocument())});
+      value:authored.packaging,shared:isShared?{}:boot.collection?.packaging,inherited:!isShared,onChange:()=>setDirty(true),
+      getDocument:()=>window.TLCPackaging.sourceDocument(isShared?{}:boot.collection,guidedDocument())});
     if (!customisationDesigner && window.TLCCustomisations && guided.querySelector('[data-customisation-designer]')) {
       customisationDesigner = new window.TLCCustomisations.Designer(guided.querySelector('[data-customisation-designer]'), {
         value: authored.customisation, shared: isShared ? {} : boot.collection?.customisation || {},
@@ -406,7 +421,9 @@
     resolvedVariation = Array.isArray(valueFor("variation_attributes"));
     driverNames = resolvedVariation ? [...valueFor("variation_attributes")] : [];
     renderAttributes(valueFor("attributes"));
-    renderModifiers(valueFor("variation_modifiers"));
+    const ownModifiers=authored.variation_modifiers;
+    const shippingOnly=ownModifiers && Object.values(ownModifiers).every(v=>Object.keys(v).every(k=>['packaging','finished_dimensions'].includes(k)));
+    renderModifiers(!isShared && (!ownModifiers || shippingOnly)?window.TLCPackaging.merge(boot.collection?.variation_modifiers,ownModifiers):valueFor("variation_modifiers"));
     guided.querySelectorAll("[data-override-toggle]").forEach((toggle) => setControlState(toggle.dataset.overrideToggle));
     guided.querySelectorAll("[data-inherited-value]").forEach((node) => {
       const key = node.dataset.inheritedValue;
@@ -421,9 +438,11 @@
 
   function updateFinishedPreview(){
     const target=guided.querySelector('[data-product-finished-preview]');if(!target)return;
-    const current=window.TLCPackaging.merge(isShared?{}:boot.collection,guidedDocument());
+    const current=window.TLCPackaging.sourceDocument(isShared?{}:boot.collection,guidedDocument());
     const value=current.finished_dimensions?.unit?current.finished_dimensions:{...current.dimensions,unit:'mm'};
     target.textContent=value.length && value.width?`Finished size: ${['length','width','height'].map(k=>value[k] || 'Not set').join(' × ')} ${value.unit}. Packed size is independent.`:'Finished size incomplete; enter the actual product measurements.';
+    packagingDesigner?.refreshFallback();
+    guided.querySelectorAll('[data-modifier-row]').forEach(row=>row._packagingEditor?.refreshFallback());
   }
 
   function prune(value) {
@@ -467,7 +486,10 @@
     });
     if (overrideEnabled("attributes")) result.attributes = attributeValues();
     if (explicitVariation) result.variation_attributes = [...driverNames];
-    if (overrideEnabled("variation_modifiers")) result.variation_modifiers = modifierValues();
+    if (overrideEnabled("variation_modifiers")) {
+      const onlyShipping=Object.keys(authored.variation_modifiers || {}).length && Object.values(authored.variation_modifiers).every(v=>Object.keys(v).every(k=>['packaging','finished_dimensions'].includes(k)));
+      result.variation_modifiers = modifierValues(!isShared && !!onlyShipping);
+    } else if(!isShared) result.variation_modifiers = modifierValues(true);
     if (overrideEnabled("dimensions")) {
       result.dimensions = {};
       guided.querySelectorAll("[data-dimension]").forEach((control) => { result.dimensions[control.dataset.dimension] = control.value.trim(); });
@@ -481,7 +503,8 @@
       if (result[key] === "" && !["description", "short_description", "meta_title", "meta_description"].includes(key)) delete result[key];
     });
     if (!explicitVariation && !Object.hasOwn(authored, "attributes") && !Object.keys(result.attributes || {}).length) delete result.attributes;
-    if (!Object.hasOwn(authored, "variation_modifiers") && !Object.keys(result.variation_modifiers || {}).length) delete result.variation_modifiers;
+    if (!Object.keys(result.variation_modifiers || {}).length && (!Object.hasOwn(authored, "variation_modifiers") ||
+        !isShared && Object.values(authored.variation_modifiers).every(v=>Object.keys(v).every(k=>['packaging','finished_dimensions'].includes(k))))) delete result.variation_modifiers;
     return result;
   }
 
@@ -751,7 +774,7 @@
   guided.addEventListener("click", (event) => {
     if(event.target.closest('[data-copy-product-dimensions]')){
       const control=event.target.closest('[data-copy-product-dimensions]');control.disabled=true;
-      window.TLCPackaging.copyDimensions(guidedDocument,value=>{populate(value);setDirty(true);},()=>window.TLCPackaging.merge(isShared?{}:boot.collection,guidedDocument()))
+      window.TLCPackaging.copyDimensions(guidedDocument,value=>{populate(value);setDirty(true);},()=>window.TLCPackaging.sourceDocument(isShared?{}:boot.collection,guidedDocument()))
         .catch(error=>showFeedback('warning','Dimensions not copied',error.message)).finally(()=>{control.disabled=false;});return;
     }
     const addList = event.target.closest("[data-add-list]");

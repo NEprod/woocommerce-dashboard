@@ -11,6 +11,7 @@ function extract(name, next) {
 function draft({explicit = false, names = [], shared = true, authored = {}, ranges = []} = {}) {
   const context = vm.createContext({
     authored, isShared: shared, explicitVariation: false, driverNames: names, structuredClone,
+    window:{},customisationDesigner:null,packagingDesigner:null,finishedDesigner:null,channelValues:()=>({}),
     knownFields: new Set(["attributes", "variation_attributes", "categories", "storefront_collections"]),
     guided: {
       querySelectorAll: () => [],
@@ -66,9 +67,9 @@ test("terms containing commas remain exact during an unrelated guided save", () 
 test("returning from Advanced JSON updates sparse override toggles from the actual draft", () => {
   const toggles = [{dataset: {overrideToggle: "attributes"}, checked: false}, {dataset: {overrideToggle: "categories"}, checked: true}];
   const context = vm.createContext({
-    authored: {}, structuredClone, explicitVariation: false, resolvedVariation: false, driverNames: [], guidedValues: () => ({}),
-    guided: {querySelectorAll: (selector) => selector === "[data-override-toggle]" ? toggles : []},
-    valueFor: () => [], renderList: () => {}, renderAttributes: () => {}, renderModifiers: () => {}, setControlState: () => {}, updateCharacterCounts: () => {},
+    authored: {}, isShared:true,boot:{},window:{},customisationDesigner:null,packagingDesigner:null,finishedDesigner:null, structuredClone, explicitVariation: false, resolvedVariation: false, driverNames: [], guidedValues: () => ({}),
+    guided: {querySelector:()=>null,querySelectorAll: (selector) => selector === "[data-override-toggle]" ? toggles : []},
+    valueFor: () => [],renderChannels:()=>{}, renderList: () => {}, renderAttributes: () => {}, renderModifiers: () => {}, setControlState: () => {}, updateCharacterCounts: () => {},
   });
   vm.runInContext(extract("populate", "prune"), context);
   vm.runInContext('populate({attributes: {Unknown: ["Original"]}, variation_attributes: []})', context);

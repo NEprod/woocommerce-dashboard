@@ -82,6 +82,7 @@
   function renderModifiers(value) {
     const target = guided.querySelector("[data-modifiers-editor]");
     target.replaceChildren();
+    const shippingGroups=guided.querySelector('[data-shipping-configurations]');shippingGroups?.replaceChildren();
     Object.entries(value && typeof value === "object" && !Array.isArray(value) ? value : {}).forEach(([expression, modifier], index) => {
       const row = document.createElement("div");
       row.className = "structured-editor-row modifier-editor-row";
@@ -89,10 +90,13 @@
       row._originalModifier=structuredClone(modifier);
       const addShippingEditor=()=>{const finished=document.createElement('div');row.appendChild(finished);
         row._finishedEditor=new window.TLCPackaging.FinishedEditor(finished,{value:modifier.finished_dimensions,shared:authored.finished_dimensions,onChange:()=>{dirty=true;}});
-        const target=document.createElement('div');row.appendChild(target);
+        const group=document.createElement('div'),title=document.createElement('h3');title.textContent=expression;
+        group.className='shipping-size-group';group.append(title);(shippingGroups || row).append(group);
+        const target=document.createElement('div');group.appendChild(target);
         row._packagingEditor=new window.TLCPackaging.Editor(target,{value:modifier.packaging,shared:authored.packaging,
+          getShared:()=>packagingDesigner?.get(),
           getAttributes:()=>Object.fromEntries(row.querySelector('[data-modifier-field="expression"]').value.split('|').map(v=>v.split('='))),
-          onChange:()=>{dirty=true;},getDocument:()=>({...guidedDocument(),packaging:window.TLCPackaging.merge(packagingDesigner?.get(),row._packagingEditor.get())})});};
+          onChange:()=>{dirty=true;},getDocument:()=>guidedDocument()});};
       if(window.TLCPackaging && (modifier.dimensions || modifier.finished_dimensions || modifier.packaging))addShippingEditor();
       else if(window.TLCPackaging){const control=document.createElement('button');control.type='button';control.className='btn btn-sm btn-outline-primary';control.textContent='Add packed shipping exception';control.addEventListener('click',()=>{addShippingEditor();control.remove();});row.append(control);}
       [["expression", expression, "Attribute=Value expression"], ["price", modifier.price, "Price"], ["sale_price", modifier.sale_price, "Sale price"], ["weight", modifier.weight, "Weight"], ["length", modifier.dimensions && modifier.dimensions.length, "Length"], ["width", modifier.dimensions && modifier.dimensions.width, "Width"], ["height", modifier.dimensions && modifier.dimensions.height, "Height"]].forEach(([name, value, label]) => {
@@ -147,6 +151,8 @@
     ["categories", "tags", "image_attributes"].forEach((field) => renderList(field, authored[field]));
     renderAttributes(authored.attributes);
     renderModifiers(authored.variation_modifiers);
+    packagingDesigner?.refreshFallback();
+    guided.querySelectorAll('[data-modifier-row]').forEach(row=>row._packagingEditor?.refreshFallback());
   }
 
   function prune(value) {
@@ -155,7 +161,7 @@
       const result = {};
       Object.entries(value).forEach(([key, item]) => {
         const clean = prune(item);
-        if (clean !== "" && clean != null && !(typeof clean === "object" && !Array.isArray(clean) && !Object.keys(clean).length)) result[key] = clean;
+        if ((key==='selected_package_id' && clean===null) || (clean !== "" && clean != null && !(typeof clean === "object" && !Array.isArray(clean) && !Object.keys(clean).length))) result[key] = clean;
       });
       return result;
     }
@@ -265,7 +271,9 @@
       editor.focus();
     }
   });
-  root.addEventListener("input", () => { dirty = true; });
+  const refreshShipping=()=>{packagingDesigner?.refreshFallback();guided.querySelectorAll('[data-modifier-row]').forEach(row=>row._packagingEditor?.refreshFallback());};
+  root.addEventListener("input", () => { dirty = true;refreshShipping(); });
+  root.addEventListener("change",refreshShipping);
   editor.addEventListener("input", updateLines);
   root.querySelector("[data-json-search]").addEventListener("input", (event) => {
     const query = event.target.value;
