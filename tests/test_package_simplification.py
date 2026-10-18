@@ -163,7 +163,7 @@ def test_retired_approvals_capacities_and_protection_do_not_gate_size_check():
 
 @pytest.mark.parametrize('height,eligible', [('.2', True),('.3', True),('.31',False),(None,False)])
 def test_c5_limit_in_estimated_recommendations(height, eligible):
-    p=package(type='ENVELOPE',external_cm={'length':'24','width':'16.5'},internal_cm={},max_contents_thickness_mm='3')
+    p=package(type='ENVELOPE',external_cm={'length':'24','width':'16.5'},internal_cm={'height':'.3'})
     result=packing.recommend(item(dims=('15.5','15.5',height)),[p])
     assert bool(result['recommendation']) is eligible
     if eligible: assert result['state']=='estimated'
@@ -173,9 +173,9 @@ def test_c5_limit_in_estimated_recommendations(height, eligible):
 @pytest.mark.parametrize('height,eligible',[('.2',True),('.3',True),('.31',False),(None,False)])
 def test_envelope_contents_limit_independent_of_external_height_and_clearance(outside_height,height,eligible):
     p=package(type='ENVELOPE',external_cm={'length':'24','width':'16.5','height':outside_height},
-        internal_cm={},max_contents_thickness_mm='3',clearance_cm='99')
+        internal_cm={'height':'.3'},clearance_cm='99')
     before=json.dumps(p,sort_keys=True)
-    assert catalogue.usable_bounds(p)[0][2] is None  # rule never becomes a dimension
+    assert str(catalogue.usable_bounds(p)[0][2])=='0.3'
     result=packing.recommend(item(dims=('24','16.5',height),orientation='fixed',clearance_cm='99'),[p])
     assert bool(result['recommendation']) is eligible
     if eligible: assert result['state']=='estimated'
@@ -250,15 +250,15 @@ def test_tube_external_fallback_is_estimated_and_ignores_retired_end_cap_setting
     assert packing.recommend(item(dims=('24.1','3','3'),method='rolled'),[p])['recommendation'] is None
 
 
-def test_simplified_form_has_internal_dimensions_in_advanced_and_contents_limit_in_main(manager):
+def test_simplified_form_has_internal_dimensions_in_advanced_without_separate_contents_field(manager):
     app,_=manager
     page=logged(app).get('/packaging/'+Package.query.first().id+'/edit')
     assert page.status_code==200
     text=page.get_data(as_text=True)
     assert 'Advanced · optional internal usable dimensions' in text and '<details open' not in text
-    assert text.index('name="max_contents_thickness_mm"') < text.index('Advanced · optional internal usable dimensions')
+    assert 'name="max_contents_thickness_mm"' not in text
     assert 'Save locally also saves this field' in text and 'ShippingPackageV2' in text
-    for name in ('purchase_price','purchase_url','internal_cm.length','max_contents_thickness_mm'):
+    for name in ('purchase_price','purchase_url','internal_cm.length'):
         assert 'name="'+name+'"' in text
     for name in ('flat','fragile','rolled','end_cap_allowance_cm','clearance_cm','max_contents_g','max_gross_g',
         'protection_weight_g','dimensions_measured','tare_measured','automatic','protection'):

@@ -13,7 +13,12 @@ def manager(packaging_app,monkeypatch):
     app,path=packaging_app
     monkeypatch.setenv('SHOPIFY_STORE_DOMAIN','fictional.myshopify.com')
     monkeypatch.setenv('SHOPIFY_ADMIN_ACCESS_TOKEN','fictional_package_token_00000000')
-    with app.app_context():yield app,path
+    with app.app_context():
+        # Represents an existing pre-cleanup installation, not a new default.
+        c5=Package.query.filter_by(seed_key='c5-plus').one()
+        raw=json.loads(c5.specification);raw['max_contents_thickness_mm']='3'
+        c5.specification=json.dumps(raw);db.session.commit()
+        yield app,path
 
 
 def test_six_records_unchanged_and_automatic_catalogue_actions_removed(manager):

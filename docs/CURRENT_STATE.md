@@ -1,5 +1,24 @@
 # Current State
 
+## Final package-type UI and explicit historical thickness review
+
+Envelope editors show external length/width, boxes length/width/height, and local
+tubes axial length/diameter. Advanced holds only the matching optional internal
+measurements. Hidden axes stay stored across type changes and are not resubmitted
+as empty values. Local Tube remains the existing type; no Shopify type mapping or
+assignment transport changes are made.
+
+Envelope internal usable height is the sole active contents-thickness authority.
+No name/type/seed/historical rule automatically populates or imposes3mm/5mm.
+Missing height means unknown capacity. Existing historical `max_contents_thickness_mm`
+is preserved and shown, not enforced as a hidden second rule. Conflicting historic
+and authored heights suspend automatic recommendations until explicit local review.
+The merchant may transfer the historical value (3mm→0.3cm), or confirm the entered
+height, then Save Locally. Prior values are archived in existing PackagingEvidence
+before retiring the legacy key. No startup rewrite or new migration (head0018).
+Six UUIDs, saved Shopify IDs, product choices, dimensions and Orders stay intact.
+See [Shipping Packages](SHIPPING_PACKAGES.md) for acceptance instructions.
+
 ## Shipping Packages simplification and Shopify Package V2 ID saving
 
 The package-GID validator rejected Shopify's genuine `ShippingPackageV2` object
@@ -14,11 +33,10 @@ The active package model/form and solo size checker no longer require protection
 fragility/flat/rolled approvals, clearance/end-cap/material-weight/capacity fields
 or physical-verification checkboxes. Historical JSON is preserved without a
 migration (head0018), but those values no longer gate or rank recommendations.
-Collapsed Advanced contains only optional usable measurements. The main form exposes
-the optional envelope/letter contents-thickness rule. Internal axes win; missing axes use exterior bounds
-as estimated/unverified, except that exterior envelope height never establishes
-contents capacity. C5+3mm is a separate direct packed-thickness limit (inclusive),
-not height, clearance or padding. Unknown is not zero, and incomplete packages
+Collapsed Advanced contains only optional usable measurements. The final type-specific
+cleanup above supersedes the earlier separate contents-thickness input. Internal
+axes win; missing axes use exterior bounds as estimated/unverified, except that
+exterior envelope height never establishes contents capacity. Unknown is not zero, and incomplete packages
 remain manually selectable. Internal size checks are not physical fit certification.
 Optional GBP purchase price and supplier URL are local-only. Package image upload
 is deferred: no suitable existing generic package asset store was found.

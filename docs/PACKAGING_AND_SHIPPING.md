@@ -4,7 +4,8 @@
 supersedes historical protection/capacity/physical-verification requirements below.
 Those values are historical data only, not active controls or recommendation gates.
 Solo recommendations check basic size: internal axes, otherwise exterior bounds
-explicitly estimated/unverified, and the C5+3mm exception. No carrier approval,
+explicitly estimated/unverified, and merchant-authored envelope internal height.
+Historical C5+3mm is retained for explicit review, not an active default. No carrier approval,
 shipping-rate calculation or physical fit certification is implied.
 
 **Current reduced manager scope:** automatic catalogue reconciliation/sync was removed.

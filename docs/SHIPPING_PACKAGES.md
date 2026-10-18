@@ -9,7 +9,7 @@ migration: head remains `0018_orders_webhooks`.
 
 Open **Settings → Shipping Packages**, reusing `/packaging/`. The six existing TLC
 packages retain their UUIDs, merchant edits, unknown measurements, tube geometry
-and C5+3mm contents restriction. No reseeding/duplicates. Exterior fallback is never
+and historical C5+3mm evidence. No reseeding/duplicates. Exterior fallback is never
 saved as usable interior. Unknown tare/thickness is not zero.
 
 Add/Edit/Save Locally supports mm/cm/in and g/kg/oz/lb, name/type, external size,
@@ -19,21 +19,42 @@ fetched. No new image store/upload was introduced: existing storage is catalogue
 owned artwork/staged Shopify assets, not a supported general package-image store.
 Package images remain a small deferred gap.
 
-Collapsed **Advanced** contains optional usable interior axes (and tube diameter)
-in the same dimension unit. The main form shows the optional envelope/letter
-**Maximum Contents Thickness** rule separately.
-Interior axes take precedence individually. Each missing axis falls back to the
-corresponding exterior axis with **Estimated Fit / unverified** presentation. A
-known envelope contents-thickness limit is compared directly with prepared item
-thickness, separately from length/width and any authored internal usable height.
-It never fills in a stored dimension, adds clearance/padding, or requires exterior
-height to equal the rule. Exterior envelope height is an independent optional
-measurement, **not** an implicit contents-capacity limit, even when known. An
-envelope without either a configured contents limit or known internal usable height
-has unverified capacity and remains manually selectable. Unknown item thickness
-never becomes zero. C5+ allows2mm and exactly3mm, rejects3.1mm; an absent rule never
-inherits C5+'s3mm restriction, including the separate Large Letter Box. Cylindrical
-tubes require explicitly prepared rolled geometry, not automatic rolling of prints.
+The main editor is type-specific: Envelope shows exterior length/width, Box shows
+length/width/height, Tube shows axial length/diameter. Tube is the established local
+type, not a new Shopify-native type or inferred rectangular conversion. Type changes
+hide irrelevant measurements without deleting them. Collapsed **Advanced** contains
+only the corresponding usable axes, in the same dimension unit. Hidden fields are
+not submitted, while sparse saving preserves their stored values.
+
+Internal axes take precedence individually. Missing internal length/width uses the
+corresponding exterior value with **Estimated Fit / unverified** presentation.
+For envelopes, internal usable height alone means maximum prepared contents
+thickness, with no extra clearance/padding. Exterior height is neither required nor
+used as contents capacity. Missing internal height (or missing item thickness)
+cannot produce an automatic fit; manual package selection remains available.
+Boxes and explicitly prepared cylindrical rolls retain their basic dimensional
+checks. A flat print is never automatically rolled.
+
+### Existing C5+ historical thickness — explicit merchant review
+
+There are **no automatic envelope thickness defaults**, including for newly seeded
+C5+ records. Existing `max_contents_thickness_mm` values are retained as historical
+evidence, not enforced or automatically copied. On Edit → Advanced, a historical
+value is shown alongside the originally stored internal height. A conflict suspends
+automatic recommendations until reviewed; neither value is silently chosen.
+
+Use **Transfer historical thickness to internal height**, confirm the prompt, then
+**Save locally**. A retained3mm value transfers as0.3cm (or3mm in millimetre display).
+Alternatively, enter the appropriate height manually and choose **Confirm entered
+internal height**, then Save Locally. Clearing height can likewise be confirmed,
+leaving capacity unknown. Cancel preserves the draft and persisted history.
+
+The existing package version prevents stale reviews. Saving archives both prior
+values in PackagingEvidence before retiring the legacy rule; internal height then
+becomes the only active thickness limit. No automatic startup migration, field drop,
+new database revision, Shopify mutation or product assignment occurs. With a
+merchant-confirmed0.3cm height,2mm and3mm contents pass the thickness check;3.1mm
+fails. Length/width must also fit. No envelope or box inherits this restriction.
 
 The active package model and basic solo size checker no longer use fragility,
 flat/rigid/rolled approvals, protective materials/weight, extra clearance, end-cap
@@ -174,9 +195,13 @@ acknowledgement proves a particular checkout package or price.
 ## Release and one-card Unraid acceptance
 
 1. Back up existing appdata/SQLite consistently. Update only the image to the published
-   immutable `shopify-packages-simplified-<shortcommit>` tag (or verified develop).
+   immutable `shopify-package-types-<shortcommit>` tag (or verified develop).
    Keep existing mounts, environment and credentials. No XML/new mount/migration.
-2. Confirm the six package IDs/measurements/rules and existing product choices survived.
+2. Confirm the six package IDs/measurements and existing product choices survived.
+   For the historical C5+ record, open Advanced: capacity must stay unknown if no
+   internal height has been authored. Review the retained3mm value; transfer it only
+   deliberately, confirm, and Save Locally. Reopen: internal height should be0.3cm,
+   without a second active rule. Any conflict must be reviewed before recommendation.
    Enter the real card-mailer Shopify ID through its package Edit page and use the
    main Save Locally button. Reopen/reload, then restart once and confirm it remains
    verbatim and labelled manually entered, not remotely verified. No publishing is

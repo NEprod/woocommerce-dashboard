@@ -62,7 +62,7 @@ def test_six_seeds_unknown_measurements_restart_and_no_cancelled_tables(packagin
         assert all(v['readiness'] in {'Measurements needed','Estimated Fit'} and v['tare_g'] is None for v in views)
         mailer=next(v for v in views if v['type']=='ENVELOPE')
         assert mailer['external_cm']=={'length':'24','width':'16.5','height':None}
-        assert mailer['max_contents_thickness_mm']=='3'
+        assert mailer['max_contents_thickness_mm'] is None  # no thickness defaults for newly seeded records
         tube=next(v for v in views if v['name']=='TLC A3 Poster Tube')
         assert all(v is None for v in tube['external_cm'].values()) and tube['external_diameter_cm'] is None
         assert not {'packaging_rates','packaging_plan'} & set(inspect(db.engine).get_table_names())
@@ -73,10 +73,10 @@ def test_six_seeds_unknown_measurements_restart_and_no_cancelled_tables(packagin
 
 @pytest.mark.parametrize('height,eligible',[('.2',True),('.3',True),('.31',False),('.4',False),(None,False)])
 def test_c5_three_mm_rule_boundaries(height,eligible):
-    p=package(type='ENVELOPE',max_contents_thickness_mm='3')
+    p=package(type='ENVELOPE',internal_cm={'height':'.3'})
     result=packing.recommend(item(dims=('15.5','15.5',height)),[p])
     assert bool(result['recommendation']) is eligible
-    if height in ('.31','.4'): assert '3 mm' in result['rejected_packages'][0]['reason']
+    if height in ('.31','.4'): assert 'contents limit' in result['rejected_packages'][0]['reason']
 
 
 def test_exact_three_mm_with_external_estimate_and_internal_axis_precedence():
@@ -263,6 +263,6 @@ def test_editor_components_and_orders_unchanged(packaging_app):
     assert 'data-order-packing' not in app.jinja_loader.get_source(app.jinja_env,'orders/detail.html')[0]
 
 
-@pytest.mark.parametrize('changes',[{'tare_g':'NaN'},{'purchase_price':'.001'},{'internal_cm':{'length':'1000'}},{'external_diameter_cm':'2','internal_diameter_cm':'3'}])
+@pytest.mark.parametrize('changes',[{'tare_g':'NaN'},{'purchase_price':'.001'},{'internal_cm':{'length':'1000'}},{'type':'TUBE','external_diameter_cm':'2','internal_diameter_cm':'3'}])
 def test_invalid_values(changes):
     with pytest.raises(ValueError): catalogue.clean(dict(package(),**changes))

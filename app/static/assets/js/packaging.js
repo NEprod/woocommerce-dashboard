@@ -39,11 +39,47 @@
   function setPath(o,path,value){const parts=path.split('.');const key=parts.pop();let target=o;parts.forEach(k=>{target[k] ||= {};target=target[k];});if(value===undefined)delete target[key];else target[key]=value;}
   function packageData(form){const result={};form.querySelectorAll('[name]').forEach(n=>{
     if(n.name==='shopify_package_id')return;
+    if(n.closest?.('[data-package-types]')?.hidden)return;
     let value=n.type==='checkbox'?n.checked:n.value;
     setPath(result,n.name,value);
   });return result;}
-  function populatePackage(form,data){form.querySelectorAll('[name]').forEach(n=>{if(n.name==='shopify_package_id')return;let v=readPath(data,n.name);if(n.tagName==='SELECT' && v===undefined)return;if(n.type==='checkbox')n.checked=v===true;else n.value=v ?? '';});packageUnits(form);}
-  function packageUnits(form){form.querySelectorAll('[data-package-unit]').forEach(select=>{
+  function populatePackage(form,data){form.tlcPackageOriginal=clone(data);form.querySelectorAll('[name]').forEach(n=>{if(n.name==='shopify_package_id')return;let v=readPath(data,n.name);if(n.tagName==='SELECT' && v===undefined)return;if(n.type==='checkbox')n.checked=v===true;else n.value=v ?? '';});packageUnits(form);}
+  function packageTypeFields(form){const select=form.querySelector?.('[name="type"]');if(!select)return;
+    const update=()=>{const kind=select.value;
+      form.querySelectorAll('[data-package-types]').forEach(n=>n.hidden=!n.dataset.packageTypes.split(' ').includes(kind));
+      form.querySelectorAll('[data-package-length-label]').forEach(n=>n.textContent=kind==='TUBE'?'External tube length':'External length');
+      form.querySelectorAll('[data-package-internal-length-label]').forEach(n=>n.textContent=kind==='TUBE'?'Internal usable tube length':'Internal usable length');
+      form.querySelectorAll('[data-package-height-label]').forEach(n=>n.textContent=kind==='ENVELOPE'?'Internal usable height / maximum contents thickness':'Internal usable height');
+      const warning=form.querySelector('[data-package-thickness-warning]'),legacy=form.tlcPackageOriginal?.max_contents_thickness_mm;
+      const review=form.querySelector('[data-package-legacy-thickness]');if(review)review.hidden=kind!=='ENVELOPE'||legacy==null;
+      if(warning){warning.textContent=legacy==null?'':`Historical value: ${legacy} mm (${Number(legacy)/10} cm). It is not applied automatically. Current stored internal height: ${form.tlcPackageOriginal?.internal_cm?.height ?? 'unknown'} cm. Conflicting values need review, not an automatic winner.`;}
+    };
+    if(!select.dataset.typeBound){select.dataset.typeBound='yes';select.addEventListener('change',update);
+      form.querySelector('[data-transfer-package-thickness]')?.addEventListener('click',()=>{
+        const legacy=form.tlcPackageOriginal?.max_contents_thickness_mm,input=form.querySelector('[name="internal_cm.height"]'),unit=form.querySelector('[name="dimension_unit"]').value;
+        if(legacy==null)return;
+        if(!confirm(`Transfer historical ${legacy} mm to internal usable height (${Number(legacy)/10} cm), replacing the entered value? Save Locally will archive the old values; no Shopify change occurs.`))return;
+        input.value=String(Number((Number(legacy)/10/({cm:1,mm:.1,in:2.54}[unit])).toPrecision(14)));form.tlcReviewedHeight=Number(legacy)/10;
+      });
+      form.querySelector('[data-confirm-package-thickness]')?.addEventListener('click',()=>{
+        const input=form.querySelector('[name="internal_cm.height"]'),unit=form.querySelector('[name="dimension_unit"]').value;
+        if(!confirm(`Confirm entered internal height ${input.value || 'unknown'} ${unit} and archive the historical thickness rule? Unknown capacity will not produce an automatic fit. Save Locally to persist; no Shopify change occurs.`))return;
+        form.tlcReviewedHeight=input.value===''?null:Number((Number(input.value)*({cm:1,mm:.1,in:2.54}[unit])).toPrecision(14));
+      });
+    }update();
+  }
+  function packageSaveData(form){const value=packageData(form),old=form.tlcPackageOriginal;
+    if(value.type==='ENVELOPE' && old?.max_contents_thickness_mm!=null && value.internal_cm && 'height' in value.internal_cm){
+      const entered=value.internal_cm.height,proposed=entered===''||entered==null?null:Number((Number(entered)*({cm:1,mm:.1,in:2.54}[value.dimension_unit || 'cm'])).toPrecision(14));
+      const previous=old.internal_cm?.height!=null?Number(old.internal_cm.height):null;
+      const reviewed=Object.hasOwn(form,'tlcReviewedHeight')&&form.tlcReviewedHeight===proposed;
+      if(proposed!==previous || reviewed){
+        if(!reviewed && !confirm(`Confirm ${entered || 'unknown'} ${value.dimension_unit || 'cm'} internal usable height as the sole contents limit and archive historical ${old.max_contents_thickness_mm} mm? Previous values remain in history. No Shopify change occurs.`))throw new Error('Save cancelled. Your edits are retained.');
+        value.confirm_envelope_thickness_change=true;
+      }
+    }return value;
+  }
+  function packageUnits(form){packageTypeFields(form);form.querySelectorAll('[data-package-unit]').forEach(select=>{
     if(select.dataset.bound)return;select.dataset.bound='yes';let previous=select.value;
     const lengths={cm:1,mm:.1,in:2.54},weights={g:1,kg:1000,oz:28.349523125,lb:453.59237};
     const isLength=select.dataset.packageUnit==='length',factors=isLength?lengths:weights;
@@ -72,7 +108,7 @@
     dialog.querySelector('[data-package-cancel]').addEventListener('click',close);
     dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
     form.addEventListener('submit',async event=>{event.preventDefault();const submit=form.querySelector('button[type="submit"],button:not([type])');submit.disabled=true;
-      try{const saved=await api('/packaging/new',packageData(form));await onSaved(saved);close();}
+      try{const saved=await api('/packaging/new',packageSaveData(form));await onSaved(saved);close();}
       catch(error){feedback.textContent=error.message;}finally{submit.disabled=false;}});
     dialog.showModal();form.querySelector('[name="name"]').focus();
   }
@@ -212,13 +248,13 @@
     get(){if(this.source.value==='inherit')return undefined;const result={};Object.entries(this.controls).forEach(([k,n])=>{if(n.value!=='')result[k]=this.value?.[k]!==undefined && String(this.value[k])===n.value?this.value[k]:n.value;});return result;}
     preview(){const value=this.get() || this.shared;this.summary.textContent=value.length&&value.width?`Finished size: ${value.label?value.label+' — ':''}${['length','width','height'].filter(k=>value[k]).map(k=>value[k]).join(' × ')} ${value.unit || 'unit required'}`:'Finished size unspecified. No packed measurements inferred.';}
   }
-  window.TLCPackaging={Editor,FinishedEditor,api,output,merge,packageData,populatePackage,copyDimensions,applyDimensionCopy};
+  window.TLCPackaging={Editor,FinishedEditor,api,output,merge,packageData,packageSaveData,populatePackage,copyDimensions,applyDimensionCopy};
   const form=document.querySelector('[data-package-form]');
   if(form){const data=JSON.parse(document.getElementById('package-bootstrap').textContent || 'null') || {};populatePackage(form,data);
     const copy=document.querySelector('[data-native-package-copy]');if(copy)copy.textContent=JSON.stringify({name:data.name,type:data.type,dimensions:data.external_cm,diameter_cm:data.external_diameter_cm,weight_g:data.tare_g},null,2);
     form.addEventListener('submit',async e=>{e.preventDefault();if(form.dataset.saving==='yes')return;form.dataset.saving='yes';
       const submit=form.querySelector('button:not([type])');if(submit)submit.disabled=true;
-      try{const result=await api(form.dataset.saveUrl,{...packageData(form),version:Number(form.dataset.version || data.version),...(packageIdRequest?{shopify_link:packageIdRequest()}: {})});window.location.assign(result.url);}
+      try{const result=await api(form.dataset.saveUrl,{...packageSaveData(form),version:Number(form.dataset.version || data.version),...(packageIdRequest?{shopify_link:packageIdRequest()}: {})});window.location.assign(result.url);}
       catch(error){form.querySelector('[data-package-feedback]').textContent=error.message;}
       finally{delete form.dataset.saving;if(submit)submit.disabled=false;}});
     form.querySelector('[data-package-duplicate]')?.addEventListener('click',async()=>{try{const r=await api(`/packaging/${data.id}/duplicate`,{});window.location.assign(r.url);}catch(e){form.querySelector('[data-package-feedback]').textContent=e.message;}});

@@ -23,6 +23,12 @@ os.environ['SHOPIFY_STORE_DOMAIN']='fictional.myshopify.com'
 os.environ['SHOPIFY_ADMIN_ACCESS_TOKEN']='fictional_browser_token_0000000000'
 with app.app_context():
     db.session.add(User(username='package-browser',email='fixture@example.test',password='not-for-login',is_admin=True));db.session.commit()
+    # Synthetic existing installation with historical evidence, not a seed default.
+    import json
+    from app.packaging_models import Package
+    c5=Package.query.filter_by(seed_key='c5-plus').one()
+    spec=json.loads(c5.specification);spec['max_contents_thickness_mm']='3'
+    c5.specification=json.dumps(spec);db.session.commit()
 cap={'store_id':'gid://shopify/Shop/42','config':'synthetic-only','package_sync_enabled':False,
      'limitation':'Synthetic fixture: package API readback unavailable. No Shopify connection or mutation occurs.'}
 patch.setattr(shopify_packaging,'current',lambda:dict(cap))

@@ -21,27 +21,21 @@ def recommend(item, packages):
         if package.get('archived'): continue
         bounds,warnings=usable_bounds(package)
         reason=None
-        limit=package.get('max_contents_thickness_mm')
-        if limit is not None and dims[2]*10>Decimal(limit):
-            reason=f'Packed thickness exceeds {limit} mm contents limit.'
         if package['type']=='ENVELOPE':
             # Length/width fit and contents thickness are separate checks. Never
             # interpret exterior height as an envelope's contents capacity.
             if any(v is None for v in bounds[:2]):
                 reason=reason or 'Envelope length/width is incomplete; manual selection has unverified fit.'
-            elif limit is None and bounds[2] is None:
-                reason=reason or 'Envelope contents capacity is unknown. Enter a maximum contents thickness or usable internal height; exterior height is not a contents limit.'
+            elif bounds[2] is None:
+                reason=reason or 'Envelope internal usable height / maximum contents thickness is unknown; exterior height is not a contents limit.'
             else:
                 positions=[dims[:2]]
                 if item.get('orientation','flat') in {'flat','any'}: positions.append((dims[1],dims[0]))
                 if not any(all(a<=b for a,b in zip(position,bounds[:2])) for position in positions):
                     reason=reason or 'Prepared item exceeds envelope length/width bounds.'
-                if bounds[2] is not None and dims[2]>bounds[2]:
-                    reason=reason or 'Prepared thickness exceeds the separately entered usable internal height.'
-                # Capacity is only a deterministic ranking bound, never an
-                # invented exterior/internal measurement or extra clearance.
-                capacity=bounds[2] if bounds[2] is not None else Decimal(limit)/10
-                volume=bounds[0]*bounds[1]*capacity
+                if dims[2]>bounds[2]:
+                    reason=reason or f'Packed thickness exceeds {bounds[2]*10} mm internal usable contents limit.'
+                volume=bounds[0]*bounds[1]*bounds[2]
         elif any(v is None for v in bounds):
             reason=reason or 'Package size is incomplete; unknown measurements are not zero. Manual selection has unverified fit.'
         elif package['type']=='TUBE':
