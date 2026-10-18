@@ -18,6 +18,9 @@ Shipping-only child modifier patches retain inherited commercial modifier entrie
 historical commercial override tables retain replacement semantics. New package-only
 rules do not remove parent prices, weights or finished sizes. Dirty tracking compares
 the authored draft; reverting returns to Saved. Intake pruning retains explicit null.
+Commercial overrides also inherit shipping metadata independently: even an explicit
+empty commercial table does not reintroduce parent prices/weights when it inherits a
+package rule. Those inherited shipping-only rows are projections, not copied JSON.
 
 These are code/fixture findings, not inspection of the merchant's Unraid database or
 a claim that its historical `16bit-0001` source was inspected.

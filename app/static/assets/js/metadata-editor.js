@@ -378,6 +378,10 @@
       const dimensions = {};
       ["length", "width", "height"].forEach((name) => { if (value(name)) dimensions[name] = retained(value(name),row._originalModifier?.dimensions?.[name]); });
       if (Object.keys(dimensions).length) modifier.dimensions = dimensions;
+      // A projected inherited shipping-only row is not an authored empty
+      // commercial rule when all of its shipping controls still inherit.
+      if(!isShared && !Object.keys(modifier).length && Object.keys(row._originalModifier || {}).length &&
+          Object.keys(row._originalModifier).every(k=>['packaging','finished_dimensions'].includes(k)) && !Object.hasOwn(authored.variation_modifiers || {},expression))return;
       result[expression] = modifier;
     });
     return result;
@@ -421,9 +425,7 @@
     resolvedVariation = Array.isArray(valueFor("variation_attributes"));
     driverNames = resolvedVariation ? [...valueFor("variation_attributes")] : [];
     renderAttributes(valueFor("attributes"));
-    const ownModifiers=authored.variation_modifiers;
-    const shippingOnly=ownModifiers && Object.values(ownModifiers).every(v=>Object.keys(v).every(k=>['packaging','finished_dimensions'].includes(k)));
-    renderModifiers(!isShared && (!ownModifiers || shippingOnly)?window.TLCPackaging.merge(boot.collection?.variation_modifiers,ownModifiers):valueFor("variation_modifiers"));
+    renderModifiers(isShared?valueFor('variation_modifiers'):window.TLCPackaging.sourceDocument(boot.collection,authored).variation_modifiers);
     guided.querySelectorAll("[data-override-toggle]").forEach((toggle) => setControlState(toggle.dataset.overrideToggle));
     guided.querySelectorAll("[data-inherited-value]").forEach((node) => {
       const key = node.dataset.inheritedValue;

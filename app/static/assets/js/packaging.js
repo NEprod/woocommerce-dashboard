@@ -149,7 +149,17 @@
   // Display-only finished fallback. Never used by serialization or publishers.
   function sourceDocument(shared,own){
     const result=merge(shared,own),modifiers=own?.variation_modifiers;
-    if(modifiers && (!Object.keys(modifiers).length || Object.values(modifiers).some(v=>Object.keys(v).some(k=>!['packaging','finished_dimensions'].includes(k)))))result.variation_modifiers=clone(modifiers);
+    if(modifiers){
+      const parent=shared?.variation_modifiers || {},fields=['packaging','finished_dimensions'];
+      const shippingOnly=Object.keys(modifiers).length && Object.values(modifiers).every(v=>Object.keys(v).length && Object.keys(v).every(k=>fields.includes(k)));
+      result.variation_modifiers=clone(shippingOnly?parent:modifiers);
+      for(const key of new Set([...Object.keys(parent),...Object.keys(modifiers)]))for(const field of shippingOnly?fields:['packaging']){
+        if(Object.hasOwn(modifiers,key) && !Object.keys(modifiers[key]).length)continue;
+        const base=parent[key]?.[field],value=modifiers[key]?.[field];if(base===undefined && value===undefined)continue;
+        result.variation_modifiers[key] ||= {};
+        result.variation_modifiers[key][field]=value===undefined?clone(base):field==='packaging'?merge(base,value):clone(value);
+      }
+    }
     return result;
   }
   function finishedFor(document,attributes){

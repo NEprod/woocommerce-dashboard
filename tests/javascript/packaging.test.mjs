@@ -138,7 +138,7 @@ for(const [file,fn,end] of [['metadata-editor.js','modifierValues','populate'],[
     const original={price:8.5,weight:150,dimensions:{length:420,width:297,height:1}};
     const values={expression:'Size=A3',price:'8.5',sale_price:'',weight:'150',length:'420',width:'297',height:'1'};
     const row={_originalModifier:original,_packagingEditor:{get:()=>({selected_package_id:null})},querySelector:s=>({value:values[s.match(/data-modifier-field="([^"]+)"/)[1]]})};
-    const context=vm.createContext({structuredClone,guided:{querySelectorAll:()=>[row]}});
+    const context=vm.createContext({structuredClone,isShared:true,guided:{querySelectorAll:()=>[row]}});
     vm.runInContext(source.slice(source.indexOf('  function '+fn+'('),source.indexOf('  function '+end+'(')),context);
     const value=plain(vm.runInContext(fn+'()',context))['Size=A3'];
     assert.equal(value.price,8.5);assert.equal(value.weight,150);assert.deepEqual(value.dimensions,original.dimensions);
@@ -214,6 +214,11 @@ test('source resolution preserves legacy modifier replacement and shipping-only 
   assert.equal(api.sourceDocument(parent,shipping).variation_modifiers['Size=A3'].price,8.5);
   const legacy={variation_modifiers:{'Size=A4':{price:9}}};
   assert.deepEqual(plain(api.sourceDocument(parent,legacy).variation_modifiers),legacy.variation_modifiers);
+  assert.deepEqual(plain(api.sourceDocument(parent,{variation_modifiers:{}}).variation_modifiers),{});
+  parent.variation_modifiers['Size=A3'].packaging={selected_package_id:'inherited'};
+  const mixed=api.sourceDocument(parent,legacy).variation_modifiers;
+  assert.equal(mixed['Size=A3'].price,undefined);
+  assert.equal(mixed['Size=A3'].packaging.selected_package_id,'inherited');
 });
 
 test('late package choices retain a newer manual choice and never trigger a dirty callback',async()=>{

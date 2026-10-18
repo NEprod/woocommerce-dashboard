@@ -98,6 +98,30 @@ def merge(base, patch):
     return result
 
 
+def modifier_layers(shared, override):
+    """Independent shipping inheritance without changing commercial selection.
+
+    Legacy commercial override tables replace the parent's commercial rules.
+    Metadata-only rules do not mask price/weight rules (see json_utils).
+    """
+    fields={'packaging','finished_dimensions'}
+    shipping_only=bool(override) and all(mod and set(mod)<=fields for mod in override.values())
+    result=deepcopy(shared if shipping_only else override)
+    for expression in dict.fromkeys([*shared,*override]):
+        parent=shared.get(expression,{})
+        own=override.get(expression,{})
+        # An authored empty commercial rule is a deliberate matching barrier.
+        # Do not turn it into a metadata-only rule (which commerce excludes).
+        if expression in override and not own: continue
+        for field in fields if shipping_only else {'packaging'}:
+            if field not in parent and field not in own: continue
+            target=result.setdefault(expression,{})
+            if field in own:
+                target[field]=merge(parent.get(field),own[field]) if field=='packaging' else deepcopy(own[field])
+            else:target[field]=deepcopy(parent[field])
+    return result
+
+
 def validate(value):
     from jsonschema import Draft202012Validator, FormatChecker
     errors=list(Draft202012Validator(PACKAGING_SCHEMA,format_checker=FormatChecker()).iter_errors(value))

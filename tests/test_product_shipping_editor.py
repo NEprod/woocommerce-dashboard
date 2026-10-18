@@ -129,6 +129,36 @@ def test_partial_packed_data_is_not_completed_from_finished_for_shopify():
     assert explicit_packed(explicit)['desired']=={'length':16.,'width':16.,'height':.4,'unit':'CENTIMETERS'}
 
 
+@pytest.mark.parametrize('commercial',[{}, {'Size=A3':{'price':'99','weight':'77'}}])
+def test_existing_commercial_override_inherits_shipping_without_reintroducing_parent_commerce(commercial):
+    parent=sizes();parent['variation_modifiers']['Size=A3']['packaging']={'selected_package_id':'parent-marker'}
+    own={'variation_modifiers':copy.deepcopy(commercial)}
+    resolved=merge_product_json(parent,own)
+    for size in ('A3','A4'):
+        attrs={'Size':size,'Colour':'Blue'}
+        assert apply_variation_modifiers(resolved,attrs,log=lambda *a,**k:None)==apply_variation_modifiers({**parent,**own},attrs,log=lambda *a,**k:None)
+    assert resolved['variation_modifiers']['Size=A3']['packaging']['selected_package_id']=='parent-marker'
+    # This is a resolved projection only; authored commercial data stays sparse.
+    assert own['variation_modifiers']==commercial
+
+
+def test_legacy_empty_commercial_rule_remains_a_matching_barrier():
+    parent=sizes()
+    key='Colour=Blue|Size=A3'
+    parent['variation_modifiers'][key]={'packaging':{'selected_package_id':None}}
+    own={'variation_modifiers':{'Colour=Blue':{'price':'99'},key:{}}}
+    resolved=merge_product_json(parent,own)
+    assert resolved['variation_modifiers'][key]=={}
+    assert apply_variation_modifiers(resolved,{'Size':'A3','Colour':'Blue'},log=lambda *a,**k:None)['price']=='3.50'
+
+
+def test_commercial_dimension_override_does_not_adopt_parent_finished_alias():
+    parent=sizes();parent['variation_modifiers']['Size=A3']['finished_dimensions']={'length':99,'width':80,'height':1,'unit':'cm'}
+    own={'variation_modifiers':{'Size=A3':{'dimensions':{'length':400,'width':290,'height':2}}}}
+    resolved=merge_product_json(parent,own)
+    assert finished_mm(resolved,{'Size':'A3'})=={'length':'400','width':'290','height':'2'}
+
+
 def test_recommendation_fallback_is_opt_in_estimated_and_never_persisted(packaging_app):
     app,_=packaging_app;client=logged(app)
     from app.packaging_catalogue import save as package_save
