@@ -839,7 +839,7 @@ def confirm(reviewed, adapter=None):
         from app.shopify_package_assignments import apply as apply_packages
         package_state=apply_packages(row,adapter,lease.id)
         from app.shopify_publication import complete as publication_complete
-        finish_catalogue_operation(lease.id,status="succeeded" if row.state=="verified" and native_state in {"disabled","verified"} and package_state=='none' and publication_complete(data) else "partial",
+        finish_catalogue_operation(lease.id,status="succeeded" if row.state=="verified" and native_state in {"disabled","verified"} and package_state in {'none', 'accepted'} and publication_complete(data) else "partial",
             recovery_state="review_required" if row.state=="uncertain" else "none",
             products_attempted=1,products_succeeded=int(row.state=="verified"),
             operation_summary={"identity_id":row.id,"mode":"variable","stage":drafts.evidence(row)['stage'],"variants":len(plan["variants"]),"native_dimensions":native_state,'package_assignment':package_state})

@@ -76,7 +76,7 @@ def test_package_only_signed_update_acknowledged_and_not_replayed(world):
     assert proof['shipping_package_id']=='gid://shopify/ShippingPackage/123'
     assert adapter.remote==before and adapter.inputs==[]
     assert len([c for c in adapter.calls if isinstance(c,tuple)])==1
-    assert db.session.get(CatalogueOperation,row.operation_id).status=='partial'
+    assert db.session.get(CatalogueOperation,row.operation_id).status=='succeeded'
     plan,token=drafts.preview(product,adapter)
     assert plan['classification']=='no_change' and token is None and plan['package_assignments_unverified']
     assert plan['optional_packages'][0]['state']=='Shopify accepted — not independently verified'

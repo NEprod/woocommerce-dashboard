@@ -10,6 +10,30 @@ from app.shopify_connection import ShopifyError, _gid
 POLICY=1
 
 
+def completion(data):
+    """Operation completion is not independent package readback verification.
+
+    Require an acknowledgement for every reviewed assignment, bound to the
+    exact inventory/package target. Historical unrelated receipts cannot prove it.
+    """
+    proofs = data.get('package_assignments', {})
+    if any(p.get('state') in {'pending', 'uncertain'} for p in proofs.values()):
+        return 'uncertain'
+    accepted = False
+    for entry in data.get('plan', {}).get('optional_packages', []):
+        proof = proofs.get(entry['identity'], {})
+        required = entry.get('action') == 'assign'
+        same = (entry.get('shipping_package_id') and
+                proof.get('shipping_package_id') == entry['shipping_package_id'] and
+                proof.get('inventory_id') == (entry.get('inventory_id') or
+                    data.get('variant_maps', {}).get(entry['identity'], {}).get('inventory_id') or
+                    data.get('inventory_item_id')))
+        if required and (not same or proof.get('state') != 'accepted'):
+            return 'rejected' if same and proof.get('state') == 'rejected' else 'outstanding'
+        accepted = accepted or bool(same and proof.get('state') == 'accepted')
+    return 'accepted' if accepted else 'none'
+
+
 def persist(row,data,key,proof):
     import json
     operation=db.session.get(CatalogueOperation,proof['operation_id'])

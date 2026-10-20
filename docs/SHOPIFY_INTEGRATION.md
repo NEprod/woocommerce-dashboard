@@ -1,5 +1,16 @@
 # Shopify integration — Phase 4 M1 / M2 / M3A
 
+## Variant metadata and acknowledgement completion
+
+Finished-size Product/Variant values, owner definitions and PUBLIC_READ remain
+separately reviewed through existing mappings. No publisher or theme change is
+inferred from a blank product-context block: live wall-print A4 Admin values are
+present on its variant. Signed package acknowledgements now complete successfully
+as Shopify Accepted, with exact target checks and no independent-readback claim.
+Missing/rejected/uncertain stages remain actionable. Read-only per-variant and
+navigation diagnostics do not mutate receipts/checkpoints or start workers.
+See [verification matrix and draft-theme plan](VARIANT_METAFIELDS_AND_SYNC.md).
+
 ## Product verification repair — superseding package freshness policy
 
 The8f83e6e package flag incorrectly made write-only assignment readback mandatory for

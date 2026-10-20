@@ -169,8 +169,9 @@ def send_discord_message(content="", *, embeds=None, channels=None, username=Non
 def publishing_message(summary):
     """One terminal envelope, using existing channels and protected transport."""
     products = summary["products"]
-    success = summary["verified_success"] == summary["attempted"]
-    labels = {"verified_success": "Verified successfully", "failed_before_write": "Failed before product mutation",
+    success = summary["verified_success"] + summary.get('shopify_accepted', 0) == summary["attempted"]
+    labels = {"verified_success": "Success — Verified", "shopify_accepted": "Completed — Shopify Accepted",
+        "failed": "Failed — required operation rejected", "failed_before_write": "Failed before product mutation",
         "recovery_required": "Recovery Required — remote completion uncertain", "partial_completion": "Partial completion — required stages outstanding"}
     fields = []
     if len(products) == 1:
@@ -186,9 +187,10 @@ def publishing_message(summary):
             fields.append({"name": "Outstanding / deferred", "value": "\n".join(notes)})
         description = f"[View verified Shopify product]({product['url']})" if product.get("url") else "Open TLCDashboard Operations for retained evidence."
     else:
-        description = f"Attempted: {summary['attempted']} · Verified: {summary['verified_success']} · Failed before write: {summary['failed_before_write']} · Recovery: {summary['recovery_required']} · Partial: {summary['partial_completion']}"
+        description = f"Attempted: {summary['attempted']} · Verified: {summary['verified_success']} · Shopify accepted: {summary.get('shopify_accepted', 0)} · Failed: {summary.get('failed', 0) + summary['failed_before_write']} · Recovery: {summary['recovery_required']} · Partial: {summary['partial_completion']}"
         fields = [{"name": "Product outcomes", "value": "\n".join(f"{p['sku']} — {labels[p['outcome']]}" for p in products)}]
-    embed = build_embed("TLC Shopify Sync — " + ("Successful" if success else "Needs Attention"), description,
+    title = 'Completed (Shopify Accepted)' if success and summary.get('shopify_accepted') else 'Successful' if success else 'Needs Attention'
+    embed = build_embed("TLC Shopify Sync — " + title, description,
         COLORS["success"] if success else COLORS["warn"], fields, footer="TLCDashboard")
     return send_discord_message(embeds=[embed], channels=["scans_info" if success else "scans_errors"], single_attempt=True)
 

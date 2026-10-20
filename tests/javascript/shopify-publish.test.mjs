@@ -102,6 +102,15 @@ test('missing acceptance receipt is explicit and never automatically resubmitted
   assert.equal(p.timers.size,0);assert.equal(p.requests.length,1);assert.equal(p.storage.has(p.key),true);
 });
 
+test('completed acceptance-only receipt is not relabelled as API verified',async()=>{
+  const p=page({stored:{review:'signed-review',csrf:'csrf',url:'/products/7/shopify/progress',returnTo:'/products'}});
+  p.requests[0].resolve({state:'completed',completion_label:'Completed — Shopify Accepted',message:'Independent package readback unavailable'});
+  await p.flush();
+  assert.equal(p.elements.stage.textContent,'Completed — Shopify Accepted — returning to Products');
+  assert.match(p.elements.message.textContent,/readback unavailable/);
+  assert.equal(p.requests.length,1);
+});
+
 test('temporary receipt failure preserves the recovery ticket and can be read again',async()=>{
   const p=page({stored:{review:'signed-review',csrf:'csrf',url:'/products/7/shopify/progress',returnTo:'/products'}});
   p.requests[0].resolve({state:'receipt_unavailable',message:'Receipt temporarily unavailable'});await p.flush();

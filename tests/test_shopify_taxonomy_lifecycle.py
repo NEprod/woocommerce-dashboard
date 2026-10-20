@@ -282,7 +282,8 @@ def test_additive_attribute_migration_upgrade_and_uniqueness(tmp_path):
     command.upgrade(_alembic_config(url),'0011_shopify_taxonomy')
     with sqlite3.connect(path) as conn:
         conn.execute("INSERT INTO shopify_collection_identity(store_id,source_key,state,evidence_json) VALUES('store','key','verified','{}')")
-    assert ensure_database(url).revision=='0012_shopify_attributes'
+    from app.database import migration_head
+    assert ensure_database(url).revision == migration_head()
     with sqlite3.connect(path) as conn:
         assert conn.execute('SELECT count(*) FROM shopify_attribute_identity').fetchone()[0]==0
         assert conn.execute('SELECT state FROM shopify_collection_identity').fetchone()[0]=='verified'

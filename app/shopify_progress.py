@@ -98,14 +98,17 @@ def receipt(product_id, token):
         else: state = "attention"
         stage=data.get("stage") or scope.get("stage","confirmation_validation")
         label=STAGES.get(stage,"Recorded operation: "+stage.replace("_"," "))
+        from app.shopify_package_assignments import completion
+        accepted = state == 'completed' and completion(data) == 'accepted'
         if running and data.get("stage")=="verified": label="Base product verified; finishing required operation stages"
         stamp=drafts.now()
-        return {"state":state,"operation_id":operation.id,"stage":label,"title":data.get("plan",{}).get("title") or scope.get("title",""),
+        return {"state":state,"completion_label":'Completed — Shopify Accepted' if accepted else 'Success — Verified' if state == 'completed' else None,
+            "operation_id":operation.id,"stage":label,"title":data.get("plan",{}).get("title") or scope.get("title",""),
             "sku":row.sku if row else scope.get("sku",""),"operation_type":scope.get("mode","publish"),"started_at":operation.started_at.isoformat()+"Z",
             "elapsed_seconds":max(0,int((stamp-operation.started_at).total_seconds())),"server_checked_at":stamp.isoformat()+"Z",
             "completed_stages":[STAGES.get(s,s.replace("_"," ")) for s in data.get("completed_steps",[])],
             "pending_stages":[] if state=="completed" else [label],
             "api_requests":data.get("api_requests"),
-            "message":operation.error or data.get("error") or ("Customer configuration verified; full product comparison and theme activation remain separate." if scope.get('mode')=='customisations' and state=='completed' else "Inventory verified; full synchronisation remains outstanding." if row and row.state=="scoped_verified" else ""),
+            "message":operation.error or data.get("error") or ('Shopify accepted the package assignment. Independent package readback is unavailable; the acknowledgement is retained in History.' if accepted else "Customer configuration verified; full product comparison and theme activation remain separate." if scope.get('mode')=='customisations' and state=='completed' else "Inventory verified; full synchronisation remains outstanding." if row and row.state=="scoped_verified" else ""),
             "history_url":url_for("commerce.draft_identity",identity_id=row.id) if row else None}
     return {"state":"waiting","stage":"Waiting for durable operation receipt","message":"No completion is assumed. Do not resubmit while the request is pending."}

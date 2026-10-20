@@ -1,5 +1,20 @@
 # Current State
 
+## Variant metafield / package completion follow-up
+
+Accepted saved-package writes now complete the existing operation rather than
+becoming Partial solely for unsupported independent readback. Discord/progress
+say Completed — Shopify Accepted; required-target acknowledgement checks preserve
+rejections, missing stages and uncertain recovery. Retained identity pages show
+per-variant acknowledgements without inventing API or merchant verification.
+No migration beyond0018. The working dimension publisher and navigation mappings
+are unchanged. Read-only live Admin inspection confirmed wall-print A4 variant
+finished297×210×1mm, packed21×4×4cm and A4 tube; parent finished fields are empty.
+Copy of Tinker's product-context dynamic-source display needs a separately approved
+selected-variant binding, not an incorrect generic parent size. New read-only
+variant/navigation matrices collect exact remote/access/receipt evidence on Unraid.
+See [findings, limitations and acceptance](VARIANT_METAFIELDS_AND_SYNC.md).
+
 ## Compact Product Shipping Editor and sparse override repair
 
 Saved package UUIDs survive asynchronous options; shipping-only size exceptions no

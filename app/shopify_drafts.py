@@ -534,7 +534,7 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         native_state = after_publish(row, plan, adapter, lease.id)
         from app.shopify_package_assignments import apply as apply_packages
         package_state=apply_packages(row,adapter,lease.id)
-        finish_catalogue_operation(lease.id, status="succeeded" if state == "verified" and native_state in {"disabled", "verified"} and package_state=='none' and publication_complete(evidence(row)) else "partial",
+        finish_catalogue_operation(lease.id, status="succeeded" if state == "verified" and native_state in {"disabled", "verified"} and package_state in {'none', 'accepted'} and publication_complete(evidence(row)) else "partial",
             products_attempted=1, products_succeeded=int(state == "verified"), recovery_state="none" if state == "verified" and native_state != "uncertain" and package_state!='uncertain' else "review_required",
             operation_summary={"identity_id": row.id, "shopify_product_id": row.shopify_product_id, "stage": evidence(row)['stage'], "state": row.state, "native_dimensions": native_state,'package_assignment':package_state})
         return row
@@ -855,7 +855,7 @@ def confirm_update(reviewed, adapter=None):
         from app.shopify_package_assignments import apply as apply_packages
         package_state=apply_packages(row,adapter,lease.id)
         from app.shopify_publication import complete as publication_complete
-        finish_catalogue_operation(lease.id, status="succeeded" if row.state == "verified" and native_state in {"disabled", "verified"} and package_state=='none' and publication_complete(evidence(row)) else "partial",
+        finish_catalogue_operation(lease.id, status="succeeded" if row.state == "verified" and native_state in {"disabled", "verified"} and package_state in {'none', 'accepted'} and publication_complete(evidence(row)) else "partial",
             products_attempted=1, products_succeeded=int(row.state == "verified"),
             recovery_state="none" if row.state == "verified" and native_state != "uncertain" else "review_required",
             operation_summary={"identity_id": row.id, "mode": "update", "stage": evidence(row)['stage'], "completed_steps": evidence(row).get("completed_steps", []), "native_dimensions": native_state,'package_assignment':package_state})

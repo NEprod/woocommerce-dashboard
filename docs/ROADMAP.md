@@ -1,5 +1,11 @@
 # Roadmap
 
+Variant metafield / package sync reporting follow-up: correct acceptance-only
+completion, retain failed/uncertain stage safety, and add bounded read-only variant/
+navigation evidence matrices. No new formatted dimensions/navigation system, theme
+release, scope, migration, rates or checkout changes. Draft selected-variant display
+remains a separately approved theme task. See VARIANT_METAFIELDS_AND_SYNC.md.
+
 ## Accept compact Product Shipping Editor repair
 
 Validate child package and independent packed overrides on one single-size and one

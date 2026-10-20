@@ -147,12 +147,133 @@ def verification(row):
     return result
 
 
+def variant_matrix(row, adapter=None):
+    """Fresh bounded variant evidence; no reconcile, receipt or checkpoint writes."""
+    from app import shopify_variables as variables, shopify_dimension_metadata as dimensions
+    from app import shopify_simple_fields as fields
+    from app.shopify_native_dimensions import equal as same_packed
+    from app.packaging_contract import effective, packed_cm, finished_mm
+    from app import package_links
+    adapter = adapter or ShopifyAdapter()
+    config = drafts.configuration()
+    shop = adapter.test_connection(config)
+    if shop['shop_id'] != row.store_id or 'read_products' not in shop['scopes']:
+        raise ShopifyError('Exact retained shop and read_products are required; no diagnostic writes.')
+    data = drafts.evidence(row)
+    product = db.session.get(Product, row.product_id)
+    if not product or product.product_type != 'variable':
+        raise ShopifyError('Choose one existing Variable Collection or Single Variable product SKU.')
+    # This diagnostic attests only variant metadata, not full gallery freshness.
+    # Do not require a publishable parent/gallery merely to inspect its fields.
+    local = {'variants': variables.projection(product),
+             'managed': {'namespace': fields.namespace(), 'product': {}}}
+    remote = adapter.read_variable(config, row.shopify_product_id, local['managed']['namespace'])
+    nodes = variables.remote_identity(row, data, remote, native_only=True)
+    by_id = {v['id']: v for v in nodes}
+    definitions = dimensions.read(local, config, adapter)
+    native = None
+    if any(v['native']['enabled'] and v['native'].get('desired') for v in local['variants']):
+        observed = adapter.read_variable(config, row.shopify_product_id, local['managed']['namespace'], native=True)
+        native = {v['id']: v for v in variables.remote_identity(row, data, observed, native_only=True)}
+    authored = attributes.product_document(product)
+    rows = []
+    for variant in local['variants']:
+        mapping = data.get('variant_maps', {}).get(variant['identity'], {})
+        current = by_id.get(mapping.get('id'))
+        options = {o['name']: o['value'] for o in variant['options']}
+        if (not current or current['sku'] != variant['sku'] or
+                current['inventoryItem']['id'] != mapping.get('inventory_id') or
+                {o['name']: o['value'] for o in current['selectedOptions']} != options):
+            raise ShopifyError('Retained variant/SKU/options/InventoryItem mapping differs; no guessed matrix identity.')
+        if native is not None and ((native.get(current['id']) or {}).get('inventoryItem') or {}).get('id') != mapping['inventory_id']:
+            raise ShopifyError('Native read maps to a different InventoryItem; refresh evidence, never guess an association.')
+        packing = effective(authored, options)
+        selected = packing.get('selected_package_id')
+        try:
+            link = package_links.find(selected, config, shop['shop_id']) if selected else None
+        except ValueError:
+            raise ShopifyError('Central package link conflicts; inspect local package settings.') from None
+        proof = data.get('package_assignments', {}).get(variant['identity'], {})
+        matches = bool(link and proof.get('inventory_id') == mapping['inventory_id'] and
+                       proof.get('shipping_package_id') == link.remote_id)
+        actual_packed = (((native or {}).get(current['id'], {}).get('inventoryItem') or {}).get('measurement') or {}).get('packedDimensions')
+        desired_packed = variant['native'].get('desired')
+        values = []
+        comparisons = fields.field_rows({'product': {'metafields': variant['managed'].get('metafields', [])},
+            'variant': variant['managed']}, dict(current, simpleVariants={'nodes': [current], 'pageInfo': {'hasNextPage': False}}))
+        for field in variant['managed'].get('metafields', []):
+            axis = field['key'].removeprefix('product_')
+            definition = definitions.get('PRODUCTVARIANT.' + field['key'])
+            difference = next(v for v in comparisons if v['field'] == 'dimensions.' + axis)
+            values.append({'namespace': field['namespace'], 'key': field['key'], 'type': field['type'],
+                'desired': json.loads(field['value']), 'remote': current.get(axis),
+                'value_state': 'changed' if difference['changed'] else 'matching',
+                'definition_id': definition['id'] if definition else None,
+                'storefront_access': (definition or {}).get('access', {}).get('storefront'),
+                'definition_action': 'Create through Review & Sync' if not definition else
+                    'Update storefront access through Review & Sync' if definition['access']['storefront'] != 'PUBLIC_READ' else 'None'})
+        rows.append({'sku': variant['sku'], 'options': options, 'variant_id': current['id'],
+            'inventory_item_id': mapping['inventory_id'], 'finished_owner': 'PRODUCTVARIANT',
+            'effective_finished_mm': finished_mm(authored, options), 'finished_metafields': values,
+            'effective_authored_packed_cm': packed_cm(packing), 'desired_native_packed': desired_packed,
+            'remote_native_packed': actual_packed,
+            'packed_state': 'unconfigured — no finished fallback published' if variant['native'].get('unconfigured') else
+                'incomplete authored size — ' + variant['native'].get('reason', '') if not desired_packed else
+                'not read — opt-in capability disabled' if native is None else
+                'matching' if same_packed(actual_packed, desired_packed) else 'different or unavailable',
+            'selected_local_package_id': selected, 'linked_shopify_package_id': link.remote_id if link else None,
+            'package_receipt_state': proof.get('state', 'not submitted'), 'receipt_matches_current_target': matches,
+            'assignment_independent_readback': 'unsupported', 'merchant_verification': 'not recorded'})
+    return {'read_only': True, 'database_writes': 0, 'checked_at': drafts.now().isoformat(), 'api_version': config.api_version,
+        'native_api_version': '2027-01' if native is not None else None, 'sku': row.sku,
+        'shop_id': row.store_id, 'product_id': row.shopify_product_id, 'variants': rows,
+        'note': 'Live API evidence only if this command ran against the configured merchant store. No theme binding or checkout verification is implied.'}
+
+
+def navigation_matrix(row, adapter=None):
+    """Reuse existing attribute/collection review readers, without applying them."""
+    adapter = adapter or ShopifyAdapter()
+    config = drafts.configuration()
+    shop = adapter.test_connection(config)
+    if shop['shop_id'] != row.store_id or 'read_products' not in shop['scopes']:
+        raise ShopifyError('Exact retained shop and read_products are required.')
+    product = db.session.get(Product, row.product_id)
+    if not product:
+        raise ShopifyError('Retained local product is unavailable.')
+    remote = adapter.read_variable(config, row.shopify_product_id, 'tlc_dashboard') if product.product_type == 'variable' else adapter.read_simple(config, row.shopify_product_id, 'tlc_dashboard')
+    if not remote or remote['id'] != row.shopify_product_id or (remote.get('metafield') or {}).get('value') != drafts.evidence(row)['plan']['nonce']:
+        raise ShopifyError('Product correlation does not match the retained identity.')
+    rows = []
+    for attr in attributes.preview(product, row.store_id, row.shopify_product_id, config, shop, adapter):
+        definition = next(r for r in attr['resources'] if r['kind'] == 'field')
+        rows.append({'authored_field': 'attributes.' + attr['name'], 'registry_key': attr['key'],
+            'name': attr['name'], 'terms': [t['name'] for t in attr['terms']], 'owner': 'PRODUCT',
+            'type': 'list.metaobject_reference', 'namespace': (attr.get('before') or {}).get('namespace') or attributes.NAMESPACE,
+            'key': attr['field_key'], 'current_value': attr['before'],
+            'storefront_access': definition['before_access'] if 'before_access' in definition else None,
+            'authored_public_policy': attr['public'], 'proposed_action': attr['action'],
+            'resource_actions': [{'kind': r['kind'], 'action': r['action'], 'settings_changes': r.get('settings_changes', [])} for r in attr['resources']],
+            'theme_access': 'Liquid .value list; compatible dynamic source depends on block and referenced name field',
+            'inheritance': 'Existing effective shared collection / sparse product document; no duplicate authoring'})
+    document = attributes.product_document(product)
+    from app.shopify_taxonomy import assignments
+    groups, blockers = assignments(product)
+    return {'read_only': True, 'database_writes': 0, 'checked_at': drafts.now().isoformat(), 'product_id': row.shopify_product_id,
+        'informational_attributes': rows,
+        'native_sources': {key: document.get(key) for key in ('categories', 'primary_category', 'storefront_collections', 'tags', 'shopify_product_type')},
+        'resolved_collection_destinations': [{'key': g['key'], 'name': g['name']} for g in groups],
+        'classification_blockers': blockers,
+        'note': 'Categories/ranges/browse destinations use native Shopify collections. Variation drivers use native options; no duplicate navigation metafields are proposed.'}
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--sku',required=True)
     parser.add_argument('--instance',default=str(Path(__file__).resolve().parent.parent/'instance'))
     parser.add_argument('--catalogue',action='store_true',help='Inspect product/variant/InventoryItem readback and operation receipts, without attribute reads/writes')
     parser.add_argument('--verification',action='store_true',help='Inspect only local verification components and gallery counts; no Shopify API requests or customer/field values')
+    parser.add_argument('--variant-matrix', action='store_true', help='Read exact per-variant dimensions, definitions, native sizes and assignment receipts; no writes')
+    parser.add_argument('--navigation-matrix', action='store_true', help='Read existing product classification destinations and public attribute definitions; no writes')
     args=parser.parse_args()
     instance=Path(args.instance).resolve(); database=instance/'site.db'
     if not database.is_file(): parser.error('Existing database is unavailable; no database will be created.')
@@ -164,7 +285,7 @@ def main():
     with app.app_context():
         rows=ShopifyProductIdentity.query.filter_by(sku=args.sku).all()
         if len(rows)!=1 or not rows[0].shopify_product_id: parser.error('One exact retained remote identity is required.')
-        try: print(json.dumps(verification(rows[0]) if args.verification else catalogue(rows[0]) if args.catalogue else inspect(rows[0]),indent=2,default=str))
+        try: print(json.dumps(verification(rows[0]) if args.verification else variant_matrix(rows[0]) if args.variant_matrix else navigation_matrix(rows[0]) if args.navigation_matrix else catalogue(rows[0]) if args.catalogue else inspect(rows[0]),indent=2,default=str))
         except ShopifyError as exc: parser.exit(1,str(exc)+'\n')
 
 

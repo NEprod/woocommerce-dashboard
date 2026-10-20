@@ -42,7 +42,7 @@
     if (terminal(value.state)) {
       stopped = true; store(null); back.hidden = false;
       if (value.state==='completed' && !paused) {
-        stage.textContent = 'Verified — returning to Products';
+        stage.textContent = (value.completion_label || 'Verified') + ' — returning to Products';
         root.setTimeout(() => location.assign(destination(value.return_url || pending.returnTo,location.origin)),1200);
       }
     }

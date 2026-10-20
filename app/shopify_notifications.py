@@ -38,6 +38,9 @@ def read_only(operation):
 def complete(identity, data):
     if not identity or identity.state != "verified" or identity.verification_state != "verified":
         return False
+    from app.shopify_package_assignments import completion
+    if completion(data) not in {'none', 'accepted'}:
+        return False
     if (data.get('plan', {}).get('customisations') or data.get('customisation_update')) and data.get('storefront_configuration', {}).get('state') != 'verified':
         return False
     from app.shopify_publication import complete as publication_complete
@@ -48,9 +51,16 @@ def complete(identity, data):
     if data.get("plan", {}).get("native", {}).get("enabled"):
         if data.get("kind") == "variable":
             proofs = data.get("variant_native", {})
-            wanted = data["plan"].get("variants", [])
-            return bool(wanted) and all(proofs.get(v["identity"], {}).get("state") == "verified" for v in wanted)
-        return data.get("native_dimensions", {}).get("state") == "verified"
+            if not data['plan'].get('variants'):
+                return False
+            if any(not v.get('native', {}).get('unconfigured') and not v.get('native', {}).get('desired')
+                   for v in data['plan'].get('variants', [])):
+                return False  # authored but incomplete/invalid is not unconfigured
+            wanted = [v for v in data["plan"].get("variants", []) if v.get('native', {}).get('desired')]
+            return all(proofs.get(v["identity"], {}).get("state") == "verified" for v in wanted)
+        if data['plan']['native'].get('desired'):
+            return data.get("native_dimensions", {}).get("state") == "verified"
+        return data['plan']['native'].get('unconfigured') is True
     return True
 
 
@@ -61,13 +71,17 @@ def product_result(operation):
     identity = ShopifyProductIdentity.query.filter_by(operation_id=operation.id).first()
     data = evidence(identity) if identity else {}
     plan = data.get("plan", {})
+    from app.shopify_package_assignments import completion
+    package_state = completion(data)
     product = db.session.get(Product, identity.product_id or scope.get("product_id")) if identity else db.session.get(Product, scope["product_id"]) if scope.get("product_id") else None
     if not product and not scope.get("title") and not plan.get("title"):
         return None  # taxonomy-only operations are not product publishing
     if operation.recovery_state not in (None, "none") and identity and identity.state not in {"processing", "attribute_review_required", "scoped_verified"}:
         outcome = "recovery_required"
     elif operation.status == "succeeded" and complete(identity, data):
-        outcome = "verified_success"
+        outcome = "shopify_accepted" if package_state == 'accepted' else "verified_success"
+    elif package_state == 'rejected':
+        outcome = 'failed'
     elif operation.status in {"failed", "interrupted"} and not data.get("completed_steps") and (not identity or identity.state == "failed_before_create" or summary.get("write_attempted") is False):
         outcome = "failed_before_write"
     else:
@@ -79,8 +93,10 @@ def product_result(operation):
         "completed_at": operation.finished_at.isoformat() + "Z",
         "deferred": [str(v)[:300] for v in plan.get("blockers", [])[:5]],
         "reason": operation.error or data.get("error")}
-    if data.get('package_assignments'):
-        result['deferred'].append('Saved-package assignment evidence is acceptance-only, not independent readback; inspect the product receipt.')
+    if package_state == 'accepted':
+        result['evidence_note'] = 'Shopify accepted the saved-package input; independent package readback is unavailable. Detailed acknowledgement remains in the receipt.'
+    elif package_state in {'rejected', 'outstanding', 'uncertain'}:
+        result['deferred'].append('Saved-package assignment ' + package_state + '; inspect the exact variant and retained receipt. No automatic replay.')
     from app.shopify_publication import complete as publication_complete
     publication=plan.get('publication') or {}
     if not publication_complete(data):
@@ -98,7 +114,7 @@ def product_result(operation):
     if scope.get('mode') in {'sale_activate','sale_end'}:
         result['operation']='Sale Activated' if scope['mode']=='sale_activate' else 'Sale Ended'
         result['sale_status']=('active' if data.get('sale_transition',{}).get('phase')=='activate' else 'completed') if outcome=='verified_success' else summary.get('sale_status') or ('Recovery Required' if outcome=='recovery_required' else 'Needs Attention')
-    if outcome == "verified_success":
+    if outcome in {"verified_success", "shopify_accepted"}:
         result["shopify_status"] = data.get("observed_status")  # independently read, never intended status
         result.pop("reason", None)  # original uncertainty stays in history, not current-success warnings
     if data.get("verification", {}).get("identity") == "verified":
@@ -119,7 +135,7 @@ def aggregate(products):
         raise ValueError("Notification summaries support 1–25 products.")
     return {"products": products, "attempted": len(products), **{
         name: sum(p["outcome"] == name for p in products) for name in
-        ("verified_success", "failed_before_write", "recovery_required", "partial_completion")}}
+        ("verified_success", "shopify_accepted", "failed", "failed_before_write", "recovery_required", "partial_completion")}}
 
 
 def enqueue(operation):
