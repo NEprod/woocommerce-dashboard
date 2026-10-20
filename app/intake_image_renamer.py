@@ -407,7 +407,7 @@ def _notify_completed(progress, summary, elapsed):
             renamed=summary["renamed_images"],
             parent=summary["parent_images"],
             variation=summary["variation_images"],
-            warnings=summary["warnings"],
+            warnings=summary.get('severity_warnings', summary['warnings']),
             predecessor=summary["predecessor_cleanup"],
             elapsed_text=f"{elapsed:.1f}s",
             operation_id=progress.operation_id,
@@ -602,11 +602,15 @@ def execute_image_rename_operation(
             **replacement,
             "duration_seconds": round(time.monotonic() - started, 3),
         }
+        from app.intake_warnings import completed_reporting
+        completed_reporting(summary)
+        if remove_predecessor and predecessor_cleanup == 'preserved_after_cleanup_warning':
+            summary['execution_complete'] = False
         _notify_completed(progress, summary, time.monotonic() - started)
         progress.stage = "completed_metadata_required"
         progress.message = "Images renamed — metadata required"
         progress.current_item = relative
-        status = "partial" if progress.warnings else "succeeded"
+        status = 'succeeded' if summary['execution_complete'] else 'partial'
         progress.persist(summary=summary, status=status)
         finish_intake_operation(lease, status=status, summary=summary)
     except Exception as error:

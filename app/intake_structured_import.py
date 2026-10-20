@@ -490,6 +490,8 @@ def execute_structured_import(lease, relative, mode, submitted_digest):
             "promotion_fallback_reason": promotion["fallback_reason"],
             "duration_seconds": elapsed,
         }
+        from app.intake_warnings import completed_reporting
+        completed_reporting(summary)
         _notify_completed(progress, summary)
         progress.update("cleaning_staging", "Cleaning completed operation staging wrapper")
         try:
@@ -502,7 +504,7 @@ def execute_structured_import(lease, relative, mode, submitted_digest):
         progress.stage = "completed_folder_review_required" if mode == IMPORT_REVIEW else "completed_image_renaming_required"
         progress.message = "Structured folder imported — folder review required" if mode == IMPORT_REVIEW else "Folder structure confirmed — image renaming required"
         progress.current_item = preview["proposed_result"]
-        status = "partial" if progress.warnings else "succeeded"
+        status = "succeeded"
         progress.persist(summary=summary, status=status)
         finish_intake_operation(lease, status=status, summary=summary)
     except Exception as error:

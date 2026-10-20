@@ -39,6 +39,7 @@
 {% endmacro %}
 {% block content %}
 <section class="page-heading"><p class="eyebrow">Shopify · Read-only</p><h1>Catalogue discovery</h1><p>Inspect remote products, variants, media and collections. Nothing is imported, linked, downloaded or published.</p><a href="{{ url_for('commerce.settings') }}">Connection settings</a></section>
+<section class="workspace-panel"><h2>Existing shop, new local catalogue?</h2><p>Unlinked products are normal on first connection, not failed discovery. Inspect exact SKUs and variant options. Confirmed identities are preserved; existing Identity / History supports reviewed recovery of retained mappings. A first-time product with no retained identity is not automatically adopted: that linking workflow is a bounded follow-up. Do not create duplicates. Ambiguous or duplicate SKUs require investigation; similar titles never authorise linking.</p><a class="btn btn-primary" href="{{ url_for('main.products') }}">Inspect local products</a><p>This page does not retain a complete store inventory or a count of potential matches. Each returned page is explicitly scoped; whole-catalogue onboarding aggregation is a separate follow-up.</p></section>
 <section class="workspace-panel">
   <div class="panel-heading"><h2>Retrieve deliberately</h2><span class="catalogue-pill">Read only</span></div>
   <p>Each action reads one page of at most 20 records. Continue explicitly; no whole-store scan or automatic retries. Products and collections require read_products.</p>

@@ -59,7 +59,7 @@ def _guidance(category):
     if category == "SEO":
         return "Optional.", "Add the optional SEO metadata if it is useful before publishing."
     if category == "Publishing intent":
-        return "Safe to continue.", "Confirm the intended future WooCommerce publish or draft state."
+        return "Safe to continue.", "Confirm the intended Shopify publish or draft state in Review & Sync."
     if category == "Image fallback":
         return "Safe to continue.", "Review the affected image ownership and fallback before handoff if needed."
     if category == "Operation cleanup":
@@ -146,11 +146,27 @@ def bounded_warning_findings(findings):
     return retained
 
 
+def completed_reporting(summary):
+    """Reporting metadata for a fully executed Intake action, not its next step."""
+    findings = []
+    information = action = 0
+    for source in summary.get('warning_findings', []):
+        category = _category(source.get('code'))
+        severity = 'Information' if category in {'SEO', 'Image fallback'} else 'Action Required' if category == 'Publishing intent' else 'Warning'
+        information += severity == 'Information'
+        action += severity == 'Action Required'
+        findings.append(dict(source, severity=severity))
+    summary.update(execution_complete=True, findings=findings,
+        information=information, action_required=action,
+        severity_warnings=max(0, _count(summary.get('warnings'))-information-action))
+    return summary
+
+
 def warning_presentation(summary, *, status=None):
     """Normalise current and older persisted warning payloads for the UI."""
 
     summary = summary if isinstance(summary, dict) else {}
-    count = max(_count(summary.get("warnings")), int(status == "partial"))
+    count = _count(summary.get('severity_warnings', summary.get("warnings")))
     findings = summary.get("warning_findings")
     groups = warning_groups(findings, total=count) if isinstance(findings, list) else []
     if not groups and isinstance(summary.get("warning_summary"), list):

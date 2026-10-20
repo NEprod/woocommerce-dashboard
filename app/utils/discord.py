@@ -260,11 +260,14 @@ def _grouped_warning_text(summary):
 
 
 def notify_scan_completed(mode, summary, elapsed_text, *, operation_id=None):
-    if summary.get("products_failed") or summary.get("recovery_state") not in (None, "none"):
+    if summary.get("products_failed") or summary.get('errors') or summary.get("recovery_state") not in (None, "none"):
         return notify_operation_attention("scanner", "partial", operation_id=operation_id,
                                           summary=summary, error=summary.get("failure"))
     warnings = int(summary.get("warnings", 0) or 0)
     fields = _summary_fields(summary)
+    information = int(summary.get('information', 0) or 0)
+    if information:
+        fields.append({'name': 'Information', 'value': str(information), 'inline': True})
     if warnings:
         fields.append({"name": "Warning summary", "value": _grouped_warning_text(summary), "inline": False})
     collections = summary.get("collection_summaries") or []
@@ -272,7 +275,7 @@ def notify_scan_completed(mode, summary, elapsed_text, *, operation_id=None):
     operation_line = f"\nOperation: `{_truncate(operation_id)}`" if operation_id else ""
     review_line = "\nReview Operations for full details." if warnings else ""
     embed = build_embed(
-        "Scan Completed with Warnings" if warnings else "Scan Completed",
+        "Scan Completed with Warnings" if warnings else "Scan Completed with Findings" if information else "Scan Completed",
         f"Mode: **{mode}**\nElapsed: **{elapsed_text}**{collection_line}{operation_line}{review_line}",
         COLORS["warn"] if warnings else COLORS["success"], fields,
     )
@@ -406,7 +409,7 @@ def notify_intake_grouping_failed(*, source_name, error_text, operation_id):
 def notify_intake_structured_import_completed(summary, *, operation_id):
     """Send one bounded terminal summary for a structured-folder import."""
 
-    warning_count = max(0, int(summary.get("warnings", 0) or 0))
+    warning_count = max(0, int(summary.get('severity_warnings', summary.get("warnings", 0)) or 0))
     mode = "Review folder structure" if summary.get("import_mode") == "review" else "Final folder structure"
     fields = [
         {"name": "Source", "value": _truncate(str(summary.get("source_relpath") or "Structured source").rsplit("/", 1)[-1]), "inline": True},
@@ -527,7 +530,7 @@ def notify_intake_image_rename_failed(*, result_name, error_text, operation_id):
 def notify_intake_metadata_completed(summary, *, operation_id):
     """Send one bounded terminal Prepared metadata summary."""
 
-    warning_count = max(0, int(summary.get("warnings", 0) or 0))
+    warning_count = max(0, int(summary.get('severity_warnings', summary.get("warnings", 0)) or 0))
     fields = [
         {"name": "Prepared result", "value": _truncate(summary.get("result_name")), "inline": True},
         {"name": "Action", "value": _truncate(summary.get("metadata_action")), "inline": True},
@@ -565,7 +568,7 @@ def notify_intake_metadata_failed(result_name, error_text, *, operation_id):
 def notify_intake_handoff_completed(summary, *, operation_id):
     """Send one bounded terminal catalogue handoff summary."""
 
-    warning_count = max(0, int(summary.get("warnings", 0) or 0))
+    warning_count = max(0, int(summary.get('severity_warnings', summary.get("warnings", 0)) or 0))
     fields = [
         {"name": "Prepared result", "value": _truncate(summary.get("result_name")), "inline": True},
         {"name": "Catalogue destination", "value": _truncate(summary.get("catalogue_destination")), "inline": True},

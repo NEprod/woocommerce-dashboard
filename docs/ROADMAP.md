@@ -1,5 +1,15 @@
 # Roadmap
 
+## Accept Operations Health reporting repair
+
+Confirm current issue counters match their filtered lists, local availability is
+separate from Shopify/operations, and successful checks with readiness findings do
+not become Partial. Preserve recovery cases and historical receipts. Collect the
+merchant-only read-only operation breakdown before assigning meaning to the reported
+360 historical rows/eight cases. First-time adoption of an existing remote product
+without a retained identity remains a separately reviewed linking/onboarding task;
+do not expand this repair into a new reconciliation engine. See OPERATIONS_HEALTH.md.
+
 Variant metafield / package sync reporting follow-up: correct acceptance-only
 completion, retain failed/uncertain stage safety, and add bounded read-only variant/
 navigation evidence matrices. No new formatted dimensions/navigation system, theme

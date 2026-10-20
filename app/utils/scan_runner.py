@@ -126,8 +126,21 @@ def _persistable_operation_summary(summary):
         "products_skipped", "variations_created", "variations_updated", "variations_processed",
         "parent_images", "variation_images", "total_images", "output_images_copied",
         "warnings", "warning_summary", "warning_entries", "collection_summaries",
+        "information", "findings", "errors", "execution_complete",
     }
     return {key: summary[key] for key in allowed if key in summary}
+
+
+def scan_finding_severity(message):
+    """Reporting only; ingestion/identity/marker decisions remain unchanged."""
+    text = str(message).casefold()
+    if 'no sku matched' in text or 'no variations generated' in text:
+        return 'Error'
+    if (('using ' in text and 'for parent images' in text) or 'resolving image path for' in text
+            or 'skipped unchanged' in text or 'missing optional' in text
+            or 'optional parent image' in text):
+        return 'Information'
+    return 'Warning'
 
 
 class BoundedLogQueue:
@@ -397,9 +410,18 @@ def make_logger(run_id):
         with _runs_lock:
             run = _runs[run_id]
             if normalized_level == "WARN":
-                run["warnings"] = run.get("warnings", 0) + 1
+                severity = scan_finding_severity(msg)
+                normalized_level = {'Information': 'INFO', 'Error': 'ERROR'}.get(severity, 'WARN')
+                count_key = {'Information': 'information', 'Error': 'errors'}.get(severity, 'warnings')
+                run[count_key] = run.get(count_key, 0) + 1
+                findings = run.setdefault('findings', [])
+                if len(findings) < 50:
+                    findings.append({'severity': severity, 'message': redact_diagnostic(msg, paths=run.get('redaction_paths'), limit=240)})
             elif normalized_level == "ERROR":
                 run["errors"] = run.get("errors", 0) + 1
+                findings = run.setdefault('findings', [])
+                if len(findings) < 50:
+                    findings.append({'severity': 'Error', 'message': redact_diagnostic(msg, paths=run.get('redaction_paths'), limit=240)})
             paths = run.get("redaction_paths")
         prefix = {"INFO": "[ℹ️]", "WARN": "[⚠️]", "ERROR": "[❌]"}.get(
             normalized_level, "[ℹ️]"
@@ -851,12 +873,13 @@ def _scan_thread(
             log(f"📦 Total rows prepared: {len(all_rows)}")
             log("✅ Scan complete.")
             _runs[run_id]["summary"]["warnings"] = _runs[run_id].get("warnings", 0)
-            if products_failed and products_succeeded:
+            if not operation_error and _runs[run_id].get('errors'):
+                operation_error = next((f['message'] for f in _runs[run_id].get('findings', []) if f['severity'] == 'Error'),
+                    'Required scanner execution errors were recorded; inspect the retained log.')
+            if (products_failed or _runs[run_id].get('errors')) and products_succeeded:
                 operation_status = "partial"
-            elif products_failed:
+            elif products_failed or _runs[run_id].get('errors'):
                 operation_status = "failed"
-            elif _runs[run_id]["summary"]["warnings"]:
-                operation_status = "partial"
             else:
                 operation_status = "succeeded"
             _runs[run_id]["stage"] = (
@@ -897,6 +920,9 @@ def _scan_thread(
                 }
             )
             _runs[run_id]["summary"].setdefault("warnings", _runs[run_id].get("warnings", 0))
+            _runs[run_id]['summary'].update(information=_runs[run_id].get('information', 0),
+                findings=_runs[run_id].get('findings', []), errors=_runs[run_id].get('errors', 0),
+                execution_complete=operation_status == 'succeeded')
             _runs[run_id]["summary"].update(warning_summary(_runs[run_id]))
             _runs[run_id]["recovery_state"] = operation_recovery_state or "none"
             _runs[run_id]["summary"]["recovery_state"] = operation_recovery_state or "none"

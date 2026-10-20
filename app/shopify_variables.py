@@ -393,8 +393,11 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
             if removed: plan["warnings"].append("Explicit tag replacement removes: " + ", ".join(removed))
     else:
         matches = adapter.find_skus(config,[plan["sku"], *[v["sku"] for v in plan["variants"]]])
-        if not isinstance(matches,dict) or not isinstance(matches.get("nodes"),list) or matches.get("pageInfo",{}).get("hasNextPage") is not False or matches["nodes"]:
-            raise ShopifyError("A parent/variant SKU candidate exists or discovery is incomplete. Resolve identities before Create.")
+        if not isinstance(matches,dict) or not isinstance(matches.get("nodes"),list) or matches.get("pageInfo",{}).get("hasNextPage") is not False:
+            raise ShopifyError('Parent/variant SKU discovery is incomplete. Resolve discovery before Create.')
+        if matches['nodes']:
+            from app.shopify_connection import ShopifyReadinessFinding
+            raise ShopifyReadinessFinding('Existing parent/variant SKU candidates need reconciliation review; never create duplicates or auto-link ambiguous variants. First-time linking without a retained identity requires a separately supported workflow.', code='reconciliation')
         found = adapter.find_draft(config,plan["handle"])
         if found["nodes"] or found["pageInfo"].get("hasNextPage"):
             raise ShopifyError("Handle already exists or discovery is incomplete; resolve candidates before Create.")

@@ -666,11 +666,13 @@ def execute_metadata_operation(lease, relative, proposed, submitted_digest):
             "duration_seconds": round(elapsed, 3),
             **replacement,
         }
+        from app.intake_warnings import completed_reporting
+        completed_reporting(summary)
         _notify_completed(progress, summary)
         progress.copied = 1
         progress.stage = "completed_validation_required"
         progress.message = "Metadata complete — validation required"
-        status = "partial" if progress.warnings else "succeeded"
+        status = "succeeded"
         progress.persist(summary=summary, status=status)
         finish_intake_operation(lease, status=status, summary=summary)
     except Exception as error:

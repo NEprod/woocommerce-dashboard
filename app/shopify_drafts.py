@@ -130,26 +130,31 @@ def common_plan(product, *, variable=False):
         raise ShopifyError("Stable scanned source identity and SKU are required.")
     authored = snapshot.data["authored"]
     from app.shopify_publication import intent
-    publication_intent = intent(authored)
+    from app.shopify_connection import ShopifyReadinessFinding
+    try:
+        publication_intent = intent(authored)
+    except ShopifyError as exc:
+        raise ShopifyReadinessFinding(str(exc), code='publication_intent') from None
     title = authored.get("title") or snapshot.data["title"]
     body = authored.get("description", snapshot.data["description"]) or ""
     if not isinstance(title, str) or not title.strip() or len(title) > 255 or not isinstance(body, str) or len(body.encode()) > 262144:
-        raise ShopifyError("Review the title/description; titles must fit 255 characters and description HTML the 256 KiB transport safety budget.")
+        raise ShopifyReadinessFinding("Review the title/description; titles must fit 255 characters and description HTML the 256 KiB transport safety budget.", code='required_metadata')
     try:
         price = Decimal(str(authored.get("price", snapshot.data["price"])))
         if not price.is_finite() or price < 0 or price != price.quantize(Decimal("0.01")):
             raise ValueError()
     except (InvalidOperation, ValueError):
-        raise ShopifyError("A finite, nonnegative price with at most two decimal places is required.") from None
+        raise ShopifyReadinessFinding("A finite, nonnegative price with at most two decimal places is required.", code='required_metadata') from None
     diagnostics = product_image_diagnostics(product)
     if variable:
         from app.shopify_variables import gallery_diagnostics
         diagnostics = gallery_diagnostics(product, diagnostics)
     limit = 20 if variable else MAX_IMAGES
+    from app.shopify_connection import ShopifyReadinessFinding
     if not diagnostics:
-        raise ShopifyError('Gallery evidence unavailable: no original catalogue/gallery images resolved. Check the catalogue mount, source identity and image references; no images are removed.')
+        raise ShopifyReadinessFinding('Publishing needs original catalogue/gallery artwork. Check the source folder and image references; no images are removed.', code='missing_images')
     if len(diagnostics) > limit:
-        raise ShopifyError(f'Gallery evidence exceeds the supported bound: {len(diagnostics)} images; limit {limit}. No images are truncated or removed.')
+        raise ShopifyReadinessFinding(f'Gallery exceeds the supported publication bound: {len(diagnostics)} images; limit {limit}. No images are truncated or removed.', code='gallery_bound')
     images = []
     for row in diagnostics:
         if not row["source_exists"] or not row["source_reference"]:
@@ -206,8 +211,11 @@ def matching_identity(store_id, product):
 
 def require_absent_sku(adapter, config, sku):
     matches = adapter.find_sku(config, sku)
-    if matches["nodes"] or matches["pageInfo"].get("hasNextPage"):
-        raise ShopifyError("A Shopify SKU candidate already exists or discovery is incomplete. Another create is blocked; inspect and reconcile identities, never auto-adopt.")
+    if not isinstance(matches.get('nodes'), list) or matches.get('pageInfo', {}).get('hasNextPage') is not False:
+        raise ShopifyError('Exact SKU discovery is incomplete. Another create is blocked; retry read-only discovery.')
+    if matches['nodes']:
+        from app.shopify_connection import ShopifyReadinessFinding
+        raise ShopifyReadinessFinding('Existing Shopify SKU candidate found. Reconciliation review is required; never create a duplicate or adopt by title. First-time mapping without a retained identity needs a separately supported linking workflow.', code='reconciliation')
 
 
 def preview(product, adapter=None, *, context=None, scope="full"):

@@ -1,5 +1,26 @@
 # Current State
 
+## Operations reporting and actionable current health
+
+Execution outcomes no longer borrow product-readiness or warning severity. Completed
+scans/Intake transformations and status inspections retain their findings without
+automatically becoming Partial; real unfinished targets, failed reads/persistence
+and uncertain writes remain incomplete/failed/recovery. Full product freshness still
+requires the same managed evidence. Local catalogue availability is independent from
+Shopify readiness and operational health. Dashboard counters and paginated issue
+lists share one read-only projection with direct product/receipt actions. Current
+conditions resolve from validated projections or exact-scope read evidence; legacy
+write uncertainty is never inferred away. New local validation observations reuse
+existing operation receipts; no new issue database or migration (head0018).
+
+Scheduled slices are labelled internal stages, with the durable run shown once in
+Recent Changes. Existing lease/fence and notification-deduplication machinery remains.
+First-time discovery is read-only; candidates are not execution failures, but first
+adoption without a retained identity still requires a separate linking workflow.
+Production historical totals/recovery detail require the read-only merchant probe;
+synthetic evidence is not claimed as Unraid observation. See
+[reporting inventory, counters and acceptance](OPERATIONS_HEALTH.md).
+
 ## Variant metafield / package completion follow-up
 
 Accepted saved-package writes now complete the existing operation rather than

@@ -486,7 +486,7 @@ def _notify_completed(progress, summary, elapsed):
             result_name=summary["result_name"],
             renamed=summary["renamed_folders"],
             created=summary["created_folders"],
-            warnings=summary["warnings"],
+            warnings=summary.get('severity_warnings', summary['warnings']),
             elapsed_text=f"{elapsed:.1f}s",
             operation_id=progress.operation_id,
         )
@@ -623,12 +623,14 @@ def execute_folder_edit_operation(lease, relative, spec, submitted_digest):
             **replacement,
             "duration_seconds": round(time.monotonic() - started, 3),
         }
+        from app.intake_warnings import completed_reporting
+        completed_reporting(summary)
         _notify_completed(progress, summary, time.monotonic() - started)
         progress.stage = "completed_image_renaming_required"
         progress.message = "Folder structure confirmed — image renaming required"
         progress.current_item = summary["prepared_relpath"]
-        progress.persist(summary=summary, status="partial" if progress.warnings else "succeeded")
-        finish_intake_operation(lease, status="partial" if progress.warnings else "succeeded", summary=summary)
+        progress.persist(summary=summary, status="succeeded")
+        finish_intake_operation(lease, status="succeeded", summary=summary)
     except Exception as error:
         cleanup_warning = None
         try:

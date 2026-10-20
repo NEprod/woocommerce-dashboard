@@ -2047,6 +2047,32 @@ def operations():
     return render_template("operations.html", workspace=operations_browser(filters))
 
 
+@main.route('/operations/issues')
+@login_required
+def operation_issues_page():
+    """Read-only current projection, shared exactly with dashboard counters."""
+    from app.operation_reporting import issue_projection, CATEGORIES
+    category = request.args.get('category', 'failures')
+    if category not in CATEGORIES:
+        abort(400)
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (ValueError, TypeError):
+        abort(400)
+    data = issue_projection()
+    items = [i for i in data['items'] if i['category'] == category]
+    total = len(items)
+    search = request.args.get('q', '')[:100].strip()
+    if search:
+        items = [i for i in items if search.casefold() in (str(i.get('entity', ''))+' '+str(i.get('identifier', ''))+' '+i['cause']).casefold()]
+    filtered = len(items)
+    pages = max(1, (filtered+24)//25)
+    page = min(page, pages)
+    return render_template('operation_issues.html', issues=items[(page-1)*25:page*25],
+        total=total, filtered=filtered, page=page, pages=pages, search=search,
+        category=category, heading=CATEGORIES[category][0], unit=CATEGORIES[category][1]), 200, {'Cache-Control': 'no-store, private'}
+
+
 @main.route("/operations/<operation_id>")
 @login_required
 def operation_detail(operation_id):

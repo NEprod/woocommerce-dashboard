@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from flask import g, has_request_context
+from flask import g, has_request_context, url_for
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -102,6 +102,8 @@ def _missing_image_product_ids():
 
 
 def _operation_view(operation):
+    from app.operation_reporting import interpretation
+    reporting = interpretation(operation)
     finished_at = operation.finished_at
     elapsed = None
     if operation.started_at and finished_at:
@@ -112,7 +114,9 @@ def _operation_view(operation):
         "label": OPERATION_LABELS.get(
             operation.operation_type, operation.operation_type.replace("_", " ").title()
         ),
-        "status": operation.status,
+        "status": reporting['execution'],
+        "status_label": reporting['label'],
+        "detail_url": url_for('main.operation_detail', operation_id=operation.id),
         "started_at": operation.started_at,
         "finished_at": finished_at,
         "elapsed_seconds": elapsed,
@@ -181,19 +185,25 @@ def build_dashboard_data():
         CatalogueOperation.query.order_by(
             CatalogueOperation.started_at.desc(), CatalogueOperation.id.desc()
         )
+        .filter(~CatalogueOperation.scope.like('%"scheduled_run"%'))
         .limit(8)
         .all()
     )
     recent_operations = [_operation_view(operation) for operation in operations]
-    failed_operations = CatalogueOperation.query.filter(
-        CatalogueOperation.status.in_({"failed", "partial", "interrupted"})
-    ).count()
-    recovery_required = CatalogueOperation.query.filter(
-        and_(
-            CatalogueOperation.recovery_state.isnot(None),
-            CatalogueOperation.recovery_state != "none",
-        )
-    ).count()
+    from app.operation_reporting import issue_projection, CATEGORIES, task_interpretation
+    issue_data = issue_projection()
+    failed_operations = issue_data['counts']['failures']
+    recovery_required = issue_data['counts']['recovery']
+    from app.models import ScheduledTaskRun
+    for run in ScheduledTaskRun.query.order_by(ScheduledTaskRun.created_at.desc()).limit(8).all():
+        report = task_interpretation(run)
+        recent_operations.append({'id': run.id, 'type': run.task_key,
+            'label': run.task_key.replace('_', ' ').title(),
+            'status': {'completed': 'succeeded', 'partially_completed': 'partial'}.get(report['execution'], report['execution']),
+            'status_label': report['label'],
+            'started_at': run.started_at or run.created_at,
+            'recovery_state': 'none', 'detail_url': url_for('tasks.run_detail', run_id=run.id)})
+    recent_operations = sorted(recent_operations, key=lambda r:r['started_at'], reverse=True)[:8]
 
     active_operation = get_active_operation()
     if active_operation:
@@ -244,15 +254,9 @@ def build_dashboard_data():
         for product, count in product_rows
     ]
 
-    needs_attention = bool(
-        missing_items
-        or metadata_issues["total"]
-        or failed_operations
-        or recovery_required
-    )
     if not total_items:
         health_label = "No catalogue data"
-    elif needs_attention:
+    elif missing_items:
         health_label = "Needs attention"
     else:
         health_label = "Healthy"
@@ -295,10 +299,14 @@ def build_dashboard_data():
         "attention": {
             "missing_products": summary["missing_products"],
             "missing_variations": summary["missing_variations"],
-            "metadata_issues": metadata_issues["total"],
+            "metadata_issues": issue_data['counts']['metadata'],
             "failed_operations": failed_operations,
             "recovery_required": recovery_required,
         },
+        'issue_data': issue_data,
+        'attention_links': [dict(key=key, label=label, unit=unit, count=issue_data['counts'][key],
+            destination=url_for('main.operation_issues_page', category=key))
+            for key,(label,unit) in CATEGORIES.items() if key != 'information'],
         "recent_operations": recent_operations,
         "recent_products": recent_products,
         "woo_status": "Not configured",

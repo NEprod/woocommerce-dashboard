@@ -1,10 +1,11 @@
 """Incremental, serialized Shopify reads. Never calls a Shopify mutation."""
 import json
+import hashlib
 from datetime import timedelta
 
 from app import db
 from app.models import Product, ShopifyProductComparison, ShopifyCollectionIdentity
-from app.shopify_connection import ShopifyAdapter, ShopifyError
+from app.shopify_connection import ShopifyAdapter, ShopifyError, ShopifyReadinessFinding
 from app import shopify_comparison as comparison, shopify_drafts as drafts
 from app.utils.operation_control import acquire_catalogue_operation, finish_catalogue_operation
 from app.shopify_capacity import BackgroundYield
@@ -50,11 +51,12 @@ def refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, sc
     if len(products) > BATCH:
         raise ShopifyError("At most 25 visible products can be checked per request.")
     adapter = adapter or ShopifyAdapter()
-    scope = {"products": [p.id for p in products]}
+    ids = sorted(p.id for p in products)
+    scope = {"products": ids, 'products_fingerprint': hashlib.sha256(json.dumps(ids).encode()).hexdigest()}
     if scheduled_run:
         scope.update(scheduled_run=scheduled_run[0], scheduled_owner=scheduled_run[1])
     lease = acquire_catalogue_operation("shopify_status_refresh", scope)
-    results, pending, errors, full = [], [], [], 0
+    results, pending, errors, findings, full = [], [], [], [], 0
     deferred_reason = None
     try:
         config = drafts.configuration()
@@ -148,6 +150,10 @@ def refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, sc
                     drafts.preview(product, adapter, context={"shop": shop, "config": config.fingerprint()})  # no mutation, token discarded
                     checked = ShopifyProductComparison.query.filter_by(store_id=shop["shop_id"], source_identity=product.source_relpath).first()
                     checked_data = json.loads(checked.summary_json) if checked else {}
+                    if checked_data.get('classification') in {'create', 'update'} or checked_data.get('blockers'):
+                        findings.append({'product_id': product.id, 'code': 'product_readiness',
+                            'severity': 'Action Required', 'state': checked_data.get('classification'),
+                            'message': 'Product review is required; inspection completed. No write occurred.'})
                     if checked_data.get("refresh_failure"):
                         errors.append({"product_id": product.id, "message": checked_data["refresh_failure"]["message"]})
                     if identity and not valid and revision and previous.get("remote_updated_at") and previous["remote_updated_at"] != revision["updatedAt"]:
@@ -181,6 +187,13 @@ def refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, sc
                 deferred_reason = str(exc)
                 pending.extend(p.id for p, *_ in work[index:])
                 break
+            except ShopifyReadinessFinding as exc:
+                # Keep full-comparison/freshness incomplete, without reporting a
+                # successful preflight inspection as an API execution failure.
+                mark_failure(product, saved, str(exc), kind='readiness')
+                findings.append({'product_id': product.id, 'code': exc.code,
+                    'severity': 'Action Required', 'message': str(exc)})
+                results.append(product.id)
             except ShopifyError as exc:
                 from app.shopify_connection import ShopifyProductAbsent
                 if isinstance(exc, ShopifyProductAbsent) and identity:
@@ -201,7 +214,7 @@ def refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, sc
                 mark_failure(product,saved,message)
                 errors.append({"product_id":product.id,"message":message})
                 results.append(product.id)
-        return {"checked": results, "pending": pending, "errors": errors, "full_comparisons": full, "deferred_reason":deferred_reason}
+        return {"checked": results, "pending": pending, "errors": errors, "findings": findings, "full_comparisons": full, "deferred_reason":deferred_reason}
     except BackgroundYield as exc:
         pending = [p.id for p in products if p.id not in results]
         return {"checked":results,"pending":pending,"errors":errors,"full_comparisons":full,"deferred_reason":str(exc)}
@@ -210,5 +223,17 @@ def refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, sc
         for product, saved, _, _ in locals().get("work", []):
             mark_failure(product, saved, str(exc))
         return {"checked": [p.id for p in products], "pending": [], "errors": errors, "full_comparisons": full}
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+        errors.append({'message': 'Configuration, local evidence or result persistence failed. Open connection settings and the retained operation diagnostics; no complete inspection is claimed.'})
+        raise
+    except Exception:
+        db.session.rollback()
+        errors.append({'message': 'Required comparison or persistence failed unexpectedly. Inspect the operation and application diagnostics; no complete assessment is claimed.'})
+        raise
     finally:
-        finish_catalogue_operation(lease.id, status="partial" if errors or pending else "succeeded", recovery_state="none", operation_summary={"mode": "read_only", "checked": len(results), "errors": errors, "full_comparisons": full})
+        continuation = bool(pending and scheduled_run and not errors)
+        finish_catalogue_operation(lease.id, status="failed" if errors and not results else "partial" if errors or (pending and not continuation) else "succeeded", recovery_state="none",
+            operation_summary={"mode": "read_only", "checked": len(results), "checked_ids": results,
+                "errors": errors, "findings": findings, "pending": pending,
+                "execution_complete": not errors and not pending, "continuation": continuation,
+                "full_comparisons": full})

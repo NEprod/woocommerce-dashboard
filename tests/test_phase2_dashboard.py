@@ -224,7 +224,7 @@ def test_dashboard_data_uses_only_projection_and_operation_records(dashboard_app
     }
     assert data["scanner"]["active"] is None
     assert data["recent_operations"][0]["id"] == "operation-failed"
-    assert data["attention"]["failed_operations"] == 1
+    assert data["attention"]["failed_operations"] == 0  # same receipt is a recovery case, not a second incident
     assert data["attention"]["recovery_required"] == 1
     assert data["recent_products"][0]["sku"] == "CARD-001"
     assert data["recent_products"][0]["variation_count"] == 3
@@ -239,7 +239,7 @@ def test_dashboard_route_renders_real_sections_without_unsupported_claims(
 
     for required in (
         "Catalogue Health",
-        "Scanner Activity",
+        "Operations Health",
         "Recent Changes",
         "Needs Attention",
         "Metadata Issues",
@@ -247,8 +247,8 @@ def test_dashboard_route_renders_real_sections_without_unsupported_claims(
         "Fictional Card",
         "CARD-001",
         "67%",
-        "Shopify Products",
-        "No orders imported yet",
+        "Shopify Synchronisation",
+        "No saved non-test orders yet",
         "Orders today (UK)",
     ):
         assert required in html

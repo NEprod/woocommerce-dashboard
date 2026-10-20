@@ -637,10 +637,12 @@ def execute_handoff_operation(lease, relative, digest, fresh_review, acknowledge
             "promotion_strategy": promotion["strategy"], "promotion_fallback_reason": promotion["fallback_reason"],
             "next_step": "Run Append Scan",
         }
+        from app.intake_warnings import completed_reporting
+        completed_reporting(summary)
         _terminal_notify(progress, summary)
         progress.completed = progress.total
         progress.stage, progress.message = "completed_append_scan_required", "Completed — Append Scan required"
-        status = "partial" if progress.warnings else "succeeded"
+        status = "succeeded"
         progress.persist(summary=summary, status=status)
         if guard is not None:
             release_intake_mutation_guard(guard)

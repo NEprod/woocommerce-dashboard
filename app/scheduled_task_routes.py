@@ -57,7 +57,8 @@ def run_now(key):
 def history(key):
     if key not in {service.KEY,service.SALE_KEY,service.ORDERS_KEY,'catalogue_startup'}:abort(404)
     runs=ScheduledTaskRun.query.filter_by(task_key=key).order_by(ScheduledTaskRun.created_at.desc()).limit(100).all()
-    return render_template("scheduled_task_history.html",runs=runs,detail=None,definition=service.definition(key))
+    from app.operation_reporting import task_interpretation
+    return render_template("scheduled_task_history.html",runs=runs,detail=None,definition=service.definition(key),reports={r.id:task_interpretation(r) for r in runs})
 
 
 @tasks.route("/settings/tasks/runs/<run_id>")
@@ -71,4 +72,5 @@ def run_detail(run_id):
             errors=data.get('errors', []),
             order_results={k:data.get('orders_'+k,0) for k in ('created','updated','unchanged','stale')},
             outstanding=data.get('pending_orders',len(data.get("queue",[]))),items=data.get("items",[])),200,{"Cache-Control":"no-store"}
-    return render_template("scheduled_task_history.html",runs=[run],detail=data,definition=service.definition(run.task_key))
+    from app.operation_reporting import task_interpretation
+    return render_template("scheduled_task_history.html",runs=[run],detail=data,definition=service.definition(run.task_key),reports={run.id:task_interpretation(run)})

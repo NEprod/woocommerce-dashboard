@@ -228,6 +228,8 @@ def product_state(product, rows, comparisons=(), mappings=None):
                             change_summary=[], blockers=[data["refresh_failure"]["message"]],
                             message=data['refresh_failure']['message'])
                         kind=data["refresh_failure"].get("kind")
+                        if kind == 'readiness':
+                            state.update(state='attention', label='Publishing prerequisite needed')
                         if kind in {"identity_conflict","variant_missing"}:
                             state.update(state="recovery_required" if kind=="identity_conflict" else "attention",label="Recovery Required" if kind=="identity_conflict" else "Needs Attention",message=data["refresh_failure"]["message"])
                     if data.get("conflicting_changes"):
@@ -266,6 +268,8 @@ def product_state(product, rows, comparisons=(), mappings=None):
                     if failed.get("refresh_failure") and failed.get("config") == configuration().fingerprint():
                         state.update(state="unavailable", label="Verification Unavailable", message=failed["refresh_failure"]["message"])
                         kind=failed["refresh_failure"].get("kind")
+                        if kind == 'readiness':
+                            state.update(state='attention', label='Publishing prerequisite needed')
                         if kind in {"identity_conflict","variant_missing"}:
                             state.update(state="recovery_required" if kind=="identity_conflict" else "attention",label="Recovery Required" if kind=="identity_conflict" else "Needs Attention")
                         break

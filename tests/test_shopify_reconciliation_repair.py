@@ -166,11 +166,13 @@ def test_gallery_safety_reports_production_reason_not_selection_instruction(worl
     images = copy.deepcopy(adapter.remote['media'])
     monkeypatch.setattr(drafts, 'product_image_diagnostics', lambda p: [{} for _ in range(count)])
     result = shopify_status.refresh([product], force=True, adapter=adapter)
-    message = result['errors'][0]['message']
-    assert 'Gallery evidence' in message and 'Select a product' not in message
-    assert ('no original' if count == 0 else '21 images; limit 20') in message
+    assert result['errors'] == []  # completed inspection, product publication still blocked
+    message = result['findings'][0]['message']
+    assert 'Select a product' not in message
+    assert ('original catalogue/gallery artwork' if count == 0 else '21 images; limit 20') in message
     assert adapter.remote['media'] == images
-    assert displayed(product)['label'] == 'Verification Unavailable'
+    assert displayed(product)['label'] == 'Publishing prerequisite needed'
+    assert not scheduled_tasks.recent_success(product, drafts.configuration())
 
 
 def test_scheduler_renews_package_product_and_groups_error_summary(world):

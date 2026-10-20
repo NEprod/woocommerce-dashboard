@@ -9,6 +9,10 @@
   <div class="operation-hero-actions"><span class="status-badge status-{{ workspace.operation.status }}" data-operation-status aria-live="polite">{{ workspace.operation.status_label }}</span>{% if workspace.retry_mode and workspace.operation.status in ['failed','partial','interrupted'] %}<a class="btn btn-accent" href="{{ url_for('main.scanner', mode=workspace.retry_mode, retry_of=workspace.operation.id) }}">Prepare safe retry</a>{% endif %}</div>
 </section>
 
+{% if workspace.operation.interpretation_corrected %}<p class="panel-note">Derived execution interpretation: all requested projections and markers completed. Original stored status: {{ workspace.operation.original_status }}. The historical receipt has not been rewritten.</p>{% endif %}
+{% if workspace.operation.scope.scheduled_run %}<section class="workspace-panel"><h2>Internal scheduled stage</h2><p>This receipt belongs to one durable scheduled run: <code>{{ workspace.operation.scope.scheduled_run }}</code>. It is not a separate merchant request.</p><a href="{{ url_for('tasks.history', key='shopify_products') }}">Open primary scheduled run history</a></section>{% endif %}
+{% if workspace.operation.summary.findings %}<section class="workspace-panel"><h2>Findings — separate from execution</h2>{% for finding in workspace.operation.summary.findings %}<p><strong>{{ finding.severity }}</strong> · {{ finding.message }}{% if finding.product_id %} <a href="{{ url_for('main.product_detail', product_id=finding.product_id) }}">Open affected product</a>{% endif %}</p>{% endfor %}</section>{% endif %}
+
 {% if workspace.intake %}<div data-intake-result-panel data-result-url="{{ url_for('main.operation_intake_result', operation_id=workspace.operation.id) }}" aria-live="polite">{% include 'operations/_intake_result.html' %}</div>{% endif %}
 
 <section class="operation-metrics" aria-label="Operation result metrics">

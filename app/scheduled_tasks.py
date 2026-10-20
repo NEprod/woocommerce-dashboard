@@ -332,7 +332,7 @@ def run_slice(key,run_id,owner,*,adapter=None):
         eligible=[];consumed=set()
         for product in products:
             if protected(product):
-                consumed.add(product.id);data["counts"]["attention"]+=1;data["counts"]["deferred"]+=1
+                consumed.add(product.id);data["counts"]["attention"]+=1
                 data["items"]=(data["items"]+[{"id":product.id,"sku":product.sku,"state":"Recovery / scoped review protected"}])[-100:]
             elif run.trigger!="manual" and recent_success(product,config,mappings=mappings,as_of=run.started_at):
                 consumed.add(product.id);data["counts"]["skipped_recent"]+=1
@@ -380,7 +380,9 @@ def run_slice(key,run_id,owner,*,adapter=None):
         exhausted=data["slices"]>=MAX_SLICES or now()-run.started_at>=timedelta(minutes=20)
         if global_failure or exhausted or not data["queue"]:
             data["counts"]["deferred"]+=len(data["queue"])
-            terminal="failed" if global_failure and not data["counts"]["up_to_date"] and not data["counts"]["updates"] else "partially_completed" if data["counts"]["deferred"] or data["counts"]["unavailable"] or data["counts"]["attention"] or data.get("errors") else "completed"
+            # Readiness findings do not mean execution failed. Required read
+            # failures and unfinished executable targets still do.
+            terminal="failed" if global_failure and not data["counts"]["up_to_date"] and not data["counts"]["updates"] else "partially_completed" if data["counts"]["deferred"] or data.get("errors") else "completed"
             return save_progress(key,run_id,owner,data,terminal=terminal,error="; ".join(data.get("errors",[])))
         save_progress(key,run_id,owner,data,pause=bool(data.get("reason")))
         if not data.get("reason"):

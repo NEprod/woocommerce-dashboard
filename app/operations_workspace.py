@@ -21,10 +21,11 @@ from app.utils.redaction import redact_diagnostic, runtime_redaction_paths
 
 TERMINAL_STATUSES = {"succeeded", "partial", "failed", "interrupted"}
 STATUS_LABELS = {
-    "running": "Running", "succeeded": "Completed", "partial": "Completed with warnings",
+    "running": "Running", "succeeded": "Completed", "partial": "Partially completed",
     "failed": "Failed", "interrupted": "Interrupted", "pending": "Queued",
 }
 TYPE_LABELS = {
+    'shopify_status_refresh': 'Shopify Status Refresh',
     "shopify_draft_publish": "Shopify Draft Publish",
     "append": "Append", "product_update": "Update", "shared_collection_update": "Shared collection update",
     "full": "Full", "reconstruction": "Reconstruction", "intake_group": "Catalogue Intake — Group Images",
@@ -227,25 +228,34 @@ def operation_view(row, *, redaction_paths=None):
     source = scope.get("collection_relpath") or scope.get("source_relpath")
     live_warnings = int((live or {}).get("counts", {}).get("warnings", 0) or 0)
     warning_view = warning_presentation(active_summary, status=row.status)
-    warning_count = max(live_warnings, warning_view["count"])
+    warning_count = warning_view['count'] if 'severity_warnings' in active_summary else max(live_warnings, warning_view["count"])
     if row.operation_type == "woo_connection_test":
         warning_count = max(warning_count, int(active_summary.get("optional_limitations", 0) or 0))
     status_label = STATUS_LABELS.get(row.status, row.status.title())
     if row.operation_type == "woo_connection_test" and row.status == "partial":
         status_label = "Completed with limitations"
     if row.status == "succeeded" and live_warnings:
-        status_label = "Completed with warnings"
+        status_label = "Completed with findings"
+    from app.operation_reporting import interpretation
+    reporting = interpretation(row)
+    summary_errors = active_summary.get('errors') or 0
+    summary_error_count = len(summary_errors) if isinstance(summary_errors, list) else blocking_count({'errors': summary_errors})
+    if row.operation_type != 'woo_connection_test':
+        status_label = reporting['label']
+    if scope.get('scheduled_run'):
+        status_label = 'Internal stage — ' + status_label
     return {
         "id": row.id, "short_id": row.id[:8], "type": row.operation_type,
         "type_label": TYPE_LABELS.get(row.operation_type, row.operation_type.replace("_", " ").title()),
-        "status": row.status, "status_label": status_label,
+        "status": reporting['execution'], "status_label": status_label,
+        "original_status": row.status, "interpretation_corrected": reporting['corrected'],
         "started_at": row.started_at, "finished_at": row.finished_at, "duration": _duration(row),
         "attempted": row.products_attempted, "succeeded": row.products_succeeded,
         "failed": row.products_failed, "missing": row.products_missing, "restored": row.products_restored,
-        "warning_count": max(warning_count, int(row.status == "partial") + int(row.recovery_state not in (None, "none"))),
+        "warning_count": warning_count,
         "warning_groups": warning_view["groups"],
         "blocking_count": blocking_count(active_summary, row=row),
-        "error_count": max(int((live or {}).get("counts", {}).get("failures", 0) or 0), row.products_failed + int(bool(row.error))),
+        "error_count": max(summary_error_count, int((live or {}).get("counts", {}).get("failures", 0) or 0), row.products_failed + int(bool(row.error))),
         "scope": scope, "scope_label": source or scope.get("sku") or scope.get("store_hostname") or "Catalogue",
         "recovery_state": row.recovery_state or "none", "recoverable": row.recovery_state not in (None, "none"),
         "marker_state": row.marker_state, "error": redact_diagnostic(row.error, paths=redaction_paths, limit=1000) if row.error else None,
@@ -280,12 +290,15 @@ def parse_operation_filters(args):
     if sort not in {"started", "finished", "status", "type"} or order not in {"asc", "desc"}:
         raise ValueError("Invalid operation sorting")
     return {"page": page, "per_page": per_page, "status": status, "type": operation_type,
+            'stages': args.get('stages') == 'yes',
             "attention": attention, "recoverable": recoverable, "q": args.get("q", "")[:100],
             "sort": sort, "order": order}
 
 
 def operations_browser(filters):
     query = CatalogueOperation.query
+    if not filters.get('stages') and not filters.get('q'):
+        query = query.filter(~CatalogueOperation.scope.like('%"scheduled_run"%'))
     if filters["status"]:
         query = query.filter(CatalogueOperation.status == filters["status"])
     if filters["type"]:

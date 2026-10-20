@@ -615,7 +615,7 @@ def _notify_completed(progress, summary, elapsed):
             result_name=summary["result_name"],
             groups=summary["group_count"],
             copied_images=summary["copied_images"],
-            warnings=summary["warnings"],
+            warnings=summary.get('severity_warnings', summary['warnings']),
             elapsed_text=f"{elapsed:.1f}s",
             operation_id=progress.operation_id,
         )
@@ -741,12 +741,14 @@ def execute_grouping_operation(lease, relative, submitted_digest):
             "promotion_fallback_reason": promotion["fallback_reason"],
             "duration_seconds": round(time.monotonic() - started, 3),
         }
+        from app.intake_warnings import completed_reporting
+        completed_reporting(summary)
         _notify_completed(progress, summary, time.monotonic() - started)
         progress.stage = "completed_folder_review_required"
         progress.message = "Grouping complete — folder review required"
         progress.current_item = summary["prepared_relpath"]
-        progress.persist(summary=summary, status="partial" if progress.warnings else "succeeded")
-        finish_intake_operation(lease, status="partial" if progress.warnings else "succeeded", summary=summary)
+        progress.persist(summary=summary, status="succeeded")
+        finish_intake_operation(lease, status="succeeded", summary=summary)
     except Exception as error:
         if promoted:
             progress.warnings += 1

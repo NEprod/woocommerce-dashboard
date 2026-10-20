@@ -189,7 +189,8 @@ def test_genuine_recovery_never_overwritten(published):
     product,row,adapter=published;row.state="uncertain";row.verification_state="unverified";db.session.commit()
     original=row.media_evidence_json
     result,data=run(product,adapter,manual=True)
-    assert result.state=="partially_completed" and data["counts"]["deferred"]==1
+    assert result.state=="completed" and data["counts"]["attention"]==1
+    assert data["counts"]["deferred"]==0  # intentional protection, not failed executable work
     assert row.state=="uncertain" and row.media_evidence_json==original and not adapter.calls
 
 

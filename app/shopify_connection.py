@@ -286,6 +286,13 @@ class ShopifyError(ValueError):
         self.category = category
 
 
+class ShopifyReadinessFinding(ShopifyError):
+    """Known local publishing prerequisite, not a failed remote inspection."""
+    def __init__(self, message, *, code):
+        super().__init__(message, category='readiness')
+        self.code = code
+
+
 class ShopifyIdentityConflict(ShopifyError):
     """Complete reads contradict a retained identity; never repair by creation."""
 

@@ -322,6 +322,21 @@ def finish_catalogue_operation(
                     scope = {}
                 scope["operation_summary"] = operation_summary
                 row.scope = json.dumps(scope, ensure_ascii=False, separators=(",", ":"))
+            if row.operation_type in {'append', 'full', 'product_update', 'shared_collection_update', 'shopify_status_refresh'}:
+                # Reporting snapshots are not a competing issue store. Existing
+                # source/receipts remain authoritative; missing snapshots never
+                # imply a condition was resolved.
+                from app.operation_reporting import catalogue_observations
+                try:
+                    observations = catalogue_observations(row)
+                    if observations:
+                        scope = json.loads(row.scope or '{}')
+                        scope['reporting_observations'] = observations
+                        row.scope = json.dumps(scope, ensure_ascii=False, separators=(',', ':'))
+                except (ValueError, TypeError, OSError, KeyError):
+                    # An unavailable local diagnostic cannot manufacture a
+                    # successful validation or prevent saving the real receipt.
+                    pass
             # Dedicated scan/publish/connection/intake notifiers retain their summaries.
             # Capture before commit: notification delivery must never refresh an ORM row.
             dedicated = {"append", "product_update", "shared_collection_update", "full",

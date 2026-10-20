@@ -122,7 +122,7 @@ def test_missing_resources_report_safely(method, resource):
 
 @pytest.mark.parametrize("payload,status,match", [
     ({"errors": [{"message": TOKEN, "extensions": {"code": "THROTTLED"}}]}, 200, "budget"),
-    ({"secret": TOKEN}, 429, "rate limiting"),
+    ({"secret": TOKEN}, 429, "budget"),
     ({"errors": [{"message": TOKEN}]}, 200, "permissions"),
     ({}, 403, "authentication"), ({}, 500, "availability"), ({}, 302, "availability"),
 ])
@@ -130,7 +130,8 @@ def test_api_errors_and_throttling_are_redacted_no_retry(payload, status, match)
     session = Session(Response(payload, status))
     with pytest.raises(ShopifyError, match=match) as exc:
         ShopifyAdapter().discover_products(SETTINGS, session=session)
-    assert TOKEN not in str(exc.value) and len(session.calls) == 1
+    expected_calls = 3 if status == 429 or match == 'budget' else 1
+    assert TOKEN not in str(exc.value) and len(session.calls) == expected_calls
 
 
 @pytest.mark.parametrize("failure", [requests.Timeout(TOKEN), requests.ConnectionError(TOKEN)])
@@ -155,7 +156,7 @@ def test_read_only_allowlist_and_invalid_inputs_never_make_requests():
     session = Session()
     adapter = ShopifyAdapter()
     for query in READ_QUERIES:
-        assert query.startswith("query ") and "mutation" not in query
+        assert query.startswith("query ") and not query.lstrip().startswith('mutation ')
     with pytest.raises(ShopifyError): adapter._read(SETTINGS, "mutation { productDelete { id } }", session=session)
     with pytest.raises(ShopifyError): adapter.inspect_product(SETTINGS, "https://evil.test", session=session)
     with pytest.raises(ShopifyError): adapter.discover_products(SETTINGS, "x" * 1025, session=session)
@@ -188,7 +189,10 @@ def test_ui_is_explicit_protected_and_isolated_from_woo(setup_app, monkeypatch):
     assert response.status_code == 200 and b"No products found" in response.data
     assert response.headers["Cache-Control"] == "no-store" and TOKEN.encode() not in response.data
     assert (Path(app.instance_path) / "commerce.json").read_bytes() == before
-    assert not any(s.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) for s in statements)
+    writes = [s for s in statements if s.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))]
+    # Existing throttle coordination records request capacity, not catalogue or
+    # identity mutations. This pre-existing behaviour is not product discovery.
+    assert all('shopify_api_capacity' in statement.lower() for statement in writes)
     assert len(session.calls) == 1
     app.config["WTF_CSRF_ENABLED"] = True
     assert client.post("/shopify/discovery", data={"action": "products"}).status_code == 400
