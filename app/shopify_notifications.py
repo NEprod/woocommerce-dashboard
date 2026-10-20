@@ -140,6 +140,8 @@ def aggregate(products):
 
 def enqueue(operation):
     """Caller commits this event with its authoritative terminal transition."""
+    if operation.operation_type == 'shopify_status_refresh':
+        return enqueue_refresh(operation)
     if operation.operation_type != "shopify_draft_publish" or read_only(operation):
         return None
     if scope_of(operation).get('mode') in {'sale_activate','sale_end'} and operation.status=='succeeded' and scope_of(operation).get('operation_summary',{}).get('write_attempted') is False:
@@ -152,10 +154,92 @@ def enqueue(operation):
     event = product["outcome"]
     if event in events:
         return None
-    events[event] = {"version": 1, "event": event, "state": "pending", "attempts": 0,
+    identity = ShopifyProductIdentity.query.filter_by(operation_id=operation.id).first()
+    quiet = event in {'verified_success', 'shopify_accepted'} or (
+        event == 'partial_completion' and identity and identity.state == 'processing')
+    events[event] = {"version": 1, "event": event, "state": "suppressed" if quiet else "pending", "attempts": 0,
         "summary": aggregate([product])}
     operation.scope = json.dumps(scope, sort_keys=True)
-    return event
+    return None if quiet else event
+
+
+def enqueue_refresh(operation):
+    """Observe actionable conditions in the existing terminal receipt.
+
+    Empty observations require conclusive comparison evidence. Failed/skipped
+    inspections never resolve a product condition. The catalogue lease fences
+    this transition; delivery uses the existing cross-worker CAS claim below.
+    """
+    from app.models import ShopifyProductComparison
+    from app.shopify_drafts import digest
+    scope = scope_of(operation)
+    if 'action_observations' in scope:
+        return None
+    summary = scope.get('operation_summary') or {}
+    namespace = summary.get('notification_namespace')
+    if not namespace:
+        return None  # old receipts are never backfilled or guessed
+    observations, candidates = {}, {}
+    for product_id in summary.get('checked_ids', []):
+        product = db.session.get(Product, product_id)
+        if not product:
+            continue
+        rows = ShopifyProductComparison.query.filter_by(source_identity=product.source_relpath).all()
+        data = next((scope_data for r in rows if (scope_data := json.loads(r.summary_json)).get('config') == namespace), {})
+        key = f'{namespace}:product:{product_id}'
+        findings = [f for f in summary.get('findings', []) if f.get('product_id') == product_id and
+            f.get('code') in {'publication_configuration', 'publication_intent', 'required_metadata', 'missing_images', 'gallery_bound'}]
+        actionable = []
+        for finding in findings:
+            # Artwork/metadata prerequisites alert only for an authored publish
+            # intent. A normal unpublished draft needs no merchant intervention.
+            if finding['code'] in {'required_metadata', 'missing_images', 'gallery_bound'}:
+                from app.taxonomy_assignments import product_document
+                authored = product_document(product)
+                if authored.get('shopify_status') != 'ACTIVE' and authored.get('live') is not True:
+                    continue
+            actionable.append({'code': finding['code'], 'cause': redact_diagnostic(finding['message'], limit=500),
+                'entity': product.sku, 'severity': 'Action Required',
+                'action': finding.get('action') or 'Open Product Editor and correct the publishing prerequisite; then refresh.',
+                'path': f'/products/{product_id}'})
+        if actionable:
+            observations[key] = digest(actionable)
+            candidates[key] = actionable
+        elif data.get('read_complete') is True and not data.get('refresh_failure'):
+            observations[key] = None
+    errors = summary.get('errors') or []
+    from app.operation_reporting import _scope_key
+    execution_key = 'shopify:execution:' + _scope_key(operation)[0]
+    if errors or operation.status in {'failed', 'interrupted'}:
+        details = [{'code': 'inspection_failed', 'entity': str(e.get('product_id') or 'Shopify Status Refresh'),
+            'cause': redact_diagnostic(e.get('message') or 'Required inspection did not complete.', limit=500),
+            'severity': 'Error', 'action': 'Inspect the failed stage and connection before retrying.',
+            'path': f'/operations/{operation.id}'} for e in errors[:25]]
+        if not details:
+            details = [{'code': 'inspection_failed', 'entity': 'Shopify Status Refresh',
+                'cause': redact_diagnostic(operation.error or 'Required inspection did not complete.', limit=500),
+                'severity': 'Error', 'action': 'Inspect the original receipt before retrying.', 'path': f'/operations/{operation.id}'}]
+        # Receipt links are not part of a condition identity.
+        observations[execution_key] = digest([{k:v for k,v in d.items() if k != 'path'} for d in details])
+        candidates[execution_key] = details
+    elif summary.get('execution_complete') is True:
+        observations[execution_key] = None
+    previous = {}
+    for row in CatalogueOperation.query.filter_by(operation_type='shopify_status_refresh').filter(
+            CatalogueOperation.id != operation.id).order_by(CatalogueOperation.finished_at.desc(), CatalogueOperation.id.desc()):
+        for key, value in (scope_of(row).get('action_observations') or {}).items():
+            if key in observations and key not in previous:
+                previous[key] = value
+        if len(previous) == len(observations):
+            break
+    changed = [detail for key, details in candidates.items() if observations[key] != previous.get(key) for detail in details]
+    scope['action_observations'] = observations
+    event = 'action_required'
+    if changed:
+        scope.setdefault(KEY, {})[event] = {'version': 1, 'event': event, 'state': 'pending',
+            'attempts': 0, 'summary': {'issues': changed[:25], 'total': len(changed)}}
+    operation.scope = json.dumps(scope, sort_keys=True)
+    return event if changed else None
 
 
 def deliver(operation_id, event, *, retry=False, acknowledge_uncertain=False):
@@ -186,9 +270,9 @@ def deliver(operation_id, event, *, retry=False, acknowledge_uncertain=False):
     db.session.commit()  # durable claim BEFORE the external webhook; no DB lock held during delivery
     if changed != 1:
         return False
-    from app.utils.discord import publishing_message
+    from app.utils.discord import publishing_message, actionable_message
     try:
-        ok, message = publishing_message(notice["summary"])
+        ok, message = (actionable_message if event == 'action_required' else publishing_message)(notice["summary"])
     except Exception:
         ok, message = False, "uncertain delivery"
     db.session.refresh(operation)
@@ -197,7 +281,7 @@ def deliver(operation_id, event, *, retry=False, acknowledge_uncertain=False):
     saved = final[KEY][event]
     if saved.get("claim") != claim:
         return False
-    saved.update(state="sent" if ok else "disabled" if message in {"disabled", "not configured", "invalid webhook configuration"} else "uncertain" if "uncertain" in message else "failed",
+    saved.update(state="sent" if ok else "suppressed" if message == "suppressed" else "disabled" if message in {"disabled", "not configured", "invalid webhook configuration"} else "uncertain" if "uncertain" in message else "failed",
         result=redact_diagnostic(message, limit=240))
     saved.pop("claim", None)
     db.session.execute(update(CatalogueOperation).where(CatalogueOperation.id == operation_id,

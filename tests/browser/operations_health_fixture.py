@@ -37,6 +37,14 @@ with app.app_context():
             error='Synthetic required page failed', scope='{"products":[1]}', recovery_state='none'))
     db.session.add(CatalogueOperation(id='complete-read', operation_type='shopify_status_refresh', status='succeeded',
         started_at=stamp+timedelta(minutes=20), scope='{"products":[1],"operation_summary":{"execution_complete":true}}', recovery_state='none'))
+    for index in range(12):
+        db.session.add(CatalogueOperation(id=f'unassessed-{index}', operation_type='intake_metadata_save',
+            status='partial', started_at=stamp+timedelta(minutes=25, seconds=index),
+            scope=json.dumps({'product_id': index+1}), recovery_state='none'))
+    for index in range(2):
+        db.session.add(CatalogueOperation(id=f'current-error-{index}', operation_type='shopify_status_refresh',
+            status='failed', started_at=stamp+timedelta(minutes=26, seconds=index),
+            scope=json.dumps({'products': [90+index]}), error='Synthetic required evidence read failed.', recovery_state='none'))
     for index in range(7):
         db.session.add(CatalogueOperation(id=f'uncertain-{index}', operation_type='shopify_draft_publish',
             status='partial', started_at=stamp+timedelta(minutes=30, seconds=index),

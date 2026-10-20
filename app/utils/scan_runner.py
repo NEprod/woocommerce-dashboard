@@ -538,12 +538,12 @@ def start_scan(
 
 def _record_notification(run_id, event, result):
     ok, message = result if isinstance(result, tuple) and len(result) == 2 else (False, "delivery failed")
-    state = "sent" if ok else "disabled" if message == "disabled" else "not_configured" if message == "not configured" else "failed"
+    state = "sent" if ok else "suppressed" if message == "suppressed" else "disabled" if message == "disabled" else "not_configured" if message == "not configured" else "failed"
     with _runs_lock:
         notification = _runs[run_id]["discord"]
         notification["state"] = state
         notification["label"] = {
-            "sent": "Sent", "disabled": "Discord disabled", "not_configured": "Discord not configured", "failed": "Delivery failed",
+            "sent": "Sent", "suppressed": "No action required", "disabled": "Discord disabled", "not_configured": "Discord not configured", "failed": "Delivery failed",
         }[state]
         notification["events"].append({"event": event, "state": state, "result": message, "attempted_at": datetime.utcnow().isoformat()})
 

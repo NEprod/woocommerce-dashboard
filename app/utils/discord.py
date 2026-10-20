@@ -170,6 +170,8 @@ def publishing_message(summary):
     """One terminal envelope, using existing channels and protected transport."""
     products = summary["products"]
     success = summary["verified_success"] + summary.get('shopify_accepted', 0) == summary["attempted"]
+    if success:
+        return False, 'suppressed'
     labels = {"verified_success": "Success — Verified", "shopify_accepted": "Completed — Shopify Accepted",
         "failed": "Failed — required operation rejected", "failed_before_write": "Failed before product mutation",
         "recovery_required": "Recovery Required — remote completion uncertain", "partial_completion": "Partial completion — required stages outstanding"}
@@ -215,9 +217,23 @@ def build_embed(title, description, color, fields=None, footer="WooCommerce Dash
     }
 
 
+def actionable_message(summary):
+    base = _env('DASHBOARD_BASE_URL').rstrip('/')
+    parsed = urlparse(base)
+    if parsed.scheme not in {'http', 'https'} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        base = ''  # no guessed public dashboard address or credentials in links
+    fields = [{'name': f"{issue['entity']} — {issue['severity']}",
+        'value': f"{issue['cause']}\nAction: {issue['action']}\n" +
+            (f"[Open TLCDashboard]({base}{issue['path']})" if base else f"TLCDashboard path: {issue['path']}")}
+        for issue in summary['issues'][:MAX_EMBED_FIELDS]]
+    embed = build_embed('Shopify — Action Required',
+        f"{summary['total']} new or changed actionable finding(s). Open the listed TLCDashboard paths for the original evidence.",
+        COLORS['warn'], fields, footer='TLCDashboard')
+    return send_discord_message(embeds=[embed], channels=['scans_errors'], single_attempt=True)
+
+
 def notify_scan_started(mode, collection_count):
-    embed = build_embed("Scan Started", f"Mode: **{mode}**\nCollections discovered: **{collection_count}**", COLORS["info"])
-    return send_discord_message(embeds=[embed], channels=["scans_info"])
+    return False, 'suppressed'
 
 
 def _summary_fields(summary):
@@ -264,6 +280,8 @@ def notify_scan_completed(mode, summary, elapsed_text, *, operation_id=None):
         return notify_operation_attention("scanner", "partial", operation_id=operation_id,
                                           summary=summary, error=summary.get("failure"))
     warnings = int(summary.get("warnings", 0) or 0)
+    if not warnings:
+        return False, 'suppressed'
     fields = _summary_fields(summary)
     information = int(summary.get('information', 0) or 0)
     if information:

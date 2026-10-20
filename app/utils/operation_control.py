@@ -132,6 +132,15 @@ def prune_operation_history(*, now=None, protected_ids=None):
     for row in completed:
         newest_by_type.setdefault(row.operation_type, row.id)
     protected.update(newest_by_type.values())
+    # Keep the latest conclusive condition observation across restarts/normal
+    # log retention. Absence of an old receipt must not reopen a known alert.
+    observed = set()
+    for row in completed:
+        from app.shopify_notifications import scope_of
+        keys = set((scope_of(row).get('action_observations') or {}).keys())
+        if keys - observed:
+            protected.add(row.id)
+        observed.update(keys)
 
     routine = [
         row
@@ -145,7 +154,7 @@ def prune_operation_history(*, now=None, protected_ids=None):
         from app.shopify_notifications import KEY, scope_of
         if scope_of(row).get('mode')=='read_only_sale_authorisation':
             continue  # original approved prices/revision are recoverable audit evidence
-        if any(e.get("state") != "sent" for e in scope_of(row).get(KEY, {}).values()):
+        if any(e.get("state") not in {"sent", "suppressed"} for e in scope_of(row).get(KEY, {}).values()):
             continue  # pending/failed/uncertain delivery remains recoverable
         if row.operation_type == "shopify_product_lifecycle":
             continue  # Deleted remote/child bindings are audit archives, not routine logs.

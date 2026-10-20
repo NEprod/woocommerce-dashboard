@@ -16,6 +16,7 @@ CATEGORIES = {
     'images': ('Missing required images', 'product findings'),
     'missing': ('Missing catalogue items', 'products and variations'),
     'failures': ('Unresolved execution incidents', 'distinct operation/scope incidents'),
+    'history_review': ('Historical receipts needing evidence review', 'distinct operation/scope cases'),
     'recovery': ('Recovery Required', 'retained recovery cases'),
     'shopify': ('Shopify review and reconciliation', 'product findings'),
     'information': ('Catalogue information', 'optional product findings'),
@@ -116,18 +117,22 @@ def operation_issues(rows):
             continue
         scope_key, scoped = _scope_key(row)
         if view['execution'] in {'failed', 'partial', 'interrupted'}:
-            errors = operation_summary(scope).get('errors') or []
+            summary = operation_summary(scope)
+            errors = summary.get('errors') or []
+            unassessed = (view['execution'] == 'partial' and not (row.error or row.products_failed or errors
+                or summary.get('failures') or summary.get('blocking_errors') or summary.get('failed_stage')
+                or summary.get('pending') or summary.get('deferred') or summary.get('execution_complete') is False))
             detail = next((e.get('message') for e in errors if isinstance(e, dict) and e.get('message')), None) if isinstance(errors, list) else None
             condition = row.error or detail or 'incomplete_execution'
             key = scope_key+':'+hashlib.sha256(str(condition).encode()).hexdigest()[:12]
             prior = active.get(key)
-            active[key] = _issue(key, 'failures', row.operation_type.replace('_', ' ').title(),
+            active[key] = _issue(key, 'history_review' if unassessed else 'failures', row.operation_type.replace('_', ' ').title(),
                 redact_diagnostic(row.error or detail or 'Required execution was not recorded complete. Inspect retained stage evidence.', limit=500),
-                'Error' if view['execution'] == 'failed' else 'Warning', row.finished_at or row.started_at,
-                'Inspect failed stages and safe recovery guidance', destination, receipt=destination,
+                'Action Required' if unassessed else 'Error' if view['execution'] == 'failed' else 'Warning', row.finished_at or row.started_at,
+                'Review original receipt; current failure or historical success is not established' if unassessed else 'Inspect failed stages and safe recovery guidance', destination, receipt=destination,
                 identifier=row.id, observations=(prior or {}).get('observations', 0)+1,
                 first_detected=(prior or {}).get('first_detected', row.started_at),
-                resolution='Reopened' if key in resolved else 'Existing' if prior else 'New',
+                resolution='Evidence review required' if unassessed else 'Reopened' if key in resolved else 'Existing' if prior else 'New',
                 scope_known=scoped, scope_key=scope_key)
         elif view['execution'] == 'succeeded' and row.operation_type in READ_TYPES and scoped:
             # The full requested scope, not one incomplete slice, must be conclusive.
@@ -136,7 +141,9 @@ def operation_issues(rows):
                 for key in [key for key, issue in active.items() if issue['scope_key'] == scope_key]:
                     active.pop(key)
                     resolved.append(key)
-    return {'failures': list(active.values()), 'recovery': recovery, 'resolved': resolved}
+    return {'failures': [i for i in active.values() if i['category'] == 'failures'],
+            'review': [i for i in active.values() if i['category'] == 'history_review'],
+            'recovery': recovery, 'resolved': resolved}
 
 
 def catalogue_observations(row):
@@ -219,7 +226,7 @@ def issue_projection():
     product_map = {p.id: p for p in active}
     retained_failures = []
     by_operation = {r.id: r for r in rows}
-    for incident in operation['failures']:
+    for incident in operation['failures'] + operation['review']:
         row = by_operation[incident['identifier']]
         scope = document(row.scope)
         ids = scope.get('products')

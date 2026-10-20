@@ -239,17 +239,17 @@ def test_authorised_activation_expiry_and_deduplicated_outcomes(world,published,
     assert sales.transition(auth,adapter)=='active'
     current=adapter.remote['simpleVariants']['nodes'][0]
     assert (current['price'],current['compareAtPrice'])==('3.00','3.50')
-    assert len(notices)==1
-    assert sales.transition(auth,adapter)=='not_due' and len(notices)==1
+    assert not notices
+    assert sales.transition(auth,adapter)=='not_due' and not notices
     clock[0]=datetime(2026,11,2,10)
     assert sales.transition(auth,adapter)=='completed'
     assert (current['price'],current['compareAtPrice'])==('3.50',None)
-    assert len(notices)==2
+    assert not notices
     with __import__('flask').current_app.test_request_context(): assert states_for([product])[product.id]['label']=='Up to Date'
-    for operation_id,event in notices:
-        operation=db.session.get(CatalogueOperation,operation_id)
-        message=json.loads(operation.scope)['shopify_discord_events'][event]['summary']['products'][0]
-        assert message['operation'] in {'Sale Activated','Sale Ended'} and message['outcome']=='verified_success'
+    operations = CatalogueOperation.query.filter_by(operation_type='shopify_draft_publish').all()
+    events = [event for operation in operations for event in json.loads(operation.scope).get('shopify_discord_events', {}).values()
+        if event.get('summary', {}).get('products', [{}])[0].get('operation') in {'Sale Activated', 'Sale Ended'}]
+    assert len(events) == 2 and all(event['state'] == 'suppressed' for event in events)
 
 
 @pytest.mark.parametrize('failure',['source','remote_price','verification','permission'])

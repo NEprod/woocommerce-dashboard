@@ -62,17 +62,14 @@ def test_real_package_failures_never_report_completed(world, failure, outcome):
     assert notices.product_result(operation)['outcome'] == outcome
 
 
-def test_accepted_discord_uses_info_not_attention(monkeypatch):
+def test_accepted_discord_is_quiet_without_changing_receipt_semantics(monkeypatch):
     sent = []
     monkeypatch.setattr(discord, 'send_discord_message', lambda **kw: sent.append(kw) or (True, 'sent'))
     summary = notices.aggregate([{'title': 'Synthetic card', 'sku': 'SYN-1',
         'operation': 'Updated', 'outcome': 'shopify_accepted', 'completed_at': '2026-10-20T10:00:00Z',
         'deferred': []}])
-    discord.publishing_message(summary)
-    assert sent[0]['channels'] == ['scans_info']
-    embed = sent[0]['embeds'][0]
-    assert embed['title'] == 'TLC Shopify Sync — Completed (Shopify Accepted)'
-    assert 'Outstanding' not in json.dumps(embed)
+    assert discord.publishing_message(summary) == (False, 'suppressed')
+    assert not sent
 
 
 def test_finished_modifier_sizes_remain_variant_owned_without_generic_parent(variable_world):
@@ -199,8 +196,8 @@ def test_old_accepted_partial_settles_once_without_resending_assignment(world, m
     adapter.calls.clear()
     notices.settle(row)
     notices.settle(row)
-    assert operation.status == 'succeeded' and len(deliveries) == 1
-    assert deliveries[0]['shopify_accepted'] == 1
+    assert operation.status == 'succeeded' and not deliveries
+    assert notices.scope_of(operation)[notices.KEY]['shopify_accepted']['state'] == 'suppressed'
     assert drafts.evidence(row)['package_assignments'] == proof and adapter.calls == []
 
 

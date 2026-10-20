@@ -66,7 +66,7 @@
     {% if dashboard.scanner.active %}
     <div class="scanner-current"><strong>{{ dashboard.scanner.active.label }}</strong><span>Operation in progress · {{ (dashboard.scanner.active.stage or 'running')|replace('_', ' ')|title }} · {{ dashboard.scanner.active.elapsed_seconds or 0 }}s elapsed{% if dashboard.scanner.active.heartbeat_at %} · activity {{ dashboard.scanner.active.heartbeat_at }}{% endif %}</span><a class="btn btn-outline-light btn-sm" href="{{ url_for('main.operation_detail', operation_id=dashboard.scanner.active.id) }}">Open Operation</a></div>
     {% else %}
-    <div class="scanner-current"><strong>No catalogue operation holds the interactive slot</strong><span>{{ dashboard.issue_data.counts.failures }} current execution incidents · {{ dashboard.issue_data.counts.recovery }} recovery cases. Background task history is tracked separately.</span></div>
+    <div class="scanner-current"><strong>No catalogue operation holds the interactive slot</strong><span>{{ dashboard.issue_data.counts.failures }} unresolved recorded execution incidents · {{ dashboard.issue_data.counts.history_review }} historical cases needing evidence review · {{ dashboard.issue_data.counts.recovery }} recovery cases. Background task history is tracked separately.</span></div>
     {% endif %}
     <p class="dashboard-panel-note">Latest eight historical executions below; these are not current unresolved totals. Recovery may overlap an original failed/partial execution.</p>
     <dl class="scanner-counts" aria-label="Latest eight recorded operations">

@@ -60,14 +60,11 @@ def test_new_notifications_remain_optional(monkeypatch):
     assert discord.notify_operation_attention("scanner", "blocked")[0] is False
 
 
-def test_existing_embed_style_and_success_are_preserved(discord_enabled, monkeypatch):
+def test_routine_scan_start_is_quiet(discord_enabled, monkeypatch):
     calls = []
     monkeypatch.setattr(discord_enabled.requests, "post", lambda url, **kwargs: calls.append((url, kwargs)) or Response())
-    assert discord_enabled.notify_scan_started("append", 3) == (True, "sent")
-    payload = calls[0][1]["json"]
-    assert payload["embeds"][0]["title"] == "Scan Started"
-    assert payload["embeds"][0]["color"] == discord_enabled.COLORS["info"]
-    assert "footer" in payload["embeds"][0]
+    assert discord_enabled.notify_scan_started("append", 3) == (False, "suppressed")
+    assert calls == []
 
 
 def test_warning_completion_uses_warning_style(discord_enabled, monkeypatch):
@@ -99,15 +96,13 @@ def test_warning_completion_uses_warning_style(discord_enabled, monkeypatch):
     assert "2 missing source images" in fields["Warning summary"]
 
 
-def test_clean_completion_uses_info_channel_and_omits_unknown_counts(discord_enabled, monkeypatch):
+def test_clean_or_informational_scan_completion_is_quiet(discord_enabled, monkeypatch):
     calls = []
     monkeypatch.setattr(discord_enabled.requests, "post", lambda url, **kwargs: calls.append((url, kwargs["json"])) or Response())
-    assert discord_enabled.notify_scan_completed("append", {"warnings": 0, "products_created": 1}, "00:02")[0]
-    assert calls[0][0].endswith("/value")
-    fields = {field["name"] for field in calls[0][1]["embeds"][0]["fields"]}
-    assert "Parent images" not in fields
-    assert "Total images" not in fields
-    assert "Images" not in fields
+    for information in (0, 1):
+        assert discord_enabled.notify_scan_completed("append", {"warnings": 0, "information": information,
+            "products_created": 1}, "00:02") == (False, 'suppressed')
+    assert calls == []
 
 
 @pytest.mark.parametrize("failure", [requests.Timeout("timeout"), requests.ConnectionError("connection")])
@@ -117,7 +112,7 @@ def test_transport_failures_are_bounded_and_sanitized(discord_enabled, monkeypat
         attempts.append(1)
         raise failure
     monkeypatch.setattr(discord_enabled.requests, "post", fail)
-    ok, message = discord_enabled.notify_scan_started("append", 1)
+    ok, message = discord_enabled.send_discord_message('Explicit transport test', channels=['scans_info'])
     assert ok is False
     assert len(attempts) == 2
     assert "discord.com" not in message
@@ -127,14 +122,14 @@ def test_rate_limit_is_retried_once(discord_enabled, monkeypatch):
     responses = iter([Response(429, {"Retry-After": "0"}), Response(204)])
     calls = []
     monkeypatch.setattr(discord_enabled.requests, "post", lambda *a, **k: calls.append(1) or next(responses))
-    assert discord_enabled.notify_scan_started("append", 1) == (True, "sent")
+    assert discord_enabled.send_discord_message('Explicit transport test', channels=['scans_info']) == (True, "sent")
     assert len(calls) == 2
 
 
 def test_invalid_webhook_never_attempts_transport(discord_enabled, monkeypatch):
     monkeypatch.setenv("DISCORD_WEBHOOK_SCANS_INFO", "https://example.invalid/secret")
     monkeypatch.setattr(discord_enabled.requests, "post", lambda *a, **k: pytest.fail("network called"))
-    ok, message = discord_enabled.notify_scan_started("append", 1)
+    ok, message = discord_enabled.send_discord_message('Explicit transport test', channels=['scans_info'])
     assert not ok and message == "invalid webhook configuration"
 
 

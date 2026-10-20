@@ -79,6 +79,36 @@ def test_identical_read_failures_resolve_only_after_same_scope_success(dashboard
         assert len(operation_issues(rows+[success])['recovery']) == 1
 
 
+def test_production_shaped_uncertain_partials_are_review_not_proven_failures(dashboard_app):
+    from app.operation_reporting import operation_issues
+    app, _ = dashboard_app
+    with app.test_request_context('/'):
+        types = ['append', 'intake_image_rename', 'intake_metadata_save', 'intake_catalogue_handoff',
+            'intake_image_rename', 'intake_metadata_save', 'intake_catalogue_handoff', 'woo_connection_test',
+            'woo_publish_preview', 'shopify_taxonomy_batch', 'shopify_draft_publish', 'shopify_draft_publish']
+        stamp = datetime.now()
+        rows = [CatalogueOperation(id=f'legacy-{i}', operation_type=kind, status='partial',
+            scope=json.dumps({'product_id': i+1}), started_at=stamp+timedelta(seconds=i),
+            products_failed=0, recovery_state='none') for i, kind in enumerate(types)]
+        for i in range(2):
+            rows.append(CatalogueOperation(id=f'error-{i}', operation_type='shopify_status_refresh', status='partial',
+                scope=json.dumps({'products': [i+1]}), started_at=stamp+timedelta(seconds=20+i),
+                error='Required evidence read failed.', recovery_state='none'))
+        for i in range(8):
+            rows.append(CatalogueOperation(id=f'recovery-{i}', operation_type='shopify_draft_publish', status='partial',
+                scope='{}', started_at=stamp+timedelta(seconds=30+i), recovery_state='review_required'))
+        result = operation_issues(rows)
+        assert len(result['failures']) == 2
+        assert len(result['review']) == 12
+        assert len(result['recovery']) == 8
+        assert all(r.status == 'partial' for r in rows)  # no history rewriting
+        assert all(i['category'] == 'history_review' and i['receipt'] for i in result['review'])
+        for summary in ({'failed_stage': 'persistence'}, {'pending': [1]}, {'execution_complete': False}):
+            rows[0].scope = json.dumps({'product_id': 1, 'operation_summary': summary})
+            assert len(operation_issues(rows)['failures']) == 3
+            assert len(operation_issues(rows)['review']) == 11
+
+
 def test_counter_and_drilldown_use_same_projection(dashboard_client, dashboard_app):
     from app.operation_reporting import issue_projection
     app, _ = dashboard_app

@@ -7,7 +7,7 @@ from datetime import datetime, UTC
 
 from app import db
 from app.models import Product, ShopifyProductIdentity, CatalogueOperation
-from app.shopify_connection import ShopifyAdapter, ShopifyError, _gid
+from app.shopify_connection import ShopifyAdapter, ShopifyError, ShopifyReadinessFinding, _gid
 from app.taxonomy_assignments import product_document
 from app.utils.operation_control import acquire_catalogue_operation, finish_catalogue_operation
 
@@ -243,7 +243,8 @@ def annotate(product,plan,row,config,shop,adapter):
                 pid=keys[key]['id']
                 if pid in targets and targets[pid]!=value: raise ShopifyError('Shared publication has conflicting channel selections.')
                 targets[pid]=value
-            if wanted['status']!='ACTIVE' and any(targets.values()): raise ShopifyError('Draft/Archived intent cannot request channel publication.')
+            if wanted['status']!='ACTIVE' and any(targets.values()):
+                raise ShopifyReadinessFinding('Draft/Archived intent cannot request channel publication.', code='publication_configuration')
             blockers=[]
             if wanted['status']=='ACTIVE' and any(c['auto_publish'] and c['key'] not in wanted['channels'] for c in channels):
                 blockers.append('Select explicit intent for every automatically assigned channel before activating a newly created product.')
@@ -258,6 +259,8 @@ def annotate(product,plan,row,config,shop,adapter):
                 plan['fields'].append({'field':'publication.'+key,'label':keys[key]['name'],'before':'Not yet created',
                     'after':value,'changed':True,'publication_only':True})
             result['reason']='Create as Draft first. Apply these reviewed availability stages only after complete product/media readback; processing defers availability to a fresh main review.'
+        except ShopifyReadinessFinding as exc:
+            result.update(reason=str(exc), configuration_error=exc.code)
         except ShopifyError as exc: result['reason']=str(exc)
     else:
         try:
@@ -278,7 +281,7 @@ def annotate(product,plan,row,config,shop,adapter):
                     'before':observed['memberships'].get(channel['id'],False),'after':value,
                     'changed':observed['memberships'].get(channel['id'],False)!=value,'publication_only':True})
             if wanted['status']!='ACTIVE' and any(targets.values()):
-                raise ShopifyError('Draft/Archived intent cannot request channel publication.')
+                raise ShopifyReadinessFinding('Draft/Archived intent cannot request channel publication.', code='publication_configuration')
             actions=[{'id':pid,'before':observed['memberships'].get(pid,False),'after':value,
                 'changed':observed['memberships'].get(pid,False)!=value} for pid,value in targets.items()]
             blockers=[]
@@ -289,6 +292,8 @@ def annotate(product,plan,row,config,shop,adapter):
                 blockers=blockers,read_complete=True,pending=any(r['changed'] for r in rows),checked_at=drafts.now().isoformat())
             plan['fields']+=rows
             if result['pending']: plan['classification']='update'
+        except ShopifyReadinessFinding as exc:
+            result.update(reason=str(exc), configuration_error=exc.code)
         except ShopifyError as exc: result['reason']=str(exc)
     plan['publication']=result
     if result['pending']:

@@ -57,8 +57,8 @@ def test_readonly_navigation_never_notifies(world, delivery, path):
 
 def test_create_update_durable_dedup_and_readonly_silence(world, delivery):
     row, adapter = publish(world, UpdateAdapter())
-    assert len(delivery) == 1
-    first = delivery[0]['products'][0]
+    assert not delivery
+    first = notices.scope_of(db.session.get(CatalogueOperation, row.operation_id))[notices.KEY]['verified_success']['summary']['products'][0]
     assert first['operation'] == 'Created' and first['outcome'] == 'verified_success'
     assert first['variants'] == 1 and first['images'] == 2 and first['shopify_status'] == 'DRAFT'
     assert first['url'].endswith('/admin/products/100')
@@ -69,11 +69,12 @@ def test_create_update_durable_dedup_and_readonly_silence(world, delivery):
     operation = db.session.get(CatalogueOperation, row.operation_id)
     assert notices.enqueue(operation) is None
     assert notices.deliver(operation.id, 'verified_success') is False
-    assert len(delivery) == 1
+    assert not delivery
     change(world, description='A real reviewed edit')
     _, token = drafts.preview(world[0], adapter)
     drafts.confirm(token, True, adapter)
-    assert len(delivery) == 2 and delivery[-1]['products'][0]['operation'] == 'Updated'
+    assert not delivery
+    assert notices.scope_of(db.session.get(CatalogueOperation, row.operation_id))[notices.KEY]['verified_success']['state'] == 'suppressed'
     assert adapter.calls.count('product_create') == 1
 
 
@@ -105,57 +106,60 @@ def test_browser_disconnect_processing_later_completes_original_event(world, del
     adapter.processing = True
     row, _ = publish(world, adapter)
     operation_id = row.operation_id
-    assert row.state == 'processing' and delivery[-1]['partial_completion'] == 1
+    assert row.state == 'processing' and not delivery
     for media in adapter.remote['media']['nodes']:
         media.update(status='READY', image={'url':'https://cdn.shopify.com/retained.png'})
     drafts.finalize_processing(row, adapter)
-    assert row.state == 'verified' and delivery[-1]['verified_success'] == 1
+    assert row.state == 'verified' and not delivery
     assert db.session.get(CatalogueOperation, operation_id).status == 'succeeded'
     drafts.finalize_processing(row, adapter)
-    assert len(delivery) == 2
+    assert not delivery
 
 
 @pytest.mark.parametrize('result,expected', [('disabled','disabled'), ('not configured','disabled'), ('rate limited','failed'), ('uncertain delivery: timeout','uncertain')])
 def test_discord_failure_does_not_fail_publish_and_retry_is_controlled(world, monkeypatch, result, expected):
     sends = []
     monkeypatch.setattr(discord, 'publishing_message', lambda payload: sends.append(payload) or (False,result))
-    row, adapter = publish(world)
-    assert row.state == 'verified'
+    adapter = RevisionAdapter(); adapter.failure = 'stage'
+    row, adapter = publish(world, adapter)
+    assert row.state == 'failed_before_create'
     operation = db.session.get(CatalogueOperation, row.operation_id)
-    assert operation.status == 'succeeded'
+    assert operation.status == 'failed'
     assert notices.events_view(operation)[0]['state'] == expected
-    assert notices.deliver(operation.id,'verified_success') is False and len(sends) == 1
+    assert notices.deliver(operation.id,'failed_before_write') is False and len(sends) == 1
     if expected == 'uncertain':
         with pytest.raises(ValueError, match='Acknowledge'):
-            notices.deliver(operation.id,'verified_success',retry=True)
+            notices.deliver(operation.id,'failed_before_write',retry=True)
     monkeypatch.setattr(discord, 'publishing_message', lambda payload: (True,'sent'))
-    assert notices.deliver(operation.id,'verified_success',retry=True,acknowledge_uncertain=True)
+    assert notices.deliver(operation.id,'failed_before_write',retry=True,acknowledge_uncertain=True)
     assert notices.events_view(operation)[0]['attempts'] == 2
 
 
 def test_competing_delivery_claim_and_crash_require_acknowledgement(world, delivery):
-    row, _ = publish(world)
+    adapter = RevisionAdapter(); adapter.failure = 'stage'
+    row, _ = publish(world, adapter)
     operation = db.session.get(CatalogueOperation,row.operation_id)
     scope = notices.scope_of(operation)
-    event = scope[notices.KEY]['verified_success']
+    event = scope[notices.KEY]['failed_before_write']
     event.update(state='sending', attempted_at=drafts.now().isoformat())
     operation.scope=json.dumps(scope); db.session.commit()
-    assert notices.deliver(operation.id,'verified_success',retry=True) is False
+    assert notices.deliver(operation.id,'failed_before_write',retry=True) is False
     event['attempted_at']=(drafts.now()-timedelta(minutes=3)).isoformat()
     operation.scope=json.dumps(scope); db.session.commit()
     db.session.expire_all()
     assert notices.events_view(operation)[0]['state'] == 'uncertain'
     with pytest.raises(ValueError, match='Acknowledge'):
-        notices.deliver(operation.id,'verified_success',retry=True)
+        notices.deliver(operation.id,'failed_before_write',retry=True)
     assert len(delivery) == 1
 
 
 def test_controlled_retry_route_requires_admin_csrf_and_ack(world, monkeypatch):
     from flask import current_app
     monkeypatch.setattr(discord,'publishing_message',lambda payload:(False,'uncertain delivery'))
-    row,_=publish(world)
+    adapter = RevisionAdapter(); adapter.failure = 'stage'
+    row,_=publish(world, adapter)
     client=_client(current_app._get_current_object())
-    endpoint=f'/operations/{row.operation_id}/discord/verified_success/retry'
+    endpoint=f'/operations/{row.operation_id}/discord/failed_before_write/retry'
     assert client.post(endpoint).status_code==400
     assert client.get(f'/operations/{row.operation_id}').status_code==200
     current_app.config['WTF_CSRF_ENABLED']=True
@@ -168,7 +172,7 @@ def test_webhook_timeout_has_one_attempt_and_safe_payload(discord_enabled, monke
         calls.append(kwargs)
         raise requests.Timeout('Do not disclose webhook credentials')
     monkeypatch.setattr(discord_enabled.requests,'post',timeout)
-    summary=notices.aggregate([{'title':'TLC example','sku':'EX-1','operation':'Updated','outcome':'verified_success','completed_at':'2026-10-14T12:00:00Z','variants':9,'images':13,'shopify_status':'DRAFT'}])
+    summary=notices.aggregate([{'title':'TLC example','sku':'EX-1','operation':'Updated','outcome':'recovery_required','completed_at':'2026-10-14T12:00:00Z','variants':9,'images':13}])
     ok, message=discord_enabled.publishing_message(summary)
     assert not ok and 'uncertain' in message and len(calls)==1
     assert calls[0]['timeout']==(3.05,5)
@@ -187,10 +191,10 @@ def test_future_multi_product_aggregation():
 def test_publishing_transport_confirms_delivery_without_changing_scanner_transport(discord_enabled, monkeypatch):
     calls=[]
     monkeypatch.setattr(discord_enabled.requests,'post',lambda url,**kwargs:calls.append(kwargs) or Response(200))
-    summary=notices.aggregate([{'title':'TLC example','sku':'EX-1','operation':'Created','outcome':'verified_success','completed_at':'2026-10-14T12:00:00Z'}])
+    summary=notices.aggregate([{'title':'TLC example','sku':'EX-1','operation':'Created','outcome':'recovery_required','completed_at':'2026-10-14T12:00:00Z'}])
     assert discord_enabled.publishing_message(summary)==(True,'sent')
     assert calls[-1]['params']=={'wait':'true'}
-    assert discord_enabled.notify_scan_started('append',1)==(True,'sent')
+    assert discord_enabled.send_discord_message('Explicit transport test', channels=['scans_info'])==(True,'sent')
     assert 'params' not in calls[-1]
 
 
@@ -219,7 +223,7 @@ def test_ten_minute_success_and_failed_request_never_extend_it(world, delivery):
     assert status.refresh([world[0]],adapter=adapter)['errors']
     assert json.loads(saved.summary_json)['full_compared_at']==before
     assert displayed(world[0])['label']=='Verification Unavailable'
-    assert len(delivery)==1
+    assert not delivery
 
 
 def test_stat_change_auto_resolves_and_real_managed_change_stays_update(world, delivery):
@@ -233,7 +237,7 @@ def test_stat_change_auto_resolves_and_real_managed_change_stays_update(world, d
     change(world,weight=51)
     assert displayed(world[0])['label']=='Checking Changes'
     status.refresh([world[0]],adapter=adapter)
-    assert displayed(world[0])['label']=='Update Available' and len(delivery)==1
+    assert displayed(world[0])['label']=='Update Available' and not delivery
 
 
 def test_incomplete_attribute_read_preserves_success_checkpoint(world, monkeypatch):
@@ -261,7 +265,7 @@ def test_variable_internal_notes_do_not_invalidate_and_expired_status_reads_all(
     age(11,'full_compared_at','revision_checked_at','related_checked_at')
     result=status.refresh([product],adapter=adapter)
     assert result['full_comparisons']==1 and displayed(product)['label']=='Up to Date'
-    assert len(drafts.evidence(row)['variant_maps'])==4 and len(delivery)==1
+    assert len(drafts.evidence(row)['variant_maps'])==4 and not delivery
 
 
 def test_simultaneous_workers_claim_one_delivery(world, monkeypatch):
@@ -300,7 +304,7 @@ def test_multiple_tabs_preserve_shared_status_operation_lock(world, delivery):
         assert not adapter.calls
     finally:
         finish_catalogue_operation(lease.id,status='succeeded')
-    assert len(delivery)==1
+    assert not delivery
 
 
 def test_preview_no_change_renews_success_without_notification(world, delivery):
@@ -310,7 +314,7 @@ def test_preview_no_change_renews_success_without_notification(world, delivery):
     plan,token=drafts.preview(world[0],adapter)
     assert plan['classification']=='no_change' and token is None
     assert json.loads(ShopifyProductComparison.query.one().summary_json)['equality_at']>=before
-    assert displayed(world[0])['label']=='Up to Date' and len(delivery)==1
+    assert displayed(world[0])['label']=='Up to Date' and not delivery
 
 
 def test_failed_native_read_cannot_renew_success_checkpoint(world, monkeypatch):

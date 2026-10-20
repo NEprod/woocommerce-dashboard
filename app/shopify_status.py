@@ -152,10 +152,16 @@ def refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, sc
                     checked_data = json.loads(checked.summary_json) if checked else {}
                     if checked_data.get('classification') in {'create', 'update'} or checked_data.get('blockers'):
                         findings.append({'product_id': product.id, 'code': 'product_readiness',
-                            'severity': 'Action Required', 'state': checked_data.get('classification'),
+                            'severity': 'Information', 'state': checked_data.get('classification'),
                             'message': 'Product review is required; inspection completed. No write occurred.'})
                     if checked_data.get("refresh_failure"):
-                        errors.append({"product_id": product.id, "message": checked_data["refresh_failure"]["message"]})
+                        failure = checked_data['refresh_failure']
+                        if failure.get('kind') == 'authored_configuration':
+                            findings.append({'product_id': product.id, 'code': 'publication_configuration',
+                                'severity': 'Action Required', 'message': failure['message'],
+                                'action': 'Review product publishing settings in Product Editor.'})
+                        else:
+                            errors.append({"product_id": product.id, "message": failure["message"]})
                     if identity and not valid and revision and previous.get("remote_updated_at") and previous["remote_updated_at"] != revision["updatedAt"]:
                         updated = ShopifyProductComparison.query.filter_by(store_id=shop["shop_id"], source_identity=product.source_relpath).first()
                         if updated:
@@ -234,6 +240,7 @@ def refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, sc
         continuation = bool(pending and scheduled_run and not errors)
         finish_catalogue_operation(lease.id, status="failed" if errors and not results else "partial" if errors or (pending and not continuation) else "succeeded", recovery_state="none",
             operation_summary={"mode": "read_only", "checked": len(results), "checked_ids": results,
+                "notification_namespace": locals().get('config_digest') or 'configuration_unavailable',
                 "errors": errors, "findings": findings, "pending": pending,
                 "execution_complete": not errors and not pending, "continuation": continuation,
                 "full_comparisons": full})
