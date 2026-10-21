@@ -137,7 +137,7 @@ def test_missing_publication_scope_defers_availability_not_valid_metadata(world)
     assert status(world[0])["label"] == "Verification Unavailable"
     assert plan['publication']['read_complete'] is False
     assert 'read_publications' in plan['publication']['reason']
-    assert adapter.calls == ["connection_read", "product_read"]
+    assert adapter.calls == ["connection_read", "product_read", "dimension_definitions_read"]
 
 
 def test_create_mapping_then_multiple_memberships(world, registry):

@@ -106,9 +106,17 @@ def fingerprint(product):
         info=assigned(product)
     except ShopifyError as exc:
         info={"unresolved":str(exc)}
-    return digest({"sources": rows, "blockers": blockers,"informational":info,
+    data = {"sources": rows, "blockers": blockers,"informational":info,
         "categories": product_document(product).get("categories", []),
-        "collections": product_document(product).get("storefront_collections", [])})
+        "collections": product_document(product).get("storefront_collections", [])}
+    document = product_document(product)
+    if 'shopify_product_type_key' in document:
+        from app.organisation import product_type
+        try:
+            data['product_type'] = [document['shopify_product_type_key'], product_type(document)]
+        except ValueError as error:
+            data['product_type'] = {'unresolved': str(error)}
+    return digest(data)
 
 
 def mapping(store, key):

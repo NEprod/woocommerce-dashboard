@@ -143,7 +143,7 @@ def merge_product_json(shared, override, path=None, *, collection_path=None, lay
         elif key in {"variation_attributes", "storefront_collections"}:
             result[key] = value  # explicit replacement, including []
         elif isinstance(value, list) and isinstance(shared.get(key), list):
-            result[key] = list(set(shared[key] + value))
+            result[key] = list(dict.fromkeys(shared[key] + value))
         elif key == "title":
             continue  # Title handled separately
         else:
@@ -160,12 +160,17 @@ def merge_product_json(shared, override, path=None, *, collection_path=None, lay
         result["live"] = override["shopify_status"] == "ACTIVE"
     elif "shopify_status" in shared and "live" not in shared:
         result["live"] = shared["shopify_status"] == "ACTIVE"
+    # A retained child label is an explicit scalar override, not superseded by
+    # a newly selected parent registry key. No source rewrite is necessary.
+    if 'shopify_product_type' in override and 'shopify_product_type_key' not in override:
+        result.pop('shopify_product_type_key', None)
     title = title_components(shared, override, path,
         collection_path=collection_path, layout=layout)["title"]
     if title is not None:
         result["title"] = title
 
-    return result
+    from app.organisation import apply_additions
+    return apply_additions(result, shared, override)
 
 def validate_json(data, is_collection=False):
     """

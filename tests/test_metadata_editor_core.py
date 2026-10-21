@@ -208,12 +208,13 @@ def test_form_coverage_source_and_readonly_images(core):
     app,client,_,_,ids,*_=core
     page=client.get(f"/edit_products/{ids['Variable Collection/Badge One']}/edit/shared").text
     for key in ("description","short_description","price","sale_price","weight","country_of_origin",
-        "requires_shipping","vendor","handle","shopify_product_type","manage_stock","backorders","meta_title","meta_description"):
+        "requires_shipping","vendor","handle","shopify_product_type_key","manage_stock","backorders","meta_title","meta_description"):
         assert f'data-field="{key}"' in page
     for key in ("variation_modifiers","image_attributes","attributes"):
         assert key in page
     assert "Indexed effective variations" in page and "No retained media" in page
     assert "Review Woo state" not in page and 'data-field="shipping_class"' not in page
+    assert 'data-field="shopify_product_type"' not in page  # no arbitrary Product Type input
     assert 'data-field="sale_start_date"' in page and 'data-review-sale disabled' in page and 'id="saleReviewModal"' in page
     assert "metadata-section-nav" in page and "data-acknowledge-shared" not in page  # this collection has one child
 

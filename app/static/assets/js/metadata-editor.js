@@ -21,7 +21,7 @@
     "tags", "storefront_collections", "live", "short_description", "description", "attributes",
     "image_attributes", "variation_attributes", "variation_modifiers", "shipping_class", "grouped_ids",
     "grouped_products", "upsell_ids", "cross_sell_ids", "upsells", "crosssells",
-    "meta_title", "meta_description", "vendor", "handle", "shopify_product_type",
+    "meta_title", "meta_description", "vendor", "handle", "shopify_product_type", "shopify_product_type_key",
     "country_of_origin", "requires_shipping", "manage_stock", "backorders", "primary_category", "shopify_status", "shopify_channels", "packaging", "finished_dimensions"
   ]);
   let authored = structuredClone(boot.authored || {});
@@ -69,6 +69,7 @@
   }
 
   function registryChoices() {
+    renderProductType();
     const category = guided.querySelector("[data-registry-category]");
     const attribute = guided.querySelector("[data-registry-attribute]");
     const term = guided.querySelector("[data-registry-term]");
@@ -88,6 +89,66 @@
     link.hidden = !selected;
     if (selected) link.href = `${boot.taxonomy_term_url}?attribute=${encodeURIComponent(selected.key)}`;
     guided.querySelectorAll("[data-registry-status]").forEach((node) => { node.textContent = `Registry: ${registry.status || "unavailable"}`; });
+  }
+
+  function renderProductType(preferred) {
+    const select = guided.querySelector('[data-parent-product-type]');
+    if (!select) return;
+    const prior = preferred === undefined ? select.value || valueFor('shopify_product_type_key') : preferred;
+    select.replaceChildren(new Option(isShared ? 'Unspecified — preserve remote Product Type' : 'No authored Product Type', ''));
+    (registry.categories || []).filter(row => row.parent === null && row.state !== 'deprecated')
+      .forEach(row => select.add(new Option(row.name, row.key)));
+    if (prior && !Array.from(select.options).some(row => row.value === prior))
+      select.add(new Option(`Unavailable parent category: ${prior} — review registry`, prior));
+    select.value = prior || '';
+    const status = guided.querySelector('[data-product-type-status]');
+    const legacy = authored.shopify_product_type || (!isShared && boot.collection?.shopify_product_type);
+    if (status) status.textContent = legacy && !prior ? `Existing legacy Product Type retained: ${legacy}. Choose a parent category to replace it through Review & Sync.`
+      : !isShared && boot.collection?.shopify_product_type_key ? `Collection Product Type: ${(registry.categories || []).find(r=>r.key===boot.collection.shopify_product_type_key)?.name || boot.collection.shopify_product_type_key}` : '';
+  }
+
+  function renderAdditions() {
+    guided.querySelectorAll('[data-taxonomy-additions]').forEach(target => {
+      target.replaceChildren();
+      const scopes = target.dataset.taxonomyAdditions === 'organisation' ? ['categories','tags']
+        : target.dataset.taxonomyAdditions === 'collections' ? ['storefront_collections'] : ['attributes'];
+      const show = (kind, group, key, inherited) => {
+        const definition = group ? (registry.attributes || []).find(r=>r.key===group) : null;
+        const rows = group ? definition?.terms || [] : registry[kind] || [];
+        const label = rows.find(r=>r.key===key)?.value || `Unresolved: ${key}`;
+        const row = document.createElement('p');
+        row.textContent = `${inherited ? 'Inherited' : isShared ? 'Collection addition' : 'Product addition'} · ${definition?.value || kind.replaceAll('_',' ')}: ${label} `;
+        if (!inherited) {
+          const button = document.createElement('button');button.type='button';button.className='btn btn-sm btn-ghost';button.textContent='Remove local addition';
+          button.addEventListener('click',()=>{
+            removeTaxonomyChoice(kind,key,group);
+          });row.append(button);
+        }
+        target.append(row);
+      };
+      for (const [source,inherited] of [[isShared?{}:boot.collection?.taxonomy_additions || {},true],[authored.taxonomy_additions || {},false]])
+        scopes.forEach(kind=>kind==='attributes'?Object.entries(source.attributes || {}).forEach(([group,keys])=>keys.forEach(key=>show(kind,group,key,inherited))):(source[kind] || []).forEach(key=>show(kind,null,key,inherited)));
+    });
+  }
+
+  function addTaxonomyChoice(kind, key, attribute) {
+    const additions=structuredClone(authored.taxonomy_additions || {});
+    const owner=attribute?(additions.attributes ||= {}):additions;
+    const name=attribute || kind;
+    owner[name]=Array.from(new Set([...(owner[name] || []),key]));
+    authored.taxonomy_additions=additions;
+    renderAdditions();setDirty(true);
+  }
+
+  function removeTaxonomyChoice(kind, key, attribute) {
+    const additions=structuredClone(authored.taxonomy_additions || {});
+    const owner=attribute?additions.attributes:additions;
+    const name=attribute || kind;
+    owner[name]=(owner[name] || []).filter(value=>value!==key);
+    if (!owner[name].length) delete owner[name];
+    if (attribute && !Object.keys(additions.attributes).length) delete additions.attributes;
+    if (Object.keys(additions).length) authored.taxonomy_additions=additions;else delete authored.taxonomy_additions;
+    renderAdditions();setDirty(true);
   }
 
   function setDirty(value) {
@@ -120,6 +181,7 @@
   }
 
   function valueFor(field) {
+    if (field === 'shopify_product_type_key' && Object.hasOwn(authored,'shopify_product_type') && !Object.hasOwn(authored,field)) return '';
     if (field === "shopify_status") {
       if (Object.hasOwn(authored,field)) return authored[field];
       if (typeof authored.live === "boolean") return authored.live ? "ACTIVE" : "DRAFT";
@@ -410,6 +472,8 @@
     guided.querySelectorAll("[data-override-toggle]").forEach((toggle) => {
       toggle.checked = Object.prototype.hasOwnProperty.call(authored, toggle.dataset.overrideToggle) || toggle.dataset.overrideToggle === "shopify_status" && Object.hasOwn(authored,"live");
     });
+    renderProductType(valueFor('shopify_product_type_key'));
+    renderAdditions();
     guided.querySelectorAll("[data-field]").forEach((control) => {
       const field = control.dataset.field;
       let value = valueFor(field);
@@ -888,6 +952,11 @@
   if (!boot.can_save) saveButtons.forEach((button) => { button.disabled = true; });
   registryChoices();
   guided.querySelector("[data-assign-range]").addEventListener("click", () => {
+    if (!isShared) {
+      const selected=(registry.storefront_collections || []).find(row=>row.key===guided.querySelector('[data-registry-range]').value);
+      if (selected) addTaxonomyChoice('storefront_collections',selected.key);
+      return;
+    }
     if (!overrideEnabled("storefront_collections")) return showFeedback("error", "Enable range override", "Enable the Storefront Collection override before replacing inherited assignments.");
     const selected = (registry.storefront_collections || []).find((row) => row.key === guided.querySelector("[data-registry-range]").value);
     if (!selected) return;
@@ -896,6 +965,11 @@
   });
   guided.querySelector("[data-registry-attribute]").addEventListener("change", registryChoices);
   guided.querySelector("[data-assign-category]").addEventListener("click", () => {
+    if (!isShared) {
+      const selected=registry.categories.find(row=>row.key===guided.querySelector('[data-registry-category]').value);
+      if (selected) addTaxonomyChoice('categories',selected.key);
+      return;
+    }
     if (!overrideEnabled("categories")) return showFeedback("error", "Enable category override", "Inherited categories remain unchanged. Enable the override before adding product categories.");
     const selected = registry.categories.find((row) => row.key === guided.querySelector("[data-registry-category]").value);
     if (!selected) return;
@@ -903,11 +977,15 @@
     setDirty(true);
   });
   guided.querySelector("[data-assign-term]").addEventListener("click", () => {
-    if (!overrideEnabled("attributes")) return showFeedback("error", "Enable attributes override", "Enable the attributes override before changing inherited attributes.");
     const selected = registry.attributes.find((row) => row.key === guided.querySelector("[data-registry-attribute]").value);
     if (!selected) return;
     const term = selected.terms.find((row) => row.key === guided.querySelector("[data-registry-term]").value);
     if (!term) return showFeedback("error", "Choose a term", "Select a term under this attribute before assigning it.");
+    const drivers=resolvedVariation?driverNames:simpleProduct()?[]:Object.keys(valueFor('attributes') || {});
+    if (!drivers.some(name=>registryMatch(name,registry.attributes)?.key===selected.key)) {
+      addTaxonomyChoice('attributes',term.key,selected.key);return;
+    }
+    if (!overrideEnabled('attributes')) return showFeedback('error','Variation option unchanged','Use the explicit variation override before changing variation-driving options.');
     const values = attributeValues();
     values[selected.value] = Array.from(new Set([...(values[selected.value] || []), ...(term ? [term.value] : [])]));
     renderAttributes(values);
@@ -919,6 +997,7 @@
       if (!response.ok) throw new Error("Registry choices could not be refreshed. Your draft is unchanged.");
       registry = await response.json();
       registryChoices();
+      renderAdditions();
       renderAttributes(attributeValues()); renderList("categories", listValues("categories"));
       renderList("storefront_collections", listValues("storefront_collections"));
       showFeedback("success", "Registry choices refreshed", "No assignment was changed. If the registry was edited since this page opened, copy your Advanced JSON draft and reload before saving; the source review protects the original registry revision.");

@@ -210,21 +210,23 @@ def metadata_comparison(shared, override, resolved):
         if not (shared_set or override_set or resolved_set):
             continue
         field = FIELD_BY_KEY.get(key, {})
+        additions = override.get('taxonomy_additions', {}).get(key)
         rows.append(
             {
                 "key": key,
                 "label": (
                     "Publishing intent"
                     if key == "live"
+                    else 'Product Type' if key == 'shopify_product_type_key'
                     else key.replace("_", " ").title()
                 ),
                 "collection": shared.get(key),
                 "collection_display": _display(shared.get(key)) if shared_set else "Not set",
                 "override": override.get(key),
-                "override_display": _display(override.get(key)) if override_set else "Inherited value",
+                "override_display": 'Product additions: ' + _display(additions) if additions else _display(override.get(key)) if override_set else "Inherited value",
                 "resolved": resolved.get(key),
                 "resolved_display": _display(resolved.get(key)) if resolved_set else "Missing",
-                "state": "overridden" if override_set else "inherited" if shared_set else "scanner-generated",
+                "state": "product_additions" if additions else "overridden" if override_set else "inherited" if shared_set else "scanner-generated",
                 "implementation_status": field.get("implementation_status", "Unknown field preserved."),
             }
         )

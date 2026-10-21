@@ -122,8 +122,13 @@ def contract(snapshot, base):
             seo[key] = value
     if seo:
         product["seo"] = seo
-    if authored.get("shopify_product_type"):
-        value = authored["shopify_product_type"]
+    from app.organisation import product_type
+    try:
+        value = product_type(authored)
+    except ValueError as error:
+        from app.shopify_connection import ShopifyReadinessFinding
+        raise ShopifyReadinessFinding(str(error), code='product_type') from None
+    if value:
         if not isinstance(value, str) or len(value) > 255:
             raise ShopifyError("Shopify product type must be an explicit bounded label.")
         product["productType"] = value

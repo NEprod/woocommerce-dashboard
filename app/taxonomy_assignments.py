@@ -35,7 +35,8 @@ def options(*, snapshot=None):
     paths = category_paths(data) if data else {}
     return {"status": result.status if result is not None else "ready", "digest": snapshot.digest if snapshot else None,
             "storefront_collections": [{"key": r["key"], "value": r["name"], "aliases": list(r.get("aliases", [])), "state": r["state"]} for r in data.get("storefront_collections", [])],
-            "categories": [{"key": r["key"], "value": paths[r["key"]], "name": r["name"], "aliases": list(r.get("aliases", [])), "state": r["state"]} for r in data.get("categories", [])],
+            "categories": [{"key": r["key"], "value": paths[r["key"]], "name": r["name"], "parent": r['parent'], "aliases": list(r.get("aliases", [])), "state": r["state"]} for r in data.get("categories", [])],
+            "tags": [{"key": r["key"], "value": r["name"], "aliases": list(r.get("aliases", [])), "state": r["state"]} for r in data.get("tags", [])],
             "attributes": [{"key": r["key"], "value": r["name"], "aliases": list(r.get("aliases", [])), "state": r["state"],
                             "terms": [{"key": t["key"], "value": t["name"], "aliases": list(t.get("aliases", [])), "state": t["state"]} for t in r["terms"]]} for r in data.get("attributes", [])]}
 

@@ -106,6 +106,15 @@ def prepare_request(product, kind, payload):
     edit = prepare_edit(text, changes, expected_digest=saved["digest"],
                         kind="collection" if kind == "shared" else "override", remove_paths=removals)
     if edit.validation.valid:
+        before = json.loads(text)
+        if ('shopify_product_type' in edit.data and
+                edit.data['shopify_product_type'] != before.get('shopify_product_type')):
+            raise ValueError('Use the parent-category Product Type selector; historic free-text labels may be retained or removed, not newly authored here.')
+        if ('shopify_product_type_key' in edit.data and
+                edit.data['shopify_product_type_key'] != before.get('shopify_product_type_key')):
+            from app.organisation import product_type
+            product_type({'shopify_product_type_key': edit.data['shopify_product_type_key']})
+    if edit.validation.valid:
         from app.customisation_templates import check_assignments
         check_assignments(json.loads(text), edit.data)
     if kind == "override" and any(key in edit.data for key in ("sku_prefix", "collection_type")):
