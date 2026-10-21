@@ -29,8 +29,6 @@ from app import onboarding
 from app.forms import (
     LoginForm,
     SetupAdminForm,
-    ForgotPasswordForm,
-    ResetPasswordForm,
     InitialSettingsForm,
 )
 from app.models import (
@@ -58,7 +56,6 @@ from app.relationships_workspace import (
     parse_relationship_filters,
     verify_mutual_proposal,
 )
-from app.utils.token_utils import generate_reset_token, verify_reset_token
 from app.utils.scan_runner import (
     start_scan,
     stream_lines,
@@ -2613,36 +2610,14 @@ def setup():
 
 @main.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
-    form = ForgotPasswordForm()
-    if form.validate_on_submit():
-        user = User.query.filter_by(email=form.email.data.strip()).first()
-        if user:
-            token = generate_reset_token(user.email)
-            reset_url = url_for("main.reset_password", token=token, _external=True)
-            print(f"Send this reset link to user: {reset_url}")
-            flash(
-                "If that email exists in our system, a reset link has been sent.",
-                "info",
-            )
-        return redirect(url_for("main.login"))
-    return render_template("auth/forgot_password.html", form=form)
+    # No account lookup, token generation or email delivery in this release.
+    return render_template("auth/forgot_password.html")
 
 
 @main.route("/reset-password/<token>", methods=["GET", "POST"])
 def reset_password(token):
-    email = verify_reset_token(token)
-    if not email:
-        flash("Reset link is invalid or expired.", "danger")
-        return redirect(url_for("main.forgot_password"))
-    form = ResetPasswordForm()
-    if form.validate_on_submit():
-        user = User.query.filter_by(email=email).first()
-        if user:
-            user.password = generate_password_hash(form.password.data.strip())
-            db.session.commit()
-            flash("Your password has been updated.", "success")
-            return redirect(url_for("main.login"))
-    return render_template("auth/reset_password.html", form=form)
+    # Previously issued links are inert; never inspect or echo their token.
+    return redirect(url_for("main.forgot_password"))
 
 
 @main.route("/initial-settings", methods=["GET", "POST"])

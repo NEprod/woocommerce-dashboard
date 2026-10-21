@@ -244,6 +244,10 @@ def test_token_rotation_during_review_preserves_full_draft_safety(world, monkeyp
             if query == connection.QUERY:
                 data = {"shop": {"id": "gid://shopify/Shop/42", "myshopifyDomain": settings.domain},
                         "currentAppInstallation": {"accessScopes": [{"handle": "read_products"}, {"handle": "write_products"}]}}
+            elif query == connection.DIMENSION_DEFINITIONS:
+                fields = fake.dimension_definitions(settings, variables['namespace'], variables['owner'])
+                data = {axis: {"nodes": [field] if field else [], "pageInfo": {"hasNextPage": False}}
+                        for axis, field in fields.items()}
             elif query == connection.STAGE_QUERY:
                 images = [dict(filename=i["filename"], mime=i["mimeType"], size=int(i["fileSize"])) for i in variables["input"]]
                 data = fake.stage_images(settings, images)
@@ -258,6 +262,7 @@ def test_token_rotation_during_review_preserves_full_draft_safety(world, monkeyp
             return Response({"data": data})
     monkeypatch.setattr(connection.requests, "Session", RoutedSession)
     _, reviewed = drafts.preview(product)
+    assert "dimension_definitions_read" in fake.calls and len(oauth) == 1
     clock[0] += 109
     row = drafts.confirm(reviewed, True)
     assert row.state == "verified" and len(oauth) == 2

@@ -70,3 +70,37 @@ This is a personal project baseline. Report suspected vulnerabilities privately 
   host/container paths or provides a general-purpose file-download endpoint.
 
 If a credential may have entered Git history or an image layer, rotate it first; removing the text afterward is not sufficient.
+
+## Administrator-controlled password recovery
+
+Self-service password reset is disabled for the first stable release. The help
+page sends no email, generates no token, and does not look up the submitted
+account. Old reset links cannot change a password. Do not paste old links into
+support messages or request logs; URL paths can still appear in access logs,
+but those old links no longer authorise recovery in this release.
+
+Recovery requires trusted administrator access to the host/container. Verify the
+requester's identity out of band and take the normal access-controlled SQLite
+backup before proceeding. Identify the actual container with `docker ps`; do not
+guess its name. In a private, unrecorded interactive terminal run:
+
+```bash
+docker exec -it <confirmed-container-name> python -m app.admin_recovery
+```
+
+Use the configured non-root application UID/GID with Docker's `--user UID:GID`
+option where required by local policy. Enter the existing administrator username,
+then the new password twice at the hidden prompts (at least 12 characters).
+No password, hash or reset token is printed, passed as a command argument, or
+written to shell history. Never add a password argument, pipe one in, put it in
+an environment variable, or run this from a terminal recording session. If a
+hidden interactive prompt is unavailable, the command refuses recovery.
+
+The command opens the existing configured SQLite database in read/write-only
+mode (never creates one), updates only one existing administrator's password
+hash, and performs no migrations, scheduler startup, Shopify requests or account
+creation. Reopen a browser and verify login with the new password; the previous
+password must fail. Existing sessions are not revoked by this local lost-password
+procedure. Suspected account/session compromise requires a separate incident
+response; do not treat this command as session revocation or change `SECRET_KEY`
+casually, because that also affects signed sessions and review approvals.
