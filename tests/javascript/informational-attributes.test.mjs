@@ -75,3 +75,67 @@ test('normal card serialization never copies projected terms or new groups into 
   vm.runInContext(extract('attributeValues','renderModifiers'),ctx);
   assert.deepEqual(plain(vm.runInContext('attributeValues()',ctx)),{Material:['Card']});
 });
+
+function replacementContext(approve=true){
+  let view={Material:['Unsaved replacement term']};let handler;let prompts=0;
+  const toggle={checked:true,matches:s=>s==='[data-override-toggle]' || s==='[data-override-toggle="attributes"]',dataset:{overrideToggle:'attributes'}};
+  const ctx=vm.createContext({structuredClone,isShared:false,attributeReplacementActive:true,attributeReplacementDraft:null,
+    authored:{attributes:{Material:['Saved replacement term']},taxonomy_additions:{attributes:{'attr-lead-time':['term-3-5-days']}}},
+    boot:{collection:{attributes:{Material:['Card'],Personalisation:['Personalised']}}},
+    confirmAttributeReplacement:async()=>{prompts++;return approve;},
+    attributeValues:()=>structuredClone(view),renderAttributes:v=>{view=structuredClone(v);},
+    setControlState:()=>{},setDirty:()=>{},updateFinishedPreview:()=>{},queueTitlePreview:()=>{},
+    guided:{addEventListener:(_,fn)=>handler=fn}});
+  const helper=source.slice(source.indexOf('  async function changeAttributeReplacement('),source.indexOf('  function attributeProjection('));
+  const start=source.indexOf('  guided.addEventListener("change",');
+  const end=source.indexOf('  guided.addEventListener("click",',start);
+  vm.runInContext(helper+source.slice(start,end),ctx);
+  return {ctx,toggle,change:checked=>{toggle.checked=checked;return handler({target:toggle});},view:()=>view,prompts:()=>prompts};
+}
+
+test('replacement to inheritance and back preserves unsaved replacement draft and sparse additions',async()=>{
+  const c=replacementContext();const before=plain(c.ctx.authored);
+  await c.change(false);assert.deepEqual(c.view(),{Material:['Card'],Personalisation:['Personalised']});
+  await c.change(true);assert.deepEqual(c.view(),{Material:['Unsaved replacement term']});
+  assert.deepEqual(plain(c.ctx.authored),before);
+  assert.equal(c.prompts(),2);
+});
+
+test('cancelling a replacement mode switch leaves the checkbox and edited cards unchanged',async()=>{
+  const c=replacementContext(false);await c.change(false);
+  assert.equal(c.toggle.checked,true);
+  assert.deepEqual(c.view(),{Material:['Unsaved replacement term']});
+});
+
+test('pending mode approval cannot change replacement ownership or serialize inherited values',async()=>{
+  const c=replacementContext();let answer;
+  c.ctx.confirmAttributeReplacement=()=>new Promise(resolve=>{answer=resolve;});
+  const before=plain(c.ctx.authored);const pending=c.change(false);
+  assert.equal(c.toggle.checked,true);
+  assert.deepEqual(c.view(),{Material:['Unsaved replacement term']});
+  assert.deepEqual(plain(c.ctx.authored),before);
+  answer(false);await pending;assert.equal(c.toggle.checked,true);
+});
+
+test('removing a redundant local identity keeps its inherited term',()=>{
+  const {ctx}=context();ctx.authored.taxonomy_additions={attributes:{'attr-material':['term-card']}};
+  vm.runInContext("removeTaxonomyChoice('attributes','term-card','attr-material')",ctx);
+  assert.deepEqual(plain(ctx.authored),{});
+  assert.deepEqual(plain(vm.runInContext('attributeProjection(attributeValues()).map(r=>r.values)',ctx)),[['Card']]);
+});
+
+test('in-page replacement confirmation requires an explicit answer and cleans up its handlers',async()=>{
+  const element=()=>({handlers:new Map(),addEventListener(name,fn){this.handlers.set(name,fn);},removeEventListener(name){this.handlers.delete(name);}});
+  const yes=element(),no=element(),message={};
+  const dialog={...element(),open:false,showModal(){this.open=true;},close(){this.open=false;},
+    querySelector:s=>s==='[data-attribute-replacement-message]'?message:s==='[data-attribute-replacement-approve]'?yes:no};
+  const ctx=vm.createContext({guided:{querySelector:()=>dialog}});
+  vm.runInContext(source.slice(source.indexOf('  function confirmAttributeReplacement('),source.indexOf('  async function changeAttributeReplacement(')),ctx);
+  for (const approve of [false,true]) {
+    const answer=vm.runInContext('confirmAttributeReplacement("Explicit replacement warning")',ctx);
+    assert.equal(dialog.open,true);assert.equal(message.textContent,'Explicit replacement warning');
+    (approve?yes:no).handlers.get('click')({preventDefault(){}});
+    assert.equal(await answer,approve);assert.equal(dialog.open,false);
+    assert.equal(yes.handlers.size+no.handlers.size+dialog.handlers.size,0);
+  }
+});

@@ -134,12 +134,22 @@
       </section>
 
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="attributes-title">
-        <header><div><h2 id="attributes-title">Variations & informational attributes</h2><p>Assign each attribute once. Choose its terms and whether it drives variations in the same row.</p></div><button class="btn btn-sm btn-outline-primary" type="button" data-add-attribute>Add attribute</button></header>
-        {% if not is_shared %}<label class="override-switch section-override"><input type="checkbox" data-override-toggle="attributes" {% if 'attributes' in workspace.override.data %}checked{% endif %}><span>Explicitly replace the attributes object (legacy / variation action)</span></label>{% endif %}
+        <header><div><h2 id="attributes-title">Variations & informational attributes</h2><p>{% if is_shared %}Assign each attribute once. Choose its terms and whether it drives variations in the same row.{% else %}Collection terms are read-only. Add registered informational terms below without replacing inherited attributes.{% endif %}</p></div><button class="btn btn-sm btn-outline-primary" type="button" {% if is_shared %}data-add-attribute{% else %}data-open-attribute-picker{% endif %}>{{ 'Add attribute' if is_shared else 'Add informational attribute' }}</button></header>
+        {% if not is_shared %}<p class="field-helper" data-attribute-mode-status role="status"></p>{% endif %}
         <div class="structured-editor-list" data-attributes-editor aria-live="polite"></div><p class="field-error" data-field-error="attributes" hidden></p>
         <div class="attribute-contract-note"><p data-variation-contract-status></p><button type="button" class="btn btn-sm btn-ghost" data-adopt-variation>Use explicit attribute contract</button><p class="field-helper">Changing a “Use for variations” control adopts the explicit contract. Publishing then requires verified controlled taxonomy and a fresh Preview. No checked rows means an intentional empty driver list. Viewing legacy metadata changes nothing. Advanced JSON remains available for source-level contract changes.</p><p class="field-error" data-field-error="variation_attributes" hidden></p></div>
         {% with picker_kind='attributes' %}{% include 'includes/_metadata_taxonomy_choices.html' %}{% endwith %}
         <p class="field-helper">Registry assignments appear in the cards above. Inherited terms stay visible; remove local terms using their card controls. Registered additions remain sparse and do not replace collection attributes. The explicit replacement control is only for intentional legacy/variation changes.</p>
+        {% if not is_shared %}<details class="attribute-contract-note" data-attribute-replacement {% if 'attributes' in workspace.override.data %}open{% endif %}>
+          <summary>Advanced — legacy full attribute replacement</summary>
+          <p class="field-helper">Warning: this replaces all inherited attribute groups, including collection additions. It is not needed to add an informational term. Existing replacements are retained, never converted automatically. Switching asks for confirmation and preserves the replacement draft until you save or reload.</p>
+          <label class="override-switch section-override"><input type="checkbox" data-override-toggle="attributes" {% if 'attributes' in workspace.override.data %}checked{% endif %}><span>Explicitly replace all inherited attributes for this product</span></label>
+          <button class="btn btn-sm btn-ghost" type="button" data-add-attribute>Add replacement attribute</button>
+        </details>
+        <dialog class="customisation-dialog" data-attribute-replacement-confirm aria-label="Confirm attribute inheritance change">
+          <h3>Change attribute inheritance?</h3><p data-attribute-replacement-message></p>
+          <div class="taxonomy-row-actions"><button class="btn btn-primary" type="button" data-attribute-replacement-approve>Confirm mode change</button><button class="btn btn-ghost" type="button" data-attribute-replacement-cancel>Keep current mode</button></div>
+        </dialog>{% endif %}
       </section>
 
       {% if workspace.variation_image_preview %}

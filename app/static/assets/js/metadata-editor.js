@@ -34,6 +34,8 @@
   let explicitVariation = false;
   let resolvedVariation = false;
   let driverNames = [];
+  let attributeReplacementActive = false;
+  let attributeReplacementDraft = null;
   let channels = boot.channels || [];
   let channelDraft = {};
   let customisationDesigner = null;
@@ -219,6 +221,10 @@
       });
     }
     if (field === "attributes") {
+      const mode=guided.querySelector('[data-attribute-mode-status]');
+      if (mode) mode.textContent=enabled
+        ? 'Full replacement active — inherited attribute groups are replaced. Product additions remain separate. Review Advanced below to restore inheritance.'
+        : 'Inheriting collection attributes. Registry assignments add product-only terms; no full replacement is needed.';
       guided.querySelectorAll("[data-attributes-editor] input:not([data-use-variation]), [data-attributes-editor] button:not([data-local-term-remove]), [data-add-attribute]").forEach((control) => { control.disabled = !enabled; });
       guided.querySelectorAll('[data-attribute-row]').forEach(row => {
         if (row._attributeBase?.baseValues === null) row.querySelectorAll('[data-row-action]').forEach(button => {
@@ -274,6 +280,39 @@
   function listValues(field) {
     const target = guided.querySelector(`[data-list-editor="${CSS.escape(field)}"]`);
     return target ? Array.from(target.querySelectorAll("input")).map((input) => input.value.trim()).filter(Boolean) : [];
+  }
+
+  function confirmAttributeReplacement(message) {
+    const dialog=guided.querySelector('[data-attribute-replacement-confirm]');
+    if (!dialog) return Promise.resolve(false);
+    dialog.querySelector('[data-attribute-replacement-message]').textContent=message;
+    return new Promise(resolve => {
+      const yes=dialog.querySelector('[data-attribute-replacement-approve]');
+      const no=dialog.querySelector('[data-attribute-replacement-cancel]');
+      const finish=approved => {
+        yes.removeEventListener('click',accept);no.removeEventListener('click',cancel);
+        dialog.removeEventListener('cancel',cancel);dialog.close();resolve(approved);
+      };
+      const accept=()=>finish(true);
+      const cancel=event=>{event.preventDefault();finish(false);};
+      yes.addEventListener('click',accept);no.addEventListener('click',cancel);
+      dialog.addEventListener('cancel',cancel);dialog.showModal();
+    });
+  }
+
+  async function changeAttributeReplacement(toggle) {
+    const next = toggle.checked;
+    if (next === attributeReplacementActive) return;
+    const message = next
+      ? 'Use a full attribute replacement? This overrides inherited attribute groups and collection additions. Normal informational additions do not need this. Product additions stay separate.'
+      : 'Restore collection inheritance? Product additions stay separate. Your replacement draft is retained while editing so you can switch back. Saving in inheritance mode removes the authored replacement.';
+    toggle.checked=attributeReplacementActive; // pending approval must not change serialized ownership
+    if (!(await confirmAttributeReplacement(message))) return;
+    toggle.checked=next;
+    const current = attributeValues();
+    if (attributeReplacementActive) attributeReplacementDraft = structuredClone(current);
+    attributeReplacementActive = next;
+    renderAttributes(next ? structuredClone(attributeReplacementDraft ?? current) : boot.collection?.attributes || {});
   }
 
   function attributeProjection(base) {
@@ -504,6 +543,8 @@
 
   function populate(documentValue) {
     authored = structuredClone(documentValue || {});
+    attributeReplacementActive = !isShared && Object.hasOwn(authored, 'attributes');
+    attributeReplacementDraft = attributeReplacementActive ? structuredClone(authored.attributes) : null;
     const finishedRoot=guided.querySelector('[data-finished-controls]');
     if(finishedRoot && window.TLCPackaging)finishedDesigner=new window.TLCPackaging.FinishedEditor(finishedRoot,{
       value:authored.finished_dimensions,shared:isShared?{}:boot.collection?.finished_dimensions,onChange:()=>setDirty(true)});
@@ -883,15 +924,19 @@
   }
 
   guided.addEventListener("input", (event) => { setDirty(true); updateCharacterCounts(); updateFinishedPreview(); if(event.target.matches('[data-field="title"]'))queueTitlePreview(); });
-  guided.addEventListener("change", (event) => {
+  guided.addEventListener("change", async (event) => {
+    if (event.target.matches('[data-override-toggle="attributes"]')) await changeAttributeReplacement(event.target);
     if (event.target.matches("[data-override-toggle]")) setControlState(event.target.dataset.overrideToggle);
-    if (event.target.matches('[data-override-toggle="attributes"]')) renderAttributes(event.target.checked ? attributeValues() : boot.collection?.attributes || {});
     if (event.target.matches('[data-override-toggle="title"]')) queueTitlePreview();
     if (event.target.matches('[data-field="collection_type"]')) renderVariationState();
     setDirty(true);
     updateFinishedPreview();
   });
   guided.addEventListener("click", (event) => {
+    if (event.target.closest('[data-open-attribute-picker]')) {
+      const select=guided.querySelector('[data-registry-attribute]');
+      select.closest('details').open=true;select.focus();select.scrollIntoView({block:'center'});return;
+    }
     if(event.target.closest('[data-copy-product-dimensions]')){
       const control=event.target.closest('[data-copy-product-dimensions]');control.disabled=true;
       window.TLCPackaging.copyDimensions(guidedDocument,value=>{populate(value);setDirty(true);},()=>window.TLCPackaging.sourceDocument(isShared?{}:boot.collection,guidedDocument()))

@@ -30,6 +30,31 @@ was necessary. No production JSON was inspected or rewritten during development.
 Thus we cannot certify whether the merchant's particular Lead Time selection was
 already saved; the former code *could* save it despite not displaying its card.
 
+### Product Override follow-up: replacement is not an add prerequisite
+
+The disabled free-form **Add attribute** action was gated by the legacy whole-object
+override. Although the registry picker already allowed sparse additions, this made
+replacement appear necessary. A separate confirmed defect existed in the mode
+switch: turning replacement off rendered the collection base, then turning it on
+again copied that displayed base instead of restoring the edited replacement.
+The supplied Recipient-only screenshots reproduce this exact distinction.
+
+Product Overrides now offer **Add informational attribute**, which opens the normal
+registry picker without changing ownership. Full replacement and its free-form
+add action live in a clearly warned Advanced disclosure. Existing replacement
+records open that disclosure and show a prominent active-mode explanation; they
+are not migrated or reinterpreted.
+
+Changing replacement mode requires an in-page confirmation. Cancelling leaves the
+checkbox and draft unchanged. Confirming inheritance preserves the replacement
+draft in memory while editing; switching back restores its exact terms. Sparse
+product additions are independent of both views. Saving in inheritance mode is
+an explicit removal of the authored `attributes` replacement, as the confirmation
+explains; saving/reloading ends the retained unsaved replacement draft. To retain
+selected old replacement terms additively, the merchant must explicitly assign
+them through the registry in inheritance mode before saving. No automatic
+conversion or hidden copying of inherited attributes is performed.
+
 ## Existing Shopify contract (not a new capability)
 
 Full Product Review & Sync already calls `shopify_attributes.assigned/preview`
@@ -42,9 +67,11 @@ Native variant options are distinct. Internal registry attributes still publish
 through this contract with storefront access NONE; public attributes use the
 existing reviewed PUBLIC_READ policy. Neither automatically adds a theme block.
 
-Mocked full review of four inherited groups plus sparse Lead Time proposes all
-five missing assignments, then becomes matching after approved mocked writes and
-readback. No publisher omission was reproduced. Missing scopes, invalid registry
+Mocked full review of four inherited groups plus sparse Lead Time and Occasion
+proposes all six missing assignments, then becomes matching after approved mocked
+writes and readback. A separate existing-Recipient fixture keeps that assignment
+Already matching while proposing the two new local groups, through the same
+supported pathway. No publisher omission was reproduced. Missing scopes, invalid registry
 identities, incomplete evidence or retained recovery states remain visible
 blockers; inventory-only review explicitly defers informational metadata.
 Unchanged assignments need no mutation. Check the informational registration and
@@ -89,3 +116,8 @@ mount or migration is required (head remains `0018_orders_webhooks`).
 7. Repeat assignment/removal and saving at mobile width. Existing source-level
    replacement records stay intentional: do not toggle replacement just to add
    an informational term.
+8. On an existing Recipient-only replacement, edit one term without saving. Open
+   Advanced and switch to inheritance: first cancel and verify the edited draft
+   remains. Then confirm, verify the inherited four groups plus product Occasion,
+   switch back with confirmation and verify the Recipient draft is restored.
+   Save only the intended mode after reviewing its scope.
