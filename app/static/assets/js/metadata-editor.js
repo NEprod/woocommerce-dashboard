@@ -91,6 +91,7 @@
     link.hidden = !selected;
     if (selected) link.href = `${boot.taxonomy_term_url}?attribute=${encodeURIComponent(selected.key)}`;
     guided.querySelectorAll("[data-registry-status]").forEach((node) => { node.textContent = `Registry: ${registry.status || "unavailable"}`; });
+    renderAdditions();
   }
 
   function renderProductType(preferred) {
@@ -113,28 +114,55 @@
     guided.querySelectorAll('[data-taxonomy-additions]').forEach(target => {
       target.replaceChildren();
       const scopes = target.dataset.taxonomyAdditions === 'organisation' ? ['categories','tags']
-        : target.dataset.taxonomyAdditions === 'collections' ? ['storefront_collections'] : ['attributes'];
-      const show = (kind, group, key, inherited) => {
-        const definition = group ? (registry.attributes || []).find(r=>r.key===group) : null;
-        const rows = group ? definition?.terms || [] : registry[kind] || [];
-        const label = rows.find(r=>r.key===key)?.value || `Unresolved: ${key}`;
+        : ['storefront_collections'];
+      scopes.forEach(kind => assignmentProjection(kind).forEach(assignment => {
         const row = document.createElement('p');
-        row.textContent = `${inherited ? 'Inherited' : isShared ? 'Collection addition' : 'Product addition'} · ${definition?.value || kind.replaceAll('_',' ')}: ${label} `;
-        if (!inherited) {
+        row.dataset.effectiveAssignment = kind;
+        row.textContent = `${assignment.scope} · ${kind.replaceAll('_',' ')}: ${assignment.value} `;
+        assignment.additions.forEach(key => {
           const button = document.createElement('button');button.type='button';button.className='btn btn-sm btn-ghost';button.textContent='Remove local addition';
-          button.addEventListener('click',()=>{
-            removeTaxonomyChoice(kind,key,group);
-          });row.append(button);
-        }
+          button.setAttribute('aria-label', `Remove local addition: ${assignment.value}`);
+          button.addEventListener('click',()=>removeTaxonomyChoice(kind,key));row.append(button);
+        });
         target.append(row);
-      };
-      for (const [source,inherited] of [[isShared?{}:boot.collection?.taxonomy_additions || {},true],[authored.taxonomy_additions || {},false]])
-        scopes.forEach(kind=>kind==='attributes'?Object.entries(source.attributes || {}).forEach(([group,keys])=>keys.forEach(key=>show(kind,group,key,inherited))):(source[kind] || []).forEach(key=>show(kind,null,key,inherited)));
+      }));
     });
+    // Show what is already effective, including inherited aliases, in the picker.
+    for (const [kind,selector] of [['categories','[data-registry-category]'],['storefront_collections','[data-registry-range]']]) {
+      const assigned = assignmentProjection(kind);
+      Array.from(guided.querySelector(selector)?.options || []).forEach(option => {
+        const definition = (registry[kind] || []).find(row=>row.key===option.value);
+        if (!definition) return;
+        const existing = assigned.find(row=>row.key===definition.key);
+        option.textContent = definition.value + (existing ? ` — Already assigned (${existing.scope})` : '');
+        option.disabled = !!existing;
+      });
+    }
+  }
+
+  function assignmentProjection(kind) {
+    // Display only. Keep raw list inputs and sparse additions as the authored sources.
+    const rows = [], definitions = registry[kind] || [];
+    const replacement = !isShared && kind === 'storefront_collections' && overrideEnabled(kind);
+    const append = (value,scope,key,local=false) => {
+      const definition = definitions.find(row=>row.key===(key || value)) || registryMatch(value,definitions);
+      const identity = definition ? `key:${definition.key}` : `legacy:${value}`;
+      let row = rows.find(row=>row.identity===identity);
+      if (!row) { row={identity,key:definition?.key,value,scope,additions:[]};rows.push(row); }
+      if (local) row.additions.push(key);
+    };
+    if (!isShared && !replacement) (boot.collection?.[kind] || []).forEach(value=>append(value,'Inherited'));
+    if (isShared || overrideEnabled(kind)) listValues(kind).forEach(value=>append(value,isShared?'Collection':replacement?'Product replacement':'Product addition'));
+    for (const [source,scope,local] of [
+      [!isShared && !replacement ? boot.collection?.taxonomy_additions || {} : {},'Inherited',false],
+      [authored.taxonomy_additions || {},isShared?'Collection addition':'Product addition',true]
+    ]) (source[kind] || []).forEach(key=>append(definitions.find(row=>row.key===key)?.value || `Unresolved: ${key}`,scope,key,local));
+    return rows;
   }
 
   function addTaxonomyChoice(kind, key, attribute) {
     const base = attribute ? attributeValues() : null;
+    if (!attribute && assignmentProjection(kind).some(row=>row.key===key)) return;
     if (attribute && attributeProjection(base).some(row => row.definition?.key === attribute &&
         row.terms.some(term => term.key === key))) return; // already effective, not a new sparse override
     const additions=structuredClone(authored.taxonomy_additions || {});
@@ -567,7 +595,6 @@
       toggle.checked = Object.prototype.hasOwnProperty.call(authored, toggle.dataset.overrideToggle) || toggle.dataset.overrideToggle === "shopify_status" && Object.hasOwn(authored,"live");
     });
     renderProductType(valueFor('shopify_product_type_key'));
-    renderAdditions();
     guided.querySelectorAll("[data-field]").forEach((control) => {
       const field = control.dataset.field;
       let value = valueFor(field);
@@ -579,6 +606,7 @@
     renderChannels(valueFor("shopify_channels"));
     guided.querySelectorAll("[data-dimension]").forEach((control) => { control.value = dimensions && dimensions[control.dataset.dimension] != null ? dimensions[control.dataset.dimension] : ""; });
     ["categories", "tags", "storefront_collections", "image_attributes"].forEach((field) => renderList(field, valueFor(field)));
+    renderAdditions();
     explicitVariation = Object.prototype.hasOwnProperty.call(authored, "variation_attributes");
     resolvedVariation = Array.isArray(valueFor("variation_attributes"));
     driverNames = resolvedVariation ? [...valueFor("variation_attributes")] : [];
@@ -923,10 +951,13 @@
     });
   }
 
-  guided.addEventListener("input", (event) => { setDirty(true); updateCharacterCounts(); updateFinishedPreview(); if(event.target.matches('[data-field="title"]'))queueTitlePreview(); });
+  guided.addEventListener("input", (event) => { setDirty(true); updateCharacterCounts(); updateFinishedPreview(); if(event.target.matches('[data-field="title"]'))queueTitlePreview();
+    if (event.target.closest('[data-list-row="categories"], [data-list-row="tags"], [data-list-row="storefront_collections"]')) renderAdditions();
+  });
   guided.addEventListener("change", async (event) => {
     if (event.target.matches('[data-override-toggle="attributes"]')) await changeAttributeReplacement(event.target);
     if (event.target.matches("[data-override-toggle]")) setControlState(event.target.dataset.overrideToggle);
+    if (['categories','tags','storefront_collections'].includes(event.target.dataset.overrideToggle)) renderAdditions();
     if (event.target.matches('[data-override-toggle="title"]')) queueTitlePreview();
     if (event.target.matches('[data-field="collection_type"]')) renderVariationState();
     setDirty(true);
@@ -975,6 +1006,7 @@
     if (action.dataset.rowAction === "up" && row.previousElementSibling) parent.insertBefore(row, row.previousElementSibling);
     if (action.dataset.rowAction === "down" && row.nextElementSibling) parent.insertBefore(row.nextElementSibling, row);
     if (row.hasAttribute("data-attribute-row")) renderVariationState();
+    if (['categories','tags','storefront_collections'].includes(row.dataset.listRow)) renderAdditions();
     setDirty(true);
   });
 
@@ -1078,6 +1110,7 @@
     const selected = (registry.storefront_collections || []).find((row) => row.key === guided.querySelector("[data-registry-range]").value);
     if (!selected) return;
     renderList("storefront_collections", Array.from(new Set([...listValues("storefront_collections"), selected.value])));
+    renderAdditions();
     setDirty(true);
   });
   guided.querySelector("[data-registry-attribute]").addEventListener("change", registryChoices);
@@ -1091,6 +1124,7 @@
     const selected = registry.categories.find((row) => row.key === guided.querySelector("[data-registry-category]").value);
     if (!selected) return;
     renderList("categories", Array.from(new Set([...listValues("categories"), selected.value])));
+    renderAdditions();
     setDirty(true);
   });
   guided.querySelector("[data-assign-term]").addEventListener("click", () => {
@@ -1114,9 +1148,9 @@
       if (!response.ok) throw new Error("Registry choices could not be refreshed. Your draft is unchanged.");
       registry = await response.json();
       registryChoices();
-      renderAdditions();
       renderAttributes(attributeValues()); renderList("categories", listValues("categories"));
       renderList("storefront_collections", listValues("storefront_collections"));
+      renderAdditions();
       showFeedback("success", "Registry choices refreshed", "No assignment was changed. If the registry was edited since this page opened, copy your Advanced JSON draft and reload before saving; the source review protects the original registry revision.");
     } catch (error) { showFeedback("error", "Refresh failed", error.message); }
   }));

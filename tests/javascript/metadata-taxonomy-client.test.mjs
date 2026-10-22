@@ -44,7 +44,7 @@ test("range registry assignment appends without replacing legacy or changing var
     guided: {querySelector: (selector) => selector === "[data-assign-range]" ? {addEventListener: (_, callback) => {click = callback;}} : {value: "range-garden"}},
     isShared: true, overrideEnabled: () => true, listValues: () => ["Legacy range"],
     renderList: (field, rows) => {values = {field, rows: Array.from(rows)};},
-    setDirty: () => {}, explicitVariation: false,
+    setDirty: () => {}, renderAdditions: () => {}, explicitVariation: false,
   });
   const start = source.indexOf('  guided.querySelector("[data-assign-range]").addEventListener');
   const end = source.indexOf('  guided.querySelector("[data-registry-attribute]")', start);

@@ -27,7 +27,7 @@ test('Product Type options contain only parent categories and preserve an unreso
 test('term and collection additions store only stable local keys, deduplicate and return to pristine source',()=>{
   let changed=0;
   const context=vm.createContext({authored:{description:'Keep',packaging:{selected_package_id:'package-1'}},
-    structuredClone,renderAdditions:()=>{},attributeValues:()=>({}),attributeProjection:()=>[],renderAttributes:()=>{},setDirty:()=>changed++});
+    structuredClone,renderAdditions:()=>{},assignmentProjection:()=>[],attributeValues:()=>({}),attributeProjection:()=>[],renderAttributes:()=>{},setDirty:()=>changed++});
   vm.runInContext(extract('addTaxonomyChoice','removeTaxonomyChoice')+extract('removeTaxonomyChoice','setDirty'),context);
   vm.runInContext("addTaxonomyChoice('attributes','term-mum','attr-recipient');addTaxonomyChoice('attributes','term-mum','attr-recipient');addTaxonomyChoice('storefront_collections','range-spring')",context);
   const value=JSON.parse(JSON.stringify(context.authored));
