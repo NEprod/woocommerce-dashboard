@@ -5,19 +5,19 @@ The authoritative files remain the existing collection and product
 
 ## Normal product additions
 
-Registry pickers in Product Overrides now append stable references in a sparse
-`taxonomy_additions` object. They do not copy the inherited attribute object or
-collection list into the child. For example (use your actual registry keys):
+Collection and Product Override JSON use the same four normal fields:
+`categories`, `storefront_collections`, `tags` and informational `attributes`.
+These combine additively. A child stores only its own assignments, never copies
+the collection's inherited values. For example:
 
 ```json
 {
-  "taxonomy_additions": {
-    "categories": ["cat-birthday-cards"],
-    "storefront_collections": ["range-spring"],
-    "attributes": {
-      "attr-occasion": ["term-mothers-day"],
-      "attr-recipient": ["term-mum"]
-    }
+  "categories": ["Cards > Anniversary Cards"],
+  "storefront_collections": ["Anniversary Cards"],
+  "tags": ["Anniversary"],
+  "attributes": {
+    "Occasion": ["Anniversary"],
+    "Recipient": ["For Wife", "For Husband"]
   },
   "shopify_product_type_key": "cat-cards"
 }
@@ -25,30 +25,43 @@ collection list into the child. For example (use your actual registry keys):
 
 Inherited terms stay first, followed by local additions in authored order.
 Matching names/aliases resolve to registry identities before deduplication. New
-groups and terms use their stable keys; names are resolved from the mounted
-registry, not inferred or generated from labels. Registry storage must remain
-available for these references. Unknown identities fail closed with a local
-diagnostic; they are never silently substituted.
+groups and terms selected through the registry use their canonical readable
+values in normal JSON. Registry identities and aliases prevent duplicate cards
+and assignments. Unregistered historical values remain visible and preserved.
 
 Remove a product-addition row to remove only that local reference. Removing all
 local additions restores inheritance. This cannot delete a parent's terms.
-Shared collection informational additions use the same representation. An
+Shared collection informational assignments use the same representation. An
 informational addition cannot edit a variation driver. For legacy implicit
 variation axes, the effective resolver preserves the existing axes before
 adding new informational groups; this does not rewrite authored JSON.
 
-## Explicit historical replacement
+## Compatibility and scope
 
-Existing `attributes` objects and `storefront_collections` arrays retain their
-historical explicit replacement meaning. Their labelled legacy controls and
-Advanced JSON remain available. An explicit empty collection array still clears
-the inherited local collection list; an explicit attributes object still replaces
-the inherited object. Shared additions in that explicitly replaced field are not
-reintroduced. New local additions may append to the explicitly replaced base.
+Informational attributes and collection lists no longer have a full-object
+replacement mode. Empty child lists/objects contribute nothing; they do not
+erase collection values. Remove a parent assignment by editing Shared Collection
+Data, not by clearing a child. This deliberately corrects the earlier replacement
+interpretation of these fields, following the merchant's additive contract.
 
-Existing `categories` and `tags` lists remain additive, with deterministic
-parent-first ordering rather than the old unordered set. Variation drivers,
-image axes, modifiers, prices, weights and shipping configuration are unchanged.
+Existing `taxonomy_additions` remains readable. Reading, opening or rescanning
+does not rewrite source files. Editing a registry assignment folds only locally
+owned compatibility entries of that field into its normal field on Save Metadata;
+unrelated fields and the parent remain unchanged. Unresolved compatibility keys
+block the touched edit rather than silently dropping data. Saved edits use the
+existing revision check and source backup. No bulk conversion or migration runs.
+
+Variation-driver options retain their existing explicit/implicit contract and
+separate advanced controls. Adding information cannot create another variation
+axis. Image axes, modifiers, prices, weights, shipping and all other override
+semantics are unchanged.
+
+Registered informational attributes use the existing reviewed Shopify JSON
+metafield publication, definitions/access checks and readback. This correction
+changes the effective input, not the publisher. Storefront rendering is separate.
+Collection mappings and existing remote identities retain their current safety
+checks. Tags retain the existing reviewed full-list contract, including its
+warning that publishing can replace remote-only tags; saving locally never does.
 
 ## Product Type
 
@@ -91,3 +104,29 @@ unchanged and inherited values remain. Select Product Type from a parent
 category, then inspect Review & Sync. Only merchant-approved publication writes
 Shopify. Verify the native type after publication. Check one variable product's
 existing SKUs, options, prices, weights, dimensions and packages remain unchanged.
+
+## Regression evidence for the additive correction
+
+The Anniversary source supplied by the merchant had six Recipient terms in
+`attributes` and Occasion in `taxonomy_additions`. The prior whole-object merge
+suppressed the parent's informational groups (and shared additions) whenever that
+child `attributes` object existed. The editor's replacement gate repeated that
+ownership assumption. The four-field resolver and effective-card display now
+agree on the additive contract; the publisher receives the resolved result.
+
+Focused/bounded checks cover normal and compatibility JSON, all three product
+layouts, shared-source byte preservation, local-only removal, driver/modifier
+isolation, fresh database reconstruction, and mocked reviewed Shopify readback.
+Desktop and 390×844 browser workflows use a disposable catalogue with all outbound
+HTTP disabled. They exercise assignment, removal, Save, Reopen and Rescan, including
+the six Recipient terms, inherited Lead Time and local Occasion. Registry dropdowns
+are bounded to the mobile editor width. The separate theme browser harness's
+missing Playwright package is an existing environment limitation; it is not
+installed or changed for this release.
+
+Run the network-isolated two-worker upgrade/restart chain with
+`python3 tests/docker_organisation_smoke.py IMAGE` against the built release image.
+It retains Orders, separate personalisations, package IDs, operation/recovery
+evidence and normal sparse organisation JSON across restart. No schema change is
+needed. Deploy only after backing up existing appdata and authoritative JSON;
+there is no automatic Unraid deployment or Shopify mutation.

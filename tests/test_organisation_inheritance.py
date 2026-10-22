@@ -75,12 +75,14 @@ def test_stable_identity_alias_dedup_and_deterministic_order(vocabulary):
     assert merge_product_json({'categories':['B','A'],'tags':['x','y']},{'categories':['A','C'],'tags':['y','z']})['categories']==['B','A','C']
 
 
-def test_legacy_explicit_replacement_and_clear_are_not_reinterpreted(vocabulary):
+def test_informational_objects_and_collection_lists_are_additive_even_when_empty(vocabulary):
     shared=parent();shared['taxonomy_additions']={'storefront_collections':['range-spring'],'attributes':{'attr-occasion':['term-mother']}}
     replaced=merge_product_json(shared,{'attributes':{'Occasion':['Birthday']},'storefront_collections':[]})
-    assert replaced['attributes']=={'Occasion':['Birthday']} and replaced['storefront_collections']==[]
+    assert replaced['attributes']=={'Occasion':['Birthday','Anniversary',"Mother's Day"],'Recipient':['Him','Her']}
+    assert replaced['storefront_collections']==['Pixel','Spring']
     cleared=merge_product_json(shared,{'attributes':{},'variation_attributes':[]})
-    assert cleared['attributes']=={}
+    assert cleared['attributes']==shared['attributes'] | {'Occasion':['Birthday','Anniversary',"Mother's Day"]}
+    assert cleared['variation_attributes']==[]
 
 
 def test_information_cannot_change_variations_or_modifiers(vocabulary):

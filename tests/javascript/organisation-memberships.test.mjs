@@ -4,6 +4,10 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const source=fs.readFileSync(new URL('../../app/static/assets/js/metadata-editor.js',import.meta.url),'utf8');
+test('long already-assigned registry labels stay within the mobile editor',()=>{
+  const css=fs.readFileSync(new URL('../../app/static/assets/css/metadata-taxonomy.css',import.meta.url),'utf8');
+  assert.match(css,/\.taxonomy-editor-section select\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;[^}]*max-width:\s*100%/);
+});
 const extract=(name,next)=>source.slice(source.indexOf(`  function ${name}(`),source.indexOf(`  function ${next}(`));
 const plain=value=>JSON.parse(JSON.stringify(value));
 const registry={
@@ -16,6 +20,7 @@ function projectionContext(){
   const context=vm.createContext({registry,structuredClone,isShared:false,
     authored:{categories:['Gifts']},boot:{collection:{categories:['Greeting cards'],storefront_collections:['Pixel Art']}},
     overrideEnabled:kind=>enabled.has(kind),listValues:kind=>lists[kind] || [],
+    originalDocument:{categories:['Gifts']},renderList:(kind,values)=>{lists[kind]=values;},
     renderAdditions:()=>{},setDirty:()=>{}});
   vm.runInContext(extract('registryMatch','recognition')+extract('assignmentProjection','addTaxonomyChoice')+
     extract('addTaxonomyChoice','removeTaxonomyChoice')+extract('removeTaxonomyChoice','setDirty'),context);
@@ -41,8 +46,8 @@ test('sparse categories and collections coexist with inherited assignments immed
   vm.runInContext("addTaxonomyChoice('categories','birthday');addTaxonomyChoice('storefront_collections','spring')",c.context);
   assert.deepEqual(c.rows('categories').map(row=>row.key),['cards','gifts','birthday']);
   assert.deepEqual(c.rows('storefront_collections').map(row=>[row.key,row.scope]),[['pixel','Inherited'],['spring','Product addition']]);
-  assert.deepEqual(plain(c.context.authored),{categories:['Gifts'],taxonomy_additions:{categories:['birthday'],storefront_collections:['spring']}});
-  vm.runInContext("removeTaxonomyChoice('storefront_collections','spring')",c.context);
+  assert.deepEqual(plain(c.context.authored),{categories:['Gifts','Cards > Birthday'],storefront_collections:['Spring']});
+  delete c.context.authored.storefront_collections;c.lists.storefront_collections=[];
   assert.deepEqual(c.rows('storefront_collections').map(row=>row.key),['pixel']);
   assert.equal(c.context.authored.storefront_collections,undefined);
 });
@@ -62,12 +67,12 @@ test('redundant historic local additions can be removed without removing inherit
   assert.deepEqual(plain(c.context.authored),{categories:['Gifts']});
 });
 
-test('legacy collection replacement and explicit clear suppress both inherited layers, never local additions',()=>{
+test('empty local collection arrays never suppress inherited memberships or compatibility additions',()=>{
   const c=projectionContext();c.context.boot.collection.taxonomy_additions={storefront_collections:['spring']};
   c.enabled.add('storefront_collections');c.lists.storefront_collections=[];
-  assert.deepEqual(c.rows('storefront_collections'),[]);
+  assert.deepEqual(c.rows('storefront_collections').map(row=>row.key),['pixel','spring']);
   vm.runInContext("addTaxonomyChoice('storefront_collections','spring')",c.context);
-  assert.deepEqual(c.rows('storefront_collections').map(row=>[row.key,row.scope]),[['spring','Product addition']]);
+  assert.deepEqual(c.rows('storefront_collections').map(row=>[row.key,row.scope]),[['pixel','Inherited'],['spring','Inherited']]);
   c.enabled.delete('storefront_collections');
   assert.deepEqual(c.rows('storefront_collections').map(row=>[row.key,row.scope]),[['pixel','Inherited'],['spring','Inherited']]);
 });
@@ -91,12 +96,15 @@ test('rendered effective memberships label provenance and disable already assign
   c.context.guided={querySelectorAll:()=>[organisation,collections],querySelector:selector=>selector==='[data-registry-category]'?categories:ranges};
   vm.runInContext(extract('renderAdditions','assignmentProjection'),c.context);
   vm.runInContext("addTaxonomyChoice('storefront_collections','spring')",c.context);
-  assert.match(organisation.children[0].textContent,/Inherited.*Greeting cards/);
-  assert.match(collections.children[1].textContent,/Product addition.*Spring/);
-  assert.equal(collections.children[0].children.length,0);
+  assert.equal(organisation.children[0].children[0].value,'Greeting cards');
+  assert.equal(organisation.children[0].children[1].textContent,'Inherited');
+  assert.equal(collections.children[1].children[0].value,'Spring');
+  assert.equal(collections.children[1].children[1].textContent,'Product addition');
+  assert.equal(collections.children[0].children.length,2);
+  assert.equal(collections.children[0].children[0].readOnly,true);
   assert.equal(categories.options[0].disabled,true);
   assert.match(categories.options[0].textContent,/Already assigned \(Inherited\)/);
-  collections.children[1].children[0].click();
+  collections.children[1].children[2].click();
   assert.equal(collections.children.length,1);
   assert.equal(ranges.options[1].disabled,false);
 });

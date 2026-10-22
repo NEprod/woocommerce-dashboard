@@ -173,7 +173,7 @@ test('actual Product Override serializer marks package choice dirty and reversio
   const context=vm.createContext({authored:original,originalDocument:structuredClone(original),structuredClone,
     initialValues:{},window:{},knownFields:new Set(['packaging']),customisationDesigner:null,packagingDesigner:editor,finishedDesigner:null,
     guided:{querySelectorAll:()=>[]},overrideEnabled:()=>false,isShared:false,explicitVariation:false,
-    modifierValues:()=>({}),listValues:()=>[],channelValues:()=>({}),activeMode:'guided',saveStates:[]});
+    attributeValues:()=>({}),modifierValues:()=>({}),listValues:()=>[],channelValues:()=>({}),activeMode:'guided',saveStates:[]});
   vm.runInContext(extract('guidedValues','guidedDocument')+extract('guidedDocument','documentPatch')+extract('documentPatch','clearErrors')+extract('setDirty','setBusy'),context);
   context.initialValues=structuredClone(vm.runInContext('guidedValues()',context));
   editor.selectPackage('c5-mailer');

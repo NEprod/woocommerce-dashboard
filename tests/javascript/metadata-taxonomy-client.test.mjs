@@ -73,7 +73,7 @@ test("returning from Advanced JSON updates sparse override toggles from the actu
   });
   vm.runInContext(extract("populate", "prune"), context);
   vm.runInContext('populate({attributes: {Unknown: ["Original"]}, variation_attributes: []})', context);
-  assert.equal(toggles[0].checked, true);
+  assert.equal(toggles[0].checked, false); // shared owner has no product variation override
   assert.equal(toggles[1].checked, false);
   assert.equal(context.explicitVariation, true);
 });
@@ -110,6 +110,7 @@ test("unknown literal prototype key survives a reviewed JSON patch", () => {
 function variationContext({explicit = false, resolved = false, drivers = [], simple = false} = {}) {
   const context = vm.createContext({explicitVariation: explicit, resolvedVariation: resolved, driverNames: drivers,
     simpleProduct: () => simple, attributeValues: () => ({Size: ["Small"], Occasion: ["Birthday"]})});
+  context.attributeDriverNames=()=>context.simpleProduct()?[]:Object.keys(context.attributeValues());
   vm.runInContext(extract("changeVariation", "renderVariationState"), context);
   return context;
 }

@@ -66,7 +66,9 @@ def test_sparse_inheritance_and_explicit_empty():
     resolved = merge_product_json(shared, {"categories": ["Legacy"], "variation_attributes": []})
     assert set(resolved["categories"]) == {"Cards", "Legacy"}
     assert resolved["variation_attributes"] == []
-    assert merge_product_json(shared, {"attributes": {"Finish": ["Matte"]}})["attributes"] == {"Finish": ["Matte"]}
+    resolved = merge_product_json(shared, {"attributes": {"Finish": ["Matte"]}})
+    assert resolved["attributes"] == {"Size": ["Small", "Large"], "Finish": ["Matte"]}
+    assert resolved["variation_attributes"] == ["Size"]
 
 
 def test_explicit_driver_limit_prevents_truncated_child_selections():

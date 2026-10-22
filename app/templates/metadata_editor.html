@@ -93,17 +93,23 @@
         <div class="page-actions"><button class="btn btn-outline-primary" type="button" data-review-sale disabled>Review Sale</button><button class="btn btn-sm btn-ghost" type="button" data-sale-check>Check review availability</button></div><p data-sale-readiness role="status" aria-live="polite">Checking saved JSON and scanner projection…</p>
       </section>
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="categories-tags-title">
-        <header><div><h2 id="categories-tags-title">Organisation</h2><p>Product additions keep inherited categories and collections. Existing explicit replacements remain separate.</p></div></header>
+        <header><div><h2 id="categories-tags-title">Organisation</h2><p>Collection assignments and product assignments combine. Only local values are saved in this product's normal JSON fields.</p></div></header>
         <div class="guided-field" data-field-wrapper="shopify_product_type_key">
           <div class="guided-field-label"><label for="metadata-product-type">Product Type</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="shopify_product_type_key"><span>Override Product Type for this product</span></label>{% endif %}</div>
           <select id="metadata-product-type" data-field="shopify_product_type_key" data-parent-product-type></select>
           <p class="field-helper">One top-level TLC category name, sent to Shopify's native Product Type. Separate from categories, tags, collections and Shopify's standard category. Unspecified preserves the remote value.</p>
           <p class="field-helper" data-product-type-status></p><p class="field-error" data-field-error="shopify_product_type_key" hidden></p>
         </div>
-        <p class="field-helper">Effective categories and tags — inherited assignments stay visible alongside product additions. Already assigned registry choices cannot be added twice.</p>
-        <div data-taxonomy-additions="organisation" aria-live="polite"></div>
         <div class="editor-field-grid">
-          {% for key, label, singular_label in [('categories','Categories','Category'),('tags','Tags','Tag')] %}<div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}><div class="guided-field-label"><span id="metadata-{{ key }}-label">{{ label }}</span>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override this value</span></label>{% endif %}</div><div class="repeatable-list" data-list-editor="{{ key }}" role="group" aria-labelledby="metadata-{{ key }}-label"></div><button class="btn btn-sm btn-outline-primary" type="button" data-add-list="{{ key }}">Add {{ singular_label }}</button><p class="field-error" data-field-error="{{ key }}" hidden></p></div>{% endfor %}
+          {% for key, label, singular_label in [('categories','Categories','Category'),('tags','Tags','Tag')] %}
+          <div class="guided-field"><span id="metadata-{{ key }}-label">{{ label }}</span>
+            <div class="repeatable-list" data-taxonomy-additions="{{ key }}" role="group" aria-labelledby="metadata-{{ key }}-label" aria-live="polite"></div>
+            {% if key == 'tags' %}<label>New local tag<input data-new-tag aria-label="New local tag"></label>{% endif %}
+            <button class="btn btn-sm btn-outline-primary" type="button" data-add-list="{{ key }}">Add {{ singular_label }}</button>
+            {% if key == 'tags' %}<label>Registered tag<select data-registry-tag aria-label="Registered tag"></select></label><button class="btn btn-sm btn-outline-primary" type="button" data-assign-tag>Assign registered tag</button>{% endif %}
+            <div hidden data-field-wrapper="{{ key }}"><div data-list-editor="{{ key }}"></div></div>
+            <p class="field-error" data-field-error="{{ key }}" hidden></p>
+          </div>{% endfor %}
         </div>
         <div class="editor-field-grid">
           {{ extra_field('vendor','Vendor / brand','Only authored/configured brand is published.') }}
@@ -115,13 +121,10 @@
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="ranges-title">
         <header><h2 id="ranges-title">Storefront Collections</h2><p>Named ranges, separate from dashboard catalogue groups. Assignments use the existing reviewed Shopify collection mappings; saving locally creates no remote collection.</p></header>
         <p class="field-helper">Effective memberships — inherited collections and local additions. Removing a local addition never removes an inherited membership.</p>
-        <div data-taxonomy-additions="collections" aria-live="polite"></div>
-        <div class="guided-field" data-field-wrapper="storefront_collections" {% if not is_shared %}data-override-field="storefront_collections"{% endif %}>
-          {% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="storefront_collections" {% if 'storefront_collections' in workspace.override.data %}checked{% endif %}>Explicitly replace / clear inherited collections (legacy action)</label>{% endif %}
-          <div class="repeatable-list" data-list-editor="storefront_collections" aria-label="Assigned Storefront Collections"></div>
-          <button type="button" class="btn btn-sm btn-ghost" data-add-list="storefront_collections">Add authored range</button>
-          <p class="field-helper">Use the registry picker below for additive memberships. The separate explicit replacement above retains its historical meaning, including an empty-list clear. Unknown values remain visible.</p><p class="field-error" data-field-error="storefront_collections" hidden></p>
-        </div>
+        <div class="repeatable-list" data-taxonomy-additions="storefront_collections" aria-label="Effective Storefront Collections" aria-live="polite"></div>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-add-list="storefront_collections">Add Storefront Collection</button>
+        <div hidden data-field-wrapper="storefront_collections"><div data-list-editor="storefront_collections"></div></div>
+        <p class="field-error" data-field-error="storefront_collections" hidden></p>
         <label for="registry-range-choice">Add from taxonomy registry</label><select id="registry-range-choice" data-registry-range></select>
         <button type="button" class="btn btn-sm btn-outline-primary" data-assign-range>Assign Storefront Collection</button>
         <a href="{{ url_for('taxonomy.edit', kind='storefront_collections') }}" target="_blank" rel="noopener">Add new Storefront Collection to registry</a>
@@ -141,15 +144,16 @@
         <div class="structured-editor-list" data-attributes-editor aria-live="polite"></div><p class="field-error" data-field-error="attributes" hidden></p>
         <div class="attribute-contract-note"><p data-variation-contract-status></p><button type="button" class="btn btn-sm btn-ghost" data-adopt-variation>Use explicit attribute contract</button><p class="field-helper">Changing a “Use for variations” control adopts the explicit contract. Publishing then requires verified controlled taxonomy and a fresh Preview. No checked rows means an intentional empty driver list. Viewing legacy metadata changes nothing. Advanced JSON remains available for source-level contract changes.</p><p class="field-error" data-field-error="variation_attributes" hidden></p></div>
         {% with picker_kind='attributes' %}{% include 'includes/_metadata_taxonomy_choices.html' %}{% endwith %}
-        <p class="field-helper">Registry assignments appear in the cards above. Inherited terms stay visible; remove local terms using their card controls. Registered additions remain sparse and do not replace collection attributes. The explicit replacement control is only for intentional legacy/variation changes.</p>
-        {% if not is_shared %}<details class="attribute-contract-note" data-attribute-replacement {% if 'attributes' in workspace.override.data %}open{% endif %}>
-          <summary>Advanced — legacy full attribute replacement</summary>
-          <p class="field-helper">Warning: this replaces all inherited attribute groups, including collection additions. It is not needed to add an informational term. Existing replacements are retained, never converted automatically. Switching asks for confirmation and preserves the replacement draft until you save or reload.</p>
-          <label class="override-switch section-override"><input type="checkbox" data-override-toggle="attributes" {% if 'attributes' in workspace.override.data %}checked{% endif %}><span>Explicitly replace all inherited attributes for this product</span></label>
-          <button class="btn btn-sm btn-ghost" type="button" data-add-attribute>Add replacement attribute</button>
+        <p class="field-helper">Inherited and local terms appear together in these cards. Local informational values are saved under attributes, using the same structure as collection JSON. Existing taxonomy_additions remain readable; only an edited assignment is written in the normal field. Removing a local term never removes an inherited term.</p>
+        {% if not is_shared %}{% if workspace.resolved.collection_type != 'Simple' %}<details class="attribute-contract-note" data-attribute-replacement>
+          <summary>Advanced — variation options</summary>
+          <p class="field-helper">This control only edits variation-driving options. Informational attributes always combine with the collection and need no override switch. Variation drafts are retained when switching modes.</p>
+          <label class="override-switch section-override"><input type="checkbox" data-override-toggle="attributes"><span>Edit product-specific variation options</span></label>
+          <button class="btn btn-sm btn-ghost" type="button" data-add-attribute>Add variation attribute</button>
         </details>
+        {% endif %}
         <dialog class="customisation-dialog" data-attribute-replacement-confirm aria-label="Confirm attribute inheritance change">
-          <h3>Change attribute inheritance?</h3><p data-attribute-replacement-message></p>
+          <h3>Change variation options?</h3><p data-attribute-replacement-message></p>
           <div class="taxonomy-row-actions"><button class="btn btn-primary" type="button" data-attribute-replacement-approve>Confirm mode change</button><button class="btn btn-ghost" type="button" data-attribute-replacement-cancel>Keep current mode</button></div>
         </dialog>{% endif %}
       </section>

@@ -1,4 +1,4 @@
-"""Sparse registry-keyed additions; legacy replacement fields retain their intent."""
+"""Four-field additive organisation; other overrides and variation contracts are unchanged."""
 from copy import deepcopy
 
 KEY = {'type': 'string', 'pattern': r'^[a-z][a-z0-9_-]{0,95}$'}
@@ -51,34 +51,57 @@ def _append(values, keys, rows, kind):
 
 
 def apply_additions(resolved, shared, override, *, registry=None):
-    if not any('taxonomy_additions' in layer for layer in (shared, override)):
+    kinds=('categories','storefront_collections','tags')
+    if not any(key in layer for layer in (shared,override) for key in (*kinds,'attributes','taxonomy_additions')):
         return resolved
     layers = [layer.get('taxonomy_additions', {}) for layer in (shared, override)]
     from jsonschema import Draft202012Validator
     for layer in layers:
         if next(Draft202012Validator(ADDITIONS_SCHEMA).iter_errors(layer), None):
             raise ValueError('Invalid taxonomy_additions structure; use bounded stable registry-key lists.')
-    if not any(layers):
-        return resolved
     registry = registry if registry is not None else registry_options()
-    if registry.get('status') not in {'ready', 'read_only'}:
+    if any(layers) and registry.get('status') not in {'ready', 'read_only'}:
         raise ValueError('Taxonomy additions need a readable registry; restore the taxonomy mount before resolving them.')
     result = deepcopy(resolved)
     from app.taxonomy_assignments import variation_drivers
-    drivers = [] if result.get('collection_type') == 'Simple' else variation_drivers(result)
-    # An added informational group must never become a legacy implicit axis.
-    has_information = any(layer.get('attributes') for layer in layers)
-    if has_information and 'variation_attributes' not in result:
+    simple=result.get('collection_type')=='Simple'
+    parent_attributes=shared.get('attributes',{})
+    own_attributes=override.get('attributes',{})
+    definitions=registry.get('attributes',[])
+    parent_drivers=[] if simple else variation_drivers(shared)
+    parent_driver_ids={_identity(name,definitions) for name in parent_drivers}
+    replaces_drivers=any(_identity(name,definitions) in parent_driver_ids for name in own_attributes)
+    if simple:
+        drivers=[]
+    elif 'variation_attributes' in result:
+        drivers=list(result['variation_attributes'])
+    elif replaces_drivers:
+        drivers=variation_drivers(result)  # retain the pre-existing implicit variation contract
+    else:
+        drivers=parent_drivers
+    attributes={}
+    for index,source in enumerate((parent_attributes,own_attributes)):
+        for name,values in source.items():
+            identity=_identity(name,definitions)
+            if index==0 and replaces_drivers and identity in parent_driver_ids:
+                continue
+            prior=next((key for key in attributes if _identity(key,definitions)==identity),name)
+            definition=next((row for row in definitions if ('key',row['key'])==identity),None)
+            terms=definition['terms'] if definition else []
+            attributes[prior]=_append([*attributes.get(prior,[]),*values],[],terms,'term')
+    if 'attributes' in shared or 'attributes' in override:
+        result['attributes']=attributes
+    # Adding information must never create another implicit variant axis.
+    if (own_attributes or any(layer.get('attributes') for layer in layers)) and 'variation_attributes' not in result:
         result['variation_attributes'] = list(drivers)
+    for kind in kinds:
+        if kind in shared or kind in override:
+            result[kind]=_append([*shared.get(kind,[]),*override.get(kind,[])],[],registry.get(kind,[]),kind)
     for index, layer in enumerate(layers):
-        for kind in ('categories', 'storefront_collections', 'tags'):
-            if index == 0 and kind == 'storefront_collections' and kind in override:
-                continue  # retained explicit replacement / [] clear
+        for kind in kinds:
             if kind in layer:
                 result[kind] = _append(result.get(kind, []), layer[kind], registry[kind], kind)
         for key, terms in layer.get('attributes', {}).items():
-            if index == 0 and 'attributes' in override:
-                continue  # retained explicit whole-object replacement / clear
             definition = _definition(key, registry['attributes'], 'attribute')
             attributes = result.setdefault('attributes', {})
             names = [name for name in attributes if _identity(name, registry['attributes']) == ('key', key)]

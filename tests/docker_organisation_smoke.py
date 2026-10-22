@@ -37,8 +37,8 @@ before=(collection/'product_info.json').read_bytes()
 with app.app_context():
  project();db.session.expire_all();product=Product.query.filter_by(sku=sku).one()
  body={'kind':'override','revision':review_token(product,'override'),'data':{
-  'shopify_product_type_key':'cat-gifts','taxonomy_additions':{
-   'attributes':{'attr-recipient':['term-mum']},'storefront_collections':['range-spring']}}}
+  'shopify_product_type_key':'cat-gifts','categories':['Gifts'],'tags':['Local fixture tag'],
+  'attributes':{'Recipient':['Mum']},'storefront_collections':['Spring']}}
 with patch('app.routes.start_scan',completed),patch('app.routes.notify_editor_saved'):
  response=client.post('/edit_products/'+sku+'/save',json=body)
  assert response.status_code==200 and response.json['json_saved'],response.json
@@ -47,6 +47,7 @@ with app.app_context():
  resolved=product_document(product)
  assert resolved['attributes']['Recipient']==['Him','Her','Mum']
  assert resolved['storefront_collections']==['Pixel','Spring']
+ assert resolved['tags']==['Local fixture tag']
  assert (collection/'product_info.json').read_bytes()==before
 '''
 smoke.CHECK+='''
@@ -55,7 +56,11 @@ assert bootstrap['resolved']['attributes']['Recipient']==['Him','Her','Mum']
 assert bootstrap['resolved']['storefront_collections']==['Pixel','Spring']
 assert bootstrap['collection']['shopify_product_type_key']=='cat-cards'
 assert 'taxonomy_additions' not in bootstrap['collection']
-assert bootstrap['authored']['taxonomy_additions']=={'attributes':{'attr-recipient':['term-mum']},'storefront_collections':['range-spring']}
+assert bootstrap['authored']['attributes']=={'Recipient':['Mum']}
+assert bootstrap['authored']['storefront_collections']==['Spring']
+assert bootstrap['authored']['categories']==['Gifts']
+assert bootstrap['authored']['tags']==['Local fixture tag']
+assert 'taxonomy_additions' not in bootstrap['authored']
 assert 'data-parent-product-type' in page
 '''
 

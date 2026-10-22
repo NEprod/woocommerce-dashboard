@@ -57,6 +57,7 @@
 [data-metadata-editor] .taxonomy-assignment-picker summary { font-weight: 600; cursor: pointer; }
 [data-metadata-editor] .attribute-contract-note { margin-block: var(--space-4); }
 [data-metadata-editor] .taxonomy-editor-section .field-helper { margin-block: var(--space-2); }
+[data-metadata-editor] .taxonomy-editor-section select { width: 100%; min-width: 0; max-width: 100%; min-height: 44px; }
 [data-metadata-editor] .image-attribute-field { margin-top: 0; }
 @media (max-width: 767px) {
   [data-metadata-editor] .attribute-editor-row { grid-template-columns: minmax(0, 1fr); }

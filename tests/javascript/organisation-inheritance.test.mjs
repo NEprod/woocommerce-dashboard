@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import {editorContext,plain} from './organisation-test-context.mjs';
 
 const source=fs.readFileSync(new URL('../../app/static/assets/js/metadata-editor.js',import.meta.url),'utf8');
 const extract=(name,next)=>source.slice(source.indexOf(`  function ${name}(`),source.indexOf(`  function ${next}(`));
@@ -24,19 +25,15 @@ test('Product Type options contain only parent categories and preserve an unreso
   assert.equal(select.value,'another-missing-key');  // Advanced JSON never loses its saved identity
 });
 
-test('term and collection additions store only stable local keys, deduplicate and return to pristine source',()=>{
-  let changed=0;
-  const context=vm.createContext({authored:{description:'Keep',packaging:{selected_package_id:'package-1'}},
-    structuredClone,renderAdditions:()=>{},assignmentProjection:()=>[],attributeValues:()=>({}),attributeProjection:()=>[],renderAttributes:()=>{},setDirty:()=>changed++});
-  vm.runInContext(extract('addTaxonomyChoice','removeTaxonomyChoice')+extract('removeTaxonomyChoice','setDirty'),context);
-  vm.runInContext("addTaxonomyChoice('attributes','term-mum','attr-recipient');addTaxonomyChoice('attributes','term-mum','attr-recipient');addTaxonomyChoice('storefront_collections','range-spring')",context);
-  const value=JSON.parse(JSON.stringify(context.authored));
-  assert.deepEqual(value.taxonomy_additions,{attributes:{'attr-recipient':['term-mum']},storefront_collections:['range-spring']});
-  assert.equal(value.attributes,undefined);
-  assert.equal(value.storefront_collections,undefined);
-  vm.runInContext("removeTaxonomyChoice('attributes','term-mum','attr-recipient');removeTaxonomyChoice('storefront_collections','range-spring')",context);
-  assert.deepEqual(JSON.parse(JSON.stringify(context.authored)),{description:'Keep',packaging:{selected_package_id:'package-1'}});
-  assert.equal(changed,5);
+test('normal information writes sparse top-level fields, deduplicates and preserves unrelated source',()=>{
+  const original={description:'Keep',packaging:{selected_package_id:'package-1'}};
+  const c=editorContext({authored:original});
+  c.eval("addTaxonomyChoice('attributes','term-3-5-days','attr-lead-time');addTaxonomyChoice('attributes','term-3-5-days','attr-lead-time');addTaxonomyChoice('storefront_collections','spring')");
+  assert.deepEqual(plain(c.ctx.authored),{...original,attributes:{'Lead Time':['3–5 Days']},storefront_collections:['Spring']});
+  c.eval("removeInformationTerm({attribute:'attr-lead-time',name:'Lead Time',key:'term-3-5-days',value:'3–5 Days',raw:true})");
+  assert.equal(c.ctx.authored.attributes,undefined);
+  assert.deepEqual(plain(c.ctx.authored.packaging),original.packaging);
+  assert.equal(c.ctx.authored.description,original.description);
 });
 
 test('normal product collection assignment does not enable or overwrite legacy replacement',()=>{
