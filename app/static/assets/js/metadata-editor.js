@@ -132,15 +132,20 @@
   }
 
   function addTaxonomyChoice(kind, key, attribute) {
+    const base = attribute ? attributeValues() : null;
+    if (attribute && attributeProjection(base).some(row => row.definition?.key === attribute &&
+        row.terms.some(term => term.key === key))) return; // already effective, not a new sparse override
     const additions=structuredClone(authored.taxonomy_additions || {});
     const owner=attribute?(additions.attributes ||= {}):additions;
     const name=attribute || kind;
-    owner[name]=Array.from(new Set([...(owner[name] || []),key]));
+    owner[name]=Array.from(new Set([...(Object.hasOwn(owner,name) ? owner[name] : []),key]));
     authored.taxonomy_additions=additions;
+    if (attribute) renderAttributes(base);
     renderAdditions();setDirty(true);
   }
 
   function removeTaxonomyChoice(kind, key, attribute) {
+    const base = attribute ? attributeValues() : null;
     const additions=structuredClone(authored.taxonomy_additions || {});
     const owner=attribute?additions.attributes:additions;
     const name=attribute || kind;
@@ -148,6 +153,7 @@
     if (!owner[name].length) delete owner[name];
     if (attribute && !Object.keys(additions.attributes).length) delete additions.attributes;
     if (Object.keys(additions).length) authored.taxonomy_additions=additions;else delete authored.taxonomy_additions;
+    if (attribute) renderAttributes(base);
     renderAdditions();setDirty(true);
   }
 
@@ -213,7 +219,12 @@
       });
     }
     if (field === "attributes") {
-      guided.querySelectorAll("[data-attributes-editor] input:not([data-use-variation]), [data-attributes-editor] button, [data-add-attribute]").forEach((control) => { control.disabled = !enabled; });
+      guided.querySelectorAll("[data-attributes-editor] input:not([data-use-variation]), [data-attributes-editor] button:not([data-local-term-remove]), [data-add-attribute]").forEach((control) => { control.disabled = !enabled; });
+      guided.querySelectorAll('[data-attribute-row]').forEach(row => {
+        if (row._attributeBase?.baseValues === null) row.querySelectorAll('[data-row-action]').forEach(button => {
+          button.disabled = !row._attributeBase.additions.length;
+        });
+      });
     }
     if (field === "variation_modifiers") {
       guided.querySelectorAll("[data-modifiers-editor] input, [data-modifiers-editor] button, [data-add-modifier]").forEach((control) => { if(!control.matches('[data-add-shipping-exception]'))control.disabled = !enabled; });
@@ -265,13 +276,42 @@
     return target ? Array.from(target.querySelectorAll("input")).map((input) => input.value.trim()).filter(Boolean) : [];
   }
 
+  function attributeProjection(base) {
+    // A view only: never serialize these effective values as a child replacement.
+    const replacement = !isShared && overrideEnabled('attributes');
+    const rows = Object.entries(base && typeof base === 'object' && !Array.isArray(base) ? base : {}).map(([name, values]) => ({
+      name, definition: registryMatch(name, registry.attributes), baseValues: Array.isArray(values) ? values : [],
+      values: Array.isArray(values) ? [...values] : [], terms: [], additions: []
+    }));
+    rows.forEach(row => { row.terms = row.values.map(value => ({value,
+      key: registryMatch(value, row.definition?.terms || [])?.key,
+      scope: isShared ? 'Collection' : replacement ? 'Product replacement' : 'Inherited'})); });
+    const layers = [
+      [!isShared && !replacement ? boot.collection?.taxonomy_additions?.attributes || {} : {}, 'Inherited', false],
+      [authored.taxonomy_additions?.attributes || {}, isShared ? 'Collection addition' : 'Product addition', true]
+    ];
+    layers.forEach(([groups, scope, local]) => Object.entries(groups).forEach(([key, keys]) => {
+      const definition = (registry.attributes || []).find(row => row.key === key);
+      let row = rows.find(row => row.definition?.key === key);
+      if (!row) { row = {name:definition?.value || `Unresolved: ${key}`, definition, baseValues:null, values:[], terms:[], additions:[]}; rows.push(row); }
+      keys.forEach(key => {
+        const value = definition?.terms.find(term => term.key === key)?.value || `Unresolved: ${key}`;
+        if (local) row.additions.push({attribute:definition?.key || row.name.replace('Unresolved: ',''), key, value});
+        if (!row.terms.some(term => term.key === key)) { row.values.push(value); row.terms.push({key,value,scope}); }
+      });
+    }));
+    return rows;
+  }
+
   function renderAttributes(value) {
     const target = guided.querySelector("[data-attributes-editor]");
     target.replaceChildren();
-    Object.entries(value && typeof value === "object" && !Array.isArray(value) ? value : {}).forEach(([name, values], index) => {
+    attributeProjection(value).forEach((projection, index) => {
+      const {name,values} = projection;
       const row = document.createElement("div");
       row.className = "structured-editor-row attribute-editor-row";
       row.dataset.attributeRow = "";
+      row._attributeBase = projection;
       const nameInput = document.createElement("input");
       nameInput.value = name;
       nameInput.dataset.attributeName = name;
@@ -284,6 +324,9 @@
       valueInput.dataset.originalText = valueInput.value;
       valueInput.placeholder = "Ordered values, comma separated";
       valueInput.setAttribute("aria-label", `Attribute ${index + 1} ordered values`);
+      // Registered additive terms are removed individually below. Editing their
+      // combined display must not copy inherited values into an explicit replace.
+      nameInput.readOnly = valueInput.readOnly = projection.baseValues === null || projection.additions.length > 0 || projection.terms.some(term => term.scope === 'Inherited' && !projection.baseValues?.includes(term.value));
       const nameLabel = document.createElement("label"); nameLabel.textContent = "Attribute"; nameLabel.append(nameInput);
       const termLabel = document.createElement("label"); termLabel.textContent = "Terms"; termLabel.append(valueInput);
       const status = document.createElement("div"); status.className = "taxonomy-row-status";
@@ -293,6 +336,15 @@
         recognition(status, nameInput.value, definition, "attribute");
         const terms = valueInput.value === valueInput.dataset.originalText ? JSON.parse(valueInput.dataset.terms) : valueInput.value.split(",").map((v) => v.trim()).filter(Boolean);
         terms.forEach((term) => { if (!definition || !registryMatch(term, definition.terms)) recognition(status, term, null, "term", definition); });
+        projection.terms.forEach(term => {
+          const source = document.createElement('span'); source.className='field-helper';
+          source.textContent=`${term.value} · ${term.scope}`;status.append(source);
+        });
+        projection.additions.forEach(term => {
+          const remove=document.createElement('button');remove.type='button';remove.className='btn btn-sm btn-ghost';
+          remove.dataset.localTermRemove='';remove.textContent=`Remove local term: ${term.value}`;
+          remove.addEventListener('click',()=>removeTaxonomyChoice('attributes',term.key,term.attribute));status.append(remove);
+        });
       };
       updateStatus();
       nameInput.addEventListener("change", () => {
@@ -350,22 +402,23 @@
     guided.querySelectorAll("[data-attribute-row]").forEach((row) => {
       const name = row.querySelector("[data-attribute-name]").value.trim();
       const check = row.querySelector("[data-use-variation]");
-      check.checked = resolvedVariation ? driverNames.includes(name) : !simpleProduct();
-      check.disabled = simpleProduct() || !name;
+      check.checked = row._attributeBase?.baseValues !== null && (resolvedVariation ? driverNames.includes(name) : !simpleProduct());
+      check.disabled = simpleProduct() || !name || row._attributeBase?.baseValues === null;
       row.querySelector("[data-variation-label]").textContent = check.checked ? "Variation-driving" : "Informational";
     });
     const unknown = driverNames.filter((name) => !Object.hasOwn(attributeValues(), name));
-    guided.querySelector("[data-variation-contract-status]").textContent = (resolvedVariation ? `${explicitVariation ? "Explicit" : "Inherited explicit"} contract · Woo publishing requires verified controlled taxonomy identities.` : "Legacy contract · unchanged until you use a variation control.") + (unknown.length && resolvedVariation ? ` Unassigned drivers: ${unknown.join(", ")}. Correct these in Advanced JSON or restore the attribute.` : "");
+    guided.querySelector("[data-variation-contract-status]").textContent = (resolvedVariation ? `${explicitVariation ? "Explicit" : "Inherited explicit"} contract · Variation options and informational attributes are reviewed separately. Registered informational terms use the existing Shopify metafield review; storefront display is separate.` : "Legacy contract · unchanged until you use a variation control.") + (unknown.length && resolvedVariation ? ` Unassigned drivers: ${unknown.join(", ")}. Correct these in Advanced JSON or restore the attribute.` : "");
     guided.querySelector("[data-adopt-variation]").hidden = explicitVariation;
   }
 
   function attributeValues() {
     const result = {};
     guided.querySelectorAll("[data-attribute-row]").forEach((row) => {
+      if (row._attributeBase?.baseValues === null) return;
       const inputs = row.querySelectorAll("input");
       const name = inputs[0].value.trim();
       const values = inputs[1].value === inputs[1].dataset.originalText
-        ? JSON.parse(inputs[1].dataset.terms)
+        ? row._attributeBase?.baseValues || JSON.parse(inputs[1].dataset.terms)
         : inputs[1].value.split(",").map((value) => value.trim()).filter(Boolean);
       if (name) result[name] = values;
     });
@@ -832,6 +885,7 @@
   guided.addEventListener("input", (event) => { setDirty(true); updateCharacterCounts(); updateFinishedPreview(); if(event.target.matches('[data-field="title"]'))queueTitlePreview(); });
   guided.addEventListener("change", (event) => {
     if (event.target.matches("[data-override-toggle]")) setControlState(event.target.dataset.overrideToggle);
+    if (event.target.matches('[data-override-toggle="attributes"]')) renderAttributes(event.target.checked ? attributeValues() : boot.collection?.attributes || {});
     if (event.target.matches('[data-override-toggle="title"]')) queueTitlePreview();
     if (event.target.matches('[data-field="collection_type"]')) renderVariationState();
     setDirty(true);
@@ -851,9 +905,27 @@
     if (!action) return;
     const row = action.closest(".repeatable-row, .structured-editor-row");
     const parent = row.parentElement;
+    if (row._attributeBase?.baseValues === null) {
+      const local = row._attributeBase.additions;
+      if (!local.length) return;
+      const base=attributeValues();
+      if (action.dataset.rowAction === 'remove') local.forEach(term => removeTaxonomyChoice('attributes',term.key,term.attribute));
+      else {
+        const entries=Object.entries(authored.taxonomy_additions.attributes);
+        const index=entries.findIndex(([key]) => key === local[0].attribute);
+        const next=index + (action.dataset.rowAction === 'up' ? -1 : 1);
+        if (next >= 0 && next < entries.length) {
+          [entries[index],entries[next]]=[entries[next],entries[index]];
+          authored.taxonomy_additions.attributes=Object.fromEntries(entries);
+        }
+        renderAttributes(base);setDirty(true);
+      }
+      return;
+    }
     if (action.dataset.rowAction === "remove") {
       if (explicitVariation && row.hasAttribute("data-attribute-row")) driverNames = driverNames.filter((name) => name !== row.querySelector("[data-attribute-name]").value.trim());
       row.remove();
+      (row._attributeBase?.additions || []).forEach(term => removeTaxonomyChoice('attributes',term.key,term.attribute));
     }
     if (action.dataset.rowAction === "up" && row.previousElementSibling) parent.insertBefore(row, row.previousElementSibling);
     if (action.dataset.rowAction === "down" && row.nextElementSibling) parent.insertBefore(row.nextElementSibling, row);

@@ -136,11 +136,10 @@
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="attributes-title">
         <header><div><h2 id="attributes-title">Variations & informational attributes</h2><p>Assign each attribute once. Choose its terms and whether it drives variations in the same row.</p></div><button class="btn btn-sm btn-outline-primary" type="button" data-add-attribute>Add attribute</button></header>
         {% if not is_shared %}<label class="override-switch section-override"><input type="checkbox" data-override-toggle="attributes" {% if 'attributes' in workspace.override.data %}checked{% endif %}><span>Explicitly replace the attributes object (legacy / variation action)</span></label>{% endif %}
-        <div class="structured-editor-list" data-attributes-editor></div><p class="field-error" data-field-error="attributes" hidden></p>
+        <div class="structured-editor-list" data-attributes-editor aria-live="polite"></div><p class="field-error" data-field-error="attributes" hidden></p>
         <div class="attribute-contract-note"><p data-variation-contract-status></p><button type="button" class="btn btn-sm btn-ghost" data-adopt-variation>Use explicit attribute contract</button><p class="field-helper">Changing a “Use for variations” control adopts the explicit contract. Publishing then requires verified controlled taxonomy and a fresh Preview. No checked rows means an intentional empty driver list. Viewing legacy metadata changes nothing. Advanced JSON remains available for source-level contract changes.</p><p class="field-error" data-field-error="variation_attributes" hidden></p></div>
         {% with picker_kind='attributes' %}{% include 'includes/_metadata_taxonomy_choices.html' %}{% endwith %}
-        <p class="field-helper">Informational terms selected below add to inherited terms without enabling replacement. Variation-driving options continue to use the existing explicit variation controls.</p>
-        <div data-taxonomy-additions="attributes" aria-live="polite"></div>
+        <p class="field-helper">Registry assignments appear in the cards above. Inherited terms stay visible; remove local terms using their card controls. Registered additions remain sparse and do not replace collection attributes. The explicit replacement control is only for intentional legacy/variation changes.</p>
       </section>
 
       {% if workspace.variation_image_preview %}
