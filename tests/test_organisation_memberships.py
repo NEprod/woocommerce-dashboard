@@ -50,8 +50,9 @@ def test_memberships_save_reopen_rescan_and_reload_from_authoritative_sparse_sou
     before = source.read_bytes()
     authored_path = root/owner/'product_info.json'
     original = json.loads(authored_path.read_text())
-    additions = {'categories': ['cat-birthday'], 'storefront_collections': ['range-spring']}
-    data = {'taxonomy_additions': additions}
+    data = {'categories': ['Cards > Birthday'], 'storefront_collections': ['Spring']}
+    if kind=='shared':
+        data={'categories':['Cards',*data['categories']],'storefront_collections':['Pixel',*data['storefront_collections']]}
     with app.app_context():
         product = db.session.get(Product, ids[owner])
         identities = (product.id, product.sku, product.regular_price, product.weight,
@@ -60,10 +61,10 @@ def test_memberships_save_reopen_rescan_and_reload_from_authoritative_sparse_sou
     assert json.loads(authored_path.read_text()) == {**original, **data}
     if kind == 'override':
         assert source.read_bytes() == before
-        assert 'categories' not in json.loads(authored_path.read_text())
-        assert 'storefront_collections' not in json.loads(authored_path.read_text())
+        assert json.loads(authored_path.read_text())['categories']==['Cards > Birthday']
+        assert json.loads(authored_path.read_text())['storefront_collections']==['Spring']
     reopened = bootstrap(client.get(f'/edit_products/{ids[owner]}/edit/{kind}'))
-    assert reopened['authored']['taxonomy_additions'] == additions
+    assert all(reopened['authored'][key]==value for key,value in data.items())
     for effective in (reopened['resolved'], rescan(core, owner)):
         assert effective['categories'] == ['Cards', 'Cards > Birthday']
         assert effective['storefront_collections'] == ['Pixel', 'Spring']
@@ -99,7 +100,8 @@ def test_memberships_save_reopen_rescan_and_reload_from_authoritative_sparse_sou
     if kind == 'override':
         assert source.read_bytes() == before
     # Remove only the local memberships; collection values remain authoritative.
-    assert save(core, owner, kind=kind, removals=[['taxonomy_additions']]).status_code == 200
+    restore={key:original[key] for key in data if key in original}
+    assert save(core, owner, kind=kind, data=restore, removals=[[key] for key in data if key not in original]).status_code == 200
     effective = rescan(core, owner)
     assert effective['categories'] == ['Cards']
     assert effective['storefront_collections'] == ['Pixel']
@@ -113,8 +115,7 @@ def test_shopify_review_combines_inherited_and_added_memberships_without_touchin
     change(world, categories=['Cards'], storefront_collections=[], shopify_product_type_key='cards')
     child = world[1]/'product_info.json'
     original = json.loads(child.read_text()) if child.exists() else {}
-    child.write_text(json.dumps({**original, 'taxonomy_additions': {
-        'categories': ['birthday'], 'storefront_collections': ['personalised']}}))
+    child.write_text(json.dumps({**original,'categories':['Cards > Birthday Cards'],'storefront_collections':['Personalised']}))
     shared_before = world[2].read_bytes()
     for key, remote_id, name in [('categories:birthday', 'gid://shopify/Collection/903', 'Birthday Cards'),
                                  ('storefront_collections:personalised', 'gid://shopify/Collection/904', 'Personalised')]:

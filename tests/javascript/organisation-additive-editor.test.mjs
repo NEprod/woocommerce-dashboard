@@ -8,29 +8,19 @@ test('normal registry assignments save the same top-level fields as collection J
   c.eval("addTaxonomyChoice('attributes','term-3-5-days','attr-lead-time');addTaxonomyChoice('categories','birthday');addTaxonomyChoice('storefront_collections','spring');addTaxonomyChoice('tags','anniversary')");
   assert.deepEqual(plain(c.ctx.authored),{attributes:{'Lead Time':['3–5 Days']},categories:['Cards > Birthday'],storefront_collections:['Spring'],tags:['Anniversary']});
   assert.deepEqual(plain(c.eval('attributeProjection(attributeValues()).map(row=>row.name)')),['Material','Lead Time']);
-  assert.equal(c.ctx.authored.taxonomy_additions,undefined);
 });
 
-test('existing Recipient plus compatibility Occasion combine with inherited information without migration',()=>{
+test('existing Recipient and Lead Time combine with inherited information without rewriting source',()=>{
   const recipients=['For Wife','For Husband','For Girlfriend','For Boyfriend','For Partner','For Couple'];
-  const c=editorContext({authored:{attributes:{Recipient:recipients},sale_price:'1.50',packaging:{packed_dimensions:{height:'3',unit:'mm'}},
-    taxonomy_additions:{attributes:{'attr-lead-time':['term-3-5-days']},tags:['anniversary']}}});
+  const c=editorContext({authored:{attributes:{Recipient:recipients,'Lead Time':['3–5 Days']},sale_price:'1.50',packaging:{packed_dimensions:{height:'3',unit:'mm'}},tags:['Anniversary']}});
   const before=plain(c.ctx.authored);
   assert.deepEqual(plain(c.eval('attributeProjection(attributeValues()).map(row=>row.name)')),['Material','Recipient','Lead Time']);
   assert.deepEqual(plain(c.ctx.authored),before); // viewing never rewrites authored JSON
   c.eval("addTaxonomyChoice('attributes','term-paper','attr-material')");
   assert.deepEqual(plain(c.ctx.authored.attributes),{Recipient:recipients,'Lead Time':['3–5 Days'],Material:['Paper']});
-  assert.deepEqual(plain(c.ctx.authored.taxonomy_additions),{tags:['anniversary']});
+  assert.deepEqual(plain(c.ctx.authored.tags),['Anniversary']);
   assert.deepEqual(plain(c.ctx.authored.packaging),before.packaging);
   assert.equal(c.ctx.authored.sale_price,'1.50');
-});
-
-test('unresolved compatibility entries block a touched edit without dropping source data',()=>{
-  const c=editorContext({authored:{taxonomy_additions:{attributes:{unknown:['lost-term']}}}});
-  let feedback;c.ctx.showFeedback=(...args)=>feedback=args;
-  const before=plain(c.ctx.authored);
-  c.eval("addTaxonomyChoice('attributes','term-paper','attr-material')");
-  assert.deepEqual(plain(c.ctx.authored),before);assert.match(feedback[1],/unresolved/);
 });
 
 test('informational additions pin existing legacy variable drivers, not new axes',()=>{
@@ -45,7 +35,7 @@ test('informational additions pin existing legacy variable drivers, not new axes
 
 test('normal Add Category/Collection opens registry without replacement or source mutations',()=>{
   const actions=[];const c=vm.createContext({guided:{querySelector:selector=>({closest:()=>({}),focus:()=>actions.push(selector),scrollIntoView:()=>{}})}});
-  vm.runInContext(extract('addOrganisationValue','clearCompatibleAdditions'),c);
+  vm.runInContext(extract('addOrganisationValue','addTaxonomyChoice'),c);
   vm.runInContext('addOrganisationValue("categories");addOrganisationValue("storefront_collections")',c);
   assert.deepEqual(actions,['[data-registry-category]','[data-registry-range]']);
 });

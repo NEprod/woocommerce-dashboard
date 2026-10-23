@@ -14,7 +14,7 @@ test('Product Type options contain only parent categories and preserve an unreso
     registry:{categories:[{key:'cards',name:'Cards',parent:null},{key:'birthday',name:'Birthday',parent:'cards'},
       {key:'old',name:'Retired',parent:null,state:'deprecated'}]},
     Option:function(text,value){this.text=text;this.value=value;},isShared:true,authored:{},boot:{},valueFor:()=>''});
-  vm.runInContext(extract('renderProductType','renderAdditions'),context);
+  vm.runInContext(extract('renderProductType','renderOrganisation'),context);
   vm.runInContext('renderProductType()',context);
   assert.deepEqual(select.options.map(r=>r.value),['','cards']);
   context.valueFor=()=> 'deleted-parent';

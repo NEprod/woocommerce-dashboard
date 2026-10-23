@@ -14,7 +14,7 @@ export function editorContext({shared=false,simple=true,authored={},collection={
   const ctx=vm.createContext({structuredClone,registry:structuredClone(vocabulary),isShared:shared,
     authored:structuredClone(authored),originalDocument:structuredClone(authored),boot:{collection:structuredClone(collection)},
     simpleProduct:()=>simple,resolvedVariation:simple,driverNames:[],explicitVariation:false,attributeReplacementActive:false,
-    overrideEnabled:()=>false,renderAdditions:()=>{},setDirty:()=>{},showFeedback:()=>{throw Error('Unexpected unresolved assignment');},
+    overrideEnabled:()=>false,renderOrganisation:()=>{},setDirty:()=>{},showFeedback:()=>{throw Error('Unexpected unresolved assignment');},
     attributeValues:()=>structuredClone(view),renderAttributes:value=>{view=structuredClone(value);},
     listValues:kind=>lists[kind] ?? ctx.authored[kind] ?? ctx.boot.collection[kind] ?? [],
     renderList:(kind,values)=>{lists[kind]=values;}});

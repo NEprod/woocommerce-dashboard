@@ -43,7 +43,7 @@ def information_registry():
 
 BASE={'Material':['Card'],'Personalisation':['Personalised'],
       'Production Method':['Printed'],'Style / Theme':['Pixel Art']}
-ADDED={'attributes':{'attr-lead-time':['term-3-5-days'],'attr-occasion':['term-anniversary'],'attr-material':['term-paper']}}
+ADDED={'Lead Time':['3–5 Days'],'Occasion':['Anniversary'],'Material':['Paper']}
 
 
 def install_information(app,directory):
@@ -57,8 +57,7 @@ def install_information(app,directory):
     ('Variable Collection/Badge One','override'),
     ('Single Variable','shared'),
     ('Simple Collection/Blue Token','shared')])
-@pytest.mark.parametrize('normal_fields',[False,True])
-def test_effective_cards_source_roundtrip_and_fresh_reprojection(core,tmp_path,owner,kind,normal_fields):
+def test_effective_cards_source_roundtrip_and_fresh_reprojection(core,tmp_path,owner,kind):
     app,client,root,output,ids,*_=core
     install_information(app,tmp_path/'taxonomy')
     shared_path=root/(owner if owner=='Single Variable' else owner.split('/')[0])/'product_info.json'
@@ -73,7 +72,7 @@ def test_effective_cards_source_roundtrip_and_fresh_reprojection(core,tmp_path,o
     prior_modifiers=copy.deepcopy(shared.get('variation_modifiers'))
     local={'Material':['Paper'],'Lead Time':['3–5 Days'],'Occasion':['Anniversary']}
     if kind=='shared':local={**shared['attributes'],**local,'Material':['Card','Paper']}
-    patch={'attributes':local} if normal_fields else {'taxonomy_additions':ADDED}
+    patch={'attributes':local}
     result=save(core,owner,kind=kind,data=patch)
     assert result.status_code==200,result.json
     saved=json.loads((shared_path if kind=='shared' else child).read_text())
@@ -81,13 +80,12 @@ def test_effective_cards_source_roundtrip_and_fresh_reprojection(core,tmp_path,o
     if kind=='override':
         assert shared_path.read_bytes()==before
         assert json.loads(child.read_text())=={**original_child,**patch}
-        if not normal_fields:assert 'attributes' not in json.loads(child.read_text())
     page=client.get(f'/edit_products/{ids[owner]}/edit/{kind}')
     data=bootstrap(page)
     expected={**BASE,'Material':['Card','Paper'],'Lead Time':['3–5 Days'],'Occasion':['Anniversary']}
     for name,terms in expected.items():assert data['resolved']['attributes'][name]==terms
     assert b'Woo publishing' not in page.data
-    assert b'data-taxonomy-additions="attributes"' not in page.data
+    assert b'data-effective-organisation="attributes"' not in page.data
     effective=rescan(core,owner)
     assert all(effective['attributes'][name]==terms for name,terms in expected.items())
     assert variation_drivers(effective)==axes
@@ -119,7 +117,7 @@ def test_existing_shopify_review_includes_inherited_and_sparse_information_witho
     registry.write_bytes(validate(information_registry()))
     change(world,attributes=BASE,variation_attributes=[])
     child=world[1]/'product_info.json'
-    child.write_text(json.dumps({'taxonomy_additions':ADDED}))
+    child.write_text(json.dumps({'attributes':ADDED}))
     adapter=AccessAdapter()
     source=world[2].read_bytes()
     plan,token=drafts.preview(world[0],adapter)
@@ -149,8 +147,8 @@ def test_existing_recipient_matching_and_new_product_additions_share_one_support
     assert token and not plan['blockers']
     assert drafts.confirm(token,True,adapter).state=='verified'
     child=world[1]/'product_info.json'
-    additions={'attributes':{'attr-lead-time':['term-3-5-days'],'attr-occasion':['term-anniversary']}}
-    child.write_text(json.dumps({'taxonomy_additions':additions}))
+    additions={'Lead Time':['3–5 Days'],'Occasion':['Anniversary']}
+    child.write_text(json.dumps({'attributes':additions}))
     before=world[2].read_bytes();calls=len(adapter.calls)
     plan,token=drafts.preview(world[0],adapter)
     assert token and not plan['blockers']
@@ -161,10 +159,10 @@ def test_existing_recipient_matching_and_new_product_additions_share_one_support
     assert len(plan['attributes'])==7
     assert not any('create' in name or 'write' in name or 'update' in name for name in adapter.calls[calls:])
     assert world[2].read_bytes()==before
-    assert json.loads(child.read_text())=={'taxonomy_additions':additions}
+    assert json.loads(child.read_text())=={'attributes':additions}
 
 
-def test_top_level_information_and_compatibility_additions_both_preserve_inherited_groups(core,tmp_path):
+def test_top_level_information_preserves_inherited_groups_and_local_removal(core,tmp_path):
     app,client,root,_,ids,*_=core;owner='Simple Collection/Blue Token'
     install_information(app,tmp_path/'taxonomy')
     parent=root/'Simple Collection/product_info.json'
@@ -173,13 +171,13 @@ def test_top_level_information_and_compatibility_additions_both_preserve_inherit
     child=root/owner/'product_info.json'
     own=json.loads(child.read_text());own['attributes']={'Recipient':['For Wife']}
     child.write_text(json.dumps(own))
-    additions={'attributes':{'attr-occasion':['term-anniversary'],'attr-lead-time':['term-3-5-days']}}
-    assert save(core,owner,data={'taxonomy_additions':additions}).status_code==200
+    additions={'Occasion':['Anniversary'],'Lead Time':['3–5 Days']}
+    assert save(core,owner,data={'attributes':{**own['attributes'],**additions}}).status_code==200
     data=bootstrap(client.get(f'/edit_products/{ids[owner]}/edit/override'))
     assert data['resolved']['attributes']=={**BASE,'Recipient':['For Wife'],'Occasion':['Anniversary'],'Lead Time':['3–5 Days']}
-    assert json.loads(child.read_text())['attributes']==own['attributes']
-    assert save(core,owner,removals=[['attributes']]).status_code==200
-    assert json.loads(child.read_text())=={k:v for k,v in {**own,'taxonomy_additions':additions}.items() if k!='attributes'}
+    assert json.loads(child.read_text())['attributes']=={**own['attributes'],**additions}
+    assert save(core,owner,data={'attributes':additions},removals=[['attributes','Recipient']]).status_code==200
+    assert json.loads(child.read_text())=={**own,'attributes':additions}
     effective=rescan(core,owner)
     assert effective['attributes']=={**BASE,'Occasion':['Anniversary'],'Lead Time':['3–5 Days']}
     assert parent.read_bytes()==before
@@ -188,8 +186,7 @@ def test_top_level_information_and_compatibility_additions_both_preserve_inherit
 def test_normal_recipient_and_occasion_review_includes_shared_terms_and_matching_readback(world,registry):
     from test_organisation_additive_editor import registry_document,RECIPIENTS
     registry.write_bytes(validate(registry_document()))
-    change(world,categories=[],storefront_collections=[],attributes=BASE,variation_attributes=[],
-        taxonomy_additions={'attributes':{'attr-lead-time':['term-3-5-days']}})
+    change(world,categories=[],storefront_collections=[],attributes={**BASE,'Lead Time':['3–5 Days']},variation_attributes=[])
     child=world[1]/'product_info.json'
     child.write_text(json.dumps({'attributes':{'Recipient':RECIPIENTS,'Occasion':['Anniversary']}}))
     before=world[2].read_bytes(),child.read_bytes();adapter=AccessAdapter()

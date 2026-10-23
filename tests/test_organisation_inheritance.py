@@ -43,8 +43,8 @@ def parent():
 
 
 def additions():
-    return {'taxonomy_additions':{'attributes':{'attr-occasion':['term-birthday','term-mother'],'attr-recipient':['term-mum']},
-        'categories':['cat-cards','cat-birthday'],'storefront_collections':['range-spring'],'tags':['tag-personalised']}}
+    return {'attributes':{'Occasion':['Birthday',"Mother's Day"],'Recipient':['Mum']},
+        'categories':['Cards','Cards > Birthday'],'storefront_collections':['Spring'],'tags':['Personalised']}
 
 
 def test_additive_information_and_organisation_keep_sparse_sources(vocabulary):
@@ -54,7 +54,7 @@ def test_additive_information_and_organisation_keep_sparse_sources(vocabulary):
     assert effective['categories']==['Cards','Cards > Birthday']
     assert effective['storefront_collections']==['Pixel','Spring']
     assert effective['tags']==['Existing','Personalised']
-    assert (shared,child)==before and 'taxonomy_additions' not in effective
+    assert (shared,child)==before
     assert variation_drivers(effective)==[]
 
 
@@ -62,7 +62,7 @@ def test_new_group_and_removing_local_terms_preserve_parent(vocabulary):
     shared=parent();shared['attributes'].pop('Recipient')
     child=additions()
     assert merge_product_json(shared,child)['attributes']['Recipient']==['Mum']
-    child['taxonomy_additions']['attributes'].pop('attr-occasion')
+    child['attributes'].pop('Occasion')
     assert merge_product_json(shared,child)['attributes']['Occasion']==['Birthday','Anniversary']
     assert merge_product_json(shared,{})['attributes']==shared['attributes']
 
@@ -76,7 +76,7 @@ def test_stable_identity_alias_dedup_and_deterministic_order(vocabulary):
 
 
 def test_informational_objects_and_collection_lists_are_additive_even_when_empty(vocabulary):
-    shared=parent();shared['taxonomy_additions']={'storefront_collections':['range-spring'],'attributes':{'attr-occasion':['term-mother']}}
+    shared=parent();shared['storefront_collections'].append('Spring');shared['attributes']['Occasion'].append("Mother's Day")
     replaced=merge_product_json(shared,{'attributes':{'Occasion':['Birthday']},'storefront_collections':[]})
     assert replaced['attributes']=={'Occasion':['Birthday','Anniversary',"Mother's Day"],'Recipient':['Him','Her']}
     assert replaced['storefront_collections']==['Pixel','Spring']
@@ -87,11 +87,11 @@ def test_informational_objects_and_collection_lists_are_additive_even_when_empty
 
 def test_information_cannot_change_variations_or_modifiers(vocabulary):
     shared={'collection_type':'Variable Collection','attributes':{'Size':['A5','A4']},'variation_modifiers':{'Size=A4':{'price':9,'weight':60,'dimensions':{'length':297}}}}
-    effective=merge_product_json(shared,{'taxonomy_additions':{'attributes':{'attr-recipient':['term-mum']}}})
+    effective=merge_product_json(shared,{'attributes':{'Recipient':['Mum']}})
     assert variation_drivers(effective)==['Size'] and effective['attributes']['Recipient']==['Mum']
     assert apply_variation_modifiers(shared,{'Size':'A4'},log=lambda *a,**k:None)==apply_variation_modifiers(effective,{'Size':'A4'},log=lambda *a,**k:None)
-    with pytest.raises(ValueError,match='variation-driving'):
-        merge_product_json(shared,{'taxonomy_additions':{'attributes':{'attr-size':['term-a4']}}})
+    # Explicit variation-option overrides still use the established contract.
+    assert merge_product_json(shared,{'attributes':{'Size':['A4']}})['attributes']=={'Size':['A4']}
 
 
 def test_product_type_scalar_inheritance_override_rename_and_independence(vocabulary):
@@ -112,11 +112,11 @@ def test_unresolved_or_subcategory_product_type_does_not_guess(vocabulary,key):
     assert validate_product_info({'shopify_product_type_key':key},'override').valid  # safe local editing is allowed
 
 
-def test_schema_does_not_require_type_but_enforces_single_key_and_addition_shape():
+def test_schema_does_not_require_type_but_enforces_single_key_and_normal_field_shape():
     assert validate_product_info({},'override').valid
     assert not validate_product_info({'shopify_product_type_key':['cat-cards','cat-gifts']},'override').valid
     assert validate_product_info(additions(),'override').valid
-    assert not validate_product_info({'taxonomy_additions':{'attributes':{'attr-occasion':['term-mum','term-mum']}}},'override').valid
+    assert not validate_product_info({'attributes':{'Occasion':'Birthday'}},'override').valid
 
 
 @pytest.mark.parametrize('owner,kind',[('Simple Collection/Blue Token','override'),('Variable Collection/Badge One','override'),('Single Variable','shared')])
@@ -124,12 +124,16 @@ def test_save_reopen_rescan_and_no_parent_mutation(core,vocabulary,owner,kind):
     app,client,root,_,ids,*_=core
     path=root/owner/'product_info.json';before=json.loads(path.read_text())
     parent_path=root/owner.split('/')[0]/'product_info.json';parent_before=parent_path.read_bytes()
-    data={'shopify_product_type_key':'cat-cards','taxonomy_additions':{'attributes':{'attr-recipient':['term-mum']}}}
+    attributes={'Recipient':['Mum']}
+    if kind=='shared':attributes={**before.get('attributes',{}),**attributes}
+    data={'shopify_product_type_key':'cat-cards','attributes':attributes}
+    if kind=='shared' and before.get('collection_type')!='Simple':
+        data['variation_attributes']=before.get('variation_attributes',list(before.get('attributes',{})))
     assert save(core,owner,kind=kind,data=data).status_code==200
     assert json.loads(path.read_text())=={**before,**data}
     if kind=='override':assert parent_path.read_bytes()==parent_before
     page=client.get(f'/edit_products/{ids[owner]}/edit/{kind}')
-    assert bootstrap(page)['authored']['taxonomy_additions']==data['taxonomy_additions']
+    assert bootstrap(page)['authored']['attributes']==attributes
     effective=rescan(core,owner)
     assert effective['attributes']['Recipient']==['Mum'] and effective['shopify_product_type_key']=='cat-cards'
     assert save(core,owner,kind=kind,data=data).json['unchanged']
@@ -217,7 +221,7 @@ def test_value_sources_do_not_call_local_additions_inherited(vocabulary):
     rows={row['key']:row for row in metadata_comparison(shared,child,merge_product_json(shared,child))}
     for key in ('attributes','categories','storefront_collections','tags'):
         assert rows[key]['state']=='product_additions'
-        assert rows[key]['override_display'].startswith('Product additions:')
+        assert json.loads(rows[key]['override_display'])==additions()[key]
     assert rows['shopify_product_type_key']['state']=='inherited'
 
 

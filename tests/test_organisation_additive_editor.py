@@ -1,6 +1,7 @@
 """Merchant-supplied override, normal additive saves and four-field isolation."""
 import copy
 import json
+from pathlib import Path
 
 import pytest
 
@@ -15,6 +16,17 @@ from test_product_shipping_editor import bootstrap, rescan
 
 RECIPIENTS=['For Wife','For Husband','For Girlfriend','For Boyfriend','For Partner','For Couple']
 RECIPIENT_KEYS=['term-wife','term-husband','term-girlfriend','term-boyfriend','term-partner','term-couple']
+
+
+def test_removed_storage_field_has_no_application_support():
+    from app.product_info import load_schema
+    obsolete='taxonomy_additions'
+    for kind in ('collection','override'):
+        assert obsolete not in load_schema(kind)['properties']
+    application=Path(__file__).resolve().parents[1]/'app'
+    for path in application.rglob('*'):
+        if path.is_file() and path.suffix in {'.py','.js','.html','.json'} and 'vendor' not in path.parts:
+            assert obsolete not in path.read_text(),path
 
 
 def registry_document():
@@ -36,12 +48,11 @@ def install(app,directory):
 
 
 def merchant_override():
-    return {'categories':['Cards > Anniversary Cards'],'attributes':{'Recipient':RECIPIENTS},
+    return {'categories':['Cards > Anniversary Cards'],'attributes':{'Recipient':RECIPIENTS,'Occasion':['Anniversary']},
         'sale_price':'1.50','sale_start_date':'2026-10-15T20:15:00.000Z','sale_end_date':'2026-10-15T20:30:00.000Z',
         'packaging':{'packed_dimensions':{'height':'3','length':'155','unit':'mm','width':'155'},
             'measured':True,'assignment_kind':'manual','classification':'rigid','fragile':True,
-            'selected_package_id':'c476b503-94de-59b0-9db9-f345fe35059e'},
-        'taxonomy_additions':{'attributes':{'attr-occasion':['term-anniversary']}}}
+            'selected_package_id':'c476b503-94de-59b0-9db9-f345fe35059e'}}
 
 
 def test_only_four_information_sections_join_while_other_overrides_are_identical(core,tmp_path):
@@ -54,7 +65,7 @@ def test_only_four_information_sections_join_while_other_overrides_are_identical
         'shopify_status':'DRAFT','shopify_channels':{'online_store':False},'vendor':'TLC','image_attributes':['Design'],
         'variation_modifiers':{'Size=A4':{'price':9,'weight':60}},'customisation':{'proof_policy':'required'},
         'shopify_product_type_key':'cat-cards','opaque':{'keep':[1,2]}}
-    before=copy.deepcopy((shared,child));four={'attributes','categories','storefront_collections','tags','taxonomy_additions'}
+    before=copy.deepcopy((shared,child));four={'attributes','categories','storefront_collections','tags'}
     with app.app_context():
         actual=merge_product_json(shared,child)
         baseline=merge_product_json({k:v for k,v in shared.items() if k not in four},{k:v for k,v in child.items() if k not in four})
@@ -69,21 +80,20 @@ def test_only_four_information_sections_join_while_other_overrides_are_identical
 def test_merchant_top_level_attributes_combine_without_source_rewrite(core,tmp_path):
     app,client,root,_,ids,*_=core;install(app,tmp_path/'taxonomy')
     owner='Simple Collection/Blue Token';parent=root/'Simple Collection/product_info.json';child=root/owner/'product_info.json'
-    shared=json.loads(parent.read_text());shared.update(attributes=BASE,variation_attributes=[],
-        categories=['Cards'],storefront_collections=['16-Bit'],tags=['Personalised','Pixel Art'],
-        taxonomy_additions={'attributes':{'attr-lead-time':['term-3-5-days']}})
+    shared=json.loads(parent.read_text());shared.update(attributes={**BASE,'Lead Time':['3–5 Days']},variation_attributes=[],
+        categories=['Cards'],storefront_collections=['16-Bit'],tags=['Personalised','Pixel Art'])
     parent.write_text(json.dumps(shared));original=merchant_override();child.write_text(json.dumps(original));parent_before=parent.read_bytes()
     before=rescan(core,owner)
     assert before['attributes']=={**BASE,'Lead Time':['3–5 Days'],'Recipient':RECIPIENTS,'Occasion':['Anniversary']}
     assert before['categories']==['Cards','Cards > Anniversary Cards']
     reopened=bootstrap(client.get(f'/edit_products/{ids[owner]}/edit/override'))
-    assert reopened['authored']['attributes']=={'Recipient':RECIPIENTS}
+    assert reopened['authored']['attributes']=={'Recipient':RECIPIENTS,'Occasion':['Anniversary']}
     # Normal edits use the same top-level field names as the collection.
     local={'attributes':{'Recipient':RECIPIENTS,'Occasion':['Anniversary']},
         'storefront_collections':['Anniversary Cards'],'tags':['Anniversary']}
-    response=save(core,owner,data=local,removals=[['taxonomy_additions']])
+    response=save(core,owner,data=local)
     assert response.status_code==200,response.json
-    expected={**original,**local};expected.pop('taxonomy_additions')
+    expected={**original,**local}
     assert json.loads(child.read_text())==expected
     assert parent.read_bytes()==parent_before
     after=rescan(core,owner)
@@ -126,8 +136,8 @@ def test_four_normal_fields_are_sparse_without_altering_other_overrides(core,tmp
     assert effective['attributes']['Occasion']==['Anniversary']
     assert effective.get('variation_modifiers')==modifiers
     page=client.get(f'/edit_products/{ids[owner]}/edit/{kind}')
-    for field in ('categories','tags','storefront_collections'):assert f'data-taxonomy-additions="{field}"' in page.text
-    assert 'data-taxonomy-additions="organisation"' not in page.text
+    for field in ('categories','tags','storefront_collections'):assert f'data-effective-organisation="{field}"' in page.text
+    assert 'data-effective-organisation="organisation"' not in page.text
     restore={key:own[key] for key in additions if key in own}
     assert save(core,owner,kind=kind,data=restore,removals=[[key] for key in additions if key not in own]).status_code==200
     final=rescan(core,owner)

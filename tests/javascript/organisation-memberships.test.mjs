@@ -21,16 +21,16 @@ function projectionContext(){
     authored:{categories:['Gifts']},boot:{collection:{categories:['Greeting cards'],storefront_collections:['Pixel Art']}},
     overrideEnabled:kind=>enabled.has(kind),listValues:kind=>lists[kind] || [],
     originalDocument:{categories:['Gifts']},renderList:(kind,values)=>{lists[kind]=values;},
-    renderAdditions:()=>{},setDirty:()=>{}});
+    renderOrganisation:()=>{},setDirty:()=>{}});
   vm.runInContext(extract('registryMatch','recognition')+extract('assignmentProjection','addTaxonomyChoice')+
-    extract('addTaxonomyChoice','removeTaxonomyChoice')+extract('removeTaxonomyChoice','setDirty'),context);
+    extract('addTaxonomyChoice','setDirty'),context);
   return {context,lists,enabled,rows:kind=>plain(vm.runInContext(`assignmentProjection('${kind}')`,context))};
 }
 
 test('selecting an effective inherited category or collection does not author another assignment',()=>{
   const context=vm.createContext({authored:{},structuredClone,
-    assignmentProjection:()=>[{key:'inherited'}],renderAdditions:()=>{},setDirty:()=>{}});
-  vm.runInContext(extract('addTaxonomyChoice','removeTaxonomyChoice'),context);
+    assignmentProjection:()=>[{key:'inherited'}],renderOrganisation:()=>{},setDirty:()=>{}});
+  vm.runInContext(extract('addTaxonomyChoice','setDirty'),context);
   vm.runInContext("addTaxonomyChoice('categories','inherited');addTaxonomyChoice('storefront_collections','inherited')",context);
   assert.deepEqual(JSON.parse(JSON.stringify(context.authored)),{});
 });
@@ -58,17 +58,8 @@ test('alias and stable identity deduplication prevent adding inherited assignmen
   assert.deepEqual(plain(c.context.authored),{categories:['Gifts']});
 });
 
-test('redundant historic local additions can be removed without removing inherited identities',()=>{
-  const c=projectionContext();c.context.authored.taxonomy_additions={categories:['cards'],storefront_collections:['pixel']};
-  assert.deepEqual(c.rows('categories')[0].additions,['cards']);
-  vm.runInContext("removeTaxonomyChoice('categories','cards');removeTaxonomyChoice('storefront_collections','pixel')",c.context);
-  assert.deepEqual(c.rows('categories').map(row=>row.key),['cards','gifts']);
-  assert.deepEqual(c.rows('storefront_collections').map(row=>row.key),['pixel']);
-  assert.deepEqual(plain(c.context.authored),{categories:['Gifts']});
-});
-
-test('empty local collection arrays never suppress inherited memberships or compatibility additions',()=>{
-  const c=projectionContext();c.context.boot.collection.taxonomy_additions={storefront_collections:['spring']};
+test('empty local collection arrays never suppress inherited memberships',()=>{
+  const c=projectionContext();c.context.boot.collection.storefront_collections.push('Spring');
   c.enabled.add('storefront_collections');c.lists.storefront_collections=[];
   assert.deepEqual(c.rows('storefront_collections').map(row=>row.key),['pixel','spring']);
   vm.runInContext("addTaxonomyChoice('storefront_collections','spring')",c.context);
@@ -79,22 +70,22 @@ test('empty local collection arrays never suppress inherited memberships or comp
 
 test('shared and Single Variable editing projects authored values and collection additions without inheritance',()=>{
   const c=projectionContext();c.context.isShared=true;
-  c.context.authored.taxonomy_additions={storefront_collections:['spring']};
+  c.lists.storefront_collections.push('Spring');
   assert.deepEqual(c.rows('categories').map(row=>[row.key,row.scope]),[['gifts','Collection']]);
-  assert.deepEqual(c.rows('storefront_collections').map(row=>[row.key,row.scope]),[['pixel','Collection'],['spring','Collection addition']]);
+  assert.deepEqual(c.rows('storefront_collections').map(row=>[row.key,row.scope]),[['pixel','Collection'],['spring','Collection']]);
 });
 
 test('rendered effective memberships label provenance and disable already assigned picker options',()=>{
   const c=projectionContext();
   const element=()=>({dataset:{},children:[],append(...rows){this.children.push(...rows);},replaceChildren(){this.children=[];},
     setAttribute(name,value){this[name]=value;},addEventListener(name,fn){this[name]=fn;}});
-  const organisation={...element(),dataset:{taxonomyAdditions:'organisation'}};
-  const collections={...element(),dataset:{taxonomyAdditions:'collections'}};
+  const organisation={...element(),dataset:{effectiveOrganisation:'categories'}};
+  const collections={...element(),dataset:{effectiveOrganisation:'storefront_collections'}};
   const categories={options:registry.categories.map(row=>({value:row.key}))};
   const ranges={options:registry.storefront_collections.map(row=>({value:row.key}))};
   c.context.document={createElement:element};
   c.context.guided={querySelectorAll:()=>[organisation,collections],querySelector:selector=>selector==='[data-registry-category]'?categories:ranges};
-  vm.runInContext(extract('renderAdditions','assignmentProjection'),c.context);
+  vm.runInContext(extract('renderOrganisation','assignmentProjection'),c.context);
   vm.runInContext("addTaxonomyChoice('storefront_collections','spring')",c.context);
   assert.equal(organisation.children[0].children[0].value,'Greeting cards');
   assert.equal(organisation.children[0].children[1].textContent,'Inherited');

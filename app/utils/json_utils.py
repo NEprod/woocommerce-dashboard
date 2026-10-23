@@ -169,8 +169,8 @@ def merge_product_json(shared, override, path=None, *, collection_path=None, lay
     if title is not None:
         result["title"] = title
 
-    from app.organisation import apply_additions
-    return apply_additions(result, shared, override)
+    from app.organisation import merge_organisation_fields
+    return merge_organisation_fields(result, shared, override)
 
 def validate_json(data, is_collection=False):
     """

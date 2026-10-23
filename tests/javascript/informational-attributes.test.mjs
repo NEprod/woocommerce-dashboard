@@ -25,14 +25,14 @@ test('registry assignment immediately rerenders normal cards, without legacy rep
 
 test('effective cards include inherited, shared additions and sparse product additions in stable order',()=>{
   const {ctx}=context();
-  ctx.boot.collection.taxonomy_additions={attributes:{'attr-material':['term-paper']}};
-  ctx.authored.taxonomy_additions={attributes:{'attr-lead-time':['term-3-5-days']}};
-  const rows=plain(vm.runInContext('attributeProjection({Material:["Card"]})',ctx));
+  ctx.boot.collection.attributes={Material:['Card','Paper']};
+  ctx.authored.attributes={'Lead Time':['3–5 Days']};
+  const rows=plain(vm.runInContext('attributeProjection({"Lead Time":["3–5 Days"]})',ctx));
   assert.deepEqual(rows.map(r=>[r.name,r.values]),[['Material',['Card','Paper']],['Lead Time',['3–5 Days']]]);
   assert.equal(rows[0].terms[0].scope,'Inherited');
   assert.equal(rows[1].terms[0].scope,'Product addition');
   assert.equal(rows[0].baseValues,null); // inherited values are never authored in the child
-  assert.equal(rows[1].baseValues,null); // effective-only rows must never become a legacy replacement
+  assert.deepEqual(rows[1].baseValues,['3–5 Days']); // only local values are serialized
 });
 
 test('existing and inherited aliases deduplicate by stable term identity without a false local change',()=>{
@@ -45,9 +45,8 @@ test('existing and inherited aliases deduplicate by stable term identity without
 
 test('shared additions remain visible alongside a child top-level attributes object',()=>{
   const {ctx}=context(true);
-  ctx.authored.taxonomy_additions={attributes:{'attr-lead-time':['term-3-5-days']}};
-  assert.equal(vm.runInContext('attributeProjection({Material:["Card"]})[1].terms[0].scope',ctx),'Collection addition');
-  ctx.isShared=false;ctx.authored={attributes:{}};ctx.boot.collection.taxonomy_additions={attributes:{'attr-lead-time':['term-3-5-days']}};
+  assert.equal(vm.runInContext('attributeProjection({Material:["Card"],"Lead Time":["3–5 Days"]})[1].terms[0].scope',ctx),'Collection');
+  ctx.isShared=false;ctx.authored={attributes:{}};ctx.boot.collection.attributes={'Material':['Card'],'Lead Time':['3–5 Days']};
   assert.deepEqual(plain(vm.runInContext('attributeProjection({}).map(row=>row.name)',ctx)),['Material','Lead Time']);
 });
 
@@ -74,7 +73,7 @@ function replacementContext(approve=true){
   let view={Material:['Unsaved replacement term']};let handler;let prompts=0;
   const toggle={checked:true,matches:s=>s==='[data-override-toggle]' || s==='[data-override-toggle="attributes"]',dataset:{overrideToggle:'attributes'}};
   const ctx=vm.createContext({structuredClone,isShared:false,attributeReplacementActive:true,attributeReplacementDraft:null,
-    authored:{attributes:{Material:['Saved replacement term']},taxonomy_additions:{attributes:{'attr-lead-time':['term-3-5-days']}}},
+    authored:{attributes:{Material:['Saved replacement term']}},
     boot:{collection:{attributes:{Material:['Card'],Personalisation:['Personalised']}}},
     confirmAttributeReplacement:async()=>{prompts++;return approve;},
     attributeValues:()=>structuredClone(view),renderAttributes:v=>{view=structuredClone(v);},
@@ -113,9 +112,9 @@ test('pending mode approval cannot change replacement ownership or serialize inh
 });
 
 test('removing a redundant local identity keeps its inherited term',()=>{
-  const {ctx}=context();ctx.authored.taxonomy_additions={attributes:{'attr-material':['term-card']}};
-  vm.runInContext("removeTaxonomyChoice('attributes','term-card','attr-material')",ctx);
-  assert.deepEqual(plain(ctx.authored),{});
+  const {ctx}=editorContext({authored:{attributes:{Material:['Card']}}});
+  vm.runInContext("removeInformationTerm({attribute:'attr-material',name:'Material',key:'term-card',value:'Card'})",ctx);
+  assert.deepEqual(plain(ctx.authored),{attributes:{}});
   assert.deepEqual(plain(vm.runInContext('attributeProjection(attributeValues()).map(r=>r.values)',ctx)),[['Card']]);
 });
 

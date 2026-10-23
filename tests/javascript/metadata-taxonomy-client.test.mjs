@@ -44,7 +44,7 @@ test("range registry assignment appends without replacing legacy or changing var
     guided: {querySelector: (selector) => selector === "[data-assign-range]" ? {addEventListener: (_, callback) => {click = callback;}} : {value: "range-garden"}},
     isShared: true, overrideEnabled: () => true, listValues: () => ["Legacy range"],
     renderList: (field, rows) => {values = {field, rows: Array.from(rows)};},
-    setDirty: () => {}, renderAdditions: () => {}, explicitVariation: false,
+    setDirty: () => {}, renderOrganisation: () => {}, explicitVariation: false,
   });
   const start = source.indexOf('  guided.querySelector("[data-assign-range]").addEventListener');
   const end = source.indexOf('  guided.querySelector("[data-registry-attribute]")', start);
@@ -69,7 +69,7 @@ test("returning from Advanced JSON updates sparse override toggles from the actu
   const context = vm.createContext({
     authored: {}, isShared:true,boot:{},window:{},customisationDesigner:null,packagingDesigner:null,finishedDesigner:null, structuredClone, explicitVariation: false, resolvedVariation: false, driverNames: [], guidedValues: () => ({}),
     guided: {querySelector:()=>null,querySelectorAll: (selector) => selector === "[data-override-toggle]" ? toggles : []},
-    renderProductType:()=>{},renderAdditions:()=>{},valueFor: () => [],renderChannels:()=>{}, renderList: () => {}, renderAttributes: () => {}, renderModifiers: () => {}, setControlState: () => {}, updateCharacterCounts: () => {},
+    renderProductType:()=>{},renderOrganisation:()=>{},valueFor: () => [],renderChannels:()=>{}, renderList: () => {}, renderAttributes: () => {}, renderModifiers: () => {}, setControlState: () => {}, updateCharacterCounts: () => {},
   });
   vm.runInContext(extract("populate", "prune"), context);
   vm.runInContext('populate({attributes: {Unknown: ["Original"]}, variation_attributes: []})', context);

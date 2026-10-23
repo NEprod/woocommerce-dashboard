@@ -210,7 +210,6 @@ def metadata_comparison(shared, override, resolved):
         if not (shared_set or override_set or resolved_set):
             continue
         field = FIELD_BY_KEY.get(key, {})
-        additions = override.get('taxonomy_additions', {}).get(key)
         additive = key in {'categories','storefront_collections','tags'}
         if key == 'attributes':
             from app.taxonomy_assignments import variation_drivers
@@ -228,10 +227,10 @@ def metadata_comparison(shared, override, resolved):
                 "collection": shared.get(key),
                 "collection_display": _display(shared.get(key)) if shared_set else "Not set",
                 "override": override.get(key),
-                "override_display": 'Product additions: ' + _display(additions) if additions else _display(override.get(key)) if override_set else "Inherited value",
+                "override_display": _display(override.get(key)) if override_set else "Inherited value",
                 "resolved": resolved.get(key),
                 "resolved_display": _display(resolved.get(key)) if resolved_set else "Missing",
-                "state": "product_additions" if additions or additive and override_set else "overridden" if override_set else "inherited" if shared_set else "scanner-generated",
+                "state": "product_additions" if additive and override_set else "overridden" if override_set else "inherited" if shared_set else "scanner-generated",
                 "implementation_status": field.get("implementation_status", "Unknown field preserved."),
             }
         )

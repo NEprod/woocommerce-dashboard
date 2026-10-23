@@ -55,12 +55,10 @@ assert bootstrap['authored']['shopify_product_type_key']=='cat-gifts'
 assert bootstrap['resolved']['attributes']['Recipient']==['Him','Her','Mum']
 assert bootstrap['resolved']['storefront_collections']==['Pixel','Spring']
 assert bootstrap['collection']['shopify_product_type_key']=='cat-cards'
-assert 'taxonomy_additions' not in bootstrap['collection']
 assert bootstrap['authored']['attributes']=={'Recipient':['Mum']}
 assert bootstrap['authored']['storefront_collections']==['Spring']
 assert bootstrap['authored']['categories']==['Gifts']
 assert bootstrap['authored']['tags']==['Local fixture tag']
-assert 'taxonomy_additions' not in bootstrap['authored']
 assert 'data-parent-product-type' in page
 '''
 

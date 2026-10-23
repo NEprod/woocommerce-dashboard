@@ -16,8 +16,7 @@ source.write_text(json.dumps(shared))
 parent_before=source.read_bytes()
 legacy=catalogue/'Simple Collection/Green Token/product_info.json'
 legacy_document=json.loads(legacy.read_text()) if legacy.exists() else {}
-legacy_document.update(attributes={'Recipient':['For Wife','For Husband']},
-    taxonomy_additions={'attributes':{'attr-occasion':['term-anniversary']}})
+legacy_document.update(attributes={'Recipient':['For Wife','For Husband'],'Occasion':['Anniversary']})
 legacy.write_text(json.dumps(legacy_document))
 
 @app.get('/fixture/rescan')
@@ -31,8 +30,7 @@ def rescan_fixture():
 def assert_additions():
     own=json.loads((catalogue/'Simple Collection/Blue Token/product_info.json').read_text())
     assert source.read_bytes()==parent_before
-    assert 'attributes' not in own
-    assert own['taxonomy_additions']=={'attributes':{'attr-lead-time':['term-3-5-days'],'attr-occasion':['term-anniversary']}}
+    assert own['attributes']=={'Lead Time':['3–5 Days'],'Occasion':['Anniversary']}
     effective=product_document(db.session.get(Product,ids['Simple Collection/Blue Token']))
     assert effective['attributes']=={**BASE,'Lead Time':['3–5 Days'],'Occasion':['Anniversary']}
     return jsonify(parent_unchanged=True,sparse_json=True,effective_after_scan=effective['attributes'])

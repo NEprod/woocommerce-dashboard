@@ -103,7 +103,7 @@
         <div class="editor-field-grid">
           {% for key, label, singular_label in [('categories','Categories','Category'),('tags','Tags','Tag')] %}
           <div class="guided-field"><span id="metadata-{{ key }}-label">{{ label }}</span>
-            <div class="repeatable-list" data-taxonomy-additions="{{ key }}" role="group" aria-labelledby="metadata-{{ key }}-label" aria-live="polite"></div>
+            <div class="repeatable-list" data-effective-organisation="{{ key }}" role="group" aria-labelledby="metadata-{{ key }}-label" aria-live="polite"></div>
             {% if key == 'tags' %}<label>New local tag<input data-new-tag aria-label="New local tag"></label>{% endif %}
             <button class="btn btn-sm btn-outline-primary" type="button" data-add-list="{{ key }}">Add {{ singular_label }}</button>
             {% if key == 'tags' %}<label>Registered tag<select data-registry-tag aria-label="Registered tag"></select></label><button class="btn btn-sm btn-outline-primary" type="button" data-assign-tag>Assign registered tag</button>{% endif %}
@@ -121,7 +121,7 @@
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="ranges-title">
         <header><h2 id="ranges-title">Storefront Collections</h2><p>Named ranges, separate from dashboard catalogue groups. Assignments use the existing reviewed Shopify collection mappings; saving locally creates no remote collection.</p></header>
         <p class="field-helper">Effective memberships — inherited collections and local additions. Removing a local addition never removes an inherited membership.</p>
-        <div class="repeatable-list" data-taxonomy-additions="storefront_collections" aria-label="Effective Storefront Collections" aria-live="polite"></div>
+        <div class="repeatable-list" data-effective-organisation="storefront_collections" aria-label="Effective Storefront Collections" aria-live="polite"></div>
         <button type="button" class="btn btn-sm btn-outline-primary" data-add-list="storefront_collections">Add Storefront Collection</button>
         <div hidden data-field-wrapper="storefront_collections"><div data-list-editor="storefront_collections"></div></div>
         <p class="field-error" data-field-error="storefront_collections" hidden></p>
@@ -144,7 +144,7 @@
         <div class="structured-editor-list" data-attributes-editor aria-live="polite"></div><p class="field-error" data-field-error="attributes" hidden></p>
         <div class="attribute-contract-note"><p data-variation-contract-status></p><button type="button" class="btn btn-sm btn-ghost" data-adopt-variation>Use explicit attribute contract</button><p class="field-helper">Changing a “Use for variations” control adopts the explicit contract. Publishing then requires verified controlled taxonomy and a fresh Preview. No checked rows means an intentional empty driver list. Viewing legacy metadata changes nothing. Advanced JSON remains available for source-level contract changes.</p><p class="field-error" data-field-error="variation_attributes" hidden></p></div>
         {% with picker_kind='attributes' %}{% include 'includes/_metadata_taxonomy_choices.html' %}{% endwith %}
-        <p class="field-helper">Inherited and local terms appear together in these cards. Local informational values are saved under attributes, using the same structure as collection JSON. Existing taxonomy_additions remain readable; only an edited assignment is written in the normal field. Removing a local term never removes an inherited term.</p>
+        <p class="field-helper">Inherited and local terms appear together in these cards. Local informational values are saved under attributes, using the same structure as collection JSON. Removing a local term never removes an inherited term.</p>
         {% if not is_shared %}{% if workspace.resolved.collection_type != 'Simple' %}<details class="attribute-contract-note" data-attribute-replacement>
           <summary>Advanced — variation options</summary>
           <p class="field-helper">This control only edits variation-driving options. Informational attributes always combine with the collection and need no override switch. Variation drafts are retained when switching modes.</p>

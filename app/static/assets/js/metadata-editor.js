@@ -93,7 +93,7 @@
     link.hidden = !selected;
     if (selected) link.href = `${boot.taxonomy_term_url}?attribute=${encodeURIComponent(selected.key)}`;
     guided.querySelectorAll("[data-registry-status]").forEach((node) => { node.textContent = `Registry: ${registry.status || "unavailable"}`; });
-    renderAdditions();
+    renderOrganisation();
   }
 
   function renderProductType(preferred) {
@@ -112,34 +112,28 @@
       : !isShared && boot.collection?.shopify_product_type_key ? `Collection Product Type: ${(registry.categories || []).find(r=>r.key===boot.collection.shopify_product_type_key)?.name || boot.collection.shopify_product_type_key}` : '';
   }
 
-  function renderAdditions() {
-    guided.querySelectorAll('[data-taxonomy-additions]').forEach(target => {
+  function renderOrganisation() {
+    guided.querySelectorAll('[data-effective-organisation]').forEach(target => {
       target.replaceChildren();
-      const scopes = target.dataset.taxonomyAdditions === 'organisation' ? ['categories','tags']
-        : target.dataset.taxonomyAdditions === 'collections' ? ['storefront_collections'] : [target.dataset.taxonomyAdditions];
-      scopes.forEach(kind => assignmentProjection(kind).forEach(assignment => {
+      const kind = target.dataset.effectiveOrganisation;
+      assignmentProjection(kind).forEach(assignment => {
         const row = document.createElement('div');row.className='repeatable-row';
         row.dataset.effectiveAssignment = kind;
         const input=document.createElement('input');input.value=assignment.value;input.readOnly=true;
         input.setAttribute('aria-label',`${kind.replaceAll('_',' ')}: ${assignment.value} — ${assignment.scope}`);
         const source=document.createElement('span');source.className='field-helper';source.textContent=assignment.scope;
         row.append(input,source);
-        assignment.additions.forEach(key => {
-          const button = document.createElement('button');button.type='button';button.className='btn btn-sm btn-ghost';button.textContent='Remove local addition';
-          button.setAttribute('aria-label', `Remove local addition: ${assignment.value}`);
-          button.addEventListener('click',()=>removeTaxonomyChoice(kind,key));row.append(button);
-        });
         if (assignment.localValues.length) {
           const button=document.createElement('button');button.type='button';button.className='btn btn-sm btn-ghost';
           button.textContent='Remove local entry';button.setAttribute('aria-label',`Remove local entry: ${assignment.value}`);
           button.addEventListener('click',()=>{
             const values=listValues(kind).filter(value=>!assignment.localValues.includes(value));
             if (!isShared && !values.length && !Object.hasOwn(originalDocument,kind)) delete authored[kind];else authored[kind]=values;
-            renderList(kind,values);renderAdditions();setDirty(true);
+            renderList(kind,values);renderOrganisation();setDirty(true);
           });row.append(button);
         }
         target.append(row);
-      }));
+      });
     });
     // Show what is already effective, including inherited aliases, in the picker.
     for (const [kind,selector] of [['categories','[data-registry-category]'],['storefront_collections','[data-registry-range]'],['tags','[data-registry-tag]']]) {
@@ -155,22 +149,17 @@
   }
 
   function assignmentProjection(kind) {
-    // Display only. Keep raw list inputs and sparse additions as the authored sources.
+    // Effective display only; serialize the locally authored top-level list.
     const rows = [], definitions = registry[kind] || [];
-    const append = (value,scope,key,local=false,raw=false) => {
-      const definition = definitions.find(row=>row.key===(key || value)) || registryMatch(value,definitions);
+    const append = (value,scope,local=false) => {
+      const definition = definitions.find(row=>row.key===value) || registryMatch(value,definitions);
       const identity = definition ? `key:${definition.key}` : `legacy:${value}`;
       let row = rows.find(row=>row.identity===identity);
-      if (!row) { row={identity,key:definition?.key,value,scope,additions:[],localValues:[]};rows.push(row); }
-      if (local) row.additions.push(key);
-      if (raw) row.localValues.push(value);
+      if (!row) { row={identity,key:definition?.key,value,scope,localValues:[]};rows.push(row); }
+      if (local) row.localValues.push(value);
     };
     if (!isShared) (boot.collection?.[kind] || []).forEach(value=>append(value,'Inherited'));
-    if (isShared || Object.hasOwn(authored,kind)) listValues(kind).forEach(value=>append(value,isShared?'Collection':'Product addition',undefined,false,true));
-    for (const [source,scope,local] of [
-      [!isShared ? boot.collection?.taxonomy_additions || {} : {},'Inherited',false],
-      [authored.taxonomy_additions || {},isShared?'Collection addition':'Product addition',true]
-    ]) (source[kind] || []).forEach(key=>append(definitions.find(row=>row.key===key)?.value || `Unresolved: ${key}`,scope,key,local));
+    if (isShared || Object.hasOwn(authored,kind)) listValues(kind).forEach(value=>append(value,isShared?'Collection':'Product addition',true));
     return rows;
   }
 
@@ -188,16 +177,10 @@
       if (definition) addTaxonomyChoice(kind,definition.key);
       else {
         const values=isShared || Object.hasOwn(authored,kind)?listValues(kind):[];
-        authored[kind]=[...values,value];renderList(kind,authored[kind]);renderAdditions();setDirty(true);
+        authored[kind]=[...values,value];renderList(kind,authored[kind]);renderOrganisation();setDirty(true);
       }
     }
     control.value='';
-  }
-
-  function clearCompatibleAdditions(kind) {
-    const additions=structuredClone(authored.taxonomy_additions || {});
-    delete additions[kind];
-    if (Object.keys(additions).length) authored.taxonomy_additions=additions;else delete authored.taxonomy_additions;
   }
 
   function addTaxonomyChoice(kind, key, attribute) {
@@ -206,17 +189,7 @@
     if (!attribute && assignmentProjection(kind).some(row=>row.key===key)) return;
     if (attribute) {
       const preservedDrivers=attributeDriverNames();
-      const pending=authored.taxonomy_additions?.attributes || {};
       const definitions=registry.attributes;
-      const groups=Object.entries(pending).map(([id,keys])=>[definitions.find(row=>row.key===id),keys]);
-      // Never lose unresolved old entries while moving a touched assignment to the normal field.
-      if (groups.some(([definition,keys])=>!definition || keys.some(key=>!definition.terms.some(term=>term.key===key)))) {
-        showFeedback('error','Registry assignment unresolved','Restore the registered identities before editing these terms. Existing source is unchanged.');return;
-      }
-      for (const [definition,keys] of groups) {
-        const name=Object.keys(base).find(name=>registryMatch(name,definitions)?.key===definition.key) || definition.value;
-        base[name]=Array.from(new Set([...(base[name] || []),...keys.map(key=>definition.terms.find(term=>term.key===key).value)]));
-      }
       const definition=definitions.find(row=>row.key===attribute),term=definition?.terms.find(term=>term.key===key);
       if (!term) return;
       if (!simpleProduct() && !resolvedVariation) {
@@ -224,32 +197,15 @@
       }
       const name=Object.keys(base).find(name=>registryMatch(name,definitions)?.key===attribute) || definition.value;
       base[name]=Array.from(new Set([...(base[name] || []),term.value]));
-      clearCompatibleAdditions('attributes');authored.attributes=base;renderAttributes(base);
+      authored.attributes=base;renderAttributes(base);
     } else {
       const definitions=registry[kind] || [],definition=definitions.find(row=>row.key===key);
       if (!definition) return;
-      const pending=authored.taxonomy_additions?.[kind] || [];
-      if (pending.some(key=>!definitions.some(row=>row.key===key))) {
-        showFeedback('error','Registry assignment unresolved','Restore the registered identities before editing these assignments. Existing source is unchanged.');return;
-      }
       const own=isShared || Object.hasOwn(authored,kind)?listValues(kind):[];
-      const values=Array.from(new Set([...own,...pending.map(key=>definitions.find(row=>row.key===key).value),definition.value]));
-      clearCompatibleAdditions(kind);authored[kind]=values;renderList(kind,values);
+      const values=Array.from(new Set([...own,definition.value]));
+      authored[kind]=values;renderList(kind,values);
     }
-    renderAdditions();setDirty(true);
-  }
-
-  function removeTaxonomyChoice(kind, key, attribute) {
-    const base=attribute?attributeValues():null;
-    const additions=structuredClone(authored.taxonomy_additions || {});
-    const owner=attribute?additions.attributes:additions,name=attribute || kind;
-    if (!owner) return;
-    owner[name]=(owner[name] || []).filter(value=>value!==key);
-    if (!owner[name].length) delete owner[name];
-    if (attribute && !Object.keys(additions.attributes).length) delete additions.attributes;
-    if (Object.keys(additions).length) authored.taxonomy_additions=additions;else delete authored.taxonomy_additions;
-    if (attribute) renderAttributes(base);
-    renderAdditions();setDirty(true);
+    renderOrganisation();setDirty(true);
   }
 
   function setDirty(value) {
@@ -416,36 +372,27 @@
     const rows=[],drivers=attributeDriverNames(),own=isShared?base:Object.hasOwn(authored,'attributes') || attributeReplacementActive?base:{};
     const matchName=name=>registryMatch(name,registry.attributes);
     const isDriver=name=>drivers.some(driver=>driver===name || matchName(name) && matchName(name)?.key===matchName(driver)?.key);
-    const append=(name,values,scope,local=false,compatibility=false) => {
+    const append=(name,values,scope,local=false) => {
       const definition=matchName(name);
       let row=rows.find(row=>definition?row.definition?.key===definition.key:row.name===name);
       if (!row) { row={name,definition,driver:isDriver(name),baseValues:null,values:[],terms:[],additions:[]};rows.push(row); }
-      if (local && !compatibility) row.baseValues=[...(row.baseValues || []),...values];
+      if (local) row.baseValues=[...(row.baseValues || []),...values];
       values.forEach(value=>{
         const key=registryMatch(value,definition?.terms || [])?.key;
         if (!row.terms.some(term=>key?term.key===key:term.value===value)) {
           row.values.push(value);row.terms.push({key,value,scope});
         }
-        if (local && !row.driver) row.additions.push({attribute:definition?.key,name,key,value,raw:!compatibility});
+        if (local && !row.driver) row.additions.push({attribute:definition?.key,name,key,value});
       });
     };
     if (!isShared) Object.entries(boot.collection?.attributes || {}).forEach(([name,values])=>{
       if (!attributeReplacementActive || !isDriver(name)) append(name,values,'Inherited');
     });
     Object.entries(own || {}).forEach(([name,values])=>append(name,values,isShared?'Collection':'Product addition',true));
-    for (const [source,scope,local] of [
-      [isShared?{}:boot.collection?.taxonomy_additions?.attributes || {},'Inherited',false],
-      [authored.taxonomy_additions?.attributes || {},isShared?'Collection addition':'Product addition',true]
-    ]) Object.entries(source).forEach(([key,keys])=>{
-      const definition=registry.attributes.find(row=>row.key===key);
-      const name=definition?.value || `Unresolved: ${key}`;
-      append(name,keys.map(key=>definition?.terms.find(term=>term.key===key)?.value || `Unresolved: ${key}`),scope,local,true);
-    });
     return rows;
   }
 
   function removeInformationTerm(term) {
-    if (!term.raw) return removeTaxonomyChoice('attributes',term.key,term.attribute);
     const base=attributeValues(),definition=registry.attributes.find(row=>row.key===term.attribute);
     Object.keys(base).filter(name=>definition?registryMatch(name,registry.attributes)?.key===definition.key:name===term.name).forEach(name=>{
       base[name]=base[name].filter(value=>term.key?registryMatch(value,definition.terms)?.key!==term.key:value!==term.value);
@@ -694,7 +641,7 @@
     renderChannels(valueFor("shopify_channels"));
     guided.querySelectorAll("[data-dimension]").forEach((control) => { control.value = dimensions && dimensions[control.dataset.dimension] != null ? dimensions[control.dataset.dimension] : ""; });
     ["categories", "tags", "storefront_collections", "image_attributes"].forEach((field) => renderList(field, valueFor(field)));
-    renderAdditions();
+    renderOrganisation();
     explicitVariation = Object.prototype.hasOwnProperty.call(authored, "variation_attributes");
     resolvedVariation = Array.isArray(valueFor("variation_attributes"));
     driverNames = resolvedVariation ? [...valueFor("variation_attributes")] : [];
@@ -1041,12 +988,12 @@
   }
 
   guided.addEventListener("input", (event) => { setDirty(true); updateCharacterCounts(); updateFinishedPreview(); if(event.target.matches('[data-field="title"]'))queueTitlePreview();
-    if (event.target.closest('[data-list-row="categories"], [data-list-row="tags"], [data-list-row="storefront_collections"]')) renderAdditions();
+    if (event.target.closest('[data-list-row="categories"], [data-list-row="tags"], [data-list-row="storefront_collections"]')) renderOrganisation();
   });
   guided.addEventListener("change", async (event) => {
     if (event.target.matches('[data-override-toggle="attributes"]')) await changeAttributeReplacement(event.target);
     if (event.target.matches("[data-override-toggle]")) setControlState(event.target.dataset.overrideToggle);
-    if (['categories','tags','storefront_collections'].includes(event.target.dataset.overrideToggle)) renderAdditions();
+    if (['categories','tags','storefront_collections'].includes(event.target.dataset.overrideToggle)) renderOrganisation();
     if (event.target.matches('[data-override-toggle="title"]')) queueTitlePreview();
     if (event.target.matches('[data-field="collection_type"]')) renderVariationState();
     setDirty(true);
@@ -1073,32 +1020,15 @@
     if (!action) return;
     const row = action.closest(".repeatable-row, .structured-editor-row");
     const parent = row.parentElement;
-    if (row._attributeBase?.baseValues === null) {
-      const local = row._attributeBase.additions;
-      if (!local.length) return;
-      const base=attributeValues();
-      if (action.dataset.rowAction === 'remove') local.forEach(term => removeTaxonomyChoice('attributes',term.key,term.attribute));
-      else {
-        const entries=Object.entries(authored.taxonomy_additions.attributes);
-        const index=entries.findIndex(([key]) => key === local[0].attribute);
-        const next=index + (action.dataset.rowAction === 'up' ? -1 : 1);
-        if (next >= 0 && next < entries.length) {
-          [entries[index],entries[next]]=[entries[next],entries[index]];
-          authored.taxonomy_additions.attributes=Object.fromEntries(entries);
-        }
-        renderAttributes(base);setDirty(true);
-      }
-      return;
-    }
+    if (row._attributeBase?.baseValues === null) return;
     if (action.dataset.rowAction === "remove") {
       if (explicitVariation && row.hasAttribute("data-attribute-row")) driverNames = driverNames.filter((name) => name !== row.querySelector("[data-attribute-name]").value.trim());
       row.remove();
-      (row._attributeBase?.additions || []).forEach(term => removeTaxonomyChoice('attributes',term.key,term.attribute));
     }
     if (action.dataset.rowAction === "up" && row.previousElementSibling) parent.insertBefore(row, row.previousElementSibling);
     if (action.dataset.rowAction === "down" && row.nextElementSibling) parent.insertBefore(row.nextElementSibling, row);
     if (row.hasAttribute("data-attribute-row")) renderVariationState();
-    if (['categories','tags','storefront_collections'].includes(row.dataset.listRow)) renderAdditions();
+    if (['categories','tags','storefront_collections'].includes(row.dataset.listRow)) renderOrganisation();
     setDirty(true);
   });
 
@@ -1205,7 +1135,7 @@
     const selected = (registry.storefront_collections || []).find((row) => row.key === guided.querySelector("[data-registry-range]").value);
     if (!selected) return;
     renderList("storefront_collections", Array.from(new Set([...listValues("storefront_collections"), selected.value])));
-    renderAdditions();
+    renderOrganisation();
     setDirty(true);
   });
   guided.querySelector("[data-registry-attribute]").addEventListener("change", registryChoices);
@@ -1219,7 +1149,7 @@
     const selected = registry.categories.find((row) => row.key === guided.querySelector("[data-registry-category]").value);
     if (!selected) return;
     renderList("categories", Array.from(new Set([...listValues("categories"), selected.value])));
-    renderAdditions();
+    renderOrganisation();
     setDirty(true);
   });
   guided.querySelector("[data-assign-term]").addEventListener("click", () => {
@@ -1245,7 +1175,7 @@
       registryChoices();
       renderAttributes(attributeValues()); renderList("categories", listValues("categories"));
       renderList("storefront_collections", listValues("storefront_collections"));
-      renderAdditions();
+      renderOrganisation();
       showFeedback("success", "Registry choices refreshed", "No assignment was changed. If the registry was edited since this page opened, copy your Advanced JSON draft and reload before saving; the source review protects the original registry revision.");
     } catch (error) { showFeedback("error", "Refresh failed", error.message); }
   }));

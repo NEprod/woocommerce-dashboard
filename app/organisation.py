@@ -1,14 +1,6 @@
 """Four-field additive organisation; other overrides and variation contracts are unchanged."""
 from copy import deepcopy
 
-KEY = {'type': 'string', 'pattern': r'^[a-z][a-z0-9_-]{0,95}$'}
-KEYS = {'type': 'array', 'maxItems': 500, 'uniqueItems': True, 'items': KEY}
-ADDITIONS_SCHEMA = {'type': 'object', 'additionalProperties': False, 'properties': {
-    **{kind: KEYS for kind in ('categories', 'storefront_collections', 'tags')},
-    'attributes': {'type': 'object', 'maxProperties': 200, 'propertyNames': KEY,
-                   'additionalProperties': KEYS},
-}}
-
 
 def registry_options():
     from flask import has_app_context
@@ -34,34 +26,21 @@ def _identity(value, rows):
     return ('key', row['key']) if row else ('legacy', value)
 
 
-def _append(values, keys, rows, kind):
+def _deduplicate(values, rows):
     result, seen = [], set()
     for value in values:
         identity = _identity(value, rows)
         if identity not in seen:
             result.append(value)
             seen.add(identity)
-    for key in keys:
-        row = _definition(key, rows, kind)
-        identity = ('key', key)
-        if identity not in seen:
-            result.append(row['value'])
-            seen.add(identity)
     return result
 
 
-def apply_additions(resolved, shared, override, *, registry=None):
+def merge_organisation_fields(resolved, shared, override, *, registry=None):
     kinds=('categories','storefront_collections','tags')
-    if not any(key in layer for layer in (shared,override) for key in (*kinds,'attributes','taxonomy_additions')):
+    if not any(key in layer for layer in (shared,override) for key in (*kinds,'attributes')):
         return resolved
-    layers = [layer.get('taxonomy_additions', {}) for layer in (shared, override)]
-    from jsonschema import Draft202012Validator
-    for layer in layers:
-        if next(Draft202012Validator(ADDITIONS_SCHEMA).iter_errors(layer), None):
-            raise ValueError('Invalid taxonomy_additions structure; use bounded stable registry-key lists.')
     registry = registry if registry is not None else registry_options()
-    if any(layers) and registry.get('status') not in {'ready', 'read_only'}:
-        raise ValueError('Taxonomy additions need a readable registry; restore the taxonomy mount before resolving them.')
     result = deepcopy(resolved)
     from app.taxonomy_assignments import variation_drivers
     simple=result.get('collection_type')=='Simple'
@@ -88,29 +67,16 @@ def apply_additions(resolved, shared, override, *, registry=None):
             prior=next((key for key in attributes if _identity(key,definitions)==identity),name)
             definition=next((row for row in definitions if ('key',row['key'])==identity),None)
             terms=definition['terms'] if definition else []
-            attributes[prior]=_append([*attributes.get(prior,[]),*values],[],terms,'term')
+            attributes[prior]=_deduplicate([*attributes.get(prior,[]),*values],terms)
     if 'attributes' in shared or 'attributes' in override:
         result['attributes']=attributes
     # Adding information must never create another implicit variant axis.
-    if (own_attributes or any(layer.get('attributes') for layer in layers)) and 'variation_attributes' not in result:
+    if own_attributes and 'variation_attributes' not in result:
         result['variation_attributes'] = list(drivers)
     for kind in kinds:
         if kind in shared or kind in override:
-            result[kind]=_append([*shared.get(kind,[]),*override.get(kind,[])],[],registry.get(kind,[]),kind)
-    for index, layer in enumerate(layers):
-        for kind in kinds:
-            if kind in layer:
-                result[kind] = _append(result.get(kind, []), layer[kind], registry[kind], kind)
-        for key, terms in layer.get('attributes', {}).items():
-            definition = _definition(key, registry['attributes'], 'attribute')
-            attributes = result.setdefault('attributes', {})
-            names = [name for name in attributes if _identity(name, registry['attributes']) == ('key', key)]
-            if any(_identity(name, registry['attributes']) == ('key', key) for name in drivers):
-                raise ValueError(f'Informational additions cannot change variation-driving attribute {definition["value"]}. Use the existing variation editor.')
-            name = names[0] if names else definition['value']
-            attributes[name] = _append(attributes.get(name, []), terms, definition['terms'], 'term')
+            result[kind]=_deduplicate([*shared.get(kind,[]),*override.get(kind,[])],registry.get(kind,[]))
     # This is effective data only. Authored source documents remain sparse.
-    result.pop('taxonomy_additions', None)
     return result
 
 

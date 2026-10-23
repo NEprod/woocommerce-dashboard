@@ -1,4 +1,4 @@
-"""Four-section normal editor plus merchant legacy replacement; all data disposable."""
+"""Canonical four-section editor and merchant example; all data disposable."""
 import copy
 import json
 from flask import redirect, jsonify
@@ -14,8 +14,7 @@ for name in ('Simple Collection','Variable Collection','Single Variable'):
     axes=[] if shared['collection_type']=='Simple' else list(shared.get('attributes',{}))
     shared.update(categories=['Cards'],storefront_collections=['16-Bit'],tags=['Personalised','Pixel Art'],
         shopify_product_type_key='cat-cards',variation_attributes=axes,
-        attributes={**(shared.get('attributes',{}) if axes else {}),**BASE},
-        taxonomy_additions={'attributes':{'attr-lead-time':['term-3-5-days']}})
+        attributes={**(shared.get('attributes',{}) if axes else {}),**BASE,'Lead Time':['3–5 Days']})
     source.write_text(json.dumps(shared))
     if name!='Single Variable':parents[name]=source.read_bytes()
 path=catalogue/'Simple Collection/Blue Token/product_info.json'

@@ -52,9 +52,7 @@ def load_schema(name):
     schema = _load_json(SCHEMA_ROOT / f"{name}.schema.json")
     schema["properties"]["customisation"] = CUSTOMISATION_SCHEMA
     schema["properties"].update(SHOPIFY_EDITOR_FIELDS)
-    from app.organisation import ADDITIONS_SCHEMA, KEY
-    schema['properties']['taxonomy_additions'] = ADDITIONS_SCHEMA
-    schema['properties']['shopify_product_type_key'] = KEY
+    schema['properties']['shopify_product_type_key'] = {'type':'string','pattern':r'^[a-z][a-z0-9_-]{0,95}$'}
     from app.packaging_contract import PACKAGING_SCHEMA, FINISHED_SCHEMA
     schema['properties']['packaging'] = PACKAGING_SCHEMA
     schema['properties']['finished_dimensions'] = FINISHED_SCHEMA
@@ -153,7 +151,7 @@ def _warnings(data, kind):
     for key in data:
         field = FIELD_BY_KEY.get(key)
         if not field:
-            if key in SHOPIFY_EDITOR_FIELDS or key in {'shopify_status','shopify_channels','packaging','finished_dimensions','taxonomy_additions','shopify_product_type_key'}:
+            if key in SHOPIFY_EDITOR_FIELDS or key in {'shopify_status','shopify_channels','packaging','finished_dimensions','shopify_product_type_key'}:
                 continue
             warnings.append(
                 ValidationIssue(

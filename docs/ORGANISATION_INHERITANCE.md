@@ -36,7 +36,7 @@ informational addition cannot edit a variation driver. For legacy implicit
 variation axes, the effective resolver preserves the existing axes before
 adding new informational groups; this does not rewrite authored JSON.
 
-## Compatibility and scope
+## Canonical storage and scope
 
 Informational attributes and collection lists no longer have a full-object
 replacement mode. Empty child lists/objects contribute nothing; they do not
@@ -44,12 +44,13 @@ erase collection values. Remove a parent assignment by editing Shared Collection
 Data, not by clearing a child. This deliberately corrects the earlier replacement
 interpretation of these fields, following the merchant's additive contract.
 
-Existing `taxonomy_additions` remains readable. Reading, opening or rescanning
-does not rewrite source files. Editing a registry assignment folds only locally
-owned compatibility entries of that field into its normal field on Save Metadata;
-unrelated fields and the parent remain unchanged. Unresolved compatibility keys
-block the touched edit rather than silently dropping data. Saved edits use the
-existing revision check and source backup. No bulk conversion or migration runs.
+The four top-level fields are the only organisation storage model. The obsolete
+`taxonomy_additions` field has no schema, resolver, editor or publishing support.
+There is no compatibility reader, conversion or migration. The merchant must
+manually check existing source JSON and remove the obsolete field, retaining the
+intended assignments under the normal fields, before using this release.
+Reading, opening and rescanning never rewrite source files. Saved edits retain
+the existing revision checks and source backups.
 
 Variation-driver options retain their existing explicit/implicit contract and
 separate advanced controls. Adding information cannot create another variation
@@ -107,14 +108,13 @@ existing SKUs, options, prices, weights, dimensions and packages remain unchange
 
 ## Regression evidence for the additive correction
 
-The Anniversary source supplied by the merchant had six Recipient terms in
-`attributes` and Occasion in `taxonomy_additions`. The prior whole-object merge
-suppressed the parent's informational groups (and shared additions) whenever that
-child `attributes` object existed. The editor's replacement gate repeated that
-ownership assumption. The four-field resolver and effective-card display now
-agree on the additive contract; the publisher receives the resolved result.
+The Anniversary regression fixture stores six Recipient terms and Occasion in
+the child's normal `attributes` object. The parent stores Material,
+Personalisation, Production Method, Style / Theme and Lead Time. All seven groups
+remain effective. The four-field resolver and editor agree on the additive
+contract; the publisher receives the complete resolved result.
 
-Focused/bounded checks cover normal and compatibility JSON, all three product
+Focused/bounded checks cover canonical JSON, all three product
 layouts, shared-source byte preservation, local-only removal, driver/modifier
 isolation, fresh database reconstruction, and mocked reviewed Shopify readback.
 Desktop and 390×844 browser workflows use a disposable catalogue with all outbound
