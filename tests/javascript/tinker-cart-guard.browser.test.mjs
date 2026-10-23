@@ -14,7 +14,7 @@ const root=new URL('../../',import.meta.url);
 const fixture='/tests/browser/tinker-cart-guard.html';
 const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-async function world(browser,mobile) {
+async function world(browser,mobile,production=false) {
   const state={items:[],adds:0,changes:0};
   const server=createServer(async(req,res)=>{
     try {
@@ -45,7 +45,14 @@ async function world(browser,mobile) {
       const path=req.url==='/'?fixture:req.url;
       if(![fixture,'/tests/browser/storefront-customisations.html','/shopify/extensions/tlc-customisations/assets/tlc-customer-fields.js','/shopify/extensions/tlc-customisations/assets/tlc-customer-fields.css'].includes(path)) {res.writeHead(404);res.end();return;}
       res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html');
-      res.end(await readFile(new URL('.'+path,root)));
+      let content=await readFile(new URL('.'+path,root));
+      if(production && path===fixture) {
+        content=content.toString().replace('id="personalisation"','id="personalisation" data-production-time="3-5 Days"')
+          .replace('<div data-tlc-fields></div>','<div data-tlc-fields></div><p class="tlc-production-time"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg><span>Production Time: 3-5 Days</span></p><input data-tlc-production-input type="hidden" name="properties[Production time]" value="3-5 Days" form="BuyButtons-ProductForm-main">')
+          .replace('<button type="submit">Add personalised item</button>','<button type="submit">Add personalised item</button><div class="shopify-payment-button"><button type="button">Fixture Buy now</button></div>')
+          .replace('<iframe name="native-result"',`<section class="shopify-section" id="metadata-only-section"><tlc-customer-fields id="metadata-only" data-product-id="103" data-form-id="metadata-only-form" data-production-time="5-10 Days"><p data-tlc-status></p><div data-tlc-fields></div><p class="tlc-production-time">Production Time: 5-10 Days</p><input data-tlc-production-input type="hidden" name="properties[Production time]" value="5-10 Days" form="metadata-only-form"></tlc-customer-fields><product-form-component data-product-id="103"><form id="metadata-only-form" action="/cart/add" on:submit="/handleSubmit"><input name="id" value="204" type="hidden"><button type="submit">Add production-only item</button></form></product-form-component></section><iframe name="native-result"`);
+      }
+      res.end(content);
     } catch(error){res.writeHead(500);res.end(String(error));}
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
@@ -71,8 +78,37 @@ for(const engine of (process.env.TLC_TEST_ENGINES || 'chromium,webkit').split(',
     await mkdir(process.env.TLC_BROWSER_ARTIFACT_DIR,{recursive:true});
     await page.screenshot({path:join(process.env.TLC_BROWSER_ARTIFACT_DIR,`${engine}-${name}.png`),fullPage:true});
   };
-  const run=async(name,fn)=>t.test(name,async()=>{const w=await world(browser,engine==='webkit');try{await fn(w);}finally{await w.close();}});
+  const run=async(name,fn,production=false)=>t.test(name,async()=>{const w=await world(browser,engine==='webkit'||process.env.TLC_MOBILE==='1',production);try{await fn(w);}finally{await w.close();}});
   try {
+    await run('production-only and personalised blocks capture once, keep variant identity and snapshot order',async({page,state})=>{
+      assert.equal(await page.locator('#personalisation .shopify-payment-button').count(),0);
+      assert.equal(await page.locator('#BuyButtons-ProductForm-main .shopify-payment-button').isVisible(),false);
+      await page.getByRole('button',{name:'Add personalised item',exact:true}).click();await settle(page);
+      assert.equal(state.adds,0,'production metadata does not bypass required answers');
+      await fill(page,'Ellie','6');
+      assert.equal(await page.evaluate(()=>new FormData(document.querySelector('#BuyButtons-ProductForm-main')).getAll('properties[Production time]').length),1);
+      await page.getByRole('button',{name:'Add personalised item',exact:true}).click();await added(page,1);
+      assert.equal(state.items[0].properties['Production time'],'3-5 Days');
+      assert.deepEqual(Object.keys(state.items[0].properties).slice(0,3),['Production time','Recipients Name','Anniversary Years']);
+      assert.equal(JSON.parse(state.items[0].properties._tlc_personalisation).fields.length,2);
+      await page.getByRole('button',{name:'Add production-only item',exact:true}).click();await added(page,2);
+      assert.deepEqual(state.items[1].properties,{'Production time':'5-10 Days'});
+      await page.evaluate(()=>{document.querySelector('#BuyButtons-ProductForm-main [name=id]').value='205';const form=document.querySelector('#BuyButtons-ProductForm-main');form.replaceWith(form.cloneNode(true));});
+      await page.waitForFunction(()=>document.querySelector('#personalisation').form===document.querySelector('#BuyButtons-ProductForm-main'));
+      await page.getByRole('button',{name:'Add personalised item',exact:true}).click();await added(page,3);
+      assert.equal(state.items[2].id,'205');
+      assert.equal(await page.evaluate(()=>new FormData(document.querySelector('#BuyButtons-ProductForm-main')).getAll('properties[Production time]').length),1);
+      for(const target of ['#cart-drawer','#cart-page']) {
+        assert.match(await page.locator(target+' article p').first().innerText(),/^Production time: 3-5 Days/);
+      }
+      await page.locator('#cart-drawer article').first().getByRole('button',{name:'Increase quantity'}).click();await settle(page);
+      await page.reload();await added(page,3);
+      assert.equal(state.items[0].properties['Production time'],'3-5 Days');
+      await capture(page,'production-time');
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+      await page.getByRole('link',{name:'Offline checkout fixture (no order)',exact:true}).click();
+      assert.match(await page.locator('body').innerText(),/Production time: 5-10 Days/);
+    },true);
     await run('empty required name blocks document-capture AJAX before any request',async({page,state})=>{
       const button=page.getByRole('button',{name:'Add personalised item',exact:true});
       if(engine==='webkit')await button.tap();else await button.click();await settle(page);

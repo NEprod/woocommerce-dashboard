@@ -20,6 +20,41 @@ test('theme extension contains only Shopify-supported deployable directories',()
 const configuration = fields => ({schema_version:1,enabled:true,revision:'a'.repeat(64),fields});
 const name = {id:'name',type:'text',label:'Name',required:true,max_length:30};
 
+test('production metadata is optional, first, safely encoded and independent of customisations',()=>{
+  for (const config of [null,{...configuration([]),enabled:false}]) {
+    assert.deepEqual(plain(api.properties(config,100,{},'3-5 Days')),{'Production time':'3-5 Days'});
+    assert.deepEqual(plain(api.properties(config,100,{},'')),{});
+  }
+  const result=plain(api.properties(configuration([name]),100,{name:'Ellie'},'3-5 Days'));
+  assert.deepEqual(Object.keys(result).slice(0,2),['Production time','Name']);
+  assert.equal(JSON.parse(result._tlc_personalisation).fields.length,1);
+  assert.equal(api.properties(null,100,{},'<b>3 & 5</b>')['Production time'],'&lt;b&gt;3 &amp; 5&lt;&#47;b&gt;');
+  assert.throws(()=>api.properties(configuration([name]),100,{},'3-5 Days'),/Please complete/);
+});
+test('production property never overwrites a colliding customer answer',()=>{
+  const field={...name,label:'Production time'};
+  const result=plain(api.properties(configuration([field]),100,{name:'Customer answer'},'3-5 Days'));
+  assert.equal(result['Production time'],'3-5 Days');
+  assert.equal(result['Production time (2)'],'Customer answer');
+  assert.equal(JSON.parse(result._tlc_personalisation).fields[0].property_key,'Production time (2)');
+  assert.equal(api.properties(configuration([field]),100,{name:'Historical answer'})['Production time'],'Historical answer');
+});
+test('one existing Liquid block resolves published Lead Time outside customer configuration gating',()=>{
+  const liquid=fs.readFileSync(new URL('../../shopify/extensions/tlc-customisations/blocks/customer-fields.liquid',import.meta.url),'utf8');
+  assert.match(liquid,/tlc_attributes_namespace.*replace: '--tlc_customisations', '--tlc_attributes'/);
+  assert.match(liquid,/tlc_d0eae6298fe8f4ab829a.value/);
+  assert.match(liquid,/tlc_lead_time.name.value/);
+  assert.match(liquid,/tlc_config.enabled == true or tlc_production_time != blank/);
+  assert.ok(liquid.indexOf('data-tlc-fields')<liquid.indexOf("render 'production-time'"));
+  assert.equal((liquid.match(/<tlc-customer-fields /g)||[]).length,1);
+  assert.doesNotMatch(liquid,/3-5 Days|PUBLIC_READ|storefrontAccess|production_time_namespace/);
+  const snippet=fs.readFileSync(new URL('../../shopify/extensions/tlc-customisations/snippets/production-time.liquid',import.meta.url),'utf8');
+  assert.match(snippet,/if production_time != blank/);
+  assert.match(snippet,/name="properties\[Production time\]"/);
+  assert.match(snippet,/form="{{ form_id \| escape }}"/);
+  assert.match(snippet,/<svg aria-hidden="true"/);
+});
+
 for(const [field,answer,valid] of [
   [name,'Ellie',true],[name,'',false],[name,'   ',false],[name,'x'.repeat(31),false],
   [{...name,type:'textarea'},'Happy\nBirthday',true],

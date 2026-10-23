@@ -1,0 +1,20 @@
+--- a/snippets/cart-products.liquid
++++ b/snippets/cart-products.liquid
+@@ -263,9 +263,16 @@
+                       -%}
+                       {%- if has_visible_properties -%}
+                         <dl class="cart-items__properties">
++                          {%- assign tlc_production_time = item.properties['Production time'] -%}
++                          {%- if tlc_production_time != blank -%}
++                            <div class="cart-items__property">
++                              <dt>Production Time:</dt>
++                              <dd>{{ tlc_production_time | escape_once }}</dd>
++                            </div>
++                          {%- endif -%}
+                           {%- for property in item.properties -%}
+                             {%- assign property_first_char = property.first | slice: 0 -%}
+-                            {%- if property.last != blank and property_first_char != '_' -%}
++                            {%- if property.last != blank and property_first_char != '_' and property.first != 'Production time' -%}
+                               <div class="cart-items__property">
+                                 <dt>{{ property.first }}:</dt>
+                                 <dd>

@@ -31,7 +31,17 @@ def parse(properties, product_id=None):
         except (ValueError,TypeError,RecursionError):
             snapshot = None
             warnings.append('TLC private snapshot is malformed or uses an unsupported schema; original properties retained.')
-    elif public or private:
+    # A historical customer field may itself be named Production time. Its
+    # structured snapshot wins: never reinterpret a customer's answer as metadata.
+    snapshot_keys = {f.get('property_key') for f in (snapshot or {}).get('fields', [])
+                     if isinstance(f, dict) and isinstance(f.get('property_key'), str)}
+    production = [p for p in public if p['label'] == 'Production time'
+                  and p['label'] not in snapshot_keys]
+    public = [p for p in public if p not in production]
+    production_times = [html.unescape(p['value']) for p in production if p['value'].strip()]
+    if len(production) > 1:
+        warnings.append('Duplicate Production time properties; review original purchase properties.')
+    if snapshot is None and '_tlc_personalisation' not in private and (public or private):
         warnings.append('No TLC private snapshot: use the original customer properties; stable field identities are unavailable.')
     revision = private.get('_tlc_configuration')
     if snapshot:
@@ -79,5 +89,5 @@ def parse(properties, product_id=None):
               for f in fields if isinstance(f.get('property_key'),str)}
         if keys and any(p['label'] not in keys for p in public):
             warnings.append('Additional customer-visible properties are retained below; review before production.')
-    return {'schema_version':1,'revision':revision,'fields':fields,'public':public,
+    return {'schema_version':1,'revision':revision,'fields':fields,'public':public,'production_times':production_times,
             'warnings':list(dict.fromkeys(warnings)), 'has_personalisation':bool(public or private)}

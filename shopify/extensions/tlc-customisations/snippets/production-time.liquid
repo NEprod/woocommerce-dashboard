@@ -1,0 +1,9 @@
+{% comment %}Only published Lead Time. No default, customer input or current-order lookup.{% endcomment %}
+{% if production_time != blank %}
+  <p class="tlc-production-time">
+    <svg aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span><strong>Production Time:</strong> {{ production_time | escape }}</span>
+  </p>
+  {% comment %}Entity-encoded value matches existing safe cart-property rendering. JS adopts capture when bound.{% endcomment %}
+  <input data-tlc-production-input type="hidden" name="properties[Production time]" value="{{ production_time | escape | escape }}" form="{{ form_id | escape }}">
+{% endif %}

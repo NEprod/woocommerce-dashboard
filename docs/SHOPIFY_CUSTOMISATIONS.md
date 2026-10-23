@@ -1,5 +1,13 @@
 # M3A.9.5 — storefront customisations: setup and acceptance
 
+## Production Time in the same customer-fields block
+
+See [PRODUCTION_TIME.md](PRODUCTION_TIME.md) for the existing published Lead Time
+source, optional metadata-only block rendering, purchase-time property capture,
+Orders display, draft cart patch, and separate app-extension deployment approval.
+Docker publication does not deploy that Shopify-hosted extension. No new field or
+Storefront API permission is required merely to read this source in Liquid.
+
 ## M3A.9.5.2 — read-only historical order capture
 
 The cart correction tlc-customisations-cart-604e504d4cae (1170069815297) was separately

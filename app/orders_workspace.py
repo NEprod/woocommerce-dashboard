@@ -82,9 +82,14 @@ def listing(args):
 
 
 def line_view(line):
-    parsed=json.loads(line.personalisation_json)
+    # Re-read the immutable captured properties, not today's catalogue. This
+    # also renders previously imported orders without rewriting stored receipts.
+    from app.order_personalisation import parse
+    properties=json.loads(line.properties_json)
+    parsed=(parse(properties, line.product_id) if any(p['key']=='Production time' for p in properties)
+            else json.loads(line.personalisation_json))
     return {'row':line,'personalisation':parsed,'money':json.loads(line.money_json),
-            'properties':json.loads(line.properties_json)}
+            'properties':properties}
 
 
 def overview(*, include_test=False, as_of=None):

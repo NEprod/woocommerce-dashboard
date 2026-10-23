@@ -6,7 +6,7 @@
   const empty = value => value == null || typeof value === 'string' && !value.trim() || Array.isArray(value) && !value.length || value === false;
   const htmlText = value => String(value).replace(/[&<>"'/]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#47;'}[c]));
   function configuration(value) {
-    if (!value || value.schema_version !== 1 || typeof value.enabled !== 'boolean' || !/^[a-f0-9]{64}$/.test(value.revision) || !Array.isArray(value.fields)) throw Error('Unsupported TLC configuration. Please contact us before ordering.');
+    if (!value || value.schema_version !== 1 || typeof value.enabled !== 'boolean' || !/^[a-f0-9]{64}$/.test(value.revision) || !Array.isArray(value.fields)) throw Error('Unsupported TLC fields. Contact us before ordering.');
     const seen = new Set();
     for (const f of value.fields) {
       if (!idPattern.test(f.id) || seen.has(f.id) || !kinds.has(f.type) || typeof f.label !== 'string' || !f.label.trim()) throw Error('Invalid or unsupported customer field. Please contact us before ordering.');
@@ -36,10 +36,12 @@
     }
     return null;
   }
-  function properties(config, product, answers) {
-    configuration(config);
-    if (!config.enabled) return {};
+  function properties(config, product, answers, productionTime = '') {
     const result = Object.create(null), snapshot = [];
+    if (productionTime.trim()) result['Production time'] = htmlText(productionTime);
+    if (!config) return result;
+    configuration(config);
+    if (!config.enabled) return result;
     for (const field of config.fields) {
       const value = Object.hasOwn(answers,field.id) ? answers[field.id] : undefined;
       const problem = error(field,value);
@@ -77,11 +79,11 @@
       this.controls = new Map();
       this.propertyInputs = [];
       try {
-        this.config = configuration(JSON.parse(this.dataset.configuration));
-        if (!this.config.enabled) {this.status.textContent='';return;}
-        this.render(); this.bind();
+        this.config = this.dataset.configuration ? configuration(JSON.parse(this.dataset.configuration)) : null;
+        if (this.config?.enabled) this.render();
+        this.bind();
         const section = this.closest('.shopify-section') || this.parentElement;
-        this.observer = new MutationObserver(() => {if (!this.form?.isConnected) {this.unbind();this.bind();}});
+        this.observer = new MutationObserver(() => {if (!this.form?.isConnected) {this.unbind();this.bind();}this.guardWallets();});
         this.observer.observe(section,{childList:true,subtree:true});
       } catch (exc) {this.status.textContent=exc.message;this.blockReason=exc.message;this.bind();}
     }
@@ -92,10 +94,14 @@
       const section = this.closest('.shopify-section');
       const component = form?.closest('product-form-component');
       if (!form || form.tagName !== 'FORM' || !/\/cart\/add(?:\.js)?\/?$/.test(new URL(form.getAttribute('action'),location.origin).pathname) || section && !section.contains(form) || component && component.dataset.productId !== this.dataset.productId) {
-        this.status.textContent='Personalisation is not connected to this product form. Please contact us before ordering.';return;
+        this.status.textContent='Product details are not connected. Please contact us before ordering.';return;
       }
-      if (owners.has(form) && owners.get(form) !== this) {this.status.textContent='Duplicate TLC block: remove the extra block before using this template.';return;}
+      if (owners.has(form) && owners.get(form) !== this) {this.status.textContent='Remove the duplicate TLC block.';return;}
       owners.set(form,this);this.form=form;
+      form.querySelectorAll('[data-tlc-property]').forEach(input=>input.remove());
+      this.productionInput=this.querySelector('[data-tlc-production-input]');
+      if (this.productionInput) this.productionInput.disabled=true;
+      this.guardWallets();
       // Shopify's input[name=id] shadows form.id. Always read the attribute.
       for (const inputs of this.controls.values()) for (const input of inputs) input.setAttribute('form',form.getAttribute('id'));
       // Horizon delegates submit from document capture: form capture is too late.
@@ -110,7 +116,7 @@
         for (const input of this.propertyInputs) event.formData.delete(input.name);
         if (this.validate(false)) for (const [key,value] of Object.entries(this.values())) event.formData.set(`properties[${key}]`,value);
       };
-      this.reset = event => queueMicrotask(()=>{if(event.defaultPrevented || !this.isConnected)return;this.answers=Object.create(null);this.render();for(const inputs of this.controls.values())for(const input of inputs)input.setAttribute('form',this.form.getAttribute('id'));this.sync();});
+      this.reset = event => queueMicrotask(()=>{if(event.defaultPrevented || !this.isConnected)return;this.answers=Object.create(null);if(this.config?.enabled)this.render();for(const inputs of this.controls.values())for(const input of inputs)input.setAttribute('form',this.form.getAttribute('id'));this.sync();});
       this.guardTarget = this.ownerDocument.defaultView;
       this.guardTarget.addEventListener('submit',this.submit,true);
       form.addEventListener('formdata',this.formdata);form.addEventListener('reset',this.reset);
@@ -121,20 +127,33 @@
       this.guardTarget?.removeEventListener('submit',this.submit,true);
       if (this.form) {this.form.removeEventListener('formdata',this.formdata);this.form.removeEventListener('reset',this.reset);owners.delete(this.form);}
       this.propertyInputs.forEach(n=>n.remove());this.propertyInputs=[];this.form=null;
+      if (this.productionInput) this.productionInput.disabled=false;
+      for (const [element,hidden] of this.shortcuts || []) element.hidden=hidden;
+      this.shortcuts=new Map();
     }
-    values() {return properties(this.config,this.dataset.productId,this.answers);}
+    guardWallets() {
+      if (!this.form || !this.config?.enabled) return;
+      this.shortcuts ||= new Map();
+      // Wallet buttons can bypass submit validation. Personalised items use the
+      // guarded Add to cart path; cart checkout remains Shopify-controlled.
+      for (const element of this.form.querySelectorAll('shopify-accelerated-checkout, .shopify-payment-button')) {
+        if (!this.shortcuts.has(element)) this.shortcuts.set(element,element.hidden);
+        element.hidden=true;
+      }
+    }
+    values() {return properties(this.config,this.dataset.productId,this.answers,this.dataset.productionTime || '');}
     sync() {
       this.propertyInputs.forEach(n=>n.remove());this.propertyInputs=[];
       if (!this.form || this.blockReason || !this.validate(false)) return;
       for (const [key,value] of Object.entries(this.values())) {
-        const input=document.createElement('input');input.type='hidden';input.name=`properties[${key}]`;input.value=value;
+        const input=document.createElement('input');input.type='hidden';input.name=`properties[${key}]`;input.value=value;input.setAttribute('data-tlc-property','');
         this.form.append(input);this.propertyInputs.push(input);
       }
     }
     validate(report=true) {
       if (this.blockReason) {if(report)this.status.textContent=this.blockReason;return false;}
       let first;
-      for (const f of this.config.fields) {
+      for (const f of this.config?.enabled ? this.config.fields : []) {
         const inputs=this.controls.get(f.id) || [], input=inputs[0];
         if (input) this.answers[f.id]=f.type==='radio'?inputs.find(i=>i.checked)?.value || '':f.type==='checkbox_group'?inputs.filter(i=>i.checked).map(i=>i.value):f.type==='checkbox'?input.checked:f.type==='number'?(input.value===''?'':Number(input.value)):input.value;
         const message=error(f,this.answers[f.id]) || (input?.validity.badInput ? 'Please enter a valid value.' : null);

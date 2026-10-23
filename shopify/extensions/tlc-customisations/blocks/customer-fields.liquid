@@ -2,20 +2,37 @@
   assign tlc_product = closest.product | default: product
   assign tlc_namespace = block.settings.configuration_namespace
   assign tlc_config = tlc_product.metafields[tlc_namespace].configuration.value
+  assign tlc_attributes_namespace = tlc_namespace | replace: '--tlc_customisations', '--tlc_attributes'
+  assign tlc_lead_times = tlc_product.metafields[tlc_attributes_namespace].tlc_d0eae6298fe8f4ab829a.value
+  capture tlc_production_time
+    assign tlc_separator = ''
+    for tlc_lead_time in tlc_lead_times
+      if tlc_lead_time.name.value != blank
+        echo tlc_separator
+        echo tlc_lead_time.name.value
+        assign tlc_separator = ', '
+      endif
+    endfor
+  endcapture
+  assign tlc_production_time = tlc_production_time | strip
   assign tlc_form_id = block.settings.product_form_id
   if tlc_form_id == blank
     assign tlc_form_id = 'BuyButtons-ProductForm-' | append: section.id
   endif
 %}
-{% if tlc_product != blank and tlc_config.enabled == true %}
+{% if tlc_product != blank %}
+{% if tlc_config.enabled == true or tlc_production_time != blank %}
   <tlc-customer-fields data-product-id="{{ tlc_product.id }}" data-form-id="{{ tlc_form_id | escape }}"
-    data-configuration="{{ tlc_config | json | escape }}" {{ block.shopify_attributes }}>
-    <p data-tlc-status role="status">Loading your personalisation options…</p>
+    {% if tlc_config.enabled == true %}data-configuration="{{ tlc_config | json | escape }}"{% endif %}
+    data-production-time="{{ tlc_production_time | escape }}" {{ block.shopify_attributes }}>
+    <p data-tlc-status role="status">{% if tlc_config.enabled == true %}Loading your personalisation options…{% endif %}</p>
     <div data-tlc-fields></div>
-    <noscript>Personalisation needs JavaScript. Do not purchase this personalised product without supplying its required details.</noscript>
+    {% render 'production-time', production_time: tlc_production_time, form_id: tlc_form_id %}
+    {% if tlc_config.enabled == true %}<noscript>Personalisation needs JavaScript. Do not purchase this personalised product without supplying its required details.</noscript>{% endif %}
   </tlc-customer-fields>
 {% elsif request.design_mode %}
-  <p {{ block.shopify_attributes }}>TLC: no enabled configuration. Set the verified app-owned namespace below, publish this product's reviewed configuration in TLCDashboard, and refresh this preview.</p>
+  <p {{ block.shopify_attributes }}>TLC: no published Lead Time or enabled customer fields. Check the verified namespace and this product's reviewed metadata.</p>
+{% endif %}
 {% endif %}
 {% schema %}
 {
