@@ -22,7 +22,6 @@ with sqlite3.connect('/app/instance/site.db') as connection:
 detail=opener.open('http://127.0.0.1:7485/orders/1',timeout=5).read().decode()
 assert detail.index('Production Time:</strong> 3-5 Days')<detail.index('<dt>Recipients Name</dt>')
 assert 'Review personalisation before production' not in detail
-print(json.dumps({'production_snapshots':True,'same_sku_answers_preserved':True,'no_false_warnings':True}))
 '''
 
 if __name__ == '__main__':
