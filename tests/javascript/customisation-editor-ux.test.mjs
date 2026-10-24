@@ -52,8 +52,10 @@ test('apply label-only edit keeps ID, constraints, unknown keys and template rev
 });
 test('inherited max length override is sparse, without copying required/enabled/help',()=>{
   const shared={fields:{name_on_card:name}},own={template:{id:'t_pin',revision:1}};
-  const {designer:d}=fixture({shared,own});d.inputs.max_length.value='20';d.applyField();
-  assert.deepEqual(plain(d.get()),{...own,fields:{name_on_card:{max_length:20}}});
+  const {designer:d,nodes}=fixture({shared,own});
+  assert.match(nodes.get('[data-custom-error]').textContent,/read-only/);
+  assert.equal(d.inputs,undefined);
+  assert.deepEqual(plain(d.get()),own);
   assert.equal(shared.fields.name_on_card.max_length,30);
 });
 test('absent boolean defaults are not authored by ordinary edits',()=>{
@@ -61,7 +63,7 @@ test('absent boolean defaults are not authored by ordinary edits',()=>{
   assert.equal('required' in d.value.fields.name_on_card,false);assert.equal('enabled' in d.value.fields.name_on_card,false);
 });
 test('applying an unchanged inherited field does not inject empty customisation overrides',()=>{
-  const {designer:d,changes}=fixture({shared:{fields:{name_on_card:name}},own:{}});d.applyField();assert.deepEqual(plain(d.get()),{});assert.equal(changes(),0);
+  const {designer:d,changes,nodes}=fixture({shared:{fields:{name_on_card:name}},own:{}});assert.match(nodes.get('[data-custom-error]').textContent,/read-only/);assert.deepEqual(plain(d.get()),{});assert.equal(changes(),0);
 });
 test('unresolved existing identity is blocked, not populated as a new empty field',()=>{
   const {designer:d,nodes}=fixture();d.edit('missing');assert.match(nodes.get('[data-custom-error]').textContent,/no longer available/);

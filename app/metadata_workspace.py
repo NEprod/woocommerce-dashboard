@@ -178,7 +178,12 @@ def current_title(product, *, shared=None, override=None, resolved=None):
     override = metadata_source(product, 'override') if override is None else override
     if not shared['exists'] or shared['error'] or (override['exists'] and override['error']):
         return product.title
-    resolved = resolved if resolved is not None else resolved_metadata(product, shared['data'], override['data'] if override['exists'] else {})
+    from app.customisations import CustomisationInheritanceConflict
+    try:
+        resolved = resolved if resolved is not None else resolved_metadata(product, shared['data'], override['data'] if override['exists'] else {})
+    except CustomisationInheritanceConflict:
+        # A blocked customisation must not take the entire Products list down.
+        return product.title
     return resolved.get('title') or product.title
 
 

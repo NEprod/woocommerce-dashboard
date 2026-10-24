@@ -67,20 +67,20 @@ def test_rejects_malformed_or_unsupported_constraints(patch):
 
 def test_unknown_keys_preserved_and_no_artificial_thirty_field_cap():
     definition={'future':{'opaque':[]},'fields':{f'f_{i}':{'type':'text','label':str(i),'legacy':{'keep':True}} for i in range(40)}}
-    merged=merge(definition,{'fields':{'f_1':{'label':'Renamed','order':1}}})
-    assert merged['future']==definition['future'] and len(merged['fields'])==40
+    merged=merge(definition,{'fields':{'local':{'type':'text','label':'Local'}}})
+    assert merged['future']==definition['future'] and len(merged['fields'])==41
     assert merged['fields']['f_1']['legacy']=={'keep':True}
-    assert dict(ordered_fields(merged))['f_1']['label']=='Renamed'
+    assert dict(ordered_fields(merged))['f_1']['label']=='1'
 
 
 def test_sparse_merge_disable_exclusion_order_and_reset_do_not_mutate_shared():
     shared=copy.deepcopy(DEFINITION)
-    extra={'fields':{'dog_name':{'max_length':20},'memorial_date':{'type':'date','label':'Memorial Date','order':1}}}
+    extra={'fields':{'memorial_date':{'type':'date','label':'Memorial Date','order':1}}}
     result=merge(shared,extra)
-    assert result['fields']['dog_name']=={**shared['fields']['dog_name'],'max_length':20}
+    assert result['fields']['dog_name']==shared['fields']['dog_name']
     assert [id for id,_ in ordered_fields(result)]==['dog_name','memorial_date']
-    assert merge(shared,{'fields':{'dog_name':{'enabled':False}}})['fields']['dog_name']['enabled'] is False
-    assert merge(shared,{'fields':{'dog_name':{'remove':True}}})['fields']=={}
+    for patch in ({'enabled':False},{'remove':True},{'max_length':20}):
+        with pytest.raises(ValueError,match='review'):merge(shared,{'fields':{'dog_name':patch}})
     assert merge(shared,{})==shared and shared==DEFINITION
 
 
@@ -123,13 +123,13 @@ def test_template_collision_concurrent_revision_fence(core):
 def test_template_precedence_explicit_null_and_no_recursive_references(core):
     with core[0].app_context():
         first=create();ref={'id':first['id'],'revision':1}
-        shared={'template':ref,'fields':{'dog_name':{'max_length':25}}}
-        resolved=merge(shared,{'fields':{'dog_name':{'max_length':20},'message':{'type':'multiline','label':'Message'}}})
-        assert resolved['fields']['dog_name']['required'] is True and resolved['fields']['dog_name']['max_length']==20
+        shared={'template':ref}
+        resolved=merge(shared,{'fields':{'message':{'type':'multiline','label':'Message'}}})
+        assert resolved['fields']['dog_name']['required'] is True and resolved['fields']['dog_name']['max_length']==30
         assert 'template' not in resolved
-        assert merge({'template':ref},{'template':None})['fields']=={}
-        removed=merge({'template':ref},{'fields':{'dog_name':{'remove':True}}});validate(removed);assert removed['fields']=={}
-        validate({'template':ref,'fields':{'dog_name':{'remove':True}}})
+        with pytest.raises(ValueError,match='review'):merge({'template':ref},{'template':None})
+        with pytest.raises(ValueError,match='review'):merge({'template':ref},{'fields':{'dog_name':{'remove':True}}})
+        with pytest.raises(ValueError,match='review'):validate({'template':ref,'fields':{'dog_name':{'remove':True}}})
         with pytest.raises(ValueError,match='standalone'):create(definition={'template':ref})
 
 
@@ -189,16 +189,22 @@ def test_template_assignment_safe_local_save_real_projection_and_fingerprint_iso
 def test_shared_save_sparse_child_exclusion_extra_field_and_missing_template(core):
     app,_,root,_,ids,*_=core
     with app.app_context():template=create()
-    # An inherited field can be excluded by one child without copying the template.
+    # An existing exclusion must remain authored but block a shared update.
     child=root/'Simple Collection/Blue Token/product_info.json';data=json.loads(child.read_text());data['customisation']={'fields':{'dog_name':{'remove':True},'memorial_date':{'type':'date','label':'Memorial Date'}}};child.write_text(json.dumps(data))
     sku,body=payload(core,'Simple Collection/Blue Token',kind='shared',data={'customisation':{'template':{'id':template['id'],'revision':1}}})
     body['acknowledge_shared']=False
     assert core[1].post(f'/edit_products/{sku}/save',json=body).status_code==400
-    body['acknowledge_shared']=True;assert core[1].post(f'/edit_products/{sku}/save',json=body).status_code==200
+    before=child.read_bytes()
+    body['acknowledge_shared']=True;assert core[1].post(f'/edit_products/{sku}/save',json=body).status_code==400
+    assert child.read_bytes()==before
+    # Explicit fixture-only merchant correction, never an automatic migration.
+    del data['customisation']['fields']['dog_name'];child.write_text(json.dumps(data))
+    sku,body=payload(core,'Simple Collection/Blue Token',kind='shared',data={'customisation':{'template':{'id':template['id'],'revision':1}}})
+    assert core[1].post(f'/edit_products/{sku}/save',json=body).status_code==200
     with app.app_context():
         shared=json.loads((root/'Simple Collection/product_info.json').read_text())
         effective=resolved_metadata(db.session.get(Product,ids['Simple Collection/Blue Token']),shared,json.loads(child.read_text()))
-        assert set(effective['customisation']['fields'])=={'memorial_date'}
+        assert set(effective['customisation']['fields'])=={'dog_name','memorial_date'}
         assert 'dog_name' in resolved_metadata(db.session.get(Product,ids['Simple Collection/Green Token']),shared,{})['customisation']['fields']
     assert 'template' not in json.loads(child.read_text())['customisation']
     assert save(core,data={'customisation':{'template':{'id':'missing','revision':1}}}).status_code==400

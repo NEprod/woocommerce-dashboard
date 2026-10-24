@@ -45,7 +45,7 @@ def test_patch_preserves_unknown_internal_legacy_and_explicit_empty_values():
 
 def test_explicit_override_removal_restores_established_inheritance():
     edit = prepare({"weight": 55, "customisation": {"fields": {"name": {"label": "My label"}}}}, {},
-                   remove_paths=[("weight",), ("customisation", "fields", "name", "label")])
+                   remove_paths=[("weight",), ("customisation", "fields", "name")])
     assert edit.validation.valid and "weight" not in edit.data
     shared = {"weight": 50, "customisation": {"fields": {"name": {"type": "text", "label": "Dog's Name"}}}}
     resolved = merge_product_json(shared, edit.data)
@@ -59,7 +59,8 @@ def test_customisation_tombstone_is_explicit_and_not_a_second_inheritance_engine
                    remove_paths=[("customisation", "fields", "name", "type"),
                                  ("customisation", "fields", "name", "label")])
     assert edit.validation.valid
-    assert merge_product_json(source, edit.data)["customisation"]["fields"] == {}
+    with pytest.raises(ValueError, match='review'):
+        merge_product_json(source, edit.data)
 
 
 def test_stale_source_is_rejected_even_if_only_formatting_changed():

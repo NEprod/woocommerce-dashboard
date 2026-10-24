@@ -42,11 +42,9 @@ def test_sparse_edit_with_pinned_template_changes_only_intended_property(core,so
     owner.write_text(json.dumps(content));before=owner.read_bytes()
     with app.app_context():fingerprint=source_fingerprint(db.session.get(Product,ids[source]),[])
     result=save(core,source,kind=kind,data={'customisation':{'fields':{'name_on_card':{'max_length':20}}}})
-    assert result.status_code==200,result.json
-    authored=result.json['authored']['customisation']
-    assert authored['fields']=={'name_on_card':{'max_length':20}}
-    if kind=='override':assert owner.read_bytes()==before
-    else:assert authored['template']=={'id':template['id'],'revision':1}
+    assert result.status_code==400,result.json
+    assert 'review' in json.dumps(result.json)
+    assert owner.read_bytes()==before
     with app.app_context():
         product=db.session.get(Product,ids[source])
         assert source_fingerprint(product,[])==fingerprint

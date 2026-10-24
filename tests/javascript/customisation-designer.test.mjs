@@ -8,32 +8,33 @@ const api=context.TLCCustomisations;
 const plain=value=>JSON.parse(JSON.stringify(value));
 const shared={proof_policy:'optional',fields:{dog_name:{type:'text',label:"Dog's Name",required:true,max_length:30,order:0,future:{keep:[]}}}};
 
-test('collection inheritance and sparse child patches retain IDs, constraints and opaque keys',()=>{
-  const own={fields:{dog_name:{max_length:20},date:{type:'date',label:'Memorial Date',order:1}}};
+test('collection inheritance and distinct additions retain IDs, constraints and opaque keys',()=>{
+  const own={fields:{date:{type:'date',label:'Memorial Date',order:0}}};
   const result=api.resolve({},shared,own);
-  assert.equal(result.fields.dog_name.required,true);assert.equal(result.fields.dog_name.max_length,20);
+  assert.equal(result.fields.dog_name.required,true);assert.equal(result.fields.dog_name.max_length,30);
   assert.deepEqual(plain(result.fields.dog_name.future),{keep:[]});assert.equal(shared.fields.dog_name.max_length,30);
   assert.deepEqual(plain(api.order(result).map(([id])=>id)),['dog_name','date']);
 });
 test('editing label preserves field identity and sparse unknown values',()=>{
-  const result=api.changeField({fields:{dog_name:{future:{opaque:[]}}}},shared,'dog_name',{label:'Pet name',max_length:30});
-  assert.deepEqual(plain(result),{fields:{dog_name:{future:{opaque:[]},label:'Pet name'}}});
+  const result=api.changeField({fields:{dog_name:{future:{opaque:[]}}}},{},'dog_name',{label:'Pet name',max_length:30});
+  assert.deepEqual(plain(result),{fields:{dog_name:{future:{opaque:[]},label:'Pet name',max_length:30}}});
 });
-test('exclusion is per-product tombstone, resetting deletes only local patch',()=>{
-  const excluded=api.exclude({},shared,'dog_name');assert.deepEqual(plain(excluded),{fields:{dog_name:{remove:true}}});
-  assert.deepEqual(plain(api.resolve({},shared,excluded).fields),{});
-  delete excluded.fields.dog_name;assert.equal(api.resolve({},shared,excluded).fields.dog_name.label,"Dog's Name");
+test('only local fields can be removed; inherited fields cannot be patched or excluded',()=>{
+  assert.throws(()=>api.exclude({},shared,'dog_name'),/read-only/);
+  assert.throws(()=>api.changeField({},shared,'dog_name',{required:false}),/read-only/);
+  assert.equal(api.resolve({},shared,{}).fields.dog_name.label,"Dog's Name");
   assert.deepEqual(plain(api.exclude({fields:{local:{type:'text'}}},shared,'local')),{fields:{}});
 });
-test('reordering retains stable IDs and fields, including inherited values',()=>{
-  const effective=api.resolve({},shared,{fields:{date:{type:'date',label:'Date',order:1}}});
-  const own=api.reorder({},effective,'date',-1);
-  assert.deepEqual(plain(api.order(api.resolve({},effective,own)).map(([id])=>id)),['date','dog_name']);
-  assert.deepEqual(plain(own),{fields:{date:{order:0},dog_name:{order:1}}});
+test('reordering local fields retains stable IDs and leaves inherited values untouched',()=>{
+  const own={fields:{date:{type:'date',label:'Date',order:0},message:{type:'text',label:'Message',order:1}}};
+  const effective=api.resolve({},shared,own),next=api.reorder(own,effective,'message',-1);
+  assert.deepEqual(plain(api.order(api.resolve({},shared,next)).map(([id])=>id)),['dog_name','message','date']);
+  assert.equal(Object.hasOwn(next.fields,'dog_name'),false);
+  assert.throws(()=>api.reorder(own,effective,'dog_name',1),/Inherited/);
 });
-test('pinned template base then authored shared then local patches; removal does not resurrect',()=>{
-  const result=api.resolve(shared,{fields:{dog_name:{max_length:25}}},{fields:{dog_name:{remove:true}}});
-  assert.deepEqual(plain(result.fields),{});assert.equal('template' in result,false);
+test('pinned template fields reject shared patches and product exclusions',()=>{
+  assert.throws(()=>api.resolve(shared,{fields:{dog_name:{max_length:25}}},{}),/review/);
+  assert.throws(()=>api.resolve(shared,{}, {fields:{dog_name:{remove:true}}}),/review/);
 });
 for(const [type,field,value,valid]of [
   ['text',{required:true},'',false],['text',{max_length:3},'long',false],['text',{},'',true],

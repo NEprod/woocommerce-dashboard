@@ -142,23 +142,65 @@ def answer_error(field, value, *, check_required=True):
     return None
 
 
-def merge(shared, override):
-    validate(shared, partial=True)
-    validate(override, partial=True)
-    reference = override.get('template', shared.get('template'))
+class CustomisationInheritanceConflict(ValueError):
+    """Authored instructions require review; never rewrite or guess a resolution."""
+
+
+def _append_fields(inherited, local):
+    conflicts = sorted(set(inherited) & set(local))
+    exclusions = sorted(key for key, value in local.items() if value.get('remove'))
+    if conflicts or exclusions:
+        raise CustomisationInheritanceConflict(
+            'Customisation fields ' + ', '.join(sorted(set(conflicts + exclusions))) +
+            ' require merchant review: inherited IDs cannot be patched, disabled, replaced or excluded. '
+            'Original JSON is unchanged. Edit the owning collection/template, or remove the conflicting local instruction explicitly.')
+    result = {key: deepcopy(field) for key, field in ordered_fields({'fields': inherited})}
+    previous = max(((field.get('order', 0), key) for key, field in result.items()), default=None)
+    for key, field in ordered_fields({'fields': local}):
+        value = deepcopy(field)
+        # The publisher already consumes numeric order. Adjust only resolved
+        # additions when necessary; never rewrite an authored order or parent.
+        if previous is not None and (value.get('order', 0), key) <= previous:
+            value['order'] = previous[0] + 1
+        result[key] = value
+        previous = (value.get('order', 0), key)
+    return result
+
+
+def _definition(layer):
+    validate(layer, partial=True)
     result = {}
-    if reference:
+    if layer.get('template'):
         from app.customisation_templates import definition
-        result = definition(reference)
-    for layer in (shared, override):
-        for key, value in layer.items():
-            if key != 'fields': result[key] = deepcopy(value)
-        fields = result.setdefault('fields', {})
-        for key, patch in layer.get('fields', {}).items():
-            if patch.get('remove'): fields.pop(key, None)
-            else: fields[key] = {**fields.get(key, {}), **deepcopy(patch)}
-    # Resolved data is self-contained and idempotent; never re-expand a pinned
-    # template after a child's tombstones have already been applied.
-    result.pop('template', None)
+        result = definition(layer['template'])
+    fields = _append_fields(result.get('fields', {}), layer.get('fields', {}))
+    result.update({key: deepcopy(value) for key, value in layer.items() if key not in {'fields', 'template'}})
+    result['fields'] = fields
+    validate(result, resolved=True)
+    return result
+
+
+def merge(shared, override):
+    """Protect template/collection fields; append distinct local definitions only."""
+    inherited = _definition(shared)
+    validate(override, partial=True)
+    local = deepcopy(override)
+    if 'template' in local and inherited['fields']:
+        if local['template'] != shared.get('template'):
+            raise CustomisationInheritanceConflict(
+                'Customisation template replacement/exclusion requires merchant review: '
+                'inherited fields must remain protected. Original JSON is unchanged.')
+        # A redundant reference does not duplicate the inherited template fields.
+        local.pop('template')
+    _append_fields(inherited['fields'], local.get('fields', {}))  # diagnose legacy partial patches before full validation
+    addition = _definition(local)
+    fields = _append_fields(inherited['fields'], addition['fields'])
+    result = deepcopy(inherited)
+    # Other customisation properties retain their existing scalar precedence.
+    for key, value in override.items():
+        if key not in {'fields', 'template'}: result[key] = deepcopy(value)
+    if local.get('template'):
+        result = {**addition, **result}
+    result['fields'] = fields
     validate(result, resolved=True)
     return result

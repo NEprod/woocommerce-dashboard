@@ -616,7 +616,7 @@
       getDocument:()=>window.TLCPackaging.sourceDocument(isShared?{}:boot.collection,guidedDocument())});
     if (!customisationDesigner && window.TLCCustomisations && guided.querySelector('[data-customisation-designer]')) {
       customisationDesigner = new window.TLCCustomisations.Designer(guided.querySelector('[data-customisation-designer]'), {
-        value: authored.customisation, shared: isShared ? {} : boot.collection?.customisation || {},
+        value: authored.customisation, shared: isShared ? {} : boot.collection?.customisation || {}, productOverride: !isShared,
         base: boot.customisation_template || {},
         reference: Object.hasOwn(authored.customisation || {}, 'template') ? authored.customisation.template : boot.collection?.customisation?.template,
         templatesURL: boot.customisation_templates_url, onChange: () => setDirty(true)

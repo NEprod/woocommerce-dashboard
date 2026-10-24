@@ -5,20 +5,28 @@
   const types = {text:"Single-line text",multiline:"Multiline message",number:"Number",choice:"Dropdown",radio:"Radio selection",checkbox:"Checkbox",checkbox_group:"Checkbox group",date:"Date",colour:"Colour",photo:"File upload definition"};
   const clone = value => value === undefined ? undefined : structuredClone(value);
   const order = definition => Object.entries(definition?.fields || {}).sort(([a,x],[b,y]) => (x.order || 0)-(y.order || 0) || a.localeCompare(b));
+  function appendFields(inherited, local) {
+    const result=Object.fromEntries(order({fields:inherited}).map(([id,value])=>[id,clone(value)]));
+    let previous=order({fields:result}).at(-1);
+    for(const [id,field] of order({fields:local})) {
+      if(Object.hasOwn(result,id)||field.remove)throw Error(`Field ${id} requires merchant review: inherited fields cannot be patched, replaced or excluded. Original JSON is unchanged.`);
+      const value=clone(field);
+      if(previous && ((value.order||0)<(previous[1].order||0) || (value.order||0)===(previous[1].order||0)&&id.localeCompare(previous[0])<=0))value.order=(previous[1].order||0)+1;
+      result[id]=value;previous=[id,value];
+    }
+    return result;
+  }
   function resolve(base, shared, own) {
     const result = clone(base || {});
     for (const layer of [shared || {}, own || {}]) {
       for (const [key,value] of Object.entries(layer)) if (key !== "fields") result[key] = clone(value);
-      result.fields ||= {};
-      for (const [id,patch] of Object.entries(layer.fields || {})) {
-        if (patch.remove) delete result.fields[id];
-        else result.fields[id] = {...result.fields[id], ...clone(patch)};
-      }
+      result.fields=appendFields(result.fields||{},layer.fields||{});
     }
     delete result.template;
     return result;
   }
   function changeField(own, inherited, id, changes) {
+    if(inherited?.fields?.[id])throw Error(`Inherited field ${id} is read-only. Edit its collection or template.`);
     const result = clone(own || {}); result.fields ||= {};
     const patch = {...result.fields[id]}; delete patch.remove;
     for (const [key,value] of Object.entries(changes)) {
@@ -29,12 +37,14 @@
     return result;
   }
   function exclude(own, inherited, id) {
+    if(inherited?.fields?.[id])throw Error(`Inherited field ${id} is read-only.`);
     const result = clone(own || {}); result.fields ||= {};
-    if (inherited?.fields?.[id]) result.fields[id] = {remove:true}; else delete result.fields[id];
+    delete result.fields[id];
     return result;
   }
   function reorder(own, effective, id, direction) {
-    const rows = order(effective), index = rows.findIndex(([key])=>key===id), other=index+direction;
+    const rows = order(effective).filter(([key])=>Object.hasOwn(own?.fields||{},key)), index = rows.findIndex(([key])=>key===id), other=index+direction;
+    if(index<0)throw Error('Inherited fields cannot be reordered in this layer.');
     if (other<0 || other>=rows.length) return clone(own);
     [rows[index],rows[other]]=[rows[other],rows[index]];
     const result=clone(own || {}); result.fields ||= {};
@@ -59,7 +69,7 @@
     if (!field.label?.trim()) return 'Customer-facing label is required.';
     const type=aliases[field.type];
     const allowed={min_length:['text','textarea'],max_length:['text','textarea'],minimum:['number'],maximum:['number'],whole_number:['number'],min_date:['date'],max_date:['date'],min_selections:['checkbox_group'],max_selections:['checkbox_group'],choices:['dropdown','radio','checkbox_group','colour'],allowed_extensions:['file_upload'],allowed_media_categories:['file_upload'],max_files:['file_upload'],max_file_size_bytes:['file_upload']};
-    for(const [key,kinds]of Object.entries(allowed))if(Object.hasOwn(field,key)&&!kinds.includes(type))return `${key.replaceAll('_',' ')} is not supported for this input type. If inherited, edit the shared/template owner or use a new field ID and exclude the old field.`;
+    for(const [key,kinds]of Object.entries(allowed))if(Object.hasOwn(field,key)&&!kinds.includes(type))return `${key.replaceAll('_',' ')} is not supported for this input type. Edit the owning collection/template for inherited fields.`;
     for (const [low,high,label] of [['min_length','max_length','length'],['minimum','maximum','value'],['min_selections','max_selections','selections'],['min_date','max_date','date']]) {
       if (field[low]!=null && field[high]!=null && field[low]>field[high]) return `Maximum ${label} must be greater than or equal to minimum ${label}.`;
     }
@@ -97,8 +107,9 @@
     const data=await response.json(); if(!response.ok) throw new Error(data.error || "Local template request failed. Your draft is unchanged.");return data;
   }
   class Designer {
-    constructor(root, {shared={},base={},value,onChange=()=>{},templatesURL="",reference=null}={}) {
+    constructor(root, {shared={},base={},value,onChange=()=>{},templatesURL="",reference=null,productOverride=false}={}) {
       this.root=root;this.shared=clone(shared);this.base=clone(base);this.value=clone(value);this.onChange=onChange;this.templatesURL=templatesURL;this.reference=reference;
+      this.productOverride=productOverride;
       this.cache=new Map();if(reference)this.cache.set(JSON.stringify(reference),clone(base));
       this.fieldDialog=root.querySelector("[data-custom-field-dialog]");this.previewDialog=root.querySelector("[data-custom-preview-dialog]");
       root.querySelector("[data-custom-add]").addEventListener("click",()=>this.edit());
@@ -140,27 +151,33 @@
     }
     async assign() {
       const selected=this.root.querySelector("[data-custom-template]").value;if(!selected)return;
-      try{const ref=JSON.parse(selected),base=await this.templateBase(ref);this.value ||= {};this.value.template=ref;this.base=base;this.changed();}
+      try{const ref=JSON.parse(selected),base=await this.templateBase(ref),next={...this.value,template:ref};resolve(base,this.shared,next);this.value=next;this.base=base;this.changed();}
       catch(error){this.error(error.message);}
     }
     render() {
       const target=this.root.querySelector("[data-custom-fields]");target.replaceChildren();const inherited=this.inherited();
       for(const [id,field] of order(this.effective())) {
         const row=element("article",null,"customisation-field-row"),info=element("div"),own=this.value?.fields?.[id];
-        info.append(element("strong",field.label || id),element("code",id),element("span",`${types[field.type]||field.type} · ${field.enabled===false?"Disabled":field.required?"Required":"Optional"} · ${own?inherited.fields?.[id]?"Overridden":"Local extension":"Inherited"}`,"field-helper"));
+        info.append(element("strong",field.label || id),element("code",id),element("span",`${types[field.type]||field.type} · ${field.enabled===false?"Disabled":field.required?"Required":"Optional"} · ${own?(this.productOverride?"Product addition":"Local field"):"Inherited"}`,"field-helper"));
         const actions=element("div",null,"customisation-actions");
-        const editButton=button(own?"Edit":"Override",()=>this.edit(id));editButton.dataset.customEdit=id;
-        actions.append(editButton,button("Duplicate",()=>this.edit(null,field)),button("Move Up",()=>{this.value=reorder(this.value,this.effective(),id,-1);this.changed();}),button("Move Down",()=>{this.value=reorder(this.value,this.effective(),id,1);this.changed();}),button("Remove / exclude",()=>{this.value=exclude(this.value,inherited,id);this.changed();}));
-        if(own)actions.append(button("Reset to inherited",()=>{delete this.value.fields[id];this.changed();}));
+        if(own){
+          const editButton=button("Edit",()=>this.edit(id));editButton.dataset.customEdit=id;
+          actions.append(editButton,button("Move Up",()=>{this.value=reorder(this.value,this.effective(),id,-1);this.changed();}),button("Move Down",()=>{this.value=reorder(this.value,this.effective(),id,1);this.changed();}),button("Remove local field",()=>{this.value=exclude(this.value,inherited,id);this.changed();}));
+        }else info.append(element('span','Read-only — edit the owning collection or reusable template.','field-helper'));
+        actions.append(button("Duplicate",()=>this.edit(null,field)));
         row.append(info,actions);target.append(row);
       }
       for(const [id,patch] of Object.entries(this.value?.fields||{}))if(patch.remove){const row=element("p",`${id} — excluded for this layer. `);row.append(button("Reset to inherited",()=>{delete this.value.fields[id];this.changed();}));target.append(row);}
       if(!target.children.length)target.append(element("p","No effective customer fields defined. Nothing is added to JSON until you edit."));
       const proof=this.root.querySelector("[data-custom-proof]");proof.options[0].textContent=`Inherited / unspecified${this.inherited().proof_policy?': '+this.inherited().proof_policy:''}`;proof.value=this.value?.proof_policy||"";
       const storefront=this.root.querySelector('[data-custom-storefront]');if(storefront){storefront.options[0].textContent=`Inherited / default: ${this.inherited().storefront_enabled===true?'enabled':'disabled'}`;storefront.value=typeof this.value?.storefront_enabled==='boolean'?String(this.value.storefront_enabled):'';}
-      const ref=this.currentReference();this.root.querySelector("[data-custom-template-status]").textContent=ref?`Pinned template ${ref.id}, revision ${ref.revision}. Library edits do not change this assignment. Local/shared patches take precedence.`:"No template base. Shared and local fields are still retained.";
+      const ref=this.currentReference();this.root.querySelector("[data-custom-template-status]").textContent=ref?`Pinned template ${ref.id}, revision ${ref.revision}. Template fields are protected. Local fields append after inherited fields.`:"Shared fields are inherited and protected. Local fields append afterwards.";
+      if(this.productOverride&&(Object.keys(this.shared.fields||{}).length||this.shared.template)){
+        for(const selector of ['[data-custom-template]','[data-custom-apply-template]','[data-custom-no-template]','[data-custom-inherit-template]'])this.root.querySelector(selector).disabled=true;
+      }
     }
     edit(id=null,duplicate=null) {
+      if(id!=null&&this.inherited().fields?.[id]){this.error('Inherited fields are read-only. Edit the owning collection or reusable template.');return;}
       const existing=id==null?null:this.effective().fields?.[id];
       if(id!=null&&!existing){this.error('This field is no longer available. Reload its definition before editing; no new field was created.');return;}
       this.editID=id;this.editTrigger=document.activeElement;
@@ -213,7 +230,7 @@
         const next=this.readInputs();next.type=select.value;for(const key of constraints)delete next[key];
         this.buildInputs(next);this.root.querySelector('[data-custom-dialog-error]').textContent='Input type changed. Review its options, default and validation before applying.';
       });
-      this.root.querySelector('[data-custom-field-source]').textContent=(this.editID?`Field ${this.editID}. ${this.inherited().fields?.[this.editID]?'Inherited values are shown; only your changes become overrides. ':''}`:'Choose a unique field ID. ')+ 'Field IDs identify customer answers and remain stable after creation. Blank constraints reset this layer’s override; inherited values remain.';
+      this.root.querySelector('[data-custom-field-source]').textContent=(this.editID?`Field ${this.editID}. `:'Choose a unique field ID. ')+ 'Field IDs identify customer answers and remain stable after creation. You are editing only this layer’s local field; inherited fields remain unchanged.';
       this.root.querySelector('[data-custom-dialog-error]').textContent='';
     }
     renderOptions() {

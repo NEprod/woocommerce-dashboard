@@ -120,6 +120,7 @@ def states_for(products):
 def product_state(product, rows, comparisons=(), mappings=None):
     from flask import url_for
     from app.shopify_drafts import evidence
+    from app.customisations import CustomisationInheritanceConflict
     native_comparison = None
     state = {"product_id": product.id, "state": "unknown", "label": "Not yet verified", "remote_id": None,
              "remote_status": "Unknown", "publication": "Not verified", "verified_at": None,
@@ -273,6 +274,31 @@ def product_state(product, rows, comparisons=(), mappings=None):
                         if kind in {"identity_conflict","variant_missing"}:
                             state.update(state="recovery_required" if kind=="identity_conflict" else "attention",label="Recovery Required" if kind=="identity_conflict" else "Needs Attention")
                         break
+    except CustomisationInheritanceConflict as exc:
+        state.update(state='attention', label='Customisation review required',
+                     message=str(exc), blockers=[str(exc)], can_delete=False,
+                     native={'state': 'blocked', 'message': 'Authored customisation needs review; no current equality is claimed.'})
+        # A new local conflict must never hide an already uncertain remote stage.
+        recovery = len(rows) > 1
+        for row in rows:
+            state.update(remote_id=row.shopify_product_id,
+                         identity_url=url_for('commerce.draft_identity', identity_id=row.id))
+            try:
+                retained = evidence(row)
+            except ShopifyError:
+                recovery = True
+                continue
+            proofs = [retained.get(key, {}) for key in ('native_dimensions', 'storefront_configuration',
+                       'customisation_update', 'publication_update', 'sale_transition')]
+            proofs += list(retained.get('variant_native', {}).values())
+            proofs += list(retained.get('package_assignments', {}).values())
+            recovery |= row.state not in {'verified', 'scoped_verified', 'attribute_review_required',
+                                         'remote_deleted', 'processing', 'failed_before_create'}
+            recovery |= any(proof.get('state') in {'pending', 'uncertain'} for proof in proofs)
+        if recovery:
+            state.update(state='recovery_required', label='Recovery Required',
+                         message='Retained remote outcome still requires recovery. ' + str(exc))
+        return state
     except (ValueError, OSError, KeyError, TypeError, AttributeError, RuntimeError, ShopifyError):
         state.update(state="unavailable", label="Verification Unavailable", message="Local source or retained evidence needs review; no current equality is claimed.")
     from app.shopify_native_dimensions import local_status

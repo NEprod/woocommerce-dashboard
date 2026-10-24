@@ -90,12 +90,12 @@ def create(world, *, enabled=True):
 
 def test_allowlist_resolved_sparse_overrides_and_stable_revision():
     before = copy.deepcopy(PUBLIC)
-    resolved = merge(PUBLIC, {'fields':{'name':{'max_length':20},'age':{'enabled':False},'message':{'remove':True},
+    resolved = merge(PUBLIC, {'fields':{
         'colour':{'type':'colour','label':'Colour','choices':[{'id':'red','label':'Red','value':'#ff0000','private':'omit'}]}}})
     value = public_configuration(resolved)
-    assert [f['id'] for f in value['fields']] == ['colour','name']
-    assert next(f for f in value['fields'] if f['id']=='name')['max_length'] == 20
-    assert value['fields'][0]['choices'] == [{'id':'red','label':'Red','value':'#ff0000'}]
+    assert [f['id'] for f in value['fields']] == ['name','age','message','colour']
+    assert next(f for f in value['fields'] if f['id']=='name')['max_length'] == 30
+    assert value['fields'][-1]['choices'] == [{'id':'red','label':'Red','value':'#ff0000'}]
     assert 'PRIVATE' not in json.dumps(value) and 'proof_policy' not in value and PUBLIC == before
     assert value == public_configuration(json.loads(json.dumps(resolved,sort_keys=True)))
     resolved['private_notes'] = 'other private text'
@@ -124,6 +124,23 @@ def test_reviewed_simple_create_public_ids_readback_no_source_changes(world):
     plan, token = drafts.preview(world[0], adapter)
     assert plan['classification'] == 'no_change' and token is None
     assert not any(f['changed'] for f in plan['fields'])
+
+
+def test_reviewed_configuration_uses_collection_plus_local_fields_and_is_repeatable(world):
+    from test_customisation_additive import SHARED, LOCAL
+    change(world, customisation=SHARED)
+    child = world[1] / 'product_info.json'
+    child.write_text(json.dumps({'customisation': LOCAL}))
+    before = child.read_bytes(), world[2].read_bytes()
+    row, adapter = create(world, enabled=False)
+    published = json.loads(adapter.customer_value['value'])
+    assert [f['id'] for f in published['fields']] == ['recipient', 'age', 'personal_message']
+    assert published['fields'][0]['required'] is True and published['fields'][0]['max_length'] == 30
+    writes = [call for call in adapter.calls if 'write' in call]
+    plan, token = drafts.preview(world[0], adapter)
+    assert plan['classification'] == 'no_change' and token is None
+    assert [call for call in adapter.calls if 'write' in call] == writes
+    assert (child.read_bytes(), world[2].read_bytes()) == before
 
 
 def test_scoped_update_changes_config_only_not_price_or_channel(world):
