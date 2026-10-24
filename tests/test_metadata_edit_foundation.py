@@ -53,13 +53,14 @@ def test_explicit_override_removal_restores_established_inheritance():
     assert resolved["customisation"]["fields"]["name"]["label"] == "Dog's Name"
 
 
-def test_customisation_tombstone_is_explicit_and_not_a_second_inheritance_engine():
+def test_obsolete_customisation_tombstone_is_rejected_before_save():
     source = {"customisation": {"fields": {"name": {"type": "text", "label": "Name"}}}}
     edit = prepare(source, {"customisation": {"fields": {"name": {"remove": True}}}},
                    remove_paths=[("customisation", "fields", "name", "type"),
                                  ("customisation", "fields", "name", "label")])
-    assert edit.validation.valid
-    with pytest.raises(ValueError, match='review'):
+    assert not edit.validation.valid
+    assert 'customisation.fields.name.remove is obsolete' in edit.validation.errors[0].message
+    with pytest.raises(ValueError, match='obsolete'):
         merge_product_json(source, edit.data)
 
 

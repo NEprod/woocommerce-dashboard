@@ -120,7 +120,7 @@ def states_for(products):
 def product_state(product, rows, comparisons=(), mappings=None):
     from flask import url_for
     from app.shopify_drafts import evidence
-    from app.customisations import CustomisationInheritanceConflict
+    from app.customisations import CustomisationDefinitionError
     native_comparison = None
     state = {"product_id": product.id, "state": "unknown", "label": "Not yet verified", "remote_id": None,
              "remote_status": "Unknown", "publication": "Not verified", "verified_at": None,
@@ -274,7 +274,7 @@ def product_state(product, rows, comparisons=(), mappings=None):
                         if kind in {"identity_conflict","variant_missing"}:
                             state.update(state="recovery_required" if kind=="identity_conflict" else "attention",label="Recovery Required" if kind=="identity_conflict" else "Needs Attention")
                         break
-    except CustomisationInheritanceConflict as exc:
+    except CustomisationDefinitionError as exc:
         state.update(state='attention', label='Customisation review required',
                      message=str(exc), blockers=[str(exc)], can_delete=False,
                      native={'state': 'blocked', 'message': 'Authored customisation needs review; no current equality is claimed.'})

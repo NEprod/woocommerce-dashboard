@@ -155,11 +155,10 @@ No arbitrary field-count limit is imposed; the existing 1 MiB JSON definition/so
 bound controls resource use. Unknown keys round-trip as opaque metadata in Advanced
 JSON; they are not executable validation, paid rules or public output.
 
-Inheritance still uses `merge_product_json`/`merge_customisation`. Shared fields are
-defined once; child patches merge by field ID then property. A child can add fields,
-override only max_length, disable with `enabled:false`, or exclude with the sole
-property `remove:true`. Reset removes its local patch, restoring inheritance. Missing
-keys and empty fields objects never delete inherited values. Proof policy overrides
+Inheritance uses `merge_product_json`/`merge_customisation`. Template fields come
+first, shared fields second and distinct product fields last. Every local field
+has its complete type and label; inherited IDs cannot be redefined, patched,
+disabled or removed. Missing keys and empty fields objects never delete inherited values. Proof policy overrides
 as a scalar (`none/required/optional`); variation-specific customisations remain deferred.
 
 Reusable templates live in the existing persistent SQLite database. Assign a pinned
@@ -167,14 +166,15 @@ revision instead of copying the definition into every product:
 
 ```json
 {"customisation":{"template":{"id":"t_example_stable_id","revision":1},
-  "fields":{"dog_name":{"max_length":20}}}}
+  "fields":{"gift_note":{"type":"text","label":"Gift note","max_length":200}}}}
 ```
 
-The chosen template base is overlaid by shared authored patches, then child patches.
-A child template replaces the inherited template base only; shared authored patches
-remain. Explicit `template:null` excludes the inherited template; removing the key
-restores it. Resolved data contains effective fields, not a reference to re-expand
-after tombstones. Authored JSON retains the pinned reference. Editing/renaming a
+Only Shared Collection/owning JSON may reference a reusable template. Distinct
+shared and product definitions append without changing inherited fields. Product
+template references, `template:null`, field `remove` instructions and incomplete
+definitions are validation errors identifying the invalid key. No alternate
+authoring format, fallback or automatic migration exists. Resolved data is
+self-contained. Authored owner JSON retains the pinned reference. Editing/renaming a
 template creates an immutable new revision; existing assignments keep their revision.
 Archive blocks new assignments but old references continue resolving. No deletion
 endpoint exists because filesystem dependencies cannot be proven absent from a
@@ -182,7 +182,7 @@ partial index. Missing pinned revisions block saves/scans rather than dropping f
 Back up the database **together with** the authored catalogue to retain dependencies.
 
 The editor offers field configuration, template CRUD/duplicate/archive, ordering,
-inheritance/overrides/exclusions and a local customer form preview. The preview stores
+protected inheritance/local additions and a local customer form preview. The preview stores
 no answers and provides no file input/upload. Local saves retain existing admin/CSRF,
 signed source/dependency reviews, shared acknowledgement, atomic backup/write, no-op
 and targeted scanner contracts. Template library saves do not scan products. Customisation

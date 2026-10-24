@@ -161,10 +161,10 @@ def _product_view(product, variation_count, shopify):
         shared_present = shared_present or bool(product.shared_json_path or product.shared_json_relpath)
         source = "shared" if shared_present else "none"
     from app.sale_pricing import catalogue
-    from app.customisations import CustomisationInheritanceConflict
+    from app.customisations import CustomisationDefinitionError
     try:
         pricing = catalogue(product)
-    except CustomisationInheritanceConflict:
+    except CustomisationDefinitionError:
         # Listing fallback only, never publishing authority or a source rewrite.
         pricing = catalogue(product, authored={})
         pricing.update(label='Last indexed price', error='Customisation inheritance needs review; showing indexed pricing only.')

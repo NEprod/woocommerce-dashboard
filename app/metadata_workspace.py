@@ -178,10 +178,10 @@ def current_title(product, *, shared=None, override=None, resolved=None):
     override = metadata_source(product, 'override') if override is None else override
     if not shared['exists'] or shared['error'] or (override['exists'] and override['error']):
         return product.title
-    from app.customisations import CustomisationInheritanceConflict
+    from app.customisations import CustomisationDefinitionError
     try:
         resolved = resolved if resolved is not None else resolved_metadata(product, shared['data'], override['data'] if override['exists'] else {})
-    except CustomisationInheritanceConflict:
+    except CustomisationDefinitionError:
         # A blocked customisation must not take the entire Products list down.
         return product.title
     return resolved.get('title') or product.title
@@ -469,7 +469,7 @@ def editor_workspace(product: Product, kind: str):
     from app.customisation_templates import definition as template_definition
     customisation_template = None
     custom = authored['data'].get('customisation', {})
-    template_ref = custom.get('template', shared['data'].get('customisation', {}).get('template') if kind == 'override' else None)
+    template_ref = (shared['data'].get('customisation', {}) if kind == 'override' else custom).get('template')
     if template_ref:
         customisation_template = template_definition(template_ref)
     from app.product_defaults import display as default_display

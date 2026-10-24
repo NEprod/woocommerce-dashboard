@@ -18,6 +18,8 @@ try {
     await page.goto(`http://127.0.0.1:7511/edit_products/${product}/edit/${kind}`);
     const designer = page.locator('[data-customisation-designer]');
     await designer.scrollIntoViewIfNeeded();
+    assert.equal(await designer.locator('[data-custom-reset],[data-custom-no-template],[data-custom-inherit-template]').count(),0);
+    if(kind==='override')assert.equal(await designer.locator('[data-custom-template]').isVisible(),false);
     const rows = designer.locator('[data-custom-fields] article');
     assert.equal(await rows.count(), 2);
     for (const row of await rows.all()) {

@@ -43,7 +43,7 @@ def test_sparse_edit_with_pinned_template_changes_only_intended_property(core,so
     with app.app_context():fingerprint=source_fingerprint(db.session.get(Product,ids[source]),[])
     result=save(core,source,kind=kind,data={'customisation':{'fields':{'name_on_card':{'max_length':20}}}})
     assert result.status_code==400,result.json
-    assert 'review' in json.dumps(result.json)
+    assert 'type' in json.dumps(result.json) and 'required' in json.dumps(result.json)
     assert owner.read_bytes()==before
     with app.app_context():
         product=db.session.get(Product,ids[source])

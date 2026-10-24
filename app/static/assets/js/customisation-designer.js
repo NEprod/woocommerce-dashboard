@@ -9,14 +9,18 @@
     const result=Object.fromEntries(order({fields:inherited}).map(([id,value])=>[id,clone(value)]));
     let previous=order({fields:result}).at(-1);
     for(const [id,field] of order({fields:local})) {
-      if(Object.hasOwn(result,id)||field.remove)throw Error(`Field ${id} requires merchant review: inherited fields cannot be patched, replaced or excluded. Original JSON is unchanged.`);
+      if(Object.hasOwn(field,'remove'))throw Error(`customisation.fields.${id}.remove is obsolete. Remove the instruction manually; no draft was changed.`);
+      if(Object.hasOwn(result,id))throw Error(`Duplicate effective customisation field ID: ${id}. Add a distinct field; inherited definitions are unchanged.`);
+      if(!aliases[field.type]||!field.label?.trim())throw Error(`customisation.fields.${id} needs a complete type and label; inherited-field patches are not supported.`);
       const value=clone(field);
       if(previous && ((value.order||0)<(previous[1].order||0) || (value.order||0)===(previous[1].order||0)&&id.localeCompare(previous[0])<=0))value.order=(previous[1].order||0)+1;
       result[id]=value;previous=[id,value];
     }
     return result;
   }
-  function resolve(base, shared, own) {
+  function resolve(base, shared, own, productOverride=false) {
+    if(productOverride&&Object.hasOwn(own||{},'template'))throw Error('customisation.template is obsolete in Product Overrides. Assign templates on the Shared Collection/owning JSON only.');
+    for(const layer of [shared,own])if(Object.hasOwn(layer||{},'template')&&layer.template===null)throw Error('customisation.template:null is obsolete. Remove the null key manually.');
     const result = clone(base || {});
     for (const layer of [shared || {}, own || {}]) {
       for (const [key,value] of Object.entries(layer)) if (key !== "fields") result[key] = clone(value);
@@ -28,15 +32,15 @@
   function changeField(own, inherited, id, changes) {
     if(inherited?.fields?.[id])throw Error(`Inherited field ${id} is read-only. Edit its collection or template.`);
     const result = clone(own || {}); result.fields ||= {};
-    const patch = {...result.fields[id]}; delete patch.remove;
+    const field = {...result.fields[id]};
     for (const [key,value] of Object.entries(changes)) {
-      if (value === undefined || JSON.stringify(value) === JSON.stringify(inherited?.fields?.[id]?.[key])) delete patch[key];
-      else patch[key] = clone(value);
+      if (value === undefined) delete field[key];
+      else field[key] = clone(value);
     }
-    if (Object.keys(patch).length) result.fields[id] = patch; else delete result.fields[id];
+    result.fields[id] = field;
     return result;
   }
-  function exclude(own, inherited, id) {
+  function removeLocal(own, inherited, id) {
     if(inherited?.fields?.[id])throw Error(`Inherited field ${id} is read-only.`);
     const result = clone(own || {}); result.fields ||= {};
     delete result.fields[id];
@@ -113,7 +117,6 @@
       this.cache=new Map();if(reference)this.cache.set(JSON.stringify(reference),clone(base));
       this.fieldDialog=root.querySelector("[data-custom-field-dialog]");this.previewDialog=root.querySelector("[data-custom-preview-dialog]");
       root.querySelector("[data-custom-add]").addEventListener("click",()=>this.edit());
-      root.querySelector("[data-custom-reset]").addEventListener("click",()=>{if(global.confirm("Reset this layer's customisations to inherited values? Shared data is not changed.")){this.value=undefined;this.restoreBase();this.changed();}});
       root.querySelector("[data-custom-preview]").addEventListener("click",()=>this.preview());
       root.querySelector("[data-custom-close]").addEventListener("click",()=>this.fieldDialog.close());
       root.querySelector("[data-custom-preview-close]").addEventListener("click",()=>this.previewDialog.close());
@@ -126,13 +129,13 @@
       });
       root.querySelector("[data-custom-proof]").addEventListener("change",event=>{this.value ||= {};if(event.target.value)this.value.proof_policy=event.target.value;else delete this.value.proof_policy;this.changed();});
       root.querySelector('[data-custom-storefront]')?.addEventListener('change', event=>{this.value ||= {};if(event.target.value==='')delete this.value.storefront_enabled;else this.value.storefront_enabled=event.target.value==='true';this.changed();});
-      root.querySelector("[data-custom-apply-template]").addEventListener("click",()=>this.assign());
-      root.querySelector("[data-custom-no-template]").addEventListener("click",()=>{this.value ||= {};this.value.template=null;this.base={};this.changed();});
-      root.querySelector("[data-custom-inherit-template]").addEventListener("click",()=>{this.value ||= {};delete this.value.template;this.restoreBase();this.changed();});
-      this.render(); if(templatesURL)this.loadLibrary();
+      const templateControls=root.querySelector('[data-custom-template-controls]');
+      if(templateControls)templateControls.hidden=this.productOverride;
+      root.querySelector("[data-custom-apply-template]")?.addEventListener("click",()=>this.assign());
+      this.render(); if(templatesURL&&!this.productOverride)this.loadLibrary();
     }
     get() { return clone(this.value); }
-    effective() { return resolve(this.base,this.shared,this.value); }
+    effective() { return resolve(this.base,this.shared,this.value,this.productOverride); }
     inherited() { return resolve(this.base,this.shared,{}); }
     changed() {this.render();this.onChange(this.get());}
     error(message) {const node=this.root.querySelector("[data-custom-error]");node.hidden=!message;node.textContent=message;}
@@ -140,7 +143,7 @@
       try {const {items}=await request(this.templatesURL);this.library=items;const select=this.root.querySelector("[data-custom-template]");select.replaceChildren(new Option("Choose a pinned revision",""));items.filter(t=>!t.archived).forEach(t=>select.add(new Option(`${t.name} · revision ${t.revision}`,JSON.stringify({id:t.id,revision:t.revision}))));}
       catch(error){this.error(error.message);}
     }
-    currentReference() {return Object.hasOwn(this.value||{},"template")?this.value.template:this.shared.template;}
+    currentReference() {return this.productOverride?this.shared.template:this.value?.template;}
     async restoreBase() {
       const ref=this.currentReference(),key=JSON.stringify(ref); if(!ref){this.base={};return;}
       try{const base=await this.templateBase(ref);if(JSON.stringify(this.currentReference())!==key)return;this.base=base;this.render();}catch(error){this.error(error.message);}
@@ -150,6 +153,7 @@
       return clone(this.cache.get(key));
     }
     async assign() {
+      if(this.productOverride){this.error('Templates belong to the Shared Collection/owning editor. Product Overrides add distinct fields only.');return;}
       const selected=this.root.querySelector("[data-custom-template]").value;if(!selected)return;
       try{const ref=JSON.parse(selected),base=await this.templateBase(ref),next={...this.value,template:ref};resolve(base,this.shared,next);this.value=next;this.base=base;this.changed();}
       catch(error){this.error(error.message);}
@@ -162,19 +166,15 @@
         const actions=element("div",null,"customisation-actions");
         if(own){
           const editButton=button("Edit",()=>this.edit(id));editButton.dataset.customEdit=id;
-          actions.append(editButton,button("Move Up",()=>{this.value=reorder(this.value,this.effective(),id,-1);this.changed();}),button("Move Down",()=>{this.value=reorder(this.value,this.effective(),id,1);this.changed();}),button("Remove local field",()=>{this.value=exclude(this.value,inherited,id);this.changed();}));
+          actions.append(editButton,button("Move Up",()=>{this.value=reorder(this.value,this.effective(),id,-1);this.changed();}),button("Move Down",()=>{this.value=reorder(this.value,this.effective(),id,1);this.changed();}),button("Remove local field",()=>{this.value=removeLocal(this.value,inherited,id);this.changed();}));
         }else info.append(element('span','Read-only — edit the owning collection or reusable template.','field-helper'));
         actions.append(button("Duplicate",()=>this.edit(null,field)));
         row.append(info,actions);target.append(row);
       }
-      for(const [id,patch] of Object.entries(this.value?.fields||{}))if(patch.remove){const row=element("p",`${id} — excluded for this layer. `);row.append(button("Reset to inherited",()=>{delete this.value.fields[id];this.changed();}));target.append(row);}
       if(!target.children.length)target.append(element("p","No effective customer fields defined. Nothing is added to JSON until you edit."));
       const proof=this.root.querySelector("[data-custom-proof]");proof.options[0].textContent=`Inherited / unspecified${this.inherited().proof_policy?': '+this.inherited().proof_policy:''}`;proof.value=this.value?.proof_policy||"";
       const storefront=this.root.querySelector('[data-custom-storefront]');if(storefront){storefront.options[0].textContent=`Inherited / default: ${this.inherited().storefront_enabled===true?'enabled':'disabled'}`;storefront.value=typeof this.value?.storefront_enabled==='boolean'?String(this.value.storefront_enabled):'';}
       const ref=this.currentReference();this.root.querySelector("[data-custom-template-status]").textContent=ref?`Pinned template ${ref.id}, revision ${ref.revision}. Template fields are protected. Local fields append after inherited fields.`:"Shared fields are inherited and protected. Local fields append afterwards.";
-      if(this.productOverride&&(Object.keys(this.shared.fields||{}).length||this.shared.template)){
-        for(const selector of ['[data-custom-template]','[data-custom-apply-template]','[data-custom-no-template]','[data-custom-inherit-template]'])this.root.querySelector(selector).disabled=true;
-      }
     }
     edit(id=null,duplicate=null) {
       if(id!=null&&this.inherited().fields?.[id]){this.error('Inherited fields are read-only. Edit the owning collection or reusable template.');return;}
@@ -182,8 +182,9 @@
       if(id!=null&&!existing){this.error('This field is no longer available. Reload its definition before editing; no new field was created.');return;}
       this.editID=id;this.editTrigger=document.activeElement;
       this.inputs=null;
-      this.editOriginal=clone(existing||duplicate||{type:"text",label:"",order:order(this.effective()).length});
-      this.root.querySelector('[data-custom-field-heading]').textContent=id?(this.value?.fields?.[id]?'Edit Field':'Override Inherited Field'):duplicate?'Duplicate Field':'Add Field';
+      this.editOriginal=clone(existing||duplicate||{type:"text",label:""});
+      if(!existing)this.editOriginal.order=Math.max(-1,...Object.values(this.value?.fields||{}).map(field=>field.order||0))+1;
+      this.root.querySelector('[data-custom-field-heading]').textContent=id?'Edit Field':duplicate?'Duplicate Field':'Add Field';
       this.buildInputs(this.editOriginal);
       this.fieldDialog.showModal();this.inputs[id?'label':'id'].focus();
     }
@@ -259,7 +260,7 @@
       const type=aliases[this.formValue.type],state=this.defaultState;
       this.defaultBox.replaceChildren(element('legend','Default'));
       const label=element('label','Default value'),mode=element('select');mode.className='form-select';mode.dataset.customDefaultMode='';mode.setAttribute('aria-label','Default value');
-      mode.add(new Option('No default override / inherit','none'));mode.add(new Option('Set a default','set'));
+      mode.add(new Option('No default value','none'));mode.add(new Option('Set a default','set'));
       if(state.present&&state.value===null)mode.add(new Option('Preserve legacy empty default','null'));
       mode.value=state.present?(state.value===null?'null':'set'):'none';label.append(mode);this.defaultBox.append(label);
       mode.addEventListener('change',()=>{state.present=mode.value!=='none';state.value=mode.value==='null'?null:undefined;this.renderDefault();});
@@ -316,7 +317,7 @@
         if(this.defaultState.present && this.defaultState.value===undefined)throw new Error('Choose a default value or select no default override.');
         const id=this.inputs.id.value,values=this.readInputs();if(!/^[a-z][a-z0-9_]{0,63}$/.test(id))throw new Error("Use a stable lowercase field ID.");
         if(this.editID&&id!==this.editID)throw new Error('Field IDs remain stable after creation. Reopen the existing field.');
-        if(!this.editID&&(Object.hasOwn(this.effective().fields||{},id)||this.value?.fields?.[id]?.remove))throw new Error("Field ID already exists. Choose another ID or reset the excluded field.");
+        if(!this.editID&&Object.hasOwn(this.effective().fields||{},id))throw new Error("Field ID already exists. Choose another ID.");
         const problem=configurationError(values);if(problem)throw new Error(problem);
         const typeConstraints=constraints;
         const changes={};for(const key of new Set([...Object.keys(this.inputs),...Object.keys(this.editOriginal)])){
@@ -327,7 +328,7 @@
         if(!this.editID){Object.assign(changes,values);for(const [key,value]of Object.entries(this.editOriginal))if(!typeConstraints.has(key)&&!Object.hasOwn(changes,key))changes[key]=value;}
         if(this.editID&&!Object.keys(changes).length){this.fieldDialog.close();return;}
         const next=changeField(this.value,this.inherited(),id,changes);
-        const effective=resolve(this.base,this.shared,next).fields[id];
+        const effective=resolve(this.base,this.shared,next,this.productOverride).fields[id];
         const inheritedProblem=configurationError(effective);if(inheritedProblem)throw new Error(inheritedProblem);
         this.value=next;this.changed();this.fieldDialog.close();
       }catch(error){this.root.querySelector("[data-custom-dialog-error]").textContent=error.message;}
@@ -358,5 +359,5 @@
       submit.addEventListener('click',event=>{event.preventDefault();readers.forEach(read=>read());});this.previewDialog.showModal();
     }
   }
-  global.TLCCustomisations={resolve,order,changeField,exclude,reorder,validateAnswer,configurationError,Designer,request};
+  global.TLCCustomisations={resolve,order,changeField,removeLocal,reorder,validateAnswer,configurationError,Designer,request};
 })(typeof window==="undefined"?globalThis:window);

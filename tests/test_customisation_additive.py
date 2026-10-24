@@ -30,9 +30,10 @@ def test_inherited_first_then_local_preserves_each_group_without_source_rewrite(
     assert shared == SHARED and local == LOCAL
 
 
-@pytest.mark.parametrize('patch', [{'required': False}, {'remove': True}, SHARED['fields']['recipient']])
-def test_matching_inherited_id_is_conflict_not_patch_or_exclusion(patch):
-    with pytest.raises(ValueError, match='recipient.*review|review.*recipient'):
+@pytest.mark.parametrize('patch,reason', [({'required': False}, 'recipient.*type'),
+    ({'remove': True}, 'recipient.remove is obsolete'), (SHARED['fields']['recipient'], 'Duplicate.*recipient')])
+def test_matching_inherited_id_is_rejected_not_applied(patch, reason):
+    with pytest.raises(ValueError, match=reason):
         merge(SHARED, {'fields': {'recipient': patch}})
 
 
@@ -43,6 +44,42 @@ def test_absent_empty_disabled_and_unrelated_scalars_keep_existing_meaning():
                               {'customisation': LOCAL, 'price': '4.50'})
     assert data['price'] == '4.50' and data['weight'] == 50
     assert len(data['customisation']['fields']) == 3
+
+
+@pytest.mark.parametrize('kind', ['collection', 'override'])
+@pytest.mark.parametrize('remove', [True, False])
+def test_obsolete_remove_key_is_named_and_never_accepted(kind, remove):
+    from app.product_info import validate_product_info
+    document = {'customisation': {'fields': {'message': {
+        'type': 'text', 'label': 'Message', 'remove': remove}}}}
+    result = validate_product_info(document, kind)
+    assert not result.valid
+    assert 'customisation.fields.message.remove is obsolete' in result.errors[0].message
+
+
+def test_child_template_is_invalid_even_without_inherited_fields_and_full_duplicate_is_rejected(core):
+    from app.customisations import SCHEMA, validate
+    from app.product_info import load_schema, validate_product_info
+    from jsonschema import Draft202012Validator
+    from app.customisation_templates import save as template_save
+    assert 'remove' not in SCHEMA['properties']['fields']['additionalProperties']['properties']
+    assert SCHEMA['properties']['template']['type'] == 'object'
+    with core[0].app_context():
+        template = template_save({'name': 'Protected definitions', 'definition': SHARED})
+        reference = {'id': template['id'], 'revision': 1}
+        for value in (None, reference):
+            document = {'customisation': {'template': value}}
+            before = copy.deepcopy(document)
+            result = validate_product_info(document, 'override')
+            assert not result.valid and 'customisation.template is obsolete in Product Overrides' in result.errors[0].message
+            assert list(Draft202012Validator(load_schema('override')).iter_errors(document))
+            with pytest.raises(ValueError, match='obsolete'): merge({}, document['customisation'])
+            assert document == before
+        with pytest.raises(ValueError, match='template:null is obsolete'): validate({'template': None})
+        full_duplicate = {'fields': {'recipient': {**SHARED['fields']['recipient'], 'required': False}}}
+        before = copy.deepcopy(full_duplicate)
+        with pytest.raises(ValueError, match='Duplicate.*recipient'): merge(SHARED, full_duplicate)
+        assert full_duplicate == before and SHARED['fields']['recipient']['required'] is True
 
 
 def test_template_then_collection_then_product_and_legacy_conflicts(core):
@@ -61,9 +98,9 @@ def test_template_then_collection_then_product_and_legacy_conflicts(core):
         for instruction in ({'template': None}, {'template': {'id': 'different', 'revision': 1}},
                             {'fields': {'age': {'required': False}}}, {'fields': {'age': {'remove': True}}}):
             original = copy.deepcopy(instruction)
-            with pytest.raises(ValueError, match='review'): merge(shared, instruction)
+            with pytest.raises(ValueError, match='obsolete|type.*required'): merge(shared, instruction)
             assert instruction == original
-        with pytest.raises(ValueError, match='review'):
+        with pytest.raises(ValueError, match='type.*required'):
             merge({'template': reference, 'fields': {'recipient': {'max_length': 10}}}, {})
         assert merge(shared, {'fields': {}}) == merge(shared, {})
 
@@ -86,7 +123,7 @@ def test_conflict_blocks_only_affected_product_without_source_rewrite(core):
     with app.test_request_context(): build_products_data(parse_products_filters({}))
     assert client.get('/api/edit_products').status_code == 200
     response = client.get(f'/edit_products/{affected}/edit/override')
-    assert response.status_code == 409 and b'merchant review' in response.data
+    assert response.status_code == 409 and b'recipient' in response.data and b'type' in response.data
     from app.metadata_workspace import editor_workspace
     with app.test_request_context(): editor_workspace(db.session.get(Product, good), 'override')
     good_response = client.get(f'/edit_products/{good}/edit/override')
@@ -108,7 +145,7 @@ def test_conflict_blocks_only_affected_product_without_source_rewrite(core):
     diagnostics = []
     rows = scan_collection(parent.parent, 'https://invalid.example/', core[3],
         force_update=True, update_csv=True, log=lambda message, **kw: diagnostics.append(str(message)))
-    assert rows and any('recipient' in message and 'review' in message for message in diagnostics)
+    assert rows and any('recipient' in message and 'type' in message for message in diagnostics)
     assert parent.read_bytes() == parent_bytes and child.read_bytes() == child_bytes
 
 

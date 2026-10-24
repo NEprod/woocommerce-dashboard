@@ -20,10 +20,10 @@ test('editing label preserves field identity and sparse unknown values',()=>{
   assert.deepEqual(plain(result),{fields:{dog_name:{future:{opaque:[]},label:'Pet name',max_length:30}}});
 });
 test('only local fields can be removed; inherited fields cannot be patched or excluded',()=>{
-  assert.throws(()=>api.exclude({},shared,'dog_name'),/read-only/);
+  assert.throws(()=>api.removeLocal({},shared,'dog_name'),/read-only/);
   assert.throws(()=>api.changeField({},shared,'dog_name',{required:false}),/read-only/);
   assert.equal(api.resolve({},shared,{}).fields.dog_name.label,"Dog's Name");
-  assert.deepEqual(plain(api.exclude({fields:{local:{type:'text'}}},shared,'local')),{fields:{}});
+  assert.deepEqual(plain(api.removeLocal({fields:{local:{type:'text',label:'Local'}}},shared,'local')),{fields:{}});
 });
 test('reordering local fields retains stable IDs and leaves inherited values untouched',()=>{
   const own={fields:{date:{type:'date',label:'Date',order:0},message:{type:'text',label:'Message',order:1}}};
@@ -33,8 +33,17 @@ test('reordering local fields retains stable IDs and leaves inherited values unt
   assert.throws(()=>api.reorder(own,effective,'dog_name',1),/Inherited/);
 });
 test('pinned template fields reject shared patches and product exclusions',()=>{
-  assert.throws(()=>api.resolve(shared,{fields:{dog_name:{max_length:25}}},{}),/review/);
-  assert.throws(()=>api.resolve(shared,{}, {fields:{dog_name:{remove:true}}}),/review/);
+  assert.throws(()=>api.resolve(shared,{fields:{dog_name:{max_length:25}}},{}),/Duplicate/);
+  assert.throws(()=>api.resolve(shared,{}, {fields:{dog_name:{remove:true}}}),/dog_name.remove is obsolete/);
+});
+test('canonical editor has no template exclusion, inherited reset or replacement controls',()=>{
+  const html=fs.readFileSync(new URL('../../app/templates/includes/_customisation_designer.html',import.meta.url),'utf8');
+  assert.doesNotMatch(source,/data-custom-(no-template|inherit-template|reset)|patch\.remove|Override Inherited Field|function exclude\(/);
+  assert.doesNotMatch(html,/data-custom-(no-template|inherit-template|reset)/);
+  assert.throws(()=>api.resolve({}, {}, {template:{id:'t_child',revision:1}},true),/obsolete/);
+  assert.throws(()=>api.resolve({}, {}, {template:null}),/template:null is obsolete/);
+  assert.throws(()=>api.resolve({}, {}, {fields:{field:{remove:false,type:'text',label:'Name'}}}),/field.remove is obsolete/);
+  assert.equal(api.exclude,undefined);
 });
 for(const [type,field,value,valid]of [
   ['text',{required:true},'',false],['text',{max_length:3},'long',false],['text',{},'',true],

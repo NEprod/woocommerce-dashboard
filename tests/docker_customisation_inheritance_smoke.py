@@ -37,6 +37,8 @@ assert bootstrap['resolved']['customisation']['fields']['recipient']['required']
 assert bootstrap['resolved']['customisation']['fields']['recipient']['max_length']==30
 assert 'template' in parent['customisation'] and 'fields' not in parent['customisation']
 assert 'data-customisation-designer' in page
+assert 'data-custom-template-controls' not in page
+assert all(key not in page for key in ('data-custom-reset','data-custom-no-template','data-custom-inherit-template'))
 '''
 
 if __name__ == '__main__':

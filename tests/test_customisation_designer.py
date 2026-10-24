@@ -80,7 +80,7 @@ def test_sparse_merge_disable_exclusion_order_and_reset_do_not_mutate_shared():
     assert result['fields']['dog_name']==shared['fields']['dog_name']
     assert [id for id,_ in ordered_fields(result)]==['dog_name','memorial_date']
     for patch in ({'enabled':False},{'remove':True},{'max_length':20}):
-        with pytest.raises(ValueError,match='review'):merge(shared,{'fields':{'dog_name':patch}})
+        with pytest.raises(ValueError,match='obsolete|type.*required'):merge(shared,{'fields':{'dog_name':patch}})
     assert merge(shared,{})==shared and shared==DEFINITION
 
 
@@ -127,9 +127,9 @@ def test_template_precedence_explicit_null_and_no_recursive_references(core):
         resolved=merge(shared,{'fields':{'message':{'type':'multiline','label':'Message'}}})
         assert resolved['fields']['dog_name']['required'] is True and resolved['fields']['dog_name']['max_length']==30
         assert 'template' not in resolved
-        with pytest.raises(ValueError,match='review'):merge({'template':ref},{'template':None})
-        with pytest.raises(ValueError,match='review'):merge({'template':ref},{'fields':{'dog_name':{'remove':True}}})
-        with pytest.raises(ValueError,match='review'):validate({'template':ref,'fields':{'dog_name':{'remove':True}}})
+        with pytest.raises(ValueError,match='obsolete'):merge({'template':ref},{'template':None})
+        with pytest.raises(ValueError,match='obsolete'):merge({'template':ref},{'fields':{'dog_name':{'remove':True}}})
+        with pytest.raises(ValueError,match='obsolete'):validate({'template':ref,'fields':{'dog_name':{'remove':True}}})
         with pytest.raises(ValueError,match='standalone'):create(definition={'template':ref})
 
 
@@ -160,9 +160,14 @@ def test_template_assignment_safe_local_save_real_projection_and_fingerprint_iso
     app,client,root,_,ids,*_=core
     with app.app_context():
         template=create();product=db.session.get(Product,ids[name]);before=(product.sku,[(v.id,v.sku,v.source_identity) for v in product.variations]);stamp=source_fingerprint(product,[])
+    assignment={'template':{'id':template['id'],'revision':1}}
+    if kind=='override':
+        parent=root/name.rsplit('/',1)[0]/'product_info.json'
+        document=json.loads(parent.read_text());document['customisation']=assignment;parent.write_text(json.dumps(document))
+        assignment={'fields':{'message':{'type':'text','label':'Message'}}}
     images={str(f.relative_to(root)):f.read_bytes() for f in root.rglob('*') if f.suffix in {'.png','.jpg'}}
     indexes={str(f.relative_to(root)):f.read_bytes() for f in root.rglob('sku_index.json')}
-    result=save(core,name,kind=kind,data={'customisation':{'template':{'id':template['id'],'revision':1}}})
+    result=save(core,name,kind=kind,data={'customisation':assignment})
     assert result.status_code==200,result.json
     for _ in range(600):
         with app.app_context(): progress=get_progress(result.json['run_id'])

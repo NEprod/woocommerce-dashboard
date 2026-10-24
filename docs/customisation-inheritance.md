@@ -1,4 +1,4 @@
-# Protected customer-field inheritance
+# Canonical customer-field inheritance
 
 Only customer field definitions changed. Other customisation properties keep their
 existing scalar precedence, including `proof_policy` and `storefront_enabled`.
@@ -28,7 +28,7 @@ and stable-ID tie-breaking apply *within* each authored group, not across groups
 The resolver adjusts only effective addition order where needed by the existing
 publisher. Source JSON and inherited settings are never modified.
 
-A pinned reusable `customisation.template` supplies protected fields first,
+A pinned reusable `customisation.template` on Shared Collection/owning JSON supplies protected fields first,
 followed by distinct shared fields and then distinct product fields. The pinned
 library revision remains authoritative and must be retained in database backups.
 Fresh reconstruction from standalone JSON is supported; template references still
@@ -49,12 +49,24 @@ The editor shows the effective list, labels inherited fields read-only and local
 fields Product addition, and permits editing/removal/reordering only of local
 fields. Shared/template edits remain in their existing owning editor.
 
-## Legacy conflicts: review, never automatic conversion
+## Invalid source: validation only, no legacy compatibility
 
-Inherited-ID patches, exclusions and replacement/exclusion of an inherited
-template are blocked for that product. The original JSON remains intact. The
-editor gives the conflicting IDs and review guidance; the publisher cannot form
-an approved configuration until the conflict is resolved. Unrelated products
+Inherited patching, removal tombstones, template exclusion and Product Override
+template selection have no implementation or editor controls. The field schema
+requires complete `type` and `label` definitions. Duplicate effective IDs are
+rejected, even when the definitions match. Product Overrides may contain only
+distinct additions under `customisation.fields` (plus unchanged scalar settings).
+
+Invalid source produces a precise validation error, without changing JSON:
+
+- `customisation.fields.<id>.remove is obsolete` (including `remove:false`).
+- `customisation.template is obsolete in Product Overrides` (any value).
+- `customisation.template:null is obsolete` on an owner document.
+- Missing `type`/`label` identifies the incomplete field, not an inherited patch.
+
+The merchant must manually correct such files. No migrations, fallback merge,
+alternate storage or automatic conversion is provided. The publisher cannot form
+an approved configuration until the definition is valid. Unrelated products
 remain usable. Image source checks remain independent; the conflict cannot break
 a sibling editor or Products list. A conflicted row explicitly labels its price
 as last indexed rather than claiming a fresh metadata-derived price.
@@ -75,7 +87,7 @@ Production Time, scopes or Shopify API payload architecture changed.
    authoritative catalogue JSON. Keep the previous immutable image tag.
 2. Inspect representative shared and child JSON without saving or rescanning.
    Check `customisation.fields` IDs and pinned `customisation.template` references.
-   Flag duplicate inherited IDs, `remove` instructions and child template changes
+   Flag duplicate inherited IDs, `remove` instructions and any child template key
    for merchant review; do not remove them automatically.
 3. After the merchant deploys the immutable image, open a representative Simple
    child, Variable Collection child and Single Variable shared editor. Opening is
@@ -100,9 +112,11 @@ head remains 0018; the offline upgrade/restart smoke checks actual compatibility
 
 ## Release validation
 
-- 355 bounded Python tests passed; the baseline migration assertion above was
-  deselected after reproducing its failure on the untouched starting commit.
-- 111 focused JavaScript tests passed, including existing storefront/Production
+- 413 bounded Python tests passed for canonical validation, JSON/editor/scanner
+  round-trips, inheritance, reviewed Shopify publication, Orders and reporting.
+- The baseline migration assertion above remains excluded; it was reproduced on
+  the untouched starting commit and is unrelated to canonical inheritance.
+- 125 focused JavaScript tests passed, including existing storefront/Production
   Time and same-variant personalisation identity checks.
 - Isolated Chrome: desktop Simple, mobile-width Variable Collection and desktop
   Single Variable, including Add/Edit/Remove, signed Save, Reopen and Rescan.

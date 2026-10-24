@@ -94,11 +94,10 @@ test("unrelated form edit preserves numeric types, modifiers, images and hidden 
 
 test("explicit empty and nested removals remain intentional patch operations", () => {
   const context = vm.createContext({before: {tags: ["old"], customisation: {fields: {name: {type: "text", label: "Old"}}}},
-    after: {tags: [], customisation: {fields: {name: {remove: true}}}}});
+    after: {tags: [], customisation: {fields: {}}}});
   vm.runInContext(extract("documentPatch", "clearErrors"), context);
   assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext("documentPatch(before, after)", context))),
-    {data: {tags: [], customisation: {fields: {name: {remove: true}}}},
-      remove_paths: [["customisation","fields","name","type"],["customisation","fields","name","label"]]});
+    {data: {tags: []}, remove_paths: [["customisation","fields","name"]]});
 });
 
 test("unknown literal prototype key survives a reviewed JSON patch", () => {

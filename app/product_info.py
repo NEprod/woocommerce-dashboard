@@ -50,7 +50,8 @@ def load_schema(name):
         raise KeyError(name)
     from app.catalogue_fields import CUSTOMISATION_SCHEMA
     schema = _load_json(SCHEMA_ROOT / f"{name}.schema.json")
-    schema["properties"]["customisation"] = CUSTOMISATION_SCHEMA
+    schema["properties"]["customisation"] = {**CUSTOMISATION_SCHEMA, 'properties': {
+        **CUSTOMISATION_SCHEMA['properties'], **({'template': False} if name == 'override' else {})}}
     schema["properties"].update(SHOPIFY_EDITOR_FIELDS)
     schema['properties']['shopify_product_type_key'] = {'type':'string','pattern':r'^[a-z][a-z0-9_-]{0,95}$'}
     from app.packaging_contract import PACKAGING_SCHEMA, FINISHED_SCHEMA
@@ -127,6 +128,12 @@ def _path(parts):
 
 
 def _schema_errors(data, kind):
+    if 'customisation' in data:
+        from app.customisations import validate
+        try:
+            validate(data['customisation'], product_override=kind == 'override')
+        except ValueError as error:
+            return [ValidationIssue('$.customisation', 'invalid_customisation', str(error))]
     validator = Draft202012Validator(
         load_schema(kind), format_checker=FormatChecker()
     )

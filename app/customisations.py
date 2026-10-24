@@ -15,9 +15,9 @@ CHOICE = {"oneOf": [{"type": "string", "minLength": 1, "maxLength": 191},
     {"type": "object", "required": ["id", "label"], "properties": {
         "id": {"type": "string", "pattern": ID}, "label": {"type": "string", "minLength": 1, "maxLength": 191},
         "value": {"type": "string", "maxLength": 191}}}]}
-FIELD_SCHEMA = {"type": "object", "properties": {
+FIELD_SCHEMA = {"type": "object", "required": ["type", "label"], "properties": {
     "type": {"enum": list(TYPES)}, "label": {"type": "string", "minLength": 1, "maxLength": 191},
-    "required": {"type": "boolean"}, "enabled": {"type": "boolean"}, "remove": {"const": True},
+    "required": {"type": "boolean"}, "enabled": {"type": "boolean"},
     "order": {"type": "integer", "minimum": 0},
     "help_text": {"type": "string", "maxLength": 4000}, "placeholder": {"type": "string", "maxLength": 1000},
     "choices": {"type": "array", "minItems": 1, "uniqueItems": True, "items": CHOICE},
@@ -34,9 +34,9 @@ FIELD_SCHEMA = {"type": "object", "properties": {
 SCHEMA = {"type": "object", "properties": {
     "storefront_enabled": {"type": "boolean"},
     "schema_version": {"enum": [1, 2]}, "proof_policy": {"enum": ["none", "required", "optional"]},
-    "template": {"oneOf": [{"type": "null"}, {"type": "object", "required": ["id", "revision"],
+    "template": {"type": "object", "required": ["id", "revision"],
         "additionalProperties": False, "properties": {"id": {"type": "string", "pattern": ID},
-        "revision": {"type": "integer", "minimum": 1}}}]},
+        "revision": {"type": "integer", "minimum": 1}}},
     "fields": {"type": "object", "propertyNames": {"pattern": ID}, "additionalProperties": FIELD_SCHEMA}}}
 
 
@@ -48,34 +48,43 @@ def ordered_fields(definition):
     return sorted(definition.get('fields', {}).items(), key=lambda item: (item[1].get('order', 0), item[0]))
 
 
-def validate(value, *, partial=False, resolved=False):
+class CustomisationDefinitionError(ValueError):
+    """Invalid canonical definitions; source data is never repaired implicitly."""
+
+
+def validate(value, *, product_override=False, resolved=False):
     # The existing document/request limit is the resource bound, not an arbitrary
     # business field-count cap. Reject nonfinite values, including in opaque keys.
     if len(json.dumps(value, allow_nan=False).encode()) > 1024 * 1024:
-        raise ValueError('customisation exceeds the 1 MiB definition limit.')
+        raise CustomisationDefinitionError('customisation exceeds the 1 MiB definition limit.')
+    if isinstance(value, dict):
+        if product_override and 'template' in value:
+            raise CustomisationDefinitionError('customisation.template is obsolete in Product Overrides. Remove this key manually; reusable templates belong to Shared Collection/owning JSON. Add only distinct customisation.fields.')
+        if 'template' in value and value['template'] is None:
+            raise CustomisationDefinitionError('customisation.template:null is obsolete. Remove the null template key manually; template exclusion is not supported.')
+        fields = value.get('fields')
+        for key, field in fields.items() if isinstance(fields, dict) else ():
+            if isinstance(field, dict) and 'remove' in field:
+                raise CustomisationDefinitionError(f'customisation.fields.{key}.remove is obsolete. Remove this instruction manually; inherited fields cannot be excluded. No JSON was changed.')
     error = next(Draft202012Validator(SCHEMA).iter_errors(value), None)
     if error:
-        raise ValueError('customisation.' + '.'.join(map(str, error.path)) + ': ' + error.message)
+        raise CustomisationDefinitionError('customisation.' + '.'.join(map(str, error.path)) + ': ' + error.message)
     for key, field in value.get('fields', {}).items():
         prefix = f'customisation.fields.{key}: '
-        if field.get('remove'):
-            if set(field) != {'remove'} or not partial and not value.get('template'):
-                raise ValueError(prefix + 'remove must be an override patch tombstone (and its only property).')
-            continue
         kind = TYPES.get(field.get('type'))
-        if not partial and not value.get('template') and field.get('enabled', True) and (not kind or not field.get('label', '').strip()):
-            raise ValueError(prefix + 'an enabled field needs type and label.')
+        if not field.get('label', '').strip():
+            raise CustomisationDefinitionError(prefix + 'a field needs a nonblank label.')
         for low, high in [('minimum', 'maximum'), ('min_length', 'max_length'),
                           ('min_selections', 'max_selections'), ('min_date', 'max_date')]:
             if low in field and high in field and field[low] > field[high]:
-                raise ValueError(prefix + low + ' exceeds ' + high + '.')
+                raise CustomisationDefinitionError(prefix + low + ' exceeds ' + high + '.')
         for prop in ('min_date', 'max_date'):
             if prop in field:
                 try:
                     if date.fromisoformat(field[prop]).isoformat() != field[prop]:
                         raise ValueError()
                 except ValueError:
-                    raise ValueError(prefix + prop + ' must be YYYY-MM-DD.') from None
+                    raise CustomisationDefinitionError(prefix + prop + ' must be YYYY-MM-DD.') from None
         allowed = {'min_length': {'text', 'textarea'}, 'max_length': {'text', 'textarea'},
             'minimum': {'number'}, 'maximum': {'number'}, 'whole_number': {'number'},
             'min_date': {'date'}, 'max_date': {'date'}, 'min_selections': {'checkbox_group'},
@@ -83,27 +92,27 @@ def validate(value, *, partial=False, resolved=False):
             **{k: {'file_upload'} for k in ('allowed_media_categories', 'allowed_extensions', 'max_file_size_bytes', 'max_files')}}
         for prop, kinds in allowed.items():
             if kind and prop in field and kind not in kinds:
-                raise ValueError(prefix + prop + ' is unsupported for this input type.')
+                raise CustomisationDefinitionError(prefix + prop + ' is unsupported for this input type.')
         ids = choices(field)
         if any(not (c if isinstance(c, str) else c['label']).strip() for c in field.get('choices', [])):
-            raise ValueError(prefix + 'choice labels must not be blank.')
+            raise CustomisationDefinitionError(prefix + 'choice labels must not be blank.')
         if len(set(ids)) != len(ids):
-            raise ValueError(prefix + 'choice identities must be unique.')
-        if not partial and not value.get('template') and field.get('enabled', True) and kind in {'dropdown', 'radio', 'checkbox_group'} and not ids:
-            raise ValueError(prefix + 'a choice field needs choices.')
+            raise CustomisationDefinitionError(prefix + 'choice identities must be unique.')
+        if field.get('enabled', True) and kind in {'dropdown', 'radio', 'checkbox_group'} and not ids:
+            raise CustomisationDefinitionError(prefix + 'a choice field needs choices.')
         if kind == 'checkbox_group' and ids and field.get('min_selections', 0) > len(ids):
-            raise ValueError(prefix + 'minimum selections exceeds available choices.')
+            raise CustomisationDefinitionError(prefix + 'minimum selections exceeds available choices.')
         if kind == 'colour' and any(not re.fullmatch(r'#[0-9a-fA-F]{6}', c.get('value', '') if isinstance(c, dict) else c)
                                     for c in field.get('choices', [])):
-            raise ValueError(prefix + 'palette choices need six-digit hex colours.')
-        if 'default' in field and kind and not partial:
+            raise CustomisationDefinitionError(prefix + 'palette choices need six-digit hex colours.')
+        if 'default' in field and kind:
             if kind == 'file_upload':
-                raise ValueError(prefix + 'file defaults are not permitted.')
+                raise CustomisationDefinitionError(prefix + 'file defaults are not permitted.')
             problem = answer_error(field, field['default'], check_required=False)
             if problem:
-                raise ValueError(prefix + 'invalid default: ' + problem)
-    if value.get('template') and not partial and not resolved:
-        merge(value, {})  # verify pinned dependency and its effective patches
+                raise CustomisationDefinitionError(prefix + 'invalid default: ' + problem)
+    if value.get('template') and not resolved:
+        _definition(value)  # verify the pinned dependency and distinct additions
 
 
 def answer_error(field, value, *, check_required=True):
@@ -142,18 +151,11 @@ def answer_error(field, value, *, check_required=True):
     return None
 
 
-class CustomisationInheritanceConflict(ValueError):
-    """Authored instructions require review; never rewrite or guess a resolution."""
-
-
 def _append_fields(inherited, local):
     conflicts = sorted(set(inherited) & set(local))
-    exclusions = sorted(key for key, value in local.items() if value.get('remove'))
-    if conflicts or exclusions:
-        raise CustomisationInheritanceConflict(
-            'Customisation fields ' + ', '.join(sorted(set(conflicts + exclusions))) +
-            ' require merchant review: inherited IDs cannot be patched, disabled, replaced or excluded. '
-            'Original JSON is unchanged. Edit the owning collection/template, or remove the conflicting local instruction explicitly.')
+    if conflicts:
+        raise CustomisationDefinitionError('Duplicate effective customisation field IDs: ' + ', '.join(conflicts) +
+            '. Product/collection additions must have distinct IDs. Review the authored definitions manually; no JSON was changed.')
     result = {key: deepcopy(field) for key, field in ordered_fields({'fields': inherited})}
     previous = max(((field.get('order', 0), key) for key, field in result.items()), default=None)
     for key, field in ordered_fields({'fields': local}):
@@ -168,7 +170,7 @@ def _append_fields(inherited, local):
 
 
 def _definition(layer):
-    validate(layer, partial=True)
+    validate(layer, resolved=True)
     result = {}
     if layer.get('template'):
         from app.customisation_templates import definition
@@ -183,24 +185,12 @@ def _definition(layer):
 def merge(shared, override):
     """Protect template/collection fields; append distinct local definitions only."""
     inherited = _definition(shared)
-    validate(override, partial=True)
-    local = deepcopy(override)
-    if 'template' in local and inherited['fields']:
-        if local['template'] != shared.get('template'):
-            raise CustomisationInheritanceConflict(
-                'Customisation template replacement/exclusion requires merchant review: '
-                'inherited fields must remain protected. Original JSON is unchanged.')
-        # A redundant reference does not duplicate the inherited template fields.
-        local.pop('template')
-    _append_fields(inherited['fields'], local.get('fields', {}))  # diagnose legacy partial patches before full validation
-    addition = _definition(local)
-    fields = _append_fields(inherited['fields'], addition['fields'])
+    validate(override, product_override=True)
+    fields = _append_fields(inherited['fields'], override.get('fields', {}))
     result = deepcopy(inherited)
     # Other customisation properties retain their existing scalar precedence.
     for key, value in override.items():
-        if key not in {'fields', 'template'}: result[key] = deepcopy(value)
-    if local.get('template'):
-        result = {**addition, **result}
+        if key != 'fields': result[key] = deepcopy(value)
     result['fields'] = fields
     validate(result, resolved=True)
     return result

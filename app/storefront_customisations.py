@@ -27,7 +27,7 @@ def public_configuration(definition):
                 continue
             kind = TYPES[field['type']]
             if kind == 'file_upload':
-                raise ValueError('Customer file/photo uploads require a verified secure upload service. Disable or exclude the upload field before reviewing storefront publication.')
+                raise ValueError('Customer file/photo uploads require a verified secure upload service. Disable the upload field at its owner before reviewing storefront publication.')
             public = {k: deepcopy(v) for k, v in field.items() if k in FIELD_KEYS}
             public.update(id=key, type=kind)
             if 'choices' in field:

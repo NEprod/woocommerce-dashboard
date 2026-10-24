@@ -133,15 +133,17 @@ helper DOM tests alone must not be described as Safari coverage.
 
 Extend the existing `customisation` object, never introduce a second customer-field
 root. Unversioned fields remain valid; new definitions may declare `schema_version: 2`.
-Stable field IDs, flat per-field constraint patches, `enabled:false`, `remove:true`
-and proof policy retain the existing merge contract. `order` sorts fields with ID
-as a deterministic tie-break. Labels never determine identity. Unknown keys are
+Stable field IDs identify complete field definitions, not inherited patches.
+`enabled:false` applies only to a locally owned field. Inherited IDs cannot be
+redefined, disabled or removed. `order` sorts within each authored group with ID
+as a deterministic tie-break; the combined groups are not globally sorted. Unknown keys are
 preserved as opaque, non-executed metadata and visible in Advanced JSON.
 
-Optional `template: {id, revision}` pins an immutable database revision; explicit
-`template:null` excludes an inherited template. The chosen template supplies base
-fields, then shared authored fields, then sparse child patches. A child's explicit
-template replaces only the inherited template base, not shared authored patches.
+Optional `template: {id, revision}` in Shared Collection/owning JSON pins an
+immutable database revision. Its fields precede distinct shared fields, then
+distinct product additions in `customisation.fields`. Product Overrides cannot
+declare a template reference. Null template references, `remove` instructions and
+partial inherited-field patches are invalid; no fallback/migration is provided.
 Template edits/renames create new revisions; existing assignments never auto-upgrade.
 Archived templates cannot receive new assignments but pinned revisions still resolve.
 No template deletion: archive preserves dependencies without scanning the catalogue.

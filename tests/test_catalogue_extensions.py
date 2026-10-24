@@ -23,11 +23,11 @@ FIELDS = {"country_of_origin": "GB", "requires_shipping": True,
         "photo": {"type": "photo", "label": "Photograph"}}}}
 
 
-def test_customisation_patch_inheritance_is_non_mutating():
+def test_customisation_additive_inheritance_is_non_mutating():
     shared = copy.deepcopy(FIELDS)
     override = {"country_of_origin": "CN", "requires_shipping": False,
         "customisation": {"proof_policy": "optional", "fields": {
-            "name": {"label": "Child name"}, "age": {"type": "number", "label": "Age"}}}}
+            "age": {"type": "number", "label": "Age"}}}}
     before = copy.deepcopy((shared, override))
     result = merge_product_json(shared, override)
     validate_extensions(result)
@@ -39,11 +39,10 @@ def test_customisation_patch_inheritance_is_non_mutating():
     assert (shared, override) == before
 
 
-def test_explicit_disable_remove_and_empty_patch():
-    result = merge_product_json(FIELDS, {"customisation": {"fields": {
-        "photo": {"remove": True}, "name": {"enabled": False}}}})
-    assert "photo" not in result["customisation"]["fields"]
-    assert result["customisation"]["fields"]["name"]["enabled"] is False
+def test_inherited_disable_and_remove_are_rejected_and_empty_inherits():
+    for definition in ({'remove': True}, {'enabled': False}):
+        with pytest.raises(ValueError):
+            merge_product_json(FIELDS, {'customisation': {'fields': {'name': definition}}})
     assert merge_product_json(FIELDS, {"customisation": {}})["customisation"] == FIELDS["customisation"]
 
 
@@ -68,17 +67,18 @@ def test_invalid_extensions_are_rejected_before_edit(value):
 
 def test_incomplete_new_field_blocks_resolved_contract():
     patch = {"customisation": {"fields": {"name": {"label": "Name"}}}}
-    assert validate_product_info(patch, "override").valid
-    with pytest.raises(ValueError, match="type and label"):
+    assert not validate_product_info(patch, "override").valid
+    with pytest.raises(ValueError, match="type.*required"):
         validate_extensions(merge_product_json({}, patch))
 
 
-def test_remove_tombstone_is_only_valid_in_override_patch():
+def test_remove_tombstone_is_obsolete_in_every_authored_layer():
     patch = {"customisation": {"fields": {"name": {"remove": True}}}}
-    assert validate_product_info(patch, "override").valid
-    with pytest.raises(ValueError, match="override patch"):
+    assert not validate_product_info(patch, "override").valid
+    with pytest.raises(ValueError, match="obsolete"):
         validate_extensions(patch)
-    validate_extensions(merge_product_json(FIELDS, patch))
+    with pytest.raises(ValueError, match="obsolete"):
+        merge_product_json(FIELDS, patch)
 
 
 @pytest.mark.parametrize("name", ["Simple Collection", "Variable Collection", "Single Variable"])

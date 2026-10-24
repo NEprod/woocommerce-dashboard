@@ -62,11 +62,13 @@ async function customisationEditorUX(tab) {
   if(await p.locator('#scanModal').isVisible())await p.locator('#scanModal').getByRole('button',{name:'Done',exact:true}).click();
   await tab.reload();await edit('name_on_card');
   check(await value('label')==='Name to appear on your card','signed local save persists and reloads');await cancel();
-  await tab.goto('http://127.0.0.1:7495/edit_products/1/edit/override');await edit('name_on_card');
-  check((await modal.innerText()).includes('Inherited values are shown'),'inherited effective definition shown');
-  await modal.getByLabel('Maximum length',{exact:true}).fill('20');await apply();
+  await tab.goto('http://127.0.0.1:7495/edit_products/1/edit/override');
+  check(await p.locator('[data-custom-edit="name_on_card"]').count()===0,'inherited field has no edit control');
+  await p.locator('[data-custom-add]').click();
+  await modal.getByLabel('Customer-facing label',{exact:true}).fill('Local message');
+  await modal.getByLabel('Maximum length',{exact:true}).fill('200');await apply();
   await p.getByRole('button',{name:'Advanced JSON',exact:true}).click();
   const draft=JSON.parse(await p.locator('[data-json-editor]').evaluate(n=>n.value));
-  check(JSON.stringify(draft.customisation.fields.name_on_card)==='{"max_length":20}','only intended sparse override authored');
+  check(!Object.hasOwn(draft.customisation.fields,'name_on_card')&&draft.customisation.fields.local_message.max_length===200,'only distinct local field authored');
   return done;
 }

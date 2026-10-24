@@ -1,9 +1,0 @@
-{% extends 'layouts/base.html' %}
-{% block title %}Customisation inheritance needs review{% endblock %}
-{% block content %}
-<section class="app-card"><h1>Customisation inheritance needs review</h1>
-<p role="alert">{{ error }}</p>
-<p>This product's authored JSON has not been changed. Publishing is blocked until the conflicting instruction is reviewed. Other products are unaffected.</p>
-<p>Inspect the affected Product Override's <code>customisation.fields</code> and <code>customisation.template</code> in its existing <code>product_info.json</code>. Keep inherited IDs in the owning collection/template; keep only distinct product additions in the override. Do not copy or rename inherited fields automatically. Remove an old instruction only after confirming its intended meaning.</p>
-<a class="btn btn-primary" href="{{ url_for('main.products') }}">Back to Products</a></section>
-{% endblock %}

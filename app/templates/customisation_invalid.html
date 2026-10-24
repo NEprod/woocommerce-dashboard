@@ -1,0 +1,9 @@
+{% extends 'layouts/base.html' %}
+{% block title %}Customisation definition needs review{% endblock %}
+{% block content %}
+<section class="app-card"><h1>Customisation definition needs review</h1>
+<p role="alert">{{ error }}</p>
+<p>The authored JSON has not been changed. Publishing this product is blocked until its definition is corrected. Other products remain available.</p>
+<p>Use complete, distinct field definitions in <code>customisation.fields</code>. Reusable template references belong only to Shared Collection/owning JSON. Review the reported key or duplicate ID manually in its existing <code>product_info.json</code>; inherited fields are not editable through a Product Override.</p>
+<a class="btn btn-primary" href="{{ url_for('main.products') }}">Back to Products</a></section>
+{% endblock %}

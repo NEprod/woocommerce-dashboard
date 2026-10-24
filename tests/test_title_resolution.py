@@ -134,17 +134,26 @@ def test_customisation_only_save_keeps_absent_title_and_templates(core,monkeypat
     source=root/name/'product_info.json'
     data=json.loads(source.read_text());data.pop('title',None)
     with app.app_context():template=customisation_templates.save({'name':'Fictional title test','definition':{'fields':{'name':{'type':'text','label':'Name'}}}})
-    data['customisation']={'template':{'id':template['id'],'revision':1}};source.write_text(json.dumps(data))
+    reference={'id':template['id'],'revision':1}
+    if kind=='override':
+        parent=source.parent.parent/'product_info.json';parent_data=json.loads(parent.read_text())
+        parent_data['customisation']={'template':reference};parent.write_text(json.dumps(parent_data))
+    data['customisation']={'fields':{'note':{'type':'text','label':'Note','max_length':30}}}
+    if kind=='shared':data['customisation']['template']=reference
+    source.write_text(json.dumps(data))
     with app.app_context():
         from app.shopify_products import source_fingerprint
         product=db.session.get(Product,ids[name]);before=product_document(product)['title'];sku=product.sku
         fingerprint=source_fingerprint(product,[])
     page=client.get(f'/edit_products/{product.id}/edit/{kind}').text
     assert 'data-title-preview' in page and 'Optional authored contribution' in page
-    result=save(core,name,kind=kind,data={'customisation':{'fields':{'name':{'max_length':20}}}})
+    result=save(core,name,kind=kind,data={'customisation':{'fields':{'note':{'max_length':20}}}})
     assert result.status_code==200,result.json
     authored=json.loads(source.read_text())
-    assert 'title' not in authored and authored['customisation']['template']=={'id':template['id'],'revision':1}
+    assert 'title' not in authored
+    assert authored['customisation']['fields']['note']['max_length']==20
+    if kind=='shared':assert authored['customisation']['template']==reference
+    else:assert 'template' not in authored['customisation']
     rescan(core,name if kind=='shared' else name.rsplit('/',1)[0],monkeypatch)
     with app.app_context():
         product=db.session.get(Product,product.id)

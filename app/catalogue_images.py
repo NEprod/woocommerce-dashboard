@@ -251,10 +251,10 @@ def _scanner_layout(product: Product, context) -> dict:
     override = {}
     if product_folder != collection_folder:
         override = _read_json_object(product_folder / "product_info.json", catalogue_root)
-    from app.customisations import CustomisationInheritanceConflict
+    from app.customisations import CustomisationDefinitionError
     try:
         return merge_product_json(shared, override, path=str(product_folder))
-    except CustomisationInheritanceConflict:
+    except CustomisationDefinitionError:
         # Image source/layout validation is independent of customer fields.
         # Keep every existing image identity, ordering and confinement check;
         # never use this image-only document for publication/customisations.

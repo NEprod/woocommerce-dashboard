@@ -50,8 +50,8 @@ test('apply label-only edit keeps ID, constraints, unknown keys and template rev
   assert.equal(changes(),1);assert.deepEqual(plain(d.value.template),own.template);
   assert.deepEqual(plain(d.effective().fields.name_on_card),{...name,label:'Name to appear on your card'});
 });
-test('inherited max length override is sparse, without copying required/enabled/help',()=>{
-  const shared={fields:{name_on_card:name}},own={template:{id:'t_pin',revision:1}};
+test('inherited field editing is blocked without copying required/enabled/help',()=>{
+  const shared={fields:{name_on_card:name}},own={};
   const {designer:d,nodes}=fixture({shared,own});
   assert.match(nodes.get('[data-custom-error]').textContent,/read-only/);
   assert.equal(d.inputs,undefined);

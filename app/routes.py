@@ -152,14 +152,14 @@ from app.image_preparation import (
 
 main = Blueprint("main", __name__)
 
-from app.customisations import CustomisationInheritanceConflict
+from app.customisations import CustomisationDefinitionError
 
 
-@main.app_errorhandler(CustomisationInheritanceConflict)
-def customisation_inheritance_conflict(error):
+@main.app_errorhandler(CustomisationDefinitionError)
+def customisation_definition_error(error):
     if request.is_json:
         return jsonify(error=str(error)), 409
-    return render_template('customisation_conflict.html', error=str(error)), 409
+    return render_template('customisation_invalid.html', error=str(error)), 409
 
 
 def _operation_conflict(error):

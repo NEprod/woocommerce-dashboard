@@ -20,7 +20,7 @@ def desired(product):
     try:
         return public_configuration(product_document(product).get('customisation'))
     except (ValueError, KeyError, TypeError):
-        raise ShopifyError('Storefront customisation definition is invalid, empty or contains an enabled file/photo field. Secure uploads are not implemented; disable/exclude that field before publication.') from None
+        raise ShopifyError('Storefront customisation definition is invalid, empty or contains an enabled file/photo field. Secure uploads are not implemented; correct the definition at its owning collection/template before publication.') from None
 
 
 def _definition(adapter, config):

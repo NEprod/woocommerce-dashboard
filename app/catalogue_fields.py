@@ -22,7 +22,7 @@ def validate_extensions(data, *, partial=False):
         if isinstance(modifier,dict): finished(modifier)
     if "customisation" not in data:
         return
-    validate(data['customisation'], partial=partial)
+    validate(data['customisation'], product_override=partial)
 
 
 def merge_customisation(shared, override):
