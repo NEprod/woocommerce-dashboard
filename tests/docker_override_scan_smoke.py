@@ -14,6 +14,11 @@ def docker(*args, **kwargs):
 
 
 smoke.docker = docker
+# A real scan queues read-only comparison work. Preserve the two archival
+# fixtures without assuming there can never be an additional comparison row.
+smoke.CHECK = smoke.CHECK.replace(
+    "assert all(v['full_compared_at']=='2026-10-12T00:00:00' for v in comparisons.values())",
+    "assert all(comparisons[key]['full_compared_at']=='2026-10-12T00:00:00' for key in ('Fictional/Smoke','Fictional/Readable'))")
 smoke.IMPORT += '''
 import time
 from app.utils import scan_runner
@@ -49,6 +54,8 @@ with app.app_context():
  assert Product.query.filter_by(sku=sku).one().description=='Scoped offline override save'
 '''
 smoke.CHECK += '''
+assert all(value.get('read_complete') is not True for key,value in comparisons.items()
+           if key not in {'Fictional/Smoke','Fictional/Readable'})
 assert bootstrap['authored']['description']=='Scoped offline override save'
 assert bootstrap['resolved']['description']=='Scoped offline override save'
 assert Path('/catalogue/ZZ_STAGING/product_info.json').read_text()=='Intentionally invalid unrelated staging JSON'

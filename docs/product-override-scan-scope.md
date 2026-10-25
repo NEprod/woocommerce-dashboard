@@ -49,3 +49,6 @@ source-path safety, real scoped ingestion, existing manual scan modes, operation
 ownership, marker recovery, projection, titles and scheduled tasks. Offline Docker
 verified a real override save processes one collection while unrelated invalid
 staging JSON is untouched, with the result persisting through restart.
+The existing read-only comparison queue still runs after ingestion. The Docker
+check preserves its two historical comparison fixtures while permitting new
+offline read attempts, which must not claim complete verification.
