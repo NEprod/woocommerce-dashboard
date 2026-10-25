@@ -20,6 +20,7 @@ from app.collection_identity import collection_display_name
 from app.dashboard import METADATA_ISSUE_DEFINITIONS, metadata_issue_condition
 from app.models import Collection, Product, ProductAsset, Variation
 from app.publishing import projected_publishing_intent
+from app.taxonomy_registry import registry_read_view
 
 
 SUPPORTED_PRODUCT_TYPES = {"simple", "variable"}
@@ -242,6 +243,7 @@ def _summary():
     }
 
 
+@registry_read_view
 def build_products_data(filters):
     """Return a paged collection-grouped view without eager variation rows."""
 

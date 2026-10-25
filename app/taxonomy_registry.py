@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import wraps
 import errno
 import hashlib
 import json
@@ -256,14 +257,42 @@ def load_registry(root, *, excluded_roots=()):
             os.close(directory)
 
 
+def registry_read_view(function):
+    """Reuse one immutable registry result in an explicitly opted-in GET view.
+
+    This is not an application cache. Other readers, writes, and later requests
+    still use the secure loader. Nested builders share the owner's snapshot;
+    the owner discards it even when view construction raises.
+    """
+    @wraps(function)
+    def view(*args, **kwargs):
+        from flask import g, has_request_context, request
+        if not has_request_context() or request.method != "GET":
+            return function(*args, **kwargs)
+        if getattr(g, "_taxonomy_read_view", None) is not None:
+            return function(*args, **kwargs)
+        g._taxonomy_read_view = {}
+        try:
+            return function(*args, **kwargs)
+        finally:
+            del g._taxonomy_read_view
+    return view
+
+
 def load_configured_registry():
     """Explicit application entry point; intentionally not called at startup."""
-    from flask import current_app
+    from flask import current_app, g, has_request_context
     from app.models import Settings
 
+    view = getattr(g, "_taxonomy_read_view", None) if has_request_context() else None
+    if view is not None and "result" in view:
+        return view["result"]
     settings = Settings.query.first()
-    return load_registry(current_app.config.get("TAXONOMY_ROOT"), excluded_roots=(
+    result = load_registry(current_app.config.get("TAXONOMY_ROOT"), excluded_roots=(
         current_app.instance_path, current_app.config.get("INTAKE_ROOT"),
         settings.product_folder if settings else None,
         settings.output_folder if settings else None,
     ))
+    if view is not None:
+        view["result"] = result
+    return result

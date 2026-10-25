@@ -344,6 +344,33 @@ def test_products_api_paginates_large_catalogue(products_app, products_client):
     assert sum(len(group["products"]) for group in second["groups"]) == 8
 
 
+def test_global_attention_count_includes_off_page_image_only_gap(products_app, products_client):
+    """A page-only image audit must not falsify the existing global counter."""
+    app, _database = products_app
+    with app.app_context():
+        collection = Collection.query.filter_by(name="Fictional Cards").one()
+        for index in range(26):
+            db.session.add(Product(
+                collection_id=collection.id, sku=f"COMPLETE-{index:03d}",
+                title=f"A complete card {index:03d}", product_type="simple",
+                catalogue_status="active", description="Complete description",
+                meta_title="Complete title", meta_description="Complete SEO",
+                source_relpath="Fictional Cards/Variable"))
+        db.session.add(Product(
+            collection_id=collection.id, sku="OFF-PAGE-IMAGE-GAP",
+            title="ZZZ image-only gap", product_type="simple", catalogue_status="active",
+            description="Complete description", meta_title="Complete title",
+            meta_description="Complete SEO", source_relpath="Fictional Cards/No artwork"))
+        db.session.commit()
+    first = products_client.get("/api/edit_products?per_page=25").get_json()
+    assert "OFF-PAGE-IMAGE-GAP" not in {item["sku"] for item in first["items"]}
+    assert first["summary"]["metadata_issues"] == 2
+    filtered = products_client.get("/api/edit_products?issue=missing_image").get_json()
+    assert {item["sku"] for item in filtered["items"]} == {
+        "CARD-SIMPLE-001", "OFF-PAGE-IMAGE-GAP"}
+    assert filtered["pagination"]["total"] == 2
+
+
 def test_products_empty_and_filtered_empty_contract(products_app, products_client):
     filtered = products_client.get("/api/edit_products?q=does-not-exist").get_json()
     assert filtered["pagination"]["total"] == 0

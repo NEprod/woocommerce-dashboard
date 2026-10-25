@@ -22,6 +22,7 @@ from app.models import (
     Variation,
 )
 from app.publishing import projected_publishing_intent
+from app.taxonomy_registry import registry_read_view
 from app.utils.operation_control import get_active_operation
 
 
@@ -131,6 +132,7 @@ def _operation_view(operation):
     }
 
 
+@registry_read_view
 def build_dashboard_data():
     """Build genuine dashboard facts without mutating application state."""
 
