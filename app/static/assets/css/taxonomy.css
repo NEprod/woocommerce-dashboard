@@ -1,6 +1,6 @@
 .taxonomy-workspace { min-width: 0; }
 .sync-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: var(--space-5); }
-.sync-heading, .sync-toolbar { background: var(--color-surface-dark); color: var(--color-text-inverse); padding: var(--space-5); border-radius: var(--radius-card-small); }
+.sync-heading, .sync-toolbar { background: var(--color-brand-forest); color: var(--color-text-inverse); padding: var(--space-5); border-radius: var(--radius-card-small); }
 .sync-toolbar, .sync-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
 .sync-row { padding: var(--space-4); border-bottom: 1px solid var(--color-divider); overflow-wrap: anywhere; }
 .sync-row details { flex-basis: 100%; }
@@ -30,7 +30,7 @@
 .taxonomy-search input { flex: 1; min-width: 140px; }
 .taxonomy-tabs, .taxonomy-toolbar, .taxonomy-tree-heading { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
 .taxonomy-tabs { padding-block: var(--space-4); border-bottom: 1px solid var(--color-divider); }
-.taxonomy-toolbar { background: var(--color-surface-dark); color: var(--color-text-inverse); padding: var(--space-5); border-radius: var(--radius-card-small); }
+.taxonomy-toolbar { background: var(--color-brand-forest); color: var(--color-text-inverse); padding: var(--space-5); border-radius: var(--radius-card-small); }
 .taxonomy-toolbar .form-control { flex: 1; min-width: 160px; }
 .taxonomy-toolbar .form-select { width: auto; }
 .taxonomy-toolbar label { color: var(--color-text-inverse); }
@@ -42,7 +42,7 @@
 .taxonomy-path { margin-block: var(--space-3); }
 .taxonomy-definition { margin-block: var(--space-3); }
 .taxonomy-choice { display: grid; grid-template-columns: 20px minmax(0,1fr); gap: var(--space-4); align-items: start; padding: var(--space-4); margin: 0; min-height: 44px; overflow-wrap: anywhere; }
-.taxonomy-choice input { width: 18px; height: 18px; margin-top: 3px; accent-color: var(--color-lime-ink); }
+.taxonomy-choice input { width: 18px; height: 18px; margin-top: 3px; accent-color: var(--color-brand-forest); }
 .taxonomy-choice small { display: block; color: var(--color-text-secondary); margin-top: var(--space-2); }
 .taxonomy-workspace fieldset { min-width: 0; margin-block: var(--space-5); }
 .taxonomy-workspace legend { font-size: var(--type-card-title, 16px); font-weight: 700; }
