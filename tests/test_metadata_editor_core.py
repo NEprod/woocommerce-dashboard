@@ -90,7 +90,7 @@ def test_all_layout_owners_save_without_reallocating_identities(core, name, kind
     response = save(core, name, kind=kind, data={"description":"Reviewed copy"})
     assert response.status_code == 200, response.json
     assert response.json["json_saved"] and response.json["scan_pending"]
-    assert starts[-1]["scan_mode"] == ("shared_collection" if kind == "shared" else "update")
+    assert starts[-1]["scan_mode"] == "shared_collection"
     with app.app_context():
         p = db.session.get(Product, ids[name])
         assert (p.sku, [(v.id,v.sku,v.source_identity) for v in p.variations]) == baseline

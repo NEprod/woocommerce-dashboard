@@ -51,6 +51,22 @@ def source(product, kind):
     return path, text, item
 
 
+def override_collection_relpath(product, target):
+    """Reuse the shared JSON owner, confined to the actual containing collection."""
+    root = _catalogue_root()
+    if root is None:
+        raise ValueError('Collection scan unavailable. Restore the configured catalogue mount before saving.')
+    shared, _, _ = source(product, 'shared')
+    collection = shared.parent
+    if (not shared.is_file() or collection == root or collection.parent != root
+            or target.parent.parent != collection):
+        raise ValueError('Collection scan context is invalid. Restore the shared product_info.json in this product\'s containing collection and rescan its source mapping before saving.')
+    try:
+        return collection.relative_to(root).as_posix()
+    except ValueError:
+        raise ValueError('Collection scan destination is outside the configured catalogue root.') from None
+
+
 def revision(product, kind):
     from app.taxonomy_assignments import options
     path, text, item = source(product, kind)

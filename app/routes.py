@@ -1391,7 +1391,7 @@ def metadata_validate():
 @login_required
 def product_save_json(sku):
     """Apply a signed local patch, then hand off to existing scanner ingestion."""
-    from app.metadata_save import prepare_request, verify_revision, review_token
+    from app.metadata_save import prepare_request, verify_revision, review_token, override_collection_relpath
     from app.metadata_edit import MetadataEditConflict
     if not current_user.is_admin:
         abort(403)
@@ -1422,14 +1422,17 @@ def product_save_json(sku):
     if kind == "shared" and affected > 1 and payload.get("acknowledge_shared") is not True:
         return jsonify(error="shared_confirmation_required", message=f"Confirm the shared scope affecting up to {affected} products."), 400
     scope = {"sku": p.sku, "kind": kind, "source": target.name, "local_save": True}
-    collection_relpath = None
-    if kind == "shared":
-        from app.metadata_workspace import _catalogue_root
-        collection_relpath = target.parent.relative_to(_catalogue_root()).as_posix()
-        scope.update(scope_kind="collection", collection_relpath=collection_relpath, exhaustive=True)
     try:
-        operation = acquire_catalogue_operation(
-            "shared_collection_update" if kind == "shared" else "product_update", scope)
+        if kind == "shared":
+            from app.metadata_workspace import _catalogue_root
+            collection_relpath = target.parent.relative_to(_catalogue_root()).as_posix()
+        else:
+            collection_relpath = override_collection_relpath(p, target)
+    except (OSError, ValueError, RuntimeError) as error:
+        return jsonify(error="metadata_scan_scope_invalid", message=str(error)), 400
+    scope.update(scope_kind="collection", collection_relpath=collection_relpath, exhaustive=True)
+    try:
+        operation = acquire_catalogue_operation("shared_collection_update", scope)
     except CatalogueOperationActive as error:
         return _operation_conflict(error)
     json_saved = False
@@ -1439,6 +1442,8 @@ def product_save_json(sku):
         locked_target, edit = prepare_request(p, kind, payload)
         if locked_target != target:
             raise MetadataEditConflict("Metadata owner changed. Reload before saving.")
+        if kind == "override" and override_collection_relpath(p, locked_target) != collection_relpath:
+            raise MetadataEditConflict("Containing collection changed. Reload before saving.")
         if not edit.validation.valid:
             raise ValueError("Metadata changed or is invalid; reload and validate before saving.")
         if target.exists() and edit.changed:
@@ -1456,7 +1461,7 @@ def product_save_json(sku):
             atomic_write_text(target.parent / ".update", "1")
         run_id = uuid.uuid4().hex
         start_scan(current_app._get_current_object(), run_id,
-            scan_mode="shared_collection" if kind == "shared" else "update",
+            scan_mode="shared_collection",
             operation_id=operation.id, scope=scope, collection_relpath=collection_relpath)
     except Exception as error:
         db.session.rollback()
