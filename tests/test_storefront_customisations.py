@@ -305,7 +305,8 @@ def test_normal_review_and_editor_render_scoped_configuration(world,monkeypatch)
         target=url_for('commerce.drafts',product_id=world[0].id)
     response=client.post(target,data={'action':'preview','customisations_only':'yes'})
     assert response.status_code==200
-    assert b'Customer-facing configuration' in response.data
+    assert b'Customer customisations' in response.data
+    assert b'Enabled:</strong> Yes' in response.data
     assert b'not authorising other product fields' in response.data
     _,token=drafts.preview(world[0],adapter,scope='customisations')
     response=client.post(target,data={'action':'confirm','review':token,'acknowledge':'yes'},headers={'Accept':'application/json'})

@@ -227,10 +227,15 @@ def review_rows(plan):
             action = "Deferred (inventory-only scope)" if row.get("deferred") else "Set on create" if plan["classification"] == "create" and after is not None else "Change" if row["changed"] else "Already matching"
             if dimensional and row['changed'] and not row.get('deferred'):
                 action = 'New Shopify field — Finished Product Dimensions' if before is None else 'Changed Shopify field — Finished Product Dimensions'
-            rows.append({"label": label, 'group': 'finished' if dimensional else 'packed' if key.startswith('native.') else 'general',
+            details = None
+            if key == 'customisations.configuration':
+                from app.customisation_review import compare
+                details = compare(plan.get('customisations'), before, after)
+                label, before, after = 'Customer customisations', details['before'], details['after']
+            rows.append({"label": label, 'group': 'customisations' if details else 'finished' if dimensional else 'packed' if key.startswith('native.') else 'general',
                 'owner': ('Variant ' + key.split('.')[1]) if key.startswith('variants.') else 'Product',
                 "before": "Not created" if plan["classification"] == "create" and after is not None else value(before),
-                "after": value(after), "action": action})
+                "after": value(after), "action": action, **({'customisation_details': details} if details else {})})
     return rows
 
 

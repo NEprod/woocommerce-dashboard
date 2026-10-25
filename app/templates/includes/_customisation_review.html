@@ -1,0 +1,25 @@
+{% set configuration = review_rows|selectattr('group','equalto','customisations')|first %}
+{% if configuration %}
+{% set detail = configuration.customisation_details %}
+<details open data-customisation-review>
+  <summary>Customer customisations — {{ configuration.after }} · {{ configuration.action }}</summary>
+  <p>Current: {{ configuration.before }}. Reviewed: {{ configuration.after }}.</p>
+  {% if detail.message %}<p data-customisation-message>{{ detail.message }}</p>{% endif %}
+  {% if detail.enabled_change %}<p><strong>Enabled:</strong> {{ detail.enabled_change.before }} → {{ detail.enabled_change.after }}</p>{% endif %}
+  {% if detail.changes %}<ul data-customisation-changes>
+    {% for field in detail.changes %}<li class="text-break">
+      <strong>{{ field.label }}</strong> — {{ field.kind }}{% if field.description %} · {{ field.description }}{% endif %}
+      {% if field.changes %}<ul>{% for change in field.changes %}<li class="text-break">{{ change.setting }}: {{ change.before }} → {{ change.after }}</li>{% endfor %}</ul>{% endif %}
+      <details><summary>Field details · {{ field.id }}</summary><dl>{% for setting in field.settings %}<dt>{{ setting.setting }}</dt><dd class="text-break">{{ setting.value }}</dd>{% endfor %}</dl></details>
+    </li>{% endfor %}
+  </ul>{% endif %}
+  {% if detail.matching %}<details data-customisation-matching><summary>Already matching — {{ detail.matching|length }} {{ 'field' if detail.matching|length == 1 else 'fields' }}</summary><ul>{% for field in detail.matching %}<li>{{ field.label }} · {{ field.id }}</li>{% endfor %}</ul></details>{% endif %}
+  <details data-customisation-technical><summary>Technical details — configuration revisions</summary>
+    <p>Current revision: <code class="text-break">{{ detail.previous_revision or 'Unavailable / not published' }}</code></p>
+    <p>Reviewed revision: <code class="text-break">{{ detail.reviewed_revision or 'Unavailable' }}</code></p>
+    {% if plan is defined and plan.customisations %}<details><summary>Reviewed public configuration</summary><pre class="text-wrap text-break">{{ plan.customisations.desired|tojson(indent=2) }}</pre></details>{% endif %}
+    <p>Revision hashes, signed approval, identity checks, compare-digest protection and post-write readback remain authoritative. This explanation does not authorise writes or establish publication.</p>
+  </details>
+  <p class="field-helper">Public field definitions only. Production Time is separate. Theme activation and cart/checkout behaviour are not verified by this review.</p>
+</details>
+{% endif %}
