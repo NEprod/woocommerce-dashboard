@@ -80,6 +80,9 @@ def product_result(operation):
         outcome = "recovery_required"
     elif operation.status == "succeeded" and complete(identity, data):
         outcome = "shopify_accepted" if package_state == 'accepted' else "verified_success"
+    elif (operation.status == 'succeeded' and scope.get('mode') == 'publication' and identity
+          and identity.state == 'verified' and data.get('publication_update', {}).get('state') == 'verified'):
+        outcome = 'verified_success'  # scope is explicitly status/channels, not renewed metadata
     elif package_state == 'rejected':
         outcome = 'failed'
     elif operation.status in {"failed", "interrupted"} and not data.get("completed_steps") and (not identity or identity.state == "failed_before_create" or summary.get("write_attempted") is False):
@@ -114,6 +117,14 @@ def product_result(operation):
     if scope.get('mode') in {'sale_activate','sale_end'}:
         result['operation']='Sale Activated' if scope['mode']=='sale_activate' else 'Sale Ended'
         result['sale_status']=('active' if data.get('sale_transition',{}).get('phase')=='activate' else 'completed') if outcome=='verified_success' else summary.get('sale_status') or ('Recovery Required' if outcome=='recovery_required' else 'Needs Attention')
+    automatic = scope.get('automatic_publishing') or {}
+    if automatic.get('trigger') in {'sale_activate', 'sale_end', 'release'}:
+        result['operation'] = {'sale_activate': 'Sale Activated', 'sale_end': 'Sale Ended',
+            'release': 'Scheduled Product Release'}[automatic['trigger']]
+    elif automatic and scope.get('mode') == 'publication':
+        result['operation'] = 'Changed to Draft' if data.get('observed_status') == 'DRAFT' else 'Publication updated'
+    elif automatic.get('completion_of_creation'):
+        result['operation'] = 'Created — processing readback completed'
     if outcome in {"verified_success", "shopify_accepted"}:
         result["shopify_status"] = data.get("observed_status")  # independently read, never intended status
         result.pop("reason", None)  # original uncertainty stays in history, not current-success warnings
@@ -150,15 +161,28 @@ def enqueue(operation):
     if not product:
         return None
     scope = scope_of(operation)
+    from app.automatic_publishing import policy
+    authority = policy()
+    notify_verified = bool(scope.get('automatic_publishing') or authority and authority.actor_id)
+    if notify_verified:
+        from app.publishing_events import record
+        identity = ShopifyProductIdentity.query.filter_by(operation_id=operation.id).first()
+        from app.shopify_drafts import evidence
+        product_row = db.session.get(Product, scope.get('product_id') or identity.product_id) if scope.get('product_id') or identity else None
+        product['changes'] = record(operation, product_row, identity, evidence(identity) if identity else {})
+        product['trigger'] = scope.get('automatic_publishing', {}).get('trigger', 'manual_review')
+        product['operation_reference'] = operation.id
     events = scope.setdefault(KEY, {})
     event = product["outcome"]
     if event in events:
         return None
     identity = ShopifyProductIdentity.query.filter_by(operation_id=operation.id).first()
-    quiet = event in {'verified_success', 'shopify_accepted'} or (
+    quiet = event in {'verified_success', 'shopify_accepted'} and not notify_verified or (
         event == 'partial_completion' and identity and identity.state == 'processing')
+    envelope = aggregate([product])
+    envelope['notify_verified'] = notify_verified
     events[event] = {"version": 1, "event": event, "state": "suppressed" if quiet else "pending", "attempts": 0,
-        "summary": aggregate([product])}
+        "summary": envelope}
     operation.scope = json.dumps(scope, sort_keys=True)
     return None if quiet else event
 
@@ -332,3 +356,31 @@ def events_view(operation):
         result.append({"event": event, "state": state, "result": notice.get("result", ""),
             "retryable": state in RETRYABLE, "attempts": notice["attempts"]})
     return result
+
+
+def retry_pending(*, limit=8):
+    """Bounded safe delivery recovery; never resend an ambiguous webhook.
+
+    Delivery CAS is still the only claim. Shopify verification/queue completion
+    is independent of Discord availability. Known failures use durable backoff.
+    """
+    candidates = CatalogueOperation.query.filter(CatalogueOperation.finished_at.isnot(None),
+        CatalogueOperation.scope.contains('"' + KEY + '"'),
+        db.or_(CatalogueOperation.scope.contains('"state": "pending"'),
+               CatalogueOperation.scope.contains('"state": "failed"'),
+               CatalogueOperation.scope.contains('"state": "disabled"'))).order_by(
+                   CatalogueOperation.finished_at.desc()).limit(50).all()
+    attempted = 0
+    for operation in candidates:
+        for event, notice in scope_of(operation).get(KEY, {}).items():
+            if attempted >= limit:
+                return attempted
+            if notice.get('state') not in {'pending', 'failed', 'disabled'} or notice.get('attempts', 0) >= 6:
+                continue
+            previous = notice.get('attempted_at')
+            if previous and now() < datetime.fromisoformat(previous) + timedelta(
+                    seconds=min(3600, 30 * 2 ** notice.get('attempts', 0))):
+                continue
+            deliver(operation.id, event, retry=True)
+            attempted += 1
+    return attempted

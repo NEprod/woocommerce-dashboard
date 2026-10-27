@@ -170,7 +170,7 @@ def publishing_message(summary):
     """One terminal envelope, using existing channels and protected transport."""
     products = summary["products"]
     success = summary["verified_success"] + summary.get('shopify_accepted', 0) == summary["attempted"]
-    if success:
+    if success and not summary.get('notify_verified'):
         return False, 'suppressed'
     labels = {"verified_success": "Success — Verified", "shopify_accepted": "Completed — Shopify Accepted",
         "failed": "Failed — required operation rejected", "failed_before_write": "Failed before product mutation",
@@ -181,10 +181,21 @@ def publishing_message(summary):
         fields = [{"name": label, "value": value, "inline": True} for label, value in
             [("Product", product["title"]), ("SKU", product["sku"]), ("Operation", product["operation"]),
              ("Result", labels[product["outcome"]]), ("Completed (UTC)", product["completed_at"])]]
-        for key, label in [("variants", "Variants"), ("images", "Images synchronised/retained"), ("shopify_status", "Shopify status"), ('sale_status','Sale status')]:
-            if key in product:
-                fields.append({"name": label, "value": str(product[key]), "inline": True})
+        proof = [label + ': ' + str(product[key]) for key, label in [("variants", "Variants"),
+            ("images", "Images synchronised/retained"), ("shopify_status", "Shopify status"), ('sale_status', 'Sale status')] if key in product]
+        if proof:
+            fields.append({'name': 'Verified scope', 'value': ' · '.join(proof)})
         notes = product.get("deferred", []) + ([product["reason"]] if product.get("reason") else [])
+        if product.get('trigger'):
+            fields.append({'name': 'Trigger / receipt', 'value': str(product['trigger']) + ' · ' + str(product.get('operation_reference', ''))})
+        changes = product.get('changes') or []
+        if changes:
+            def value(item):
+                return redact_diagnostic(str(item), limit=180)
+            lines = [str(row.get('label') or row['field']) + ': ' + value(row.get('before')) + ' → ' + value(row.get('after')) for row in changes[:8]]
+            if len(changes) > 8:
+                lines.append('More changes in the original TLCDashboard operation receipt.')
+            fields.append({'name': 'Actual changes', 'value': '\n'.join(lines)})
         if notes:
             fields.append({"name": "Outstanding / deferred", "value": "\n".join(notes)})
         description = f"[View verified Shopify product]({product['url']})" if product.get("url") else "Open TLCDashboard Operations for retained evidence."

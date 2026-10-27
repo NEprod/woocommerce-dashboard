@@ -434,6 +434,8 @@
 
   function render(payload) {
     document.querySelectorAll("[data-summary-value]").forEach(function (target) { target.textContent = Number(payload.summary[target.dataset.summaryValue] || 0).toLocaleString(); });
+    const health = document.querySelector('[data-source-health-pending]');
+    if (health) { health.hidden = !payload.summary.source_health_pending; health.textContent = `${payload.summary.source_health_pending || 0} products await saved source-health projection. Image-issue totals are incomplete until that finishes; no page visit scans folders.`; }
     groupsTarget.replaceChildren();
     visibleProducts = [];
     errorState.hidden = true;

@@ -1,6 +1,7 @@
 {% extends "layouts/base.html" %}
 {% from 'includes/icons.html' import icon %}
 {% block content %}
+{% if dashboard.source_health_pending %}<p class="panel-note">{{ dashboard.source_health_pending }} products await saved source-health projection. Image-issue counts remain incomplete until that finishes. Local catalogue availability and Shopify verification are separate.</p>{% endif %}
 <header class="page-header dashboard-header">
   <div>
     <p class="eyebrow">Catalogue overview</p>

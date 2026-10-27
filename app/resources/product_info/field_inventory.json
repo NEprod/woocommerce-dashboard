@@ -173,6 +173,15 @@
     "classification": "canonical and active", "implementation_status": "Active with nondeterministic ordering.", "example": ["fictional", "complete"], "warning_error": "Wrong type blocks editor save."
   },
   {
+    "key": "shopify_release_at", "aliases": [], "type": "ISO date-time or null", "units": "UTC or unambiguous UK local time",
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Inherited unless overridden; null cancels a product release.", "merge": "Scalar replacement.",
+    "parent_effect": "Indexes an optional Draft-to-Live release.", "variation_effect": "Parent publication only.",
+    "woo_field": null, "sqlite_destination": "shopify_due_event",
+    "classification": "canonical and active", "implementation_status": "Automatic authority required; five-minute due event.",
+    "example": "2027-03-01T09:00:00Z", "warning_error": "Invalid or ambiguous date blocks save; keep future releases Draft."
+  },
+  {
     "key": "live", "aliases": [], "type": "boolean", "units": null,
     "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
     "inheritance": "Inherited unless overridden.", "merge": "Scalar replacement.",

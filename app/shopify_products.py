@@ -94,10 +94,13 @@ def source_fingerprint(product, images):
     return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def states_for(products):
+def states_for(products, *, fresh=False, url_builder=None):
     products = list(products)
     if not products:
         return {}
+    from app.catalogue_views import active, saved_states
+    if not fresh and active():
+        return saved_states(products)
     variable_ids = [p.id for p in products if p.product_type == "variable"]
     if variable_ids:
         from sqlalchemy.orm import selectinload
@@ -113,12 +116,13 @@ def states_for(products):
     from app.models import ShopifyAttributeIdentity
     mappings.update({(r.store_id,r.source_key):r for r in ShopifyAttributeIdentity.query.all()})
     return {p.id: product_state(p, [r for r in rows if r.product_id == p.id or r.source_identity == p.source_relpath],
-                [r for r in comparisons if r.source_identity == p.source_relpath], mappings)
+                [r for r in comparisons if r.source_identity == p.source_relpath], mappings, url_builder=url_builder)
             for p in products}
 
 
-def product_state(product, rows, comparisons=(), mappings=None):
-    from flask import url_for
+def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=None):
+    from flask import url_for as flask_url_for
+    url_for = url_builder or flask_url_for
     from app.shopify_drafts import evidence
     from app.customisations import CustomisationDefinitionError
     native_comparison = None

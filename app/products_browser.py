@@ -21,6 +21,7 @@ from app.dashboard import METADATA_ISSUE_DEFINITIONS, metadata_issue_condition
 from app.models import Collection, Product, ProductAsset, Variation
 from app.publishing import projected_publishing_intent
 from app.taxonomy_registry import registry_read_view
+from app.catalogue_views import saved_read_view
 
 
 SUPPORTED_PRODUCT_TYPES = {"simple", "variable"}
@@ -164,14 +165,19 @@ def _product_view(product, variation_count, shopify):
     from app.sale_pricing import catalogue
     from app.customisations import CustomisationDefinitionError
     try:
-        pricing = catalogue(product)
+        from app.catalogue_views import active, document, display_title
+        saved_document = document(product) if active() else None
+        pricing = catalogue(product, authored=saved_document) if active() else catalogue(product)
+        if active() and not saved_document:
+            pricing.update(label='Last indexed price', error='Saved source pricing projection is pending; indexed values are provisional.')
     except CustomisationDefinitionError:
         # Listing fallback only, never publishing authority or a source rewrite.
         pricing = catalogue(product, authored={})
         pricing.update(label='Last indexed price', error='Customisation inheritance needs review; showing indexed pricing only.')
 
     edit_label = "override" if override_present else "shared" if shared_present else None
-    thumbnail = product_thumbnail_url(product)
+    from app.catalogue_views import active, thumbnail as saved_thumbnail
+    thumbnail = saved_thumbnail(product) if active() else product_thumbnail_url(product)
     publishing_intent = projected_publishing_intent(shopify["intent_value"])
     publishing_intent["compact_label"] = shopify["intent"]
 
@@ -180,7 +186,7 @@ def _product_view(product, variation_count, shopify):
         "shopify": shopify,
         "id": product.id,
         "sku": product.sku or "",
-        "title": current_title(product) or "Untitled product",
+        "title": (display_title(product) if active() else current_title(product)) or "Untitled product",
         "type": "variable" if product.product_type == "variable" else "simple",
         "collection": collection_display_name(product.collection) if product.collection else "Unassigned",
         "collection_id": product.collection_id,
@@ -212,7 +218,7 @@ def _product_view(product, variation_count, shopify):
         "updated_at": product.local_updated_at.isoformat() if product.local_updated_at else None,
         "has_metadata_issue": bool(
             (not product.short_description and not product.description)
-            or not thumbnail
+            or (not thumbnail if not active() else _known_missing_image(product))
             or not product.meta_title
             or not product.meta_description
         )
@@ -233,7 +239,7 @@ def _product_view(product, variation_count, shopify):
 
 
 def _summary():
-    return {
+    result = {
         "collections": Collection.query.count(),
         "products": Product.query.count(),
         "variations": Variation.query.count(),
@@ -241,9 +247,19 @@ def _summary():
         "missing": Product.query.filter_by(catalogue_status="missing").count(),
         "metadata_issues": Product.query.filter(metadata_problem_condition()).count(),
     }
+    from app.catalogue_views import active, pending_count
+    if active(): result['source_health_pending'] = pending_count()
+    return result
+
+
+def _known_missing_image(product):
+    from app.catalogue_views import jobs_for
+    job = jobs_for([product]).get(product.id)
+    return bool(job and job.image_available is False)
 
 
 @registry_read_view
+@saved_read_view
 def build_products_data(filters):
     """Return a paged collection-grouped view without eager variation rows."""
 

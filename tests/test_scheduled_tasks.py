@@ -61,7 +61,7 @@ def run(product,adapter,*,manual=False):
 def test_default_configuration_and_restart_persistence(preview_app):
     with preview_app.app_context():
         task=db.session.get(ScheduledTask,tasks.KEY)
-        assert task.enabled and task.interval_minutes==20 and task.state=="idle"
+        assert task.enabled and task.interval_minutes==1440 and task.state=="idle"
         original=task.next_due
         tasks.configure(tasks.KEY,enabled=True,interval=30)
         db.session.remove()
@@ -464,7 +464,7 @@ def test_fresh_and_upgrade_migration_preserves_existing_data(tmp_path):
         from app.database import migration_head
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]==migration_head()
         assert conn.execute("SELECT source_key,state FROM shopify_attribute_identity").fetchone()==('attribute:test','verified')
-        assert conn.execute("SELECT enabled,interval_minutes FROM scheduled_task").fetchone()==(1,20)
+        assert conn.execute("SELECT enabled,interval_minutes FROM scheduled_task WHERE key='shopify_products'").fetchone()==(1,1440)
     fresh=tmp_path/"fresh.db";ensure_database("sqlite:///"+str(fresh))
     with sqlite3.connect(fresh) as conn:assert conn.execute("SELECT COUNT(*) FROM scheduled_task_run").fetchone()[0]==0
 

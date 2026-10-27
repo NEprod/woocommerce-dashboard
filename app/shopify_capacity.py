@@ -27,9 +27,10 @@ def background():
 
 
 @contextmanager
-def background_work(guard, *, fence=None, requests=120, seconds=120, price_transitions=False):
+def background_work(guard, *, fence=None, requests=120, seconds=120, price_transitions=False, publisher_authority=None, publishing_context=None):
     state = {"guard": guard, "fence":fence or guard, "remaining": requests, "deadline": monotonic()+seconds, "requests": 0, "throttled": 0,
-             "price_transitions":price_transitions}
+             "price_transitions":price_transitions, "publisher_authority":publisher_authority,
+             "publishing_context":publishing_context}
     token = _background.set(state)
     try:
         yield state
@@ -78,6 +79,9 @@ def before(config, *, writing=False, query=None):
     if writing:
         from app.shopify_connection import PRICE_QUERY, VARIANTS_UPDATE
         permitted = state.get('price_transitions') is True and query in {PRICE_QUERY,VARIANTS_UPDATE}
+        if state.get('publisher_authority'):
+            state['publisher_authority']()  # durable authority and owner checked before EACH write
+            permitted = True
     else: permitted = True
     if not permitted:
         raise BackgroundYield("Background Shopify mutations are forbidden.")

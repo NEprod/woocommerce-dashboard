@@ -19,6 +19,7 @@
   "categories": ["Fictional Reference"],
   "tags": ["fictional", "complete"],
   "live": false,
+  "shopify_release_at": null,
   "short_description": "A complete fictional metadata reference.",
   "description": "Every recognized authored key is demonstrated here.",
   "attributes": {"Finish": ["Matte", "Gloss"], "Size": ["Small", "Large"]},

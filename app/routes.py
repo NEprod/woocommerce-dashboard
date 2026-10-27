@@ -83,6 +83,7 @@ from app.dashboard import (
     METADATA_ISSUE_DEFINITIONS,
     build_dashboard_data,
 )
+from app.catalogue_views import saved_read_view
 from app.products_browser import (
     build_products_data,
     build_variation_data,
@@ -2060,6 +2061,7 @@ def operations():
 
 @main.route('/operations/issues')
 @login_required
+@saved_read_view
 def operation_issues_page():
     """Read-only current projection, shared exactly with dashboard counters."""
     from app.operation_reporting import issue_projection, CATEGORIES

@@ -88,6 +88,8 @@ def test_legacy_verified_evidence_is_not_invented_as_current(world):
 
 def test_normal_pages_render_offline_and_hide_woo(world, monkeypatch):
     product, row, adapter = created(world)
+    from catalogue_projection_fixtures import project_existing_sources
+    project_existing_sources()
     monkeypatch.setattr(ShopifyAdapter, "test_connection", lambda *a: pytest.fail("GET contacted Shopify"))
     import app.woo_sync_workspace as woo
     monkeypatch.setattr(woo, "overview", lambda: pytest.fail("Normal page uses Woo overview"))

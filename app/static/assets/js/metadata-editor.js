@@ -17,7 +17,7 @@
   const isShared = boot.kind === "shared";
   const knownFields = new Set([
     "collection_type", "title", "sku_prefix", "price", "sale_price",
-    "sale_start_date", "sale_end_date", "weight", "dimensions", "categories",
+    "sale_start_date", "sale_end_date", "shopify_release_at", "weight", "dimensions", "categories",
     "tags", "storefront_collections", "live", "short_description", "description", "attributes",
     "image_attributes", "variation_attributes", "variation_modifiers", "shipping_class", "grouped_ids",
     "grouped_products", "upsell_ids", "cross_sell_ids", "upsells", "crosssells",
@@ -697,6 +697,7 @@
       const field = control.dataset.field;
       if (!overrideEnabled(field)) return;
       let value = control.value.trim();
+      if (field === "shopify_release_at" && value === "") value = null;
       if (["live", "requires_shipping", "manage_stock"].includes(field)) value = value === "true" ? true : value === "false" ? false : "";
       if (control.dataset.arrayField === "true") value = value.split(",").map((item) => item.trim()).filter(Boolean);
       result[field] = value;

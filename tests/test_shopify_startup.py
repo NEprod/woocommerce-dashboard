@@ -162,7 +162,8 @@ def test_editors_keep_fields_and_one_main_review_entry(core,source,kind,monkeypa
     for marker in (b'publishing-title',b'Desired Shopify status',b'data-channel-choices',b'data-discover-channels'):
         assert marker in page.data
     assert b'Review &amp; Sync saved product, status &amp; channels' not in page.data
-    assert b'Save locally, then review Shopify changes from Products or Product Details.' in page.data
+    assert b'If automatic publishing is explicitly enabled, scanned Live changes are queued' in page.data
+    assert b'Review &amp; Sync and acknowledged Sync Now remain available.' in page.data
     assert b'col-12' in page.data or b'editor-workspace' in page.data
 
 
@@ -171,6 +172,7 @@ def test_supervisor_queues_once_without_network_or_scanner(core,monkeypatch):
     app,*_=core
     starts=[];calls=[]
     monkeypatch.setenv('TLC_MANAGED_RUNTIME','test-restored-afterwards')
+    monkeypatch.setenv('TLC_SCHEDULER_READY_AT','0')
     monkeypatch.setattr('app.create_app',lambda **kw:(calls.append(kw) or app))
     monkeypatch.setattr(runtime.signal,'signal',lambda *a:None)
     monkeypatch.setattr(runtime.subprocess,'Popen',lambda args:(starts.append(args) or SimpleNamespace(poll=lambda:0,wait=lambda **k:0)))
@@ -181,8 +183,12 @@ def test_supervisor_queues_once_without_network_or_scanner(core,monkeypatch):
     assert starts[1][-2:]==['-m','app.scheduler_worker']
     with app.app_context():
         runs=ScheduledTaskRun.query.all()
-        assert len(runs)==2 and all(run.trigger=='startup' for run in runs)
-        assert {run.task_key for run in runs}=={tasks.KEY,tasks.ORDERS_KEY}
+        assert len(runs)==1 and runs[0].trigger=='startup'
+        assert runs[0].task_key==tasks.ORDERS_KEY
+        # A configured boot preserves Products state; daily reads are not
+        # converted to an immediate forced full reconciliation on every restart.
+        import os,time
+        assert 590 < float(os.environ['TLC_SCHEDULER_READY_AT'])-time.time() <= 600
 
 
 def test_web_workers_do_not_enqueue_startup(preview_app):

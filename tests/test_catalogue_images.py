@@ -178,6 +178,8 @@ def catalogue_image_app(tmp_path):
                 ]
             )
             db.session.commit()
+            from catalogue_projection_fixtures import project_existing_sources
+            project_existing_sources()
             product_ids = {
                 product.sku: product.id
                 for product in Product.query.order_by(Product.id).all()

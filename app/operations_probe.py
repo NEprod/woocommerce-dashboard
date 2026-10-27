@@ -72,6 +72,7 @@ def dashboard_snapshot(database):
         ('main.operation_detail', '/operations/<operation_id>'),
         ('main.operation_issues_page', '/operations/issues'),
         ('main.product_detail', '/products/<int:product_id>'),
+        ('main.catalogue_product_image', '/catalogue-images/products/<int:product_id>'),
         ('commerce.drafts', '/products/<int:product_id>/shopify/review'),
         ('commerce.draft_identity', '/shopify/identities/<int:identity_id>'),
         ('tasks.run_detail', '/tasks/runs/<run_id>')):

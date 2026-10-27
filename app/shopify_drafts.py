@@ -360,6 +360,8 @@ def save(row, data, state=None):
         if state in {"uncertain", "failed_before_create"}:
             row.verification_state = "unverified"
     row.updated_at = now()
+    from app.catalogue_views import invalidate as invalidate_view
+    invalidate_view(product_id=row.product_id)
     db.session.commit()
 
 
@@ -385,6 +387,16 @@ def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
         reviewed = serializer().loads(token, max_age=900)
     except BadSignature:
         raise ShopifyError("Draft Preview expired or is invalid. Generate a fresh Preview.") from None
+    return execute_reviewed(reviewed, adapter, expected_product_id=expected_product_id)
+
+
+def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
+    """Shared executor, not an HTTP approval endpoint.
+
+    Manual callers arrive only after confirm's signature/acknowledgement gate.
+    Automatic callers require a separately persisted, fenced publishing grant.
+    Neither path skips source/digest, identity, reservation or readback checks.
+    """
     if expected_product_id is not None and reviewed.get("product_id") != expected_product_id:
         raise ShopifyError("Reviewed product does not match this Products workspace. Open its own review; no write occurred.")
     if reviewed.get('mode') == 'customisations':

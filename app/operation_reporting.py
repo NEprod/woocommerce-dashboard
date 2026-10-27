@@ -10,6 +10,7 @@ from flask import url_for
 
 from app.models import CatalogueOperation, Product, Variation, ScheduledTaskRun
 from app.utils.redaction import redact_diagnostic
+from app.catalogue_views import saved_read_view
 
 CATEGORIES = {
     'metadata': ('Required metadata gaps', 'product/field-group findings'),
@@ -42,6 +43,14 @@ def interpretation(row):
     summary = operation_summary(scope)
     recovery = row.recovery_state not in (None, 'none')
     execution = row.status
+    known_processing = (row.operation_type == 'shopify_draft_publish' and scope.get('automatic_publishing')
+        and execution == 'partial' and not row.error and not row.products_failed and summary.get('identity_id')
+        and summary.get('state') in {None, 'processing'}
+        and summary.get('stage') in {'media_processing','media_reordering'}
+        and summary.get('native_dimensions') in {'disabled','blocked','verified'}
+        and summary.get('package_assignment') in {'none','accepted','outstanding'})
+    if known_processing:
+        execution, recovery = 'processing', False
     # Only explicit new evidence permits a corrected historical interpretation.
     entries = summary.get('warning_entries') or []
     from app.utils.scan_runner import scan_finding_severity
@@ -57,7 +66,8 @@ def interpretation(row):
     findings = bool(summary.get('findings') or summary.get('warnings') or summary.get('information'))
     label = {'succeeded': 'Completed with findings' if findings else 'Completed',
              'partial': 'Partially completed', 'failed': 'Failed', 'interrupted': 'Interrupted',
-             'running': 'Running', 'pending': 'Queued', 'cancelled': 'Cancelled'}.get(execution, execution)
+             'running': 'Running', 'pending': 'Queued', 'cancelled': 'Cancelled',
+             'processing': 'Awaiting Shopify media readback'}.get(execution, execution)
     if recovery:
         label = 'Recovery Required'
     elif execution == 'succeeded' and summary.get('package_assignment') == 'accepted':
@@ -209,6 +219,7 @@ def lifecycle(items, rows):
     return observed
 
 
+@saved_read_view
 def issue_projection():
     """Single source for counters, filtered drill-down and read-only diagnostics."""
     from app.dashboard import _missing_image_product_ids
@@ -224,6 +235,8 @@ def issue_projection():
     # Complete, current comparison evidence newer than the incident is equally
     # authoritative, but never proves the result of a historical write.
     product_map = {p.id: p for p in active}
+    from app.catalogue_views import jobs_for
+    publish_jobs = jobs_for(active)
     retained_failures = []
     by_operation = {r.id: r for r in rows}
     for incident in operation['failures'] + operation['review']:
@@ -231,15 +244,32 @@ def issue_projection():
         scope = document(row.scope)
         ids = scope.get('products')
         resolved = False
+        # A publisher's local preflight receipt explicitly proves no write was
+        # attempted. A later revalidated desired revision can resolve that exact
+        # prerequisite, never an actual failed or uncertain remote mutation.
+        if (scope.get('mode') == 'automatic_preflight'
+                and operation_summary(scope).get('write_attempted') is False):
+            job = publish_jobs.get(scope.get('product_id'))
+            resolved = bool(job and job.state == 'verified' and job.verified_revision == job.requested_revision
+                and job.updated_at > (row.finished_at or row.started_at))
         if row.operation_type == 'shopify_status_refresh' and isinstance(ids, list) and 0 < len(ids) < 20:
             try:
                 from datetime import datetime
-                from app.scheduled_tasks import recent_success
-                from app.shopify_drafts import configuration
-                config = configuration()
-                resolved = all(product_map.get(i) and recent_success(product_map[i], config) and
-                    datetime.fromisoformat(states[i]['compared_at'].removesuffix('Z')) > (row.finished_at or row.started_at)
-                    for i in ids)
+                from app.catalogue_views import active as saved_read
+                if saved_read():
+                    # A completed later read resolves this historical read
+                    # incident, independently of its product readiness or the
+                    # age of its remote-freshness checkpoint. No source walk.
+                    resolved = all(product_map.get(i) and states[i]['state'] in {'no_change', 'update', 'create'} and
+                        states[i].get('compared_at') and datetime.fromisoformat(states[i]['compared_at'].removesuffix('Z')) >
+                        (row.finished_at or row.started_at) for i in ids)
+                else:
+                    from app.scheduled_tasks import recent_success
+                    from app.shopify_drafts import configuration
+                    config = configuration()
+                    resolved = all(product_map.get(i) and recent_success(product_map[i], config) and
+                        datetime.fromisoformat(states[i]['compared_at'].removesuffix('Z')) > (row.finished_at or row.started_at)
+                        for i in ids)
             except (ValueError, TypeError, KeyError, OSError, RuntimeError):
                 resolved = False
         if not resolved:
@@ -268,7 +298,7 @@ def issue_projection():
                 severity='Information', action='Review optional product metadata', destination=destination, **common))
         state = states[product.id]
         # Unknown without discovery evidence is not an invented reconciliation failure.
-        if state['state'] in {'update', 'attention', 'unavailable', 'local_changes', 'processing'}:
+        if state['state'] in {'update', 'attention', 'unavailable', 'local_changes', 'processing'} and not state.get('execution_pending'):
             details = (state.get('blockers') or [])[:3] + (state.get('change_summary') or [])[:3]
             issues.append(_issue(f'product:{product.id}:shopify', 'shopify', cause=redact_diagnostic(state['message']+' '+ '; '.join(details), limit=900),
                 severity='Warning' if state['state'] == 'unavailable' else 'Action Required',

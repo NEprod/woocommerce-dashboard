@@ -247,6 +247,8 @@ def milestone5_app(tmp_path):
         )
         db.session.commit()
         ids = {"variable": variable.id, "simple": simple.id, "collection": collection.id}
+        from catalogue_projection_fixtures import project_existing_sources
+        project_existing_sources()
     try:
         yield app, catalogue, database, ids, shared_path, override_path
     finally:
@@ -606,7 +608,7 @@ def test_products_api_keeps_catalogue_state_separate_from_publishing_intent(
     assert values["PRINT-001"]["publishing_intent_label"] == "Draft intended"
     assert values["PRINT-002"]["catalogue_status"] == "active"
     assert values["PRINT-002"]["publishing_intent"] == "published"
-    assert values["PRINT-002"]["publishing_intent_label"] == "Live intended · channel publication deferred"
+    assert values["PRINT-002"]["publishing_intent_label"] == "Active intended"
 
 
 def test_dashboard_active_metric_remains_local_and_does_not_claim_remote_publication(

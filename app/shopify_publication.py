@@ -98,7 +98,7 @@ def discover():
         raise
 
 
-def preview(product,adapter=None):
+def preview(product,adapter=None, *, status_only=False):
     from app import shopify_drafts as drafts
     adapter,config = adapter or ShopifyAdapter(), drafts.configuration()
     shop = adapter.test_connection(config)
@@ -108,6 +108,12 @@ def preview(product,adapter=None):
         raise ShopifyError('Publication requires a fully verified retained product. Create/verify its draft first or reconcile outstanding recovery.')
     data = drafts.evidence(row)
     wanted = intent(product_document(product))
+    if status_only:
+        if wanted['status'] != 'DRAFT':
+            raise ShopifyError('The priority status-only path can only make an existing product Draft.')
+        # Draft hides the product without changing retained channel selections.
+        # Those authored selections remain available for a later return to Live.
+        wanted = {'status': 'DRAFT', 'channels': {}}
     channels = discovered(adapter,config,shop)
     observed = read(row,data,adapter,config)
     for channel in channels:
@@ -143,7 +149,7 @@ def preview(product,adapter=None):
     return plan, token if plan['classification']=='update' and not blockers else None
 
 
-def confirm(reviewed,adapter=None):
+def confirm(reviewed,adapter=None, *, status_only=False):
     from app import shopify_drafts as drafts
     product=db.session.get(Product,reviewed['product_id'])
     adapter=adapter or ShopifyAdapter()
@@ -151,7 +157,7 @@ def confirm(reviewed,adapter=None):
     attempted=False
     row=None
     try:
-        plan,_=preview(product,adapter)
+        plan,_=preview(product,adapter,status_only=status_only)
         if plan['digest']!=reviewed['digest'] or plan['blockers'] or plan['classification']!='update':
             raise ShopifyError('Publication/source/identity changed since Review. No write attempted; review again.')
         row=db.session.get(ShopifyProductIdentity,plan['identity_id'])

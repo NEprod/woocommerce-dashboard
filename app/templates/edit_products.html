@@ -26,6 +26,7 @@
   </a>
   {% endfor %}
 </section>
+<p class="panel-note" data-source-health-pending hidden></p>
 
 <form class="products-toolbar" method="get" action="{{ url_for('main.products') }}" aria-label="Product catalogue filters">
   {% if issue_filter %}<input type="hidden" name="issue" value="{{ issue_filter.key }}">{% endif %}

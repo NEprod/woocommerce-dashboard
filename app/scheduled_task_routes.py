@@ -19,14 +19,14 @@ def administrator():
 @tasks.route("/settings/tasks")
 def index():
     key=request.args.get('task',service.KEY)
-    if key not in {service.KEY,service.SALE_KEY,service.ORDERS_KEY}: abort(404)
+    if key not in {service.KEY,service.SALE_KEY,service.ORDERS_KEY,service.PUBLISHER_KEY,service.VIEW_KEY}: abort(404)
     return render_template("scheduled_tasks.html",task=service.snapshot(db.session.get(ScheduledTask,key)),form=FlaskForm())
 
 
 @tasks.route("/settings/tasks/status")
 def status():
     key=request.args.get('task',service.KEY)
-    if key not in {service.KEY,service.SALE_KEY,service.ORDERS_KEY}: abort(404)
+    if key not in {service.KEY,service.SALE_KEY,service.ORDERS_KEY,service.PUBLISHER_KEY,service.VIEW_KEY}: abort(404)
     return jsonify(service.snapshot(db.session.get(ScheduledTask,key))),200,{"Cache-Control":"no-store"}
 
 
@@ -37,7 +37,7 @@ def settings(key):
         if not data:raise ValueError("Task settings are required.")
         enabled=data.get("enabled") if request.is_json else data.get("enabled")=="yes"
         raw=data.get("interval")
-        interval=raw if request.is_json and type(raw) is int else int(raw) if not request.is_json and isinstance(raw,str) and raw in {"5","10","20","30","60"} else None
+        interval=raw if request.is_json and type(raw) is int else int(raw) if not request.is_json and isinstance(raw,str) and raw in {"5","10","20","30","60","1440"} else None
         result=service.configure(key,enabled=enabled,interval=interval)
     except (ValueError,TypeError):
         return jsonify(error="Choose an enabled state and a supported interval (sale tasks also allow five minutes)."),400
@@ -55,7 +55,7 @@ def run_now(key):
 
 @tasks.route("/settings/tasks/<key>/history")
 def history(key):
-    if key not in {service.KEY,service.SALE_KEY,service.ORDERS_KEY,'catalogue_startup'}:abort(404)
+    if key not in {service.KEY,service.SALE_KEY,service.ORDERS_KEY,service.PUBLISHER_KEY,service.VIEW_KEY,'catalogue_startup'}:abort(404)
     runs=ScheduledTaskRun.query.filter_by(task_key=key).order_by(ScheduledTaskRun.created_at.desc()).limit(100).all()
     from app.operation_reporting import task_interpretation
     return render_template("scheduled_task_history.html",runs=runs,detail=None,definition=service.definition(key),reports={r.id:task_interpretation(r) for r in runs})

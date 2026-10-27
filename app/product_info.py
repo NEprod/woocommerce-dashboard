@@ -15,6 +15,7 @@ SCHEMA_ROOT = RESOURCE_ROOT / "schemas"
 EXAMPLE_ROOT = RESOURCE_ROOT / "examples"
 TEMPLATE_ROOT = RESOURCE_ROOT / "templates"
 SHOPIFY_EDITOR_FIELDS = {
+    'shopify_release_at': {'type': ['string', 'null']},
     "vendor": {"type": "string", "maxLength": 255},
     "handle": {"type": "string", "maxLength": 255, "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
     "shopify_product_type": {"type": "string", "maxLength": 255},
@@ -268,6 +269,12 @@ def validate_product_info(data, kind):
         try: schedule(data, partial=kind == 'override')
         except ValueError as exc:
             errors += (ValidationIssue('$.sale_start_date','invalid_sale_schedule',str(exc)),)
+    if not errors and data.get('shopify_release_at') is not None:
+        from app.sale_pricing import instant
+        try:
+            instant(data['shopify_release_at'])
+        except ValueError as exc:
+            errors += (ValidationIssue('$.shopify_release_at','invalid_release_schedule',str(exc)),)
     if not errors:
         from app.catalogue_fields import validate_extensions
         try:

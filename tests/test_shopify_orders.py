@@ -479,7 +479,7 @@ def test_imported_source_link_is_fixed_verified_shopify_host(orders_app):
 
 def test_nonempty_orders_downgrade_requires_approval(orders_app):
     app,path=orders_app;save();db.session.remove()
-    with pytest.raises(RuntimeError,match='Orders contain historical|Packaging contains retained|Retained order events'):
+    with pytest.raises(RuntimeError,match='Orders contain historical|Packaging contains retained|Retained order events|Publishing authority and recovery evidence'):
         command.downgrade(_alembic_config(f'sqlite:///{path}'),'0015_customisation_templates')
     assert ShopifyOrder.query.count()==1
 

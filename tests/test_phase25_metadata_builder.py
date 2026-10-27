@@ -156,7 +156,7 @@ def test_supported_inventory_and_collection_types_match_contract():
         "requires_shipping", "customisation",
         "storefront_collections", "collection_type", "title", "sku_prefix", "price", "sale_price",
         "sale_start_date", "sale_end_date", "weight", "dimensions", "categories",
-        "tags", "live", "short_description", "description", "attributes",
+        "tags", "shopify_release_at", "live", "short_description", "description", "attributes",
         "variation_attributes", "image_attributes", "variation_modifiers", "shipping_class", "grouped_ids",
         "grouped_products", "upsell_ids", "cross_sell_ids", "upsells", "crosssells", "relationships",
         "meta_title", "meta_description",

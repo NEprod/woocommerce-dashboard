@@ -41,6 +41,13 @@ def no_network(monkeypatch):
 
 
 def browser(product):
+    # A separate background projection supplies view state; a GET no longer
+    # rereads the entire source tree or mutates the queue.
+    from app.models import ShopifyPublishJob
+    from app.automatic_publishing import queue_product
+    from app.catalogue_views import capture
+    if not db.session.get(ShopifyPublishJob,product.id):queue_product(product)
+    capture(product);db.session.commit()
     with current_app.test_request_context():
         return next(p for p in build_products_data(parse_products_filters({}))['items'] if p['id'] == product.id)
 
@@ -81,6 +88,10 @@ def test_1703_1708_1714_expiry_scan_and_reconciliation(world, clock, monkeypatch
     enable(monkeypatch)
     clock[0] = datetime(2026,10,15,15,50)
     product, folder, shared = world
+    from app.automatic_publishing import policy
+    from app.models import User
+    policy().actor_id=User.query.first().id  # separately opt in to detailed verified manual events, not automatic writes
+    db.session.commit()
     change(world, sku_prefix='TEST-', sale_price='1.50', sale_start_date='2026-10-15T15:55:00Z',
         sale_end_date='2026-10-15T16:00:00Z', weight='50', dimensions={'length':155,'width':155,'height':3},
         packaging={'packed_dimensions_cm':{'length':'15.5','width':'15.5','height':'.3'},'measured':True})
@@ -248,6 +259,8 @@ def test_display_contract_open_ended_decimal_and_uk_dst(world,clock,metadata,at,
 def test_products_detail_editor_and_json_agree_after_expiry(world,clock):
     product=world[0];change(world,sale_price='1.50',sale_end_date='2026-10-15T16:00Z')
     clock[0]=datetime(2026,10,15,16,4)
+    from catalogue_projection_fixtures import project_existing_sources
+    project_existing_sources()
     client=_client(current_app._get_current_object())
     for path in (f'/products/{product.id}',f'/edit_products/{product.id}/edit/shared'):
         response=client.get(path)

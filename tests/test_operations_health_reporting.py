@@ -285,6 +285,8 @@ def test_image_issue_resolution_uses_revalidated_source(dashboard_app):
         from pathlib import Path
         image = Path(Settings.query.first().product_folder) / product.source_relpath / 'repaired.png'
         Image.new('RGB', (4,4), 'blue').save(image)
+        from catalogue_projection_fixtures import project_existing_sources
+        project_existing_sources()  # emulate the completed source validation, never a GET walk
     with app.test_request_context('/'):
         assert not any(i['id'] == key for i in issue_projection()['items'])
 

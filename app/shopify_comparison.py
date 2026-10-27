@@ -69,6 +69,8 @@ def store_summary(row, data):
     else:
         row.summary_json = encoded
         db.session.add(row)
+    from app.catalogue_views import invalidate as invalidate_view
+    invalidate_view(source=row.source_identity)
     db.session.commit()
 
 
@@ -214,12 +216,19 @@ def record(product, plan, identity=None, *, post_write=False):
     else:
         row.summary_json, row.compared_at = encoded, now()
         db.session.add(row)
+    from app.catalogue_views import invalidate as invalidate_view
+    invalidate_view(product_id=product.id)
+    if not post_write:
+        from app.automatic_publishing import observe_comparison
+        observe_comparison(product, plan, expected_revision=expected_local, complete=not incomplete)
     db.session.commit()
 
 
 def invalidate(store_id, source):
-    from app.shopify_capacity import fence_owner
-    fence_owner()
+    from app.shopify_capacity import guard_owner
+    # store_summary applies the commit fence in its own write transaction.
+    # Taking a write fence here first would deadlock its separate lease renewal.
+    guard_owner()
     # Preserve historical comparison evidence, but never reuse equality after
     # a new/uncertain mutation has begun. A new full read replaces this marker.
     from app.shopify_drafts import now

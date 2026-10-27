@@ -6,6 +6,7 @@ from sqlalchemy.orm import synonym
 from flask import current_app, has_app_context
 from .order_models import ShopifyOrder, ShopifyOrderLine, ShopifyOrderSync, ShopifyOrderEvent, ShopifyOrderDelivery
 from .packaging_models import Package, PackageLink, PackagingEvidence
+from .publishing_models import AutomaticPublishing, ShopifyPublishJob, ShopifyDueEvent, ShopifyPublishingEvent
 
 # -------------------- Auth / Settings --------------------
 

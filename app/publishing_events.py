@@ -1,0 +1,66 @@
+"""Human-readable immutable publishing events; delivery stays in existing receipts."""
+import json
+from app import db
+from app.models import ShopifyPublishingEvent
+from app.utils.redaction import redact_diagnostic
+
+
+def changes(plan):
+    result = []
+    for field in plan.get('fields', []):
+        if not field.get('changed'):
+            continue
+        name = str(field.get('field', ''))
+        if any(word in name.lower() for word in ('token', 'secret', 'password', 'nonce', 'publish_attempt', 'personalisation_snapshot')):
+            continue
+        if name == 'customisations.configuration':
+            from app.customisation_review import compare
+            details = compare(plan.get('customisations'), field.get('before'), field.get('after'))
+            if details['enabled_change']:
+                result.append({'field': name, 'label': 'Customer customisations enabled', **details['enabled_change']})
+            for item in details['changes']:
+                if item['kind'] in {'Added', 'Removed'}:
+                    result.append({'field': name + '.' + item['id'], 'label': item['label'],
+                        'before': 'Not present' if item['kind'] == 'Added' else item['description'],
+                        'after': item['description'] if item['kind'] == 'Added' else 'Removed'})
+                for setting in item['changes']:
+                    result.append({'field': name + '.' + item['id'], 'label': item['label'] + ' · ' + setting['setting'],
+                        'before': setting['before'], 'after': setting['after']})
+            if not details['changes'] and not details['enabled_change']:
+                result.append({'field': name, 'label': 'Customer customisations', 'before': details['before'],
+                    'after': details['after'], 'detail': details['message']})
+            continue
+        result.append({'field': name, 'label': field.get('label') or name,
+                       'before': field.get('before'), 'after': field.get('after')})
+    return result
+
+
+def record(operation, product, identity, evidence):
+    from app.shopify_notifications import scope_of
+    scope = scope_of(operation)
+    execution = scope.get('automatic_publishing') or {}
+    plan = evidence.get('plan', {})
+    if scope.get('mode') == 'publication':
+        plan = evidence.get('publication_update', {}).get('plan', plan)
+    items = changes(plan)
+    kind = 'verified' if operation.status == 'succeeded' else 'processing' if identity and identity.state == 'processing' else 'recovery_required' if operation.recovery_state not in {None, 'none'} else 'failed'
+    event_id = operation.id + ':' + kind
+    if not db.session.get(ShopifyPublishingEvent, event_id):
+        data = {'sku': product.sku if product else identity.sku if identity else None,
+            'title': product.title if product else plan.get('title'), 'changes': items,
+            'status': operation.status, 'recovery_state': operation.recovery_state,
+            'reason': redact_diagnostic(operation.error or '', limit=1000),
+            'started_at': operation.started_at.isoformat(), 'finished_at': operation.finished_at.isoformat(),
+            'verification_scope': {'publication': 'status/channels only',
+                'customisations': 'customer configuration only', 'automatic_preflight': 'local preflight; no remote write',
+                'sale_activate': 'scheduled price only', 'sale_end': 'scheduled price only'}.get(scope.get('mode'),
+                    'inventory only' if scope.get('scope') == 'inventory' else 'managed product'),
+            'mode': scope.get('mode', 'create'),
+            'processing_operation': execution.get('processing_operation'),
+            'notification_receipt': operation.id}
+        # Existing publisher bounds the plan; preserve full safe field values here.
+        db.session.add(ShopifyPublishingEvent(id=event_id, operation_id=operation.id,
+            product_id=product.id if product else None, event_type=kind, trigger=execution.get('trigger', 'manual_review'),
+            local_revision=execution.get('revision'), occurred_at=operation.finished_at,
+            receipt_json=json.dumps(data, ensure_ascii=False, default=str)))
+    return items

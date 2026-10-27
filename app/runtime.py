@@ -9,10 +9,11 @@ import time
 def main():
     from app import create_app, db
     os.environ["TLC_MANAGED_RUNTIME"]="true"
+    os.environ['TLC_SCHEDULER_READY_AT']=str(time.time()+600)
     app=create_app(recover=True)  # migration/startup recovery ONCE before children
     with app.app_context():
-        from app.scheduled_tasks import enqueue_startup
-        enqueue_startup()
+        from app.catalogue_startup import retire
+        retire()  # no forced full Shopify sweep or local scan on a configured restart
         from app.scheduled_tasks import enqueue, ORDERS_KEY
         if app.config.get('SHOPIFY_ORDERS_STARTUP_ENABLED',True):
             enqueue(ORDERS_KEY,startup=True)

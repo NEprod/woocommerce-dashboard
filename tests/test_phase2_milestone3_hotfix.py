@@ -234,7 +234,8 @@ def test_meaningful_override_save_preserves_existing_update_contract(
     with workflow["app"].app_context():
         operations = CatalogueOperation.query.order_by(CatalogueOperation.started_at).all()
         assert len(operations) == 1
-        assert operations[0].operation_type == "product_update"
+        assert operations[0].operation_type == "shared_collection_update"
+        assert json.loads(operations[0].scope)["scope_kind"] == "collection"
     assert len(workflow["calls"]) == 1
 
 

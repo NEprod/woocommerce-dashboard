@@ -234,7 +234,7 @@ def test_upgrade_adds_only_template_table_preserves_existing_identity_and_restar
         connection.execute("INSERT INTO shopify_product_identity(store_key,store_id,store_domain,source_identity,sku,state,verification_state,reviewed_digest,media_evidence_json,created_at,updated_at) VALUES ('shop','shop','example.myshopify.com','Fixture','TEST-0001','verified','verified','digest','{}',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
         before=connection.execute('SELECT * FROM shopify_product_identity').fetchall()
         tables={row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    ensure_database(url)
+    command.upgrade(_alembic_config(url), '0015_customisation_templates')
     with sqlite3.connect(path) as connection:
         assert connection.execute('SELECT * FROM shopify_product_identity').fetchall()==before
         assert {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}-tables=={'customisation_template'}

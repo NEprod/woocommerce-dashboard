@@ -119,12 +119,14 @@ def test_old_index_projection_matches_snapshot_list_detail_and_does_not_write(co
         assert catalogue_snapshot(product).data['title']=='Blue Token | Retro Gaming Cards'
         assert local_plan(product)['title']=='Blue Token | Retro Gaming Cards'
         assert product.title=='Outdated indexed title' and not db.session.dirty
+        from app.catalogue_views import capture
+        capture(product);db.session.commit()  # background display rebuild; no source rewrite or reindex
     listing=client.get('/api/edit_products').json
     assert 'Blue Token | Retro Gaming Cards' in [p['title'] for g in listing['groups'] for p in g['products']]
-    assert 'Blue Token | Retro Gaming Cards' in client.get(f'/products/{product.id}').text
+    assert 'Blue Token | Retro Gaming Cards' in client.get(f'/products/{ids["Simple Collection/Blue Token"]}').text
     assert all(f.read_bytes()==v for f,v in files.items())
     rescan(core,'Simple Collection',monkeypatch)
-    with app.app_context():assert db.session.get(Product,product.id).title=='Blue Token | Retro Gaming Cards'
+    with app.app_context():assert db.session.get(Product,ids['Simple Collection/Blue Token']).title=='Blue Token | Retro Gaming Cards'
 
 
 @pytest.mark.parametrize('name,kind',[('Simple Collection/Blue Token','override'),('Variable Collection/Badge One','override'),('Single Variable','shared')])

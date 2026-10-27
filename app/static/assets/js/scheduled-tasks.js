@@ -15,7 +15,7 @@
     panel.querySelector("[data-task-outcome]").textContent = task.outcome?.replaceAll("_", " ") || "Not yet run";
     panel.querySelector("[data-task-duration]").textContent = task.duration == null ? "Not yet" : `${task.duration.toFixed(1)} seconds`;
     panel.querySelector("[data-task-progress]").textContent = Object.entries(task.progress || {}).map(([key, value]) => `${key.replaceAll("_", " ")}: ${value}`).join(" · ");
-    feedback.textContent = task.error || task.reason || `Task ${task.state.replaceAll("_", " ")}. ${task.key === "shopify_sales" ? "Only authorised due price transitions may write." : "No Shopify writes."}`;
+    feedback.textContent = task.error || task.reason || `Task ${task.state.replaceAll("_", " ")}. ${task.key === "shopify_publisher" ? "Only separately authorised scanned work may publish; original receipts retain readback and recovery evidence." : task.key === "shopify_sales" ? "Only authorised due sale/release transitions may execute." : "No Shopify writes."}`;
     return task;
   }
   async function fetchTask(url, data) {

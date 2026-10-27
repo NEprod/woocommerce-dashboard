@@ -23,6 +23,7 @@ from app.models import (
 )
 from app.publishing import projected_publishing_intent
 from app.taxonomy_registry import registry_read_view
+from app.catalogue_views import saved_read_view
 from app.utils.operation_control import get_active_operation
 
 
@@ -80,6 +81,12 @@ def metadata_issue_condition(issue_key):
 def _missing_image_product_ids():
     """Return active parents with no safe, resolvable parent or variation source."""
 
+    from app.catalogue_views import active
+    if active():
+        from app.models import ShopifyPublishJob
+        return tuple(row[0] for row in db.session.query(ShopifyPublishJob.product_id).join(Product,
+            Product.id == ShopifyPublishJob.product_id).filter(Product.catalogue_status == 'active',
+            ShopifyPublishJob.image_available.is_(False)).all())
     cache_key = "_missing_catalogue_image_product_ids"
     if has_request_context() and hasattr(g, cache_key):
         return getattr(g, cache_key)
@@ -133,8 +140,10 @@ def _operation_view(operation):
 
 
 @registry_read_view
+@saved_read_view
 def build_dashboard_data():
     """Build genuine dashboard facts without mutating application state."""
+    from app.catalogue_views import pending_count
 
     summary = {
         "collections": Collection.query.count(),
@@ -248,7 +257,7 @@ def build_dashboard_data():
             "collection": collection_display_name(product.collection) if product.collection else "Unassigned",
             "variation_count": count,
             "updated_at": product.local_updated_at,
-            "thumbnail": product_thumbnail_url(product),
+            "thumbnail": _read_view_thumbnail(product),
             "thumbnail_alt": primary_image_alt(product),
             "has_override": bool(product.override_json_path),
             "publishing_intent": projected_publishing_intent(product.published),
@@ -284,6 +293,7 @@ def build_dashboard_data():
         product["publishing_intent"]["compact_label"] = product["shopify"]["intent"]
     return {
         "generated_at": datetime.now(UTC),
+        "source_health_pending": pending_count(),
         "summary": summary,
         "health": {
             "label": health_label,
@@ -313,3 +323,8 @@ def build_dashboard_data():
         "recent_products": recent_products,
         "woo_status": "Not configured",
     }
+
+
+def _read_view_thumbnail(product):
+    from app.catalogue_views import active, thumbnail
+    return thumbnail(product) if active() else product_thumbnail_url(product)

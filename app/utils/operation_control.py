@@ -118,8 +118,10 @@ def prune_operation_history(*, now=None, protected_ids=None):
         if _active_operation:
             protected.add(_active_operation["id"])
     protected.update(protected_ids or ())
-    from app.models import ShopifySaleSchedule
+    from app.models import ShopifySaleSchedule, ShopifyPublishingEvent, ShopifyPublishJob, ShopifyDueEvent
     protected.update(row.operation_id for row in ShopifySaleSchedule.query.all() if row.operation_id)
+    for model in (ShopifyPublishingEvent, ShopifyPublishJob, ShopifyDueEvent):
+        protected.update(value for value, in db.session.query(model.operation_id).filter(model.operation_id.isnot(None)))
 
     completed = CatalogueOperation.query.filter(
         CatalogueOperation.finished_at.isnot(None),
@@ -250,6 +252,11 @@ def acquire_catalogue_operation(operation_type: str, scope=None, *, transition_i
             })
         if operation_type == "shopify_draft_publish" and has_request_context() and g.get("shopify_review_ticket"):
             scope = {**(scope or {}), "review_ticket":g.shopify_review_ticket}
+        if operation_type == "shopify_draft_publish":
+            from app.shopify_capacity import background
+            execution = background()
+            if execution and execution.get('publishing_context'):
+                scope = {**(scope or {}), 'automatic_publishing': execution['publishing_context']}
         # One SQLite write closes the check/insert race across web/worker processes.
         from sqlalchemy import insert, select, literal, exists
         occupied = exists(select(CatalogueOperation.id).where(

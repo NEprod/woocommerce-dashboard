@@ -215,7 +215,7 @@ def test_local_ranges_resolution_replacement_and_offline_workspace(world, monkey
     (root / "registry.json").write_bytes(registry.validate(data))
     shared = {"storefront_collections": ["Paper-Garden", "Legacy range"]}
     assert merge_product_json(shared, {})["storefront_collections"] == shared["storefront_collections"]
-    assert merge_product_json(shared, {"storefront_collections": []})["storefront_collections"] == []
+    assert merge_product_json(shared, {"storefront_collections": []})["storefront_collections"] == shared["storefront_collections"]
     text = json.dumps(shared)
     assert prepare_edit(text, {"storefront_collections": []},
                         expected_digest=source_digest(text), kind="override").data["storefront_collections"] == []
@@ -286,7 +286,8 @@ def test_migration_and_unique_current_store_mapping(world):
     app, client, root, data, fake = world
     finish(client, ["attributes::finish"])
     with app.app_context():
-        assert db.session.execute(text("select version_num from alembic_version")).scalar() == "0008_woo_taxonomy_identity"
+        from app.database import migration_head
+        assert db.session.execute(text("select version_num from alembic_version")).scalar() == migration_head()
         constraints = inspect(db.engine).get_unique_constraints("woo_taxonomy_identity")
         assert {c["name"] for c in constraints} == {"uq_taxonomy_local", "uq_taxonomy_remote"}
         old = WooTaxonomyIdentity.query.one()

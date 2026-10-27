@@ -15,6 +15,11 @@
     <p class="page-lede">Review the read-only scanner projection, its authoritative metadata sources, and product-owned images.</p>
   </div>
   <div class="page-actions">
+    {% if current_user.is_admin %}<form method="post" action="{{ url_for('publishing.sync_now',product_id=product.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label><input type="checkbox" name="acknowledged" value="yes" required> Publish this product's latest scanned Live changes now</label>
+      <button class="btn btn-outline-primary">Sync Now</button>
+    </form>{% endif %}
     {% if product.collection_id %}<a class="btn btn-outline-primary" href="{{ url_for('main.collection_detail', collection_id=product.collection_id) }}">View Collection</a><a class="btn btn-outline-primary" href="{{ url_for('main.collection_metadata_edit', collection_id=product.collection_id) }}">Edit Collection Metadata</a>{% endif %}
     {% if workspace.can_override and workspace.override.exists %}
     <a class="btn btn-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='override') }}">Edit Product Override</a>
@@ -49,7 +54,7 @@
         <div><dt>Publishing intent source</dt><dd>{{ workspace.publishing_intent.source }}</dd></div>
         <div><dt>Inheritance</dt><dd>{{ workspace.publishing_intent.inheritance }}</dd></div>
       </dl>
-      <p class="publishing-intent-note">Authored intent is separate from actual Shopify status and channel publication. Live transitions require a later reviewed Online Store publication workflow.</p>
+      <p class="publishing-intent-note">Authored intent is separate from actual Shopify status and channel publication. Scanned Live changes use explicitly enabled automatic publishing, acknowledged Sync Now or signed Review &amp; Sync; all retain readback and recovery safeguards.</p>
     </div>
   </article>
 

@@ -78,7 +78,9 @@ def test_two_products_shared_path_explicit_consumption_vs_legacy_creation(previe
             products = {p["sku"]: p for p in woo.products.values()}
             first_remote = products[db.session.get(Product, first).sku]
             second_remote = products[second.sku]
-            assert first_remote["brands"] == [{"id": 92}] and second_remote["brands"] == []
+            # Empty child additions preserve shared membership under the
+            # already-established canonical additive organisation contract.
+            assert first_remote["brands"] == second_remote["brands"] == [{"id": 92}]
             assert first_remote["cross_sell_ids"] == [second_remote["id"]]
             assert second_remote["cross_sell_ids"] == [first_remote["id"]]
             assert all(not a["variation"] for p in products.values() for a in p["attributes"])

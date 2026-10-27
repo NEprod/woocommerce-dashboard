@@ -149,7 +149,7 @@ def test_preview_is_read_only_and_confirmation_required(world):
     adapter = FakeDraftAdapter()
     before = {p.name: p.read_bytes() for p in folder.iterdir()}
     plan, token = drafts.preview(product, adapter)
-    assert adapter.calls == ["connection_read"] and ShopifyProductIdentity.query.count() == 0
+    assert adapter.calls == ["connection_read", "dimension_definitions_read"] and ShopifyProductIdentity.query.count() == 0
     assert [i["filename"] for i in plan["images"]] == ["original.png", "second.jpg"]
     assert plan["status"] == "DRAFT" and plan["price"] == "3.50"
     with pytest.raises(ShopifyError, match="acknowledgement"):
@@ -245,7 +245,7 @@ def test_async_processing_rechecks_reads_only(world):
         node.update(status="READY", image={"url": f"https://cdn.shopify.com/{i}.jpg?format=auto"})
     previous = adapter.calls[:]
     drafts.reconcile(row, adapter=adapter)
-    assert row.state == "verified" and adapter.calls[len(previous):] == ["connection_read", "product_read"]
+    assert row.state == "verified" and adapter.calls[len(previous):] == ["connection_read", "product_read", "dimension_definitions_read"]
 
 
 def test_uncertain_create_review_and_explicit_media_adoption(world):

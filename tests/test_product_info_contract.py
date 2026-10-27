@@ -343,7 +343,7 @@ def test_valid_editor_save_retains_backup_marker_scan_and_warning_behavior(
     assert json.loads(target.read_text(encoding="utf-8"))["future_field"] == "preserved"
     assert len(list(target.parent.glob("product_info.json.bak.*"))) == 1
     assert (target.parent / ".update").exists()
-    assert calls[0][1]["scan_mode"] == "update"
+    assert calls[0][1]["scan_mode"] == "shared_collection"
 
 
 def test_in_app_reference_and_templates_are_available(editor_app):

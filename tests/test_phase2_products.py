@@ -171,6 +171,8 @@ def products_app(tmp_path):
                 ]
             )
             db.session.commit()
+            from catalogue_projection_fixtures import project_existing_sources
+            project_existing_sources()
         yield app, database
     finally:
         with app.app_context():
@@ -212,8 +214,8 @@ def test_products_javascript_defines_mobile_and_accessible_expansion_hooks():
     assert 'setAttribute("aria-expanded", "false")' in source
     assert 'event.key !== "Escape"' in source
     assert "loadVariations" in source
-    assert "publishing_intent_label" in source
-    assert "Catalogue state" in source
+    assert 'product.shopify' in source
+    assert 'Intended ${intent}' in source  # consolidated remote/intent presentation
 
 
 def test_products_api_groups_collections_and_reports_genuine_counts(products_client):
@@ -228,6 +230,7 @@ def test_products_api_groups_collections_and_reports_genuine_counts(products_cli
         "active": 2,
         "missing": 1,
         "metadata_issues": 1,
+        "source_health_pending": 0,
     }
     assert payload["pagination"]["total"] == 3
     assert [group["name"] for group in payload["groups"]] == [
@@ -241,7 +244,8 @@ def test_products_api_groups_collections_and_reports_genuine_counts(products_cli
     assert cards["missing_count"] == 0
     variable = next(item for item in cards["products"] if item["type"] == "variable")
     assert variable["variation_count"] == 2
-    assert variable["price"] == {"minimum": "10.00", "maximum": "15.00"}
+    assert (variable["price"]["minimum"], variable["price"]["maximum"]) == ("10.00", "10.00")
+    assert "as_of" in variable["price"]  # current server-priced snapshot, not the obsolete two-key contract
     assert variable["metadata_source"] == "override"
     assert variable["thumbnail"] == f"/catalogue-images/products/{variable['id']}"
     assert "variations" not in variable
@@ -362,6 +366,8 @@ def test_global_attention_count_includes_off_page_image_only_gap(products_app, p
             description="Complete description", meta_title="Complete title",
             meta_description="Complete SEO", source_relpath="Fictional Cards/No artwork"))
         db.session.commit()
+        from catalogue_projection_fixtures import project_existing_sources
+        project_existing_sources()
     first = products_client.get("/api/edit_products?per_page=25").get_json()
     assert "OFF-PAGE-IMAGE-GAP" not in {item["sku"] for item in first["items"]}
     assert first["summary"]["metadata_issues"] == 2

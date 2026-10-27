@@ -172,6 +172,8 @@ def dashboard_app(tmp_path):
                 ]
             )
             db.session.commit()
+            from catalogue_projection_fixtures import project_existing_sources
+            project_existing_sources()
         yield app, database
     finally:
         with app.app_context():
@@ -334,6 +336,8 @@ def test_zero_metadata_issue_rows_are_not_links(dashboard_app):
         product.meta_description = "Complete SEO description"
         product.image_url = "https://example.invalid/complete.webp"
         db.session.commit()
+        from catalogue_projection_fixtures import project_existing_sources
+        project_existing_sources()
         user_id = User.query.one().id
 
     client = app.test_client()

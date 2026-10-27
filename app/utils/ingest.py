@@ -928,6 +928,14 @@ def _ingest_complete_parent(
     db.session.flush()
     _checkpoint(failure_injector, "relationships", sku)
 
+    # Reuse complete-parent ingestion; no new scan, source write or remote call.
+    # Pending publisher work commits atomically with its scanned product revision.
+    from app.automatic_publishing import queue_product
+    db.session.expire(product, ['images', 'variations', 'assets', 'attributes', 'categories', 'tags'])
+    queue_product(product)
+    from app.catalogue_views import capture
+    capture(product, scan_operation=operation_id)
+
     if operation_id:
         db.session.add(
             CatalogueOperationItem(

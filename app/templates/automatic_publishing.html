@@ -1,0 +1,41 @@
+{% extends 'layouts/base.html' %}
+{% block title %}Automatic Shopify Publishing{% endblock %}
+{% block content %}
+<header class="page-header"><h1 class="page-title">Automatic Shopify Publishing</h1>
+<p>Scanned Live changes publish hourly. Draft metadata stays local; a linked Live→Draft transition is prioritised. Due work is retained while paused.</p></header>
+{% if error %}<p class="alert alert-danger">{{ error }}</p>{% endif %}
+<section class="settings-section">
+<h2>{{ 'Enabled' if policy.enabled else 'Paused — no automatic product writes' }}</h2>
+<p>Enabling grants separate durable publishing authority for the confirmed store. It does not bypass identities, source checks or Shopify readback. Existing signed Review &amp; Sync remains available.</p>
+<form method="post">{{ form.hidden_tag() }}
+<label><input type="checkbox" name="enabled" value="yes" {% if policy.enabled %}checked{% endif %}> Enable automatic publishing</label>
+<label>Confirm the connected myshopify.com domain to enable <input class="form-control" name="confirmation" autocomplete="off" value=""></label>
+<details><summary>Optional TLC Live-required fields</summary><p>No additional TLC requirements apply unless selected. Incomplete Drafts remain saveable.</p>
+{% for field in required|sort %}<label class="d-block"><input type="checkbox" name="required_fields" value="{{ field }}" {% if field in selected %}checked{% endif %}> {{ field|replace('_',' ')|title }}</label>{% endfor %}</details>
+<button class="btn btn-primary">Save publishing authority</button></form>
+<p><a href="{{ url_for('tasks.index',task='shopify_publisher') }}">Publisher schedule and history</a> · <a href="{{ url_for('tasks.index',task='shopify_products') }}">Daily reconciliation</a> · <a href="{{ url_for('main.operations') }}">Operations</a></p>
+</section>
+<section class="settings-section"><h2>Publishing queue — {{ jobs.total }} products</h2>
+<form method="get"><label>State <select name="state" class="form-select"><option value="">All</option>{% for state in ['pending','processing','verified','retry','paused','attention','recovery_required'] %}<option {% if request.args.get('state') == state %}selected{% endif %}>{{ state }}</option>{% endfor %}</select></label><button class="btn btn-outline-primary">Filter</button></form>
+{% for job in jobs.items %}{% set product=products.get(job.product_id) %}<article class="settings-section">
+<h3><a href="{{ url_for('main.product_detail',product_id=job.product_id) }}">{{ product.title if product else job.source_identity }}</a></h3>
+<p>{{ product.sku if product else '' }} · {{ job.state|replace('_',' ')|title }} · {{ job.trigger }} · {{ uk_time(job.updated_at) }}</p>
+{% if job.error %}<p>{{ job.error }}</p>{% endif %}
+{% if job.operation_id %}<a href="{{ url_for('main.operation_detail',operation_id=job.operation_id) }}">Original receipt / safe recovery</a>{% endif %}
+</article>{% else %}<p>No matching queued products. Saving and scanning local changes creates durable work; opening this page does not scan or publish.</p>{% endfor %}
+{% if jobs.has_prev %}<a href="{{ url_for('publishing.index',page=jobs.prev_num,state=request.args.get('state','')) }}">Previous</a>{% endif %}
+{% if jobs.has_next %}<a href="{{ url_for('publishing.index',page=jobs.next_num,state=request.args.get('state','')) }}">Next</a>{% endif %}
+</section>
+<section class="settings-section"><h2>Publishing events — {{ events.total }}</h2>
+<p>Verified results and original recovery evidence persist independently of Discord delivery. No event claims publication solely from a queued request.</p>
+{% for event in events.items %}{% set receipt=receipts[event.id] %}<article class="settings-section">
+<h3>{{ receipt.title }} · {{ receipt.sku }}</h3>
+<p>{{ event.event_type|replace('_',' ')|title }} · {{ event.trigger }} · {{ uk_time(event.occurred_at) }} · {{ receipt.verification_scope }}</p>
+{% if receipt.reason %}<p>{{ receipt.reason }}</p>{% endif %}
+<ul>{% for change in receipt.changes %}<li>{{ change.label }}: {{ change.before }} → {{ change.after }}{% if change.detail %} — {{ change.detail }}{% endif %}</li>{% endfor %}</ul>
+<a href="{{ url_for('main.operation_detail',operation_id=event.operation_id) }}">Full receipt and notification state</a>
+</article>{% else %}<p>No publishing events recorded for the new publisher yet.</p>{% endfor %}
+{% if events.has_prev %}<a href="{{ url_for('publishing.index',event_page=events.prev_num,state=request.args.get('state','')) }}">Previous events</a>{% endif %}
+{% if events.has_next %}<a href="{{ url_for('publishing.index',event_page=events.next_num,state=request.args.get('state','')) }}">Next events</a>{% endif %}
+</section>
+{% endblock %}

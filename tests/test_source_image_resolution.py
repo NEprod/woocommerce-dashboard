@@ -344,6 +344,8 @@ def source_image_matrix(tmp_path):
                     ]
                 )
             db.session.commit()
+            from catalogue_projection_fixtures import project_existing_sources
+            project_existing_sources()
 
         client = app.test_client()
         with app.app_context():

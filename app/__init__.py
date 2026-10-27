@@ -58,6 +58,8 @@ def create_app(*, recover=None):
     app.before_request(guard_platform)
     from .scheduled_task_routes import tasks
     app.register_blueprint(tasks)
+    from .automatic_publishing_routes import publishing
+    app.register_blueprint(publishing)
     from .customisation_routes import customisations
     app.register_blueprint(customisations)
     from .order_routes import orders
