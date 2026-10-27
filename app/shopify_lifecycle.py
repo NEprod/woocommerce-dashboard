@@ -22,7 +22,7 @@ def trusted(row, remote):
             or remote.get("status") not in {"DRAFT", "ACTIVE", "ARCHIVED"}
             or (remote.get("metafield") or {}).get("value") != data.get("plan", {}).get("nonce")):
         raise ShopifyError("Remote product/store/correlation identity is untrusted; deletion is blocked.")
-    for kind, bound in (("variants", 32), ("media", 20)):
+    for kind, bound in (("variants", 32), ("media", drafts.MAX_IMAGES)):
         part = remote.get(kind)
         if not isinstance(part, dict) or part.get("pageInfo", {}).get("hasNextPage") is not False or len(part.get("nodes", [])) > bound:
             raise ShopifyError("Remote deletion review is incomplete or exceeds the bounded scope.")

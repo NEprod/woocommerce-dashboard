@@ -27,7 +27,8 @@ from app import shopify_simple_fields as fields
 
 MAX_IMAGE = 10 * 1024 * 1024
 MAX_TOTAL = 30 * 1024 * 1024
-MAX_IMAGES = 20  # Same complete-gallery budget already used by Variable products.
+MAX_IMAGES = 250  # Complete Shopify image gallery; transport/evidence byte bounds still apply.
+UPLOAD_BATCH = 20
 MAX_EVIDENCE_BYTES = 1024 * 1024
 
 
@@ -149,7 +150,7 @@ def common_plan(product, *, variable=False):
     if variable:
         from app.shopify_variables import gallery_diagnostics
         diagnostics = gallery_diagnostics(product, diagnostics)
-    limit = 20 if variable else MAX_IMAGES
+    limit = MAX_IMAGES
     from app.shopify_connection import ShopifyReadinessFinding
     if not diagnostics:
         raise ShopifyReadinessFinding('Publishing needs original catalogue/gallery artwork. Check the source folder and image references; no images are removed.', code='missing_images')
@@ -280,7 +281,7 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
     origin = plan["managed"]["variant"]["inventoryItem"].get("countryCodeOfOrigin")
     if origin and origin not in adapter.country_codes(config):
         raise ShopifyError("Country of origin is not supported by Shopify's current CountryCode contract.")
-    if row and row.state not in {"failed_before_create", "remote_deleted"}:
+    if row and row.state not in {"failed_before_create", "remote_deleted"} and not upload_pending(row):
         if row.state not in {"verified","attribute_review_required","scoped_verified"} or row.verification_state not in {"verified","base_verified","inventory_verified"}:
             raise ShopifyError(f"Recovery required for Shopify identity {row.id} ({row.state}). Reconcile its retained operation before any write; another create is blocked.")
         result, token = update_preview(product, row, plan, config, shop, adapter)
@@ -314,7 +315,7 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
     require_absent_sku(adapter, config, plan["sku"])
     plan.update(store_key=store_key, store_id=shop["shop_id"], domain=config.domain,
                 config_digest=config.fingerprint(),
-                nonce=uuid.uuid4().hex)
+                nonce=evidence(row)['plan']['nonce'] if upload_pending(row) else uuid.uuid4().hex)
     plan["handle"] = plan["managed"]["product"].get("handle") or "tlc-draft-" + plan["nonce"]
     if "handle" in plan["managed"]["product"] and adapter.find_draft(config, plan["handle"])["nodes"]:
         raise ShopifyError("The authored handle already belongs to a Shopify product. Another create is refused.")
@@ -378,6 +379,85 @@ def payload_result(data, name):
     if payload.get("userErrors"):
         raise ShopifyError(f"Shopify rejected fields at {name}. Inspect permissions/product constraints in Shopify Admin; earlier successful steps remain recorded.")
     return payload
+
+
+def stage_gallery(adapter, config, images):
+    """Bounded staging batches, one complete ordered creation input; no truncation."""
+    targets = []
+    for offset in range(0, len(images), UPLOAD_BATCH):
+        batch = images[offset:offset + UPLOAD_BATCH]
+        stage = payload_result(adapter.stage_images(config, batch), 'stagedUploadsCreate')
+        part = stage.get('stagedTargets')
+        if not isinstance(part, list) or len(part) != len(batch):
+            raise ShopifyError('Incomplete staged image batch. Product creation was not attempted.')
+        targets.extend(part)
+    return targets
+
+
+class GalleryPending(ShopifyError):
+    """Known acknowledged pre-create uploads, intentionally yielding a slice."""
+
+
+def upload_pending(row):
+    if not row or row.state != 'uploading' or row.shopify_product_id:
+        return False
+    data = evidence(row)
+    plan = data.get('plan') or {}
+    uploads = data.get('upload_inputs')
+    return (data.get('create_attempted') is False and isinstance(uploads, list)
+        and 0 <= len(uploads) <= len(plan.get('images', [])) and plan.get('digest') == row.reviewed_digest
+        and data.get('upload_attempt', {}).get('state') != 'pending'
+        and all(isinstance(u, dict) and u.get('source') == image['source'] and u.get('sha256') == image['sha256']
+                and isinstance(u.get('input'), dict) for u, image in zip(uploads, plan['images'])))
+
+
+def upload_gallery(product, row, data, plan, config, adapter):
+    """Resume acknowledged staged resources; never resend a completed upload.
+
+    Only resource URLs (not signed upload parameters) persist. A timeout is not
+    an acknowledgement and never becomes this safe continuation state.
+    """
+    from app.shopify_capacity import background
+    from time import monotonic
+    uploads = data.setdefault('upload_inputs', [])
+    if data.get('upload_no_progress', 0) >= 3:
+        raise ShopifyError('Gallery upload could not make progress within three bounded slices. Inspect its receipt and API capacity before retrying; no product Create was attempted.')
+    data['upload_start_count'] = len(uploads)
+    for saved, image in zip(uploads, plan['images']):
+        if saved.get('source') != image['source'] or saved.get('sha256') != image['sha256']:
+            raise ShopifyError('Retained upload belongs to different original artwork. No staged resource was reused.')
+    if len(uploads) > len(plan['images']):
+        raise ShopifyError('Retained upload count conflicts with the reviewed complete gallery.')
+    completed = 0
+    while len(uploads) < len(plan['images']):
+        budget = background()
+        if completed >= UPLOAD_BATCH or budget and (budget['remaining'] < 4 or budget['deadline']-monotonic() < 35):
+            raise GalleryPending('Acknowledged image uploads retained; next bounded slice continues without re-uploading.')
+        batch = plan['images'][len(uploads):len(uploads)+min(UPLOAD_BATCH, UPLOAD_BATCH-completed)]
+        targets = stage_gallery(adapter, config, batch)
+        used = {u['input']['originalSource'] for u in uploads}
+        resources = [t.get('resourceUrl') for t in targets if isinstance(t,dict)]
+        if len(resources) != len(batch) or len(set(resources)) != len(resources) or used.intersection(resources):
+            raise ShopifyError('Staged image resource identities are duplicated/incomplete; no product Create attempted.')
+        for image, target in zip(batch, targets):
+            budget = background()
+            if budget and (budget['remaining'] < 3 or budget['deadline']-monotonic() < 35):
+                raise GalleryPending('Acknowledged image uploads retained for the next bounded slice.')
+            content, filename, _ = source_bytes(product, image['source'])
+            if hashlib.sha256(content).hexdigest() != image['sha256']:
+                raise ShopifyError('Original image changed since review; no product Create attempted.')
+            # Durable before the binary request. If interrupted here, this is
+            # NOT a known completed upload and requires explicit review.
+            data['upload_attempt'] = {'source': image['source'], 'state': 'pending'}
+            save(row, data)
+            adapter.upload_image(config, target, image, content)
+            value = {'originalSource': target['resourceUrl'], 'mediaContentType': 'IMAGE', 'alt': image['alt']}
+            uploads.append({'source': image['source'], 'sha256': image['sha256'], 'input': value})
+            data['media'].append({'source': image['source'], 'filename': filename, 'sha256': image['sha256'], 'upload': 'completed'})
+            data['upload_attempt'] = {'source': image['source'], 'state': 'completed'}
+            completed += 1
+            save(row, data)
+    return [u['input'] for u in uploads]
 
 
 def confirm(token, acknowledged, adapter=None, *, expected_product_id=None):
@@ -462,10 +542,16 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
     row = None
     try:
         row = matching_identity(plan["store_id"], product)
-        if row and row.state not in {"failed_before_create", "remote_deleted"}:
+        if row and row.state not in {"failed_before_create", "remote_deleted"} and not upload_pending(row):
             raise ShopifyError("A prior Shopify attempt exists. Reconcile its identity; no duplicate creation is allowed.")
         require_absent_sku(adapter, config, plan["sku"])
-        data = {"version": 1, "plan": plan, "stage": "pending", "create_attempted": False, "media": []}
+        if upload_pending(row):
+            data = evidence(row)
+            if data['plan']['digest'] != plan['digest'] or data['plan'].get('config_digest') != config.fingerprint():
+                raise ShopifyError('Incomplete upload source/configuration changed. Inspect its retained receipt; no product Create attempted.')
+            data['plan'] = plan
+        else:
+            data = {"version": 1, "plan": plan, "stage": "pending", "create_attempted": False, "media": []}
         if row and row.state == "remote_deleted":
             data["history_operation"] = evidence(row).get("history_operation")
         if row is None:
@@ -489,20 +575,8 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
     try:
         data["stage"] = "staged_uploads"
         save(row, data)
-        stage = payload_result(adapter.stage_images(config, plan["images"]), "stagedUploadsCreate")
-        targets = stage.get("stagedTargets")
-        if not isinstance(targets, list) or len(targets) != len(plan["images"]):
-            raise ShopifyError("Incomplete staged targets. Product creation was not attempted.")
+        media_inputs = upload_gallery(product, row, data, plan, config, adapter)
         completed_step(row,data,"staged_uploads")
-        media_inputs = []
-        for image, target in zip(plan["images"], targets):
-            content, filename, mime = source_bytes(product, image["source"])
-            if hashlib.sha256(content).hexdigest() != image["sha256"]:
-                raise ShopifyError("A source image changed after review; product creation was not attempted.")
-            adapter.upload_image(config, target, image, content)
-            media_inputs.append({"originalSource": target["resourceUrl"], "mediaContentType": "IMAGE", "alt": image["alt"]})
-            data["media"].append({"source": image["source"], "filename": filename, "sha256": image["sha256"], "upload": "completed"})
-            save(row, data)
         completed_step(row,data,"original_image_uploads")
         # Recheck source after potentially slow uploads; no stale product create.
         if local_plan(product)["digest"] != plan["digest"]:
@@ -557,6 +631,14 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
         finish_catalogue_operation(lease.id, status="succeeded" if state == "verified" and native_state in {"disabled", "verified"} and package_state in {'none', 'accepted'} and publication_complete(evidence(row)) else "partial",
             products_attempted=1, products_succeeded=int(state == "verified"), recovery_state="none" if state == "verified" and native_state != "uncertain" and package_state!='uncertain' else "review_required",
             operation_summary={"identity_id": row.id, "shopify_product_id": row.shopify_product_id, "stage": evidence(row)['stage'], "state": row.state, "native_dimensions": native_state,'package_assignment':package_state})
+        return row
+    except GalleryPending as exc:
+        data['upload_no_progress'] = data.get('upload_no_progress',0)+1 if len(data.get('upload_inputs',[]))==data.get('upload_start_count') else 0
+        data.update(stage='gallery_uploading', error=None)
+        save(row, data, 'uploading')
+        finish_catalogue_operation(lease.id,status='partial',recovery_state='none',products_attempted=1,
+            operation_summary={'identity_id':row.id,'stage':'gallery_uploading','create_attempted':False,
+                'uploads_acknowledged':len(data.get('upload_inputs',[])),'images':len(plan['images'])})
         return row
     except Exception as exc:
         # Raw transport exceptions/payloads must never leak tokens or signed targets.

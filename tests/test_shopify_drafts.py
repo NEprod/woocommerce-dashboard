@@ -50,13 +50,15 @@ class FakeDraftAdapter:
     def stage_images(self, config, images):
         row = ShopifyProductIdentity.query.one()
         assert row.state == "pending" and row.shopify_product_id is None
-        assert json.loads(row.media_evidence_json)["create_attempted"] is False
+        assert drafts.evidence(row)["create_attempted"] is False
         assert db.session.get(CatalogueOperation, row.operation_id).status == "running"
         self.calls.append("stage_write")
         if self.failure == "stage": raise ShopifyError("Staged targets failed")
+        offset=getattr(self,'staged_count',0)
+        self.staged_count=offset+len(images)
         return {"stagedUploadsCreate": {"stagedTargets": [
             {"url": "https://storage.googleapis.com/upload", "resourceUrl": f"https://storage.googleapis.com/image/{i}", "parameters": []}
-            for i in range(len(images))], "userErrors": []}}
+            for i in range(offset,offset+len(images))], "userErrors": []}}
 
     def upload_image(self, config, target, image, content):
         self.calls.append("binary_upload")
@@ -65,7 +67,7 @@ class FakeDraftAdapter:
 
     def create_draft(self, config, product, media):
         row = ShopifyProductIdentity.query.one()
-        assert json.loads(row.media_evidence_json)["create_attempted"] is True
+        assert drafts.evidence(row)["create_attempted"] is True
         assert row.state == "creating"
         self.calls.append("product_create")
         assert product["status"] == "DRAFT" and "publications" not in product

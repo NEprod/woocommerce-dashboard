@@ -455,7 +455,7 @@ class ScheduledTask(db.Model):
     __table_args__ = (db.CheckConstraint("interval_minutes BETWEEN 1 AND 1440", name="ck_task_interval"),)
     key = db.Column(db.String(64), primary_key=True)
     enabled = db.Column(db.Boolean, nullable=False, default=True)
-    interval_minutes = db.Column(db.Integer, nullable=False, default=20)
+    interval_minutes = db.Column(db.Integer, nullable=False, default=1440)
     next_due = db.Column(db.DateTime, nullable=False)
     last_scheduled = db.Column(db.DateTime)
     last_started = db.Column(db.DateTime)
@@ -473,7 +473,8 @@ class ScheduledTask(db.Model):
 
 class ScheduledTaskRun(db.Model):
     __tablename__ = "scheduled_task_run"
-    __table_args__ = (db.CheckConstraint("length(data_json) <= 65536", name="ck_task_run_bound"),)
+    __table_args__ = (db.CheckConstraint("length(data_json) <= 65536", name="ck_task_run_bound"),
+                      db.Index('ix_scheduled_history_key_time', 'task_key', 'created_at'))
     id = db.Column(db.String(32), primary_key=True)
     task_key = db.Column(db.String(64), db.ForeignKey("scheduled_task.key"), nullable=False, index=True)
     trigger = db.Column(db.String(16), nullable=False)

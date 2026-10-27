@@ -46,7 +46,16 @@ def mark_failure(product, row, message, *, kind="unavailable"):
     comparison.store_summary(row, data)
 
 
-def refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, scheduled_run=None):
+def refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, scheduled_run=None, reuse_references=True):
+    from app.shopify_read_scope import inspection
+    from app.taxonomy_registry import registry_inspection
+    with registry_inspection(enabled=reuse_references), inspection(reuse=reuse_references) as profile:
+        result = _refresh(products, force=force, adapter=adapter, full_limit=full_limit, scheduled_run=scheduled_run)
+        result['request_profile'] = profile
+        return result
+
+
+def _refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, scheduled_run=None):
     products = list(products)
     if len(products) > BATCH:
         raise ShopifyError("At most 25 visible products can be checked per request.")

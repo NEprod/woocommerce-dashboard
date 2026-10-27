@@ -104,14 +104,17 @@ def _release(product, event, guard):
         raise
 
 
-def process_due(guard):
+def process_due(guard, *, event_types=None, event_ids=None):
     from app.automatic_publishing import policy, queue_product
     from app.utils.operation_control import CatalogueOperationActive, sanitize_operation_error
     if not policy().enabled:
         return 0  # due rows are retained, not consumed during pause
     count = 0
     # Poll only known in-flight release receipts, never rescan/rewrite after restart.
-    for event in ShopifyDueEvent.query.filter_by(state='processing').limit(8).all():
+    types = event_types or {'release', 'sale_activate', 'sale_end'}
+    query = ShopifyDueEvent.query.filter(ShopifyDueEvent.event_type.in_(types))
+    if event_ids is not None: query = query.filter(ShopifyDueEvent.id.in_(event_ids))
+    for event in query.filter_by(state='processing').limit(8).all():
         guard()
         operation = db.session.get(CatalogueOperation, event.operation_id) if event.operation_id else None
         if operation and operation.status in {'running', 'pending'}: continue
@@ -123,7 +126,7 @@ def process_due(guard):
         else:
             event.state, event.error = 'attention', 'Interrupted release requires the existing local-save/scan recovery workflow.'
         db.session.commit()
-    due = ShopifyDueEvent.query.filter_by(state='pending').filter(ShopifyDueEvent.due_at <= drafts.now()).order_by(
+    due = query.filter_by(state='pending').filter(ShopifyDueEvent.due_at <= drafts.now()).order_by(
         ShopifyDueEvent.due_at, ShopifyDueEvent.id).limit(8).all()
     for event in due:
         guard()

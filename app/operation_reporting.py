@@ -49,6 +49,13 @@ def interpretation(row):
         and summary.get('stage') in {'media_processing','media_reordering'}
         and summary.get('native_dimensions') in {'disabled','blocked','verified'}
         and summary.get('package_assignment') in {'none','accepted','outstanding'})
+    known_upload = (row.operation_type == 'shopify_draft_publish' and execution == 'partial'
+        and not recovery and not row.error and not row.products_failed and summary.get('identity_id')
+        and summary.get('stage') == 'gallery_uploading' and summary.get('create_attempted') is False
+        and type(summary.get('uploads_acknowledged')) is int and type(summary.get('images')) is int
+        and 0 <= summary['uploads_acknowledged'] <= summary['images'] <= 250)
+    if known_upload:
+        execution = 'processing'
     if known_processing:
         execution, recovery = 'processing', False
     # Only explicit new evidence permits a corrected historical interpretation.
@@ -70,6 +77,8 @@ def interpretation(row):
              'processing': 'Awaiting Shopify media readback'}.get(execution, execution)
     if recovery:
         label = 'Recovery Required'
+    elif known_upload:
+        label = 'Gallery uploads in progress — no ProductCreate attempted'
     elif execution == 'succeeded' and summary.get('package_assignment') == 'accepted':
         label = 'Completed — Shopify Accepted'
     return {'execution': execution, 'label': label, 'original_status': row.status,

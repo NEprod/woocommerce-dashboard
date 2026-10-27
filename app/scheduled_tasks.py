@@ -19,16 +19,19 @@ VIEW_KEY = 'catalogue_views'
 INTERVALS = (10, 20, 30, 60, 1440)
 LEASE = timedelta(seconds=120)
 MAX_PRODUCTS = 1000
-MAX_SLICES = 60
 FULL_PER_SLICE = 8
+MAX_SLICES = (MAX_PRODUCTS + FULL_PER_SLICE - 1) // FULL_PER_SLICE + 25
 DEFINITION = {"name":"Shopify Product Reconciliation",
     "description":"Read-only verification of product, variant, inventory, media, taxonomy and attribute evidence."}
 SALE_KEY='shopify_sales'
+RELEASE_KEY='shopify_releases'
 SALE_DEFINITION={'name':'Scheduled Sale Transitions','description':'Only explicitly authorised due price transitions; no due sale means no Shopify request.'}
 ORDERS_KEY='shopify_orders'
 
 
 def definition(key):
+    if key == RELEASE_KEY:
+        return {'name': 'Scheduled Product Releases', 'description': 'Only indexed due releases; existing source save and containing-collection scan, then authorised publication.'}
     if key == VIEW_KEY:
         from app.catalogue_views import DEFINITION as views_definition
         return views_definition
@@ -44,7 +47,7 @@ def definition(key):
 
 
 def intervals(key):
-    return (5,10,20,30,60) if key in {SALE_KEY,ORDERS_KEY,VIEW_KEY} else INTERVALS
+    return (5,10,20,30,60) if key in {SALE_KEY,RELEASE_KEY,ORDERS_KEY,VIEW_KEY} else INTERVALS
 COUNTERS = ("considered", "skipped_recent", "checked", "up_to_date", "updates", "attention", "unavailable", "deferred", "api_requests", "throttled")
 
 
@@ -75,7 +78,7 @@ def snapshot(task):
 def configure(key, *, enabled, interval):
     if key==ORDERS_KEY:
         raise ValueError('Orders use startup/manual catch-up and webhooks, not recurring API polling.')
-    if key not in {KEY,SALE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY} or type(enabled) is not bool or type(interval) is not int or interval not in intervals(key):
+    if key not in {KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY} or type(enabled) is not bool or type(interval) is not int or interval not in intervals(key):
         raise ValueError("Choose an enabled state and a supported task interval.")
     if key == PUBLISHER_KEY and enabled:
         from app.automatic_publishing import policy
@@ -95,14 +98,14 @@ def configure(key, *, enabled, interval):
 
 
 def enqueue(key=KEY, *, manual=False, product_ids=None, startup=False, orders_rescan=False, priority=False):
-    if key not in {KEY,SALE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY}:
+    if key not in {KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY}:
         raise ValueError("Unknown task.")
     if orders_rescan and (key!=ORDERS_KEY or not manual):raise ValueError('Recent Orders rescan requires explicit manual authority.')
     if priority and (key != PUBLISHER_KEY or manual or startup or product_ids is None):
         raise ValueError('Priority publishing requires an explicit automatic product scope.')
     if startup and (key not in {KEY,ORDERS_KEY} or manual or product_ids is not None):
         raise ValueError('Startup accepts only full read-only Products or Orders catch-up tasks.')
-    if product_ids is not None and (key in {SALE_KEY,ORDERS_KEY} or not (manual or priority) or not isinstance(product_ids,list) or not 1 <= len(product_ids) <= 25
+    if product_ids is not None and (key in {SALE_KEY,RELEASE_KEY,ORDERS_KEY} or not (manual or priority) or not isinstance(product_ids,list) or not 1 <= len(product_ids) <= 25
             or any(type(i) is not int or i < 1 for i in product_ids) or len(set(product_ids)) != len(product_ids)):
         raise ValueError("An explicit manual scope accepts one to 25 distinct product IDs.")
     task = db.session.get(ScheduledTask,key)
@@ -157,7 +160,7 @@ def renew(key, run_id, owner):
 
 def claim(owner, *, manual_only=False):
     stamp=now()
-    candidates=ScheduledTask.query.filter(ScheduledTask.key.in_({KEY,SALE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY}),ScheduledTask.active_run_id.isnot(None),
+    candidates=ScheduledTask.query.filter(ScheduledTask.key.in_({KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY}),ScheduledTask.active_run_id.isnot(None),
         or_(ScheduledTask.resume_at.is_(None),ScheduledTask.resume_at<=stamp),
         or_(ScheduledTask.owner.is_(None),ScheduledTask.lease_until<=stamp))
     if manual_only:
@@ -169,7 +172,7 @@ def claim(owner, *, manual_only=False):
     previous_owner=candidate.owner
     busy = ScheduledTask.__table__.alias('busy_task')
     from sqlalchemy import select
-    occupied = select(busy.c.key).where(busy.c.key.in_({KEY,SALE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY}),
+    occupied = select(busy.c.key).where(busy.c.key.in_({KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY}),
         busy.c.owner.isnot(None), busy.c.lease_until > stamp).exists()
     changed=db.session.execute(update(ScheduledTask).where(ScheduledTask.key==key,ScheduledTask.active_run_id==run_id,
         ~occupied, or_(ScheduledTask.owner.is_(None),ScheduledTask.lease_until<=stamp)
@@ -212,12 +215,13 @@ def fence(key,run_id,owner):
         db.session.rollback();raise BackgroundYield("Execution owner changed before evidence commit.")
 
 
-def save_progress(key,run_id,owner,data,*,pause=False,terminal=None,error=None):
+def save_progress(key,run_id,owner,data,*,pause=False,terminal=None,error=None,resume_seconds=None):
     renew(key,run_id,owner)
     stamp=now()
     values={"state":"paused" if pause else "running"}
     if pause:
-        values.update(owner=None,lease_until=None,resume_at=stamp+timedelta(seconds=.25 if key==VIEW_KEY else 15))
+        delay = resume_seconds if resume_seconds is not None else .25 if key==VIEW_KEY else 15
+        values.update(owner=None,lease_until=None,resume_at=stamp+timedelta(seconds=delay))
     run=db.session.get(ScheduledTaskRun,run_id)
     if terminal:
         values.update(state=terminal,last_outcome=terminal,last_completed=stamp,
@@ -335,7 +339,9 @@ def group_errors(data, errors):
 
 
 def run_slice(key,run_id,owner,*,adapter=None):
-    if key not in {KEY,SALE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY}: raise ValueError('Unknown or retired task; history is read-only.')
+    if key not in {KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY}: raise ValueError('Unknown or retired task; history is read-only.')
+    if key == RELEASE_KEY:
+        return release_slice(run_id, owner)
     if key==VIEW_KEY:
         from app.catalogue_views import run_slice as view_slice
         return view_slice(run_id,owner)
@@ -385,6 +391,8 @@ def run_slice(key,run_id,owner,*,adapter=None):
                     # Eligible scheduled reads also bypass browser backoff/cache.
                     result=shopify_status.refresh(eligible,force=True,adapter=adapter,
                         full_limit=FULL_PER_SLICE,scheduled_run=(run_id,owner))
+                    from app.shopify_read_scope import accumulate
+                    accumulate(data.setdefault('request_profile', {}), result.get('request_profile', {}))
                 except CatalogueOperationActive:
                     result.update(pending=[p.id for p in eligible],deferred_reason="Interactive catalogue operation owns the execution slot.")
                 finally:
@@ -426,7 +434,7 @@ def run_slice(key,run_id,owner,*,adapter=None):
         save_progress(key,run_id,owner,data,pause=bool(data.get("reason")))
         if not data.get("reason"):
             # Bounded continuation, same durable run; no competing browser worker.
-            save_progress(key,run_id,owner,data,pause=True)
+            save_progress(key,run_id,owner,data,pause=True,resume_seconds=1)
     except BackgroundYield:
         # Lost ownership cannot finalize history or rewrite comparison evidence.
         db.session.rollback()
@@ -453,6 +461,7 @@ def tick(owner,*,adapter=None):
     retire()  # database-only retirement after any historical lease expires
     enqueue()
     enqueue(SALE_KEY)
+    enqueue(RELEASE_KEY)
     enqueue(VIEW_KEY)
     from app.automatic_publishing import enqueue_priority
     enqueue_priority()
@@ -495,7 +504,7 @@ def activity():
     """Attribute real task failures; routine deferral is not a global alarm."""
     from app.catalogue_startup import KEY as local_key
     from sqlalchemy import func
-    keys = (KEY,SALE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY,local_key)
+    keys = (KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY,local_key)
     tasks = {row.key: row for row in ScheduledTask.query.filter(ScheduledTask.key.in_(keys))}
     latest = db.session.query(ScheduledTaskRun.id, func.row_number().over(partition_by=ScheduledTaskRun.task_key,
         order_by=(ScheduledTaskRun.created_at.desc(), ScheduledTaskRun.id.desc())).label('rank')).filter(
@@ -519,6 +528,41 @@ def activity():
     return next((v for v in values if v['attention']),values[0] if values else None)
 
 
+def release_slice(run_id, owner):
+    """Separate durable release history, same leases/source-save/due engine."""
+    from app.models import ShopifyDueEvent
+    from app.publishing_due import process_due
+    from app.automatic_publishing import policy
+    key = RELEASE_KEY
+    run = db.session.get(ScheduledTaskRun, run_id)
+    task = db.session.get(ScheduledTask, key)
+    data = json.loads(run.data_json)
+    try:
+        renew(key, run_id, owner)
+        if not policy().enabled or not task.enabled and run.trigger != 'manual':
+            data['reason'] = 'Release work retained; automatic publishing is paused or this task is disabled.'
+            return save_progress(key, run_id, owner, data, terminal='completed')
+        if 'release_ids' not in data:
+            data['release_ids'] = [r.id for r in ShopifyDueEvent.query.filter(
+                ShopifyDueEvent.event_type == 'release', ShopifyDueEvent.state.in_({'pending', 'processing'}),
+                ShopifyDueEvent.due_at <= now()).order_by(ShopifyDueEvent.due_at, ShopifyDueEvent.id).limit(8)]
+        process_due(lambda: renew(key, run_id, owner), event_types={'release'}, event_ids=data['release_ids'])
+        rows = ShopifyDueEvent.query.filter(ShopifyDueEvent.id.in_(data['release_ids'])).all()
+        data['items'] = [{'id': r.product_id, 'state': r.state, 'reason': r.error, 'operation_id': r.operation_id} for r in rows]
+        waiting = any(r.state in {'pending', 'processing'} for r in rows)
+        attention = sum(r.state == 'attention' for r in rows)
+        data['counts'].update(considered=len(rows), checked=len(rows), attention=attention,
+            up_to_date=sum(r.state == 'completed' for r in rows), deferred=sum(r.state in {'pending', 'processing'} for r in rows))
+        data['reason'] = 'Local release save/scan and queueing only. Shopify publication has its own verified product event.'
+        return save_progress(key, run_id, owner, data, pause=waiting,
+            terminal=None if waiting else 'partially_completed' if attention else 'completed')
+    except BackgroundYield:
+        db.session.rollback()
+    except Exception as exc:
+        db.session.rollback()
+        save_progress(key, run_id, owner, data, terminal='failed', error=sanitize_operation_error(exc))
+
+
 def sale_slice(key,run_id,owner,*,adapter=None):
     from app import shopify_sales as sales
     from app.models import ShopifySaleSchedule
@@ -536,7 +580,7 @@ def sale_slice(key,run_id,owner,*,adapter=None):
             data['reason']='Sale task disabled; existing remote prices are unchanged.'
             return save_progress(key,run_id,owner,data,terminal='partially_completed')
         from app.publishing_due import process_due
-        process_due(lambda: renew(key,run_id,owner))
+        process_due(lambda: renew(key,run_id,owner), event_types={'sale_activate', 'sale_end'})
         due=ShopifySaleSchedule.query.filter(ShopifySaleSchedule.state.in_({'authorised','active','activating','ending'}),
             ShopifySaleSchedule.next_due<=now()).order_by(ShopifySaleSchedule.next_due).limit(4).all()
         data['counts']['considered']+=len(due)

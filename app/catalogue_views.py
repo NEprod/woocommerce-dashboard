@@ -183,6 +183,9 @@ def saved_states(products):
                 or evidence.get('native_dimensions', {}).get('state') in {'pending', 'uncertain'})
             if identity.operation_id in active_operations:
                 state.update(state='processing', label='Processing', execution_pending=True)
+            elif drafts.upload_pending(identity):
+                state.update(state='processing', label='Uploading gallery', execution_pending=True,
+                    message='Acknowledged uploads retained for the next authorised slice; no product Create attempted.')
             elif uncertain or identity.state not in {'verified', 'remote_deleted', 'failed_before_create', 'processing', 'scoped_verified', 'attribute_review_required'}:
                 state.update(state='recovery_required', label='Recovery Required', message='Retained remote operation requires safe recovery; no automatic retry.')
             elif identity.state == 'processing':

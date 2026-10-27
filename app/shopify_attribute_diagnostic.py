@@ -122,7 +122,7 @@ def verification(row):
         if product and product.product_type == 'variable':
             from app.shopify_variables import gallery_diagnostics
             images = gallery_diagnostics(product, images)
-        result['gallery'] = {'count': len(images), 'unresolved': sum(not r.get('source_exists') or not r.get('source_reference') for r in images), 'limit': 20}
+        result['gallery'] = {'count': len(images), 'unresolved': sum(not r.get('source_exists') or not r.get('source_reference') for r in images), 'limit': drafts.MAX_IMAGES}
     except (ValueError, OSError, RuntimeError):
         result['gallery'] = {'unavailable': True, 'action': 'Check catalogue mount/source layout.'}
     comparison = ShopifyProductComparison.query.filter_by(store_id=row.store_id, source_identity=row.source_identity).first()

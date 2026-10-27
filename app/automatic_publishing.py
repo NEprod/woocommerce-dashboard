@@ -304,7 +304,7 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
         return job.state
     row = None
     candidates = ShopifyProductIdentity.query.filter_by(product_id=product.id).all()
-    if len(candidates) > 1 or any(not processing_readback(r) and (r.state not in {
+    if len(candidates) > 1 or any(not processing_readback(r) and not drafts.upload_pending(r) and (r.state not in {
             'verified', 'remote_deleted', 'failed_before_create','attribute_review_required','scoped_verified'} or
             r.state != 'failed_before_create' and r.verification_state not in {
                 'verified', 'remote_absent','base_verified','inventory_verified'}) for r in candidates):
@@ -357,7 +357,7 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
 
     context = {'product_id': product.id, 'revision': revision, 'trigger': event_trigger(job),
                'authority': initial_authority, 'owner': owner}
-    if row and processing_readback(row):
+    if row and (processing_readback(row) or drafts.upload_pending(row)):
         context['processing_operation'] = row.operation_id
         context['completion_of_creation'] = not drafts.evidence(row).get('update_attempted')
     budget = None
@@ -366,6 +366,10 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
                              publisher_authority=write_guard, publishing_context=context) as budget:
             write_guard()
             if row and processing_readback(row):
+                proof = drafts.evidence(row)
+                polls = proof.get('automatic_readback_attempts', 0) if proof.get('automatic_readback_operation') == row.operation_id else 0
+                proof.update(automatic_readback_operation=row.operation_id, automatic_readback_attempts=polls+1)
+                drafts.save(row, proof)
                 # Existing finaliser is deliberately restricted to reads here.
                 with background_work(guard, fence=fence, requests=40, seconds=45) as read_budget:
                     try:
@@ -374,7 +378,7 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
                         budget['requests'] += read_budget['requests']
                         budget['throttled'] += read_budget['throttled']
                 if processing_readback(row):
-                    if job.attempts >= 12:
+                    if polls+1 >= 12:
                         raise ShopifyError('Shopify media remains processing after bounded readback retries. Inspect its original receipt and use read-only reconciliation; no Create is retried.')
                     _settle_job(job, owner=owner, revision=revision, state='retry', operation_id=row.operation_id,
                         error='Shopify media is still processing; readback retained, no product mutation will be replayed.', fence=fence)
@@ -413,10 +417,11 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
                     return 'matching'
                 row = drafts.execute_reviewed(execution_proof(product, plan), adapter, expected_product_id=product.id)
                 from app.shopify_notifications import complete
-                state = 'verified' if complete(row, drafts.evidence(row)) else 'retry' if processing_readback(row) else 'recovery_required'
+                state = 'verified' if complete(row, drafts.evidence(row)) else 'retry' if processing_readback(row) or drafts.upload_pending(row) else 'recovery_required'
             guard()
             _settle_job(job, owner=owner, revision=revision, state=state, operation_id=row.operation_id, fence=fence,
                 error=None if state == 'verified' else 'Shopify Draft verified; metadata remains paused.' if state == 'paused'
+                else 'Acknowledged gallery uploads retained; next bounded slice will continue.' if drafts.upload_pending(row)
                 else 'Shopify media processing; awaiting read-only verification.' if state == 'retry'
                 else 'Publishing is not completely verified. Inspect the original receipt before any retry.')
             if state == 'retry':
@@ -485,8 +490,8 @@ def recover_jobs(owner, *, guard=lambda: None, fence=lambda: None):
     for job in ShopifyPublishJob.query.filter(ShopifyPublishJob.owner.isnot(None)).all():
         guard()
         identities = ShopifyProductIdentity.query.filter_by(product_id=job.product_id).all()
-        pending_media = len(identities) == 1 and processing_readback(identities[0])
-        unsafe = any(not processing_readback(r) and r.state not in {'verified', 'remote_deleted', 'failed_before_create'} for r in identities)
+        pending_media = len(identities) == 1 and (processing_readback(identities[0]) or drafts.upload_pending(identities[0]))
+        unsafe = any(not processing_readback(r) and not drafts.upload_pending(r) and r.state not in {'verified', 'remote_deleted', 'failed_before_create'} for r in identities)
         operation = db.session.get(CatalogueOperation, job.operation_id) if job.operation_id else None
         if operation and operation.recovery_state not in {None, 'none'} and not pending_media:
             unsafe = True

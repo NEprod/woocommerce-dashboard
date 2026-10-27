@@ -43,21 +43,28 @@ def record(operation, product, identity, evidence):
     if scope.get('mode') == 'publication':
         plan = evidence.get('publication_update', {}).get('plan', plan)
     items = changes(plan)
-    kind = 'verified' if operation.status == 'succeeded' else 'processing' if identity and identity.state == 'processing' else 'recovery_required' if operation.recovery_state not in {None, 'none'} else 'failed'
+    kind = 'verified' if operation.status == 'succeeded' else 'processing' if identity and identity.state in {'processing','uploading'} else 'recovery_required' if operation.recovery_state not in {None, 'none'} else 'failed'
+    reviewed_items = items
+    if kind != 'verified':
+        items = []  # reviewed intent is not evidence of an applied remote change
     event_id = operation.id + ':' + kind
     if not db.session.get(ShopifyPublishingEvent, event_id):
         data = {'sku': product.sku if product else identity.sku if identity else None,
             'title': product.title if product else plan.get('title'), 'changes': items,
+            'reviewed_changes': reviewed_items if kind != 'verified' else [],
             'status': operation.status, 'recovery_state': operation.recovery_state,
             'reason': redact_diagnostic(operation.error or '', limit=1000),
             'started_at': operation.started_at.isoformat(), 'finished_at': operation.finished_at.isoformat(),
             'verification_scope': {'publication': 'status/channels only',
                 'customisations': 'customer configuration only', 'automatic_preflight': 'local preflight; no remote write',
                 'sale_activate': 'scheduled price only', 'sale_end': 'scheduled price only'}.get(scope.get('mode'),
-                    'inventory only' if scope.get('scope') == 'inventory' else 'managed product'),
+                    'inventory only' if scope.get('scope') == 'inventory' else 'acknowledged uploads only; no ProductCreate attempted' if identity and identity.state == 'uploading' else 'managed product'),
             'mode': scope.get('mode', 'create'),
             'processing_operation': execution.get('processing_operation'),
             'notification_receipt': operation.id}
+        from app.shopify_package_assignments import completion as package_completion
+        if package_completion(evidence) == 'accepted':
+            data['verification_scope'] += '; package assignment Shopify Accepted, independent package readback unavailable'
         # Existing publisher bounds the plan; preserve full safe field values here.
         db.session.add(ShopifyPublishingEvent(id=event_id, operation_id=operation.id,
             product_id=product.id if product else None, event_type=kind, trigger=execution.get('trigger', 'manual_review'),

@@ -178,7 +178,7 @@ def enqueue(operation):
         return None
     identity = ShopifyProductIdentity.query.filter_by(operation_id=operation.id).first()
     quiet = event in {'verified_success', 'shopify_accepted'} and not notify_verified or (
-        event == 'partial_completion' and identity and identity.state == 'processing')
+        event == 'partial_completion' and identity and identity.state in {'processing','uploading'})
     envelope = aggregate([product])
     envelope['notify_verified'] = notify_verified
     events[event] = {"version": 1, "event": event, "state": "suppressed" if quiet else "pending", "attempts": 0,

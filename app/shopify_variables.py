@@ -180,7 +180,7 @@ def remote_identity(row, data, remote, *, native_only=False):
     if (not isinstance(remote,dict) or remote.get("id") != row.shopify_product_id or remote.get("status") not in {"DRAFT","ACTIVE","ARCHIVED"}
             or (remote.get("metafield") or {}).get("value") != data["plan"]["nonce"]):
         raise ShopifyError("Retained variable product/store/correlation/Draft identity is untrusted; no new Create or update allowed.")
-    for connection, bound in (("variants", MAX_VARIANTS),) if native_only else (("variants", MAX_VARIANTS), ("media",20)):
+    for connection, bound in (("variants", MAX_VARIANTS),) if native_only else (("variants", MAX_VARIANTS), ("media",drafts.MAX_IMAGES)):
         value = remote.get(connection)
         if not isinstance(value,dict) or value.get("pageInfo",{}).get("hasNextPage") is not False or not isinstance(value.get("nodes"),list) or len(value["nodes"])>bound:
             raise ShopifyError("Variable remote evidence is incomplete or exceeds the review bound; no equality or destructive action assumed.")
@@ -360,14 +360,14 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
         drafts.finalize_processing(row,adapter)
         if row.state == "processing":
             raise ShopifyError("Variable media is still processing. Refresh shortly; no retry/upload is needed.")
-    if row and row.state not in {"verified","failed_before_create","remote_deleted","attribute_review_required","scoped_verified"}:
+    if row and row.state not in {"verified","failed_before_create","remote_deleted","attribute_review_required","scoped_verified"} and not drafts.upload_pending(row):
         raise ShopifyError("Recovery required for this variable identity. Reconcile the retained stage; no duplicate product/variant create.")
     if row and row.state in {"verified","attribute_review_required","scoped_verified"} and drafts.evidence(row).get("kind") != "variable":
         raise ShopifyError("Existing Simple-to-variable conversion requires a separately reviewed identity migration; another Create is blocked.")
     if row and (row.source_identity != product.source_relpath or row.sku != product.sku):
         raise ShopifyError("Retained parent source/SKU identity changed; restore it before any variable write.")
     plan.update(store_id=shop["shop_id"], store_key=drafts.digest({"id":shop["shop_id"]}), domain=config.domain,
-        config_digest=config.fingerprint(), nonce=seed or (drafts.evidence(row)["plan"]["nonce"] if row and row.state in {"verified","attribute_review_required","scoped_verified"} else uuid.uuid4().hex))
+        config_digest=config.fingerprint(), nonce=seed or (drafts.evidence(row)["plan"]["nonce"] if row and (row.state in {"verified","attribute_review_required","scoped_verified"} or drafts.upload_pending(row)) else uuid.uuid4().hex))
     plan["handle"] = plan["managed"]["product"].get("handle") or "tlc-draft-"+plan["nonce"]
     remote_id = row.shopify_product_id if row and row.state in {"verified","attribute_review_required","scoped_verified"} else None
     from app.shopify_taxonomy import membership_plan
@@ -693,8 +693,14 @@ def confirm(reviewed, adapter=None):
         row = drafts.matching_identity(plan["store_id"],product)
         creating = not plan.get("remote_id")
         if creating:
-            data = {"version":1,"kind":"variable","plan":plan,"stage":"pending","completed_steps":[],"media":[],"created_media":[],
-                "variant_maps":{},"variant_native":{},"variant_creates_attempted":[],"create_attempted":False}
+            if drafts.upload_pending(row):
+                data = drafts.evidence(row)
+                if data['plan']['digest'] != plan['digest'] or data['plan'].get('config_digest') != config.fingerprint():
+                    raise ShopifyError('Incomplete gallery source/configuration changed; no product Create attempted.')
+                data['plan'] = plan
+            else:
+                data = {"version":1,"kind":"variable","plan":plan,"stage":"pending","completed_steps":[],"media":[],"created_media":[],
+                    "variant_maps":{},"variant_native":{},"variant_creates_attempted":[],"create_attempted":False}
             if row and row.state == "remote_deleted":
                 data["history_operation"] = drafts.evidence(row).get("history_operation")
             if row is None:
@@ -706,20 +712,8 @@ def confirm(reviewed, adapter=None):
                 if row.product_id is None: row.product_id=product.id
                 row.operation_id,row.reviewed_digest=lease.id,plan["digest"]
                 drafts.save(row,data,"pending")
-            stage=drafts.payload_result(adapter.stage_images(config,plan["images"]),"stagedUploadsCreate")
-            targets=stage.get("stagedTargets")
-            if not isinstance(targets,list) or len(targets)!=len(plan["images"]):
-                raise ShopifyError("Staged image targets incomplete; no product Create attempted.")
+            uploads=drafts.upload_gallery(product,row,data,plan,config,adapter)
             drafts.completed_step(row,data,"staged_uploads")
-            uploads=[]
-            for image,target in zip(plan["images"],targets):
-                content,_,_=drafts.source_bytes(product,image["source"])
-                if hashlib.sha256(content).hexdigest()!=image["sha256"]:
-                    raise ShopifyError("Original image changed since Review; no product Create attempted.")
-                adapter.upload_image(config,target,image,content)
-                uploads.append({"originalSource":target["resourceUrl"],"mediaContentType":"IMAGE","alt":image["alt"]})
-                data["media"].append({"source":image["source"],"sha256":image["sha256"],"filename":image["filename"]})
-                drafts.save(row,data)
             drafts.completed_step(row,data,"original_image_uploads")
             if local_plan(product)["digest"]!=plan["digest"]:
                 raise ShopifyError("Local source changed during uploads; no product Create attempted.")
@@ -846,6 +840,14 @@ def confirm(reviewed, adapter=None):
             recovery_state="review_required" if row.state=="uncertain" else "none",
             products_attempted=1,products_succeeded=int(row.state=="verified"),
             operation_summary={"identity_id":row.id,"mode":"variable","stage":drafts.evidence(row)['stage'],"variants":len(plan["variants"]),"native_dimensions":native_state,'package_assignment':package_state})
+        return row
+    except drafts.GalleryPending:
+        data['upload_no_progress'] = data.get('upload_no_progress',0)+1 if len(data.get('upload_inputs',[]))==data.get('upload_start_count') else 0
+        data.update(stage='gallery_uploading', error=None)
+        drafts.save(row,data,'uploading')
+        finish_catalogue_operation(lease.id,status='partial',recovery_state='none',products_attempted=1,
+            operation_summary={'identity_id':row.id,'stage':'gallery_uploading','create_attempted':False,
+                'uploads_acknowledged':len(data.get('upload_inputs',[])),'images':len(plan['images'])})
         return row
     except Exception as exc:
         db.session.rollback()

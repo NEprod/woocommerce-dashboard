@@ -1,6 +1,7 @@
 {% extends 'layouts/base.html' %}
 {% block title %}Operations{% endblock %}
 {% block content %}
+{% include 'includes/_publishing_navigation.html' %}
 <section class="page-heading page-heading-actions"><div><p class="eyebrow">Scanner</p><h1>Operation History</h1><p>Review persisted catalogue outcomes, recovery state, and bounded live diagnostics.</p></div><a class="btn btn-accent" href="{{ url_for('main.scanner') }}">Open Scanner</a></section>
 <section class="workspace-panel"><p>This is historical execution evidence, not a count of active issues. Scheduled slice receipts are internal stages of a durable task run, not duplicate merchant requests.</p><div class="panel-actions"><a href="{{ url_for('main.operation_issues_page', category='failures') }}">Current execution issues</a><a href="{{ url_for('tasks.index') }}">Primary scheduled run history</a><a href="{{ url_for('main.operations', stages='yes') }}">Include internal stage receipts</a></div></section>
 <form class="operations-toolbar" method="get" aria-label="Filter operations">

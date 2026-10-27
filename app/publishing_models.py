@@ -61,6 +61,7 @@ class ShopifyDueEvent(db.Model):
 
 class ShopifyPublishingEvent(db.Model):
     __tablename__ = 'shopify_publishing_event'
+    __table_args__ = (db.Index('ix_publishing_events_time', 'occurred_at', 'id'),)
     id = db.Column(db.String(80), primary_key=True)
     operation_id = db.Column(db.String(32), db.ForeignKey('catalogue_operation.id'), nullable=False, index=True)
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'))

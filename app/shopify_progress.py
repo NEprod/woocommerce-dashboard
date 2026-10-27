@@ -91,7 +91,7 @@ def receipt(product_id, token):
         native = data.get("native_dimensions",{}).get("state")
         if running: state = "running"
         elif row and row.state == "verified" and row.verification_state == "verified" and operation.status == "succeeded" and native not in {"pending","uncertain","blocked"}: state = "completed"
-        elif row and row.state == "processing": state = "processing"
+        elif row and (row.state == "processing" or drafts.upload_pending(row)): state = "processing"
         elif row and row.state in {"uncertain","deleting","delete_uncertain","creating","updating"}: state = "recovery_required"
         elif operation.status == "failed": state = "failed"
         elif operation.status == "interrupted": state = "recovery_required"

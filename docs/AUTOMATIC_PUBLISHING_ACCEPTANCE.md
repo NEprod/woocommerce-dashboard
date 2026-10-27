@@ -1,5 +1,10 @@
 # Automatic Shopify publishing — merchant staging acceptance
 
+For the operations-acceptance follow-up, also complete
+[OPERATIONS_ACCEPTANCE_CHECKLIST.md](OPERATIONS_ACCEPTANCE_CHECKLIST.md). It adds
+the compact operations views, measured reconciliation profiles, scoped bootstrap
+guidance, bounded large-gallery continuation and 0019→0020 upgrade/rollback checks.
+
 This is a development candidate, **not permission to enable publishing on the
 live store**. Automated results use fictional Shopify responses and disposable
 catalogues. Every real-store test below remains unchecked until performed on an

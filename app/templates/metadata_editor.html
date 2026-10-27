@@ -79,6 +79,7 @@
       </section>
 
       <section class="editor-workspace-section" aria-labelledby="publishing-title"><header><h2 id="publishing-title">Publishing</h2><p>Actual cached Shopify state: {{ workspace.shopify.remote_status }}. A save first updates local JSON and its collection projection. If automatic publishing is explicitly enabled, scanned Live changes are queued; otherwise use Review &amp; Sync.</p></header>
+        {% include 'includes/_publishing_capabilities.html' %}
         {{ extra_field('shopify_status','Desired Shopify status','Draft is not public. Active status and channel publication are separate. Explicit status edits keep legacy live intent consistent; resetting the product override restores inherited intent.', [('DRAFT','Draft'),('ACTIVE','Active'),('ARCHIVED','Archived')]) }}
         {{ sale_datetime('shopify_release_at','Optional scheduled Live release') }}
         <p class="field-helper">Keep this product Draft until release. The saved date is checked every five minutes after startup grace; publication requires automatic publishing authority. Clear an enabled product override to cancel its inherited release; disable the override to inherit again.</p>

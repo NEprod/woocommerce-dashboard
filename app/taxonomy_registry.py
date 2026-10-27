@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import wraps
+from contextlib import contextmanager
+from contextvars import ContextVar
 import errno
 import hashlib
 import json
@@ -257,6 +259,17 @@ def load_registry(root, *, excluded_roots=()):
             os.close(directory)
 
 
+_inspection_snapshot = ContextVar('taxonomy_inspection_snapshot', default=None)
+
+
+@contextmanager
+def registry_inspection(*, enabled=True):
+    """One secure local snapshot per bounded read-only reconciliation slice."""
+    token = _inspection_snapshot.set({} if enabled else None)
+    try: yield
+    finally: _inspection_snapshot.reset(token)
+
+
 def registry_read_view(function):
     """Reuse one immutable registry result in an explicitly opted-in GET view.
 
@@ -284,7 +297,9 @@ def load_configured_registry():
     from flask import current_app, g, has_request_context
     from app.models import Settings
 
-    view = getattr(g, "_taxonomy_read_view", None) if has_request_context() else None
+    view = _inspection_snapshot.get()
+    if view is None:
+        view = getattr(g, "_taxonomy_read_view", None) if has_request_context() else None
     if view is not None and "result" in view:
         return view["result"]
     settings = Settings.query.first()

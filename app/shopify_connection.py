@@ -4,6 +4,7 @@ import json
 import re
 import hashlib
 import threading
+import copy
 from collections import OrderedDict
 from time import monotonic, sleep
 from urllib.parse import urlsplit, unquote
@@ -37,7 +38,7 @@ READ_QUERIES |= frozenset((PACKAGING_CAPABILITY,))
 STAGE_QUERY = "mutation Stage($input: [StagedUploadInput!]!) { stagedUploadsCreate(input: $input) { stagedTargets { url resourceUrl parameters { name value } } userErrors { field message } } }"
 CREATE_QUERY = """mutation Draft($product: ProductCreateInput!, $media: [CreateMediaInput!]) {
  productCreate(product: $product, media: $media) { product { id variants(first: 2) { nodes { id } }
- media(first: 21) { nodes { id alt } pageInfo { hasNextPage endCursor } } }
+ media(first: 250) { nodes { id alt } pageInfo { hasNextPage endCursor } } }
  userErrors { field message } } }"""
 PRICE_QUERY = """mutation Price($id: ID!, $variants: [ProductVariantsBulkInput!]!) {
  productVariantsBulkUpdate(productId: $id, variants: $variants) { productVariants { id sku price }
@@ -45,11 +46,16 @@ PRICE_QUERY = """mutation Price($id: ID!, $variants: [ProductVariantsBulkInput!]
 DRAFT_FIELDS = """id handle title descriptionHtml status updatedAt
  metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
  variants(first: 2) { nodes { id sku price } pageInfo { hasNextPage endCursor } }
- media(first: 21) { nodes { id alt status mediaContentType ... on MediaImage { image { url } } }
+ media(first: 20) { nodes { id alt status mediaContentType ... on MediaImage { image { url } } }
  pageInfo { hasNextPage endCursor } }"""
 DRAFT_QUERY = "query DraftRead($id: ID!) { product(id: $id) { " + DRAFT_FIELDS + " } }"
 FIND_DRAFT_QUERY = "query DraftFind($query: String!) { products(first: 2, query: $query) { nodes { " + DRAFT_FIELDS + " } pageInfo { hasNextPage endCursor } } }"
 READ_QUERIES = READ_QUERIES | frozenset((DRAFT_QUERY, FIND_DRAFT_QUERY))
+GALLERY_QUERY = '''query TLCGalleryRead($id: ID!, $after: String!) { product(id: $id) {
+ id updatedAt status metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
+ media(first: 20, after: $after) { nodes { id alt status mediaContentType ... on MediaImage { image { url } } }
+ pageInfo { hasNextPage endCursor } } } }'''
+READ_QUERIES |= frozenset((GALLERY_QUERY,))
 WRITE_QUERIES = frozenset((STAGE_QUERY, CREATE_QUERY, PRICE_QUERY))
 
 # Full Simple managed readback, separate from the legacy M3A recovery contract.
@@ -121,7 +127,7 @@ VARIABLE_FIELDS = '''id title handle status updatedAt descriptionHtml vendor tag
  length: metafield(namespace: $namespace, key: "product_length") { id type value }
  width: metafield(namespace: $namespace, key: "product_width") { id type value }
  height: metafield(namespace: $namespace, key: "product_height") { id type value }
- media(first: 21) { nodes { id alt status mediaContentType ... on MediaImage { image { url } } } pageInfo { hasNextPage } }
+ media(first: 20) { nodes { id alt status mediaContentType ... on MediaImage { image { url } } } pageInfo { hasNextPage endCursor } }
  variants(first: 33) { nodes { id sku price compareAtPrice inventoryPolicy selectedOptions { name value }
  media(first: 2) { nodes { id } pageInfo { hasNextPage } }
  length: metafield(namespace: $namespace, key: "product_length") { id type value }
@@ -138,7 +144,7 @@ VARIABLE_NATIVE_READ = '''query VariablePackedRead($id: ID!, $after: String) { p
 } }'''
 NATIVE_INVENTORY_READ = '''query PackedInventory($id: ID!) { inventoryItem(id: $id) { id sku measurement { packedDimensions { length width height unit } } } }'''
 VARIABLE_CREATE = '''mutation VariableCreate($product: ProductCreateInput!, $media: [CreateMediaInput!]) {
- productCreate(product: $product, media: $media) { product { id media(first: 21) { nodes { id alt } pageInfo { hasNextPage } } } userErrors { field message } }
+ productCreate(product: $product, media: $media) { product { id media(first: 250) { nodes { id alt } pageInfo { hasNextPage } } } userErrors { field message } }
 }'''
 VARIANTS_CREATE = '''mutation VariantsCreate($id: ID!, $variants: [ProductVariantsBulkInput!]!) {
  productVariantsBulkCreate(productId: $id, variants: $variants, strategy: PRESERVE_STANDALONE_VARIANT) {
@@ -155,7 +161,7 @@ NATIVE_QUERIES |= frozenset((VARIABLE_NATIVE_READ, NATIVE_INVENTORY_READ))
 LIFECYCLE_READ = '''query Lifecycle($id: ID!) { product(id: $id) { id title status updatedAt
  metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
  variants(first: 33) { nodes { id sku inventoryItem { id sku } } pageInfo { hasNextPage } }
- media(first: 21) { nodes { id } pageInfo { hasNextPage } }
+ media(first: 250) { nodes { id } pageInfo { hasNextPage } }
 } }'''
 PRODUCT_DELETE = '''mutation DeleteReviewedProduct($id: ID!) {
  productDelete(input: {id: $id}, synchronous: true) { deletedProductId userErrors { field message } }
@@ -462,6 +468,16 @@ class ShopifyAdapter:
         return self._transport(configuration, query, variables)
 
     def _transport(self, configuration, query, variables=None, *, session=None, api_version=None):
+        from app.shopify_read_scope import transport
+        name = re.search(r'(?:query|mutation)\s+(\w+)', query)
+        with transport(configuration, name.group(1) if name else 'fixed-query', query, variables,
+                       api_version or configuration.api_version, query in WRITE_QUERIES) as snapshot:
+            if snapshot['cached']: return snapshot['value']
+            result = self._transport_uncached(configuration, query, variables, session=session, api_version=api_version)
+            snapshot['result'] = result
+            return result
+
+    def _transport_uncached(self, configuration, query, variables=None, *, session=None, api_version=None):
         retries=0; waited=0
         while True:
             try:
@@ -470,18 +486,23 @@ class ShopifyAdapter:
                 # Connection/auth tests and every mutation stay single-attempt.
                 if query==QUERY or query in WRITE_QUERIES or retries>=2 or not 0<=exc.delay<=2 or waited+exc.delay>3:
                     raise
+                from app.shopify_read_scope import retried
+                retried()
                 sleep(exc.delay); waited+=exc.delay; retries+=1
 
     def _note_request(self,query,version,status,cost=None,*,throttled=False):
         name=re.search(r"(?:query|mutation)\s+(\w+)",query)
         detail={"query":name.group(1) if name else "fixed-query","version":version,"http_status":status,
             "writing":query in WRITE_QUERIES,"throttled":status==429 or throttled}
+        detail['latency_ms'] = round(max(0, monotonic() - getattr(self, '_http_started', monotonic())) * 1000, 3)
         if isinstance(cost,dict):
             detail.update({k:cost[k] for k in ("requestedQueryCost","actualQueryCost") if isinstance(cost.get(k),(int,float))})
             throttle=cost.get("throttleStatus",{})
             if isinstance(throttle,dict): detail["throttle"]={k:throttle[k] for k in ("currentlyAvailable","restoreRate") if isinstance(throttle.get(k),(int,float))}
         self.request_trace=(getattr(self,"request_trace",[])+[detail])[-128:]
         self.request_count=getattr(self,"request_count",0)+1
+        from app.shopify_read_scope import observe
+        observe(detail)
         from flask import has_app_context,has_request_context,current_app,g
         if has_request_context():
             g.shopify_request_summary={"count":self.request_count,"last":detail,
@@ -504,6 +525,7 @@ class ShopifyAdapter:
         if own:
             session.trust_env = False  # Never send the token through an inherited proxy/netrc.
         trace_before=getattr(self,'request_count',0)
+        self._http_started = monotonic()
         try:
             with session.post(
                 f"https://{config.domain}/admin/api/{version}/graphql.json",
@@ -616,8 +638,49 @@ class ShopifyAdapter:
             "variants": [{"id": variant_id, "price": price, "inventoryItem": {"sku": sku}}]})
 
     def read_simple(self, configuration, product_id, namespace):
-        return self._read(configuration, SIMPLE_QUERY,
+        remote = self._read(configuration, SIMPLE_QUERY,
             {"id": _gid(product_id, "Product"), "namespace": namespace}).get("product")
+        return self._complete_gallery(configuration, remote)
+
+    def _complete_gallery(self, config, remote):
+        """Bounded complete media, stable product revision/correlation across pages.
+
+        Keep ordinary two-image reads cheap: do not request 250 edges for every
+        product solely to support a larger gallery on a different product.
+        """
+        if remote is None: return None
+        if not isinstance(remote, dict): raise ShopifyError('Incomplete product gallery identity.')
+        remote = copy.deepcopy(remote)
+        header = {k:remote.get(k) for k in ('id','updatedAt','status','metafield')}
+        connection = remote.get('media')
+        # Existing downstream verifiers still reject an absent connection.
+        if connection is None: return remote
+        nodes, seen, cursors = [], set(), set()
+        deadline = monotonic()+60
+        for _ in range(13):
+            if monotonic()>deadline: raise ShopifyError('Gallery read deadline exceeded; incomplete media is not verification.')
+            page = connection.get('pageInfo', {}) if isinstance(connection,dict) else {}
+            rows = connection.get('nodes') if isinstance(connection,dict) else None
+            if (not isinstance(rows,list) or len(rows)>20 or type(page.get('hasNextPage')) is not bool
+                    or any(not isinstance(n,dict) or not n.get('id') for n in rows)):
+                raise ShopifyError('Incomplete gallery page; no media is truncated or assumed absent.')
+            ids = [n['id'] for n in rows]
+            if len(set(ids))!=len(ids) or seen.intersection(ids): raise ShopifyError('Duplicate gallery identities across pages; compare again.')
+            seen.update(ids); nodes.extend(rows)
+            if len(nodes)>250: raise ShopifyError('Gallery exceeds the supported 250-media bound; no truncation.')
+            if page['hasNextPage'] is False:
+                remote['media']={'nodes':nodes,'pageInfo':{'hasNextPage':False}}
+                return remote
+            if not isinstance(header.get('updatedAt'),str) or not header['updatedAt']:
+                raise ShopifyError('Product revision timestamp is missing; paginated media cannot be verified.')
+            cursor=_cursor(page.get('endCursor'))
+            if not rows or not cursor or cursor in cursors: raise ShopifyError('Gallery pagination stalled; complete readback is required.')
+            cursors.add(cursor)
+            payload=self._read(config,GALLERY_QUERY,{'id':_gid(remote.get('id'),'Product'),'after':cursor}).get('product')
+            if not isinstance(payload,dict) or {k:payload.get(k) for k in header}!=header:
+                raise ShopifyError('Product revision/correlation changed during gallery pagination; compare again without writing.')
+            connection=payload.get('media')
+        raise ShopifyError('Gallery page bound exceeded; complete readback remains unavailable.')
 
     def packed_capability(self, config):
         return self._transport(config, NATIVE_CAPABILITY, api_version="2027-01")
@@ -659,7 +722,7 @@ class ShopifyAdapter:
                 raise ShopifyError("Remote product exceeds the existing 32-variant contract; no truncation or repair create.")
             if page["hasNextPage"] is False:
                 first["variants"]={"nodes":nodes,"pageInfo":{"hasNextPage":False}}
-                return first
+                return first if native else self._complete_gallery(config,first)
             cursor=page.get("endCursor")
             if not rows or not isinstance(cursor,str) or not cursor or len(cursor)>1024 or cursor in seen:
                 raise ShopifyError("Variant pagination stalled/missing cursor; partial evidence is unavailable.")
@@ -833,12 +896,14 @@ class ShopifyAdapter:
             {"id": product_id, "moves": [{"id": media_id, "newPosition": str(i)} for i, media_id in enumerate(ids)]})
 
     def read_draft(self, configuration, product_id):
-        return self._read(configuration, DRAFT_QUERY, {"id": _gid(product_id, "Product")}).get("product")
+        return self._complete_gallery(configuration,self._read(configuration, DRAFT_QUERY, {"id": _gid(product_id, "Product")}).get("product"))
 
     def find_draft(self, configuration, handle):
         if not isinstance(handle, str) or len(handle) > 255 or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", handle):
             raise ShopifyError("Invalid draft recovery handle.")
-        return _connection(self._read(configuration, FIND_DRAFT_QUERY, {"query": "handle:" + handle}).get("products"))
+        result=_connection(self._read(configuration, FIND_DRAFT_QUERY, {"query": "handle:" + handle}).get("products"))
+        if len(result['nodes'])==1:result['nodes']=[self._complete_gallery(configuration,result['nodes'][0])]
+        return result
 
     def find_sku(self, configuration, sku):
         if not isinstance(sku, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", sku):

@@ -123,7 +123,7 @@ def states_for(products, *, fresh=False, url_builder=None):
 def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=None):
     from flask import url_for as flask_url_for
     url_for = url_builder or flask_url_for
-    from app.shopify_drafts import evidence
+    from app.shopify_drafts import evidence, upload_pending
     from app.customisations import CustomisationDefinitionError
     native_comparison = None
     state = {"product_id": product.id, "state": "unknown", "label": "Not yet verified", "remote_id": None,
@@ -168,7 +168,9 @@ def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=N
                 state.update(state='recovery_required',label='Recovery Required',can_delete=False,
                     message='Saved-package assignment outcome is uncertain. No public assignment readback exists; inspect Shopify Admin before any retry.')
                 return state
-            if row.state == "processing":
+            if upload_pending(row):
+                state.update(state='processing',label='Uploading gallery',message='Acknowledged uploads retained. Use the authorised publisher or Sync Now to continue; no product Create has been attempted.')
+            elif row.state == "processing":
                 state.update(state="processing", label="Processing", message="Read-only reconciliation is required to check media processing.")
             elif row.state=="attribute_review_required":
                 state.update(state="attention",label="Needs Attention",message="Base metadata/media/memberships are verified; remaining informational stages need a fresh signed Review. No automatic write replay.")

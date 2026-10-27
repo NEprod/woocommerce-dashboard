@@ -1,0 +1,5 @@
+<div class="d-md-none"><p>Tap a task for last execution, settings and controls.</p>
+{% for row in tasks %}<details><summary>{{ row.name }} · {{ row.state|replace('_',' ')|title }}<br><small>Next: {{ local_time(row.next_due) }}</small></summary>
+<p>{{ 'Enabled' if row.enabled else 'Disabled' }} · {{ 'Startup/manual only' if row.key=='shopify_orders' else 'Daily' if row.interval==1440 else row.interval|string+' min' }}<br>Last: {{ local_time(row.last_started) }} · {{ '%.1f s'|format(row.duration) if row.duration is not none else 'Not yet' }}<br>Outcome: {{ row.outcome|replace('_',' ')|title if row.outcome else 'Not yet' }}</p>
+<form method="post" action="{{ url_for('tasks.run_now',key=row.key) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary">Run Now</button></form><p><a href="{{ url_for('tasks.index',task=row.key) }}">Details / settings</a> · <a href="{{ url_for('tasks.history',key=row.key) }}">History</a></p></details>{% endfor %}
+</div>

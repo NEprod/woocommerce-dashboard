@@ -33,21 +33,66 @@ def index():
             if request.is_json:
                 return jsonify(error=error), 400
     policy = service.policy()
-    query = ShopifyPublishJob.query
-    state = request.args.get('state', '')
-    if state:
-        query = query.filter_by(state=state)
-    page = query.order_by(ShopifyPublishJob.priority.desc(), ShopifyPublishJob.updated_at.desc()).paginate(
-        page=request.args.get('page', 1, type=int), per_page=50, error_out=False)
-    products = {p.id: p for p in Product.query.filter(Product.id.in_([j.product_id for j in page.items])).all()}
     import json
-    from app.sale_editor import uk_time
-    event_page = ShopifyPublishingEvent.query.order_by(ShopifyPublishingEvent.occurred_at.desc()).paginate(
-        page=request.args.get('event_page', 1, type=int), per_page=20, error_out=False)
-    return render_template('automatic_publishing.html', policy=policy, jobs=page, products=products,
-        required=service.REQUIRED_FIELDS, selected=json.loads(policy.required_fields_json), error=error, form=FlaskForm(),
-        events=event_page, receipts={event.id: json.loads(event.receipt_json) for event in event_page.items},
-        uk_time=lambda stamp: uk_time(stamp.isoformat()) if stamp else 'Not yet'), 400 if error else 200
+    return render_template('automatic_publishing.html', policy=policy,
+        required=service.REQUIRED_FIELDS, selected=json.loads(policy.required_fields_json), error=error, form=FlaskForm()), 400 if error else 200
+
+
+@publishing.get('/publishing/queue')
+def queue():
+    from app.operations_views import queue, local_time
+    return render_template('publishing_queue.html', workspace=queue(), local_time=local_time)
+
+
+@publishing.get('/operations/events')
+def events():
+    from app.operations_views import events, local_time
+    return render_template('publishing_events.html', workspace=events(), local_time=local_time, detail=None)
+
+
+@publishing.get('/operations/events/<operation_id>')
+def event_detail(operation_id):
+    from app.operations_views import event_query, event_row, local_time
+    from app.models import CatalogueOperation
+    query, _ = event_query()
+    pair = query.filter(CatalogueOperation.id == operation_id).first()
+    if not pair: abort(404)
+    return render_template('publishing_events.html', workspace=None, local_time=local_time, detail=event_row(*pair))
+
+
+@publishing.route('/publishing/scan/<int:product_id>', methods=['GET', 'POST'])
+def scan_guidance(product_id):
+    from app.metadata_save import source
+    from app.metadata_workspace import _catalogue_root
+    from app.utils.operation_control import acquire_catalogue_operation, CatalogueOperationActive
+    from app.utils.scan_runner import start_scan
+    from flask import current_app
+    import uuid
+    product = db.session.get(Product, product_id)
+    if not product: abort(404)
+    try:
+        shared, _, _ = source(product, 'shared')
+        root = _catalogue_root().resolve(strict=True)
+        collection = shared.parent.resolve(strict=True)
+        relative = collection.relative_to(root).as_posix()
+        folder = (root / product.source_relpath).resolve(strict=True)
+        folder.relative_to(collection)
+        if relative == '.' or not shared.is_file(): raise ValueError()
+    except (ValueError, OSError, RuntimeError, TypeError, AttributeError):
+        return render_template('publishing_scan.html', product=product, relative=None,
+            error='Containing-collection context is missing or unsafe. Restore its source mapping; no full-catalogue fallback is permitted.', form=FlaskForm()), 409
+    if request.method == 'POST':
+        if request.form.get('confirmed') != 'yes': abort(400)
+        scope = {'scope_kind': 'collection', 'collection_relpath': relative, 'exhaustive': True, 'product_id': product.id}
+        try:
+            operation = acquire_catalogue_operation('shared_collection_update', scope)
+        except CatalogueOperationActive:
+            return render_template('publishing_scan.html', product=product, relative=relative,
+                error='Another catalogue operation already owns the scan slot. Wait for its receipt; no duplicate scan was started.', form=FlaskForm()), 409
+        start_scan(current_app._get_current_object(), uuid.uuid4().hex, scan_mode='shared_collection',
+            operation_id=operation.id, scope=scope, collection_relpath=relative)
+        return redirect(url_for('main.operation_detail', operation_id=operation.id))
+    return render_template('publishing_scan.html', product=product, relative=relative, error=None, form=FlaskForm())
 
 
 @publishing.post('/products/<int:product_id>/sync-now')
@@ -63,4 +108,4 @@ def sync_now(product_id):
             acknowledged=data.get('acknowledged') is True if request.is_json else data.get('acknowledged') == 'yes')
     except (ValueError, RuntimeError) as exc:
         return jsonify(error=str(exc)), 409
-    return (jsonify(product_id=product.id, state=job.state, queue_url=url_for('publishing.index')), 202) if request.is_json else redirect(url_for('publishing.index'))
+    return (jsonify(product_id=product.id, state=job.state, queue_url=url_for('publishing.queue')), 202) if request.is_json else redirect(url_for('publishing.queue'))

@@ -160,7 +160,7 @@ def test_access_denial_preserves_old_checkpoint_and_actual_drift_stays_visible(w
     assert json.loads(saved.summary_json)['read_complete'] is True
 
 
-@pytest.mark.parametrize('count', [0, 21])
+@pytest.mark.parametrize('count', [0, 251])
 def test_gallery_safety_reports_production_reason_not_selection_instruction(world, monkeypatch, count):
     product, row, adapter = existing(world)
     images = copy.deepcopy(adapter.remote['media'])
@@ -169,7 +169,7 @@ def test_gallery_safety_reports_production_reason_not_selection_instruction(worl
     assert result['errors'] == []  # completed inspection, product publication still blocked
     message = result['findings'][0]['message']
     assert 'Select a product' not in message
-    assert ('original catalogue/gallery artwork' if count == 0 else '21 images; limit 20') in message
+    assert ('original catalogue/gallery artwork' if count == 0 else '251 images; limit 250') in message
     assert adapter.remote['media'] == images
     assert displayed(product)['label'] == 'Publishing prerequisite needed'
     assert not scheduled_tasks.recent_success(product, drafts.configuration())

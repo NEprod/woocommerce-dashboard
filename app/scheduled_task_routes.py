@@ -8,6 +8,7 @@ from app.models import ScheduledTask, ScheduledTaskRun
 from app import scheduled_tasks as service
 
 tasks=Blueprint("tasks",__name__)
+KEYS = (service.KEY, service.PUBLISHER_KEY, service.SALE_KEY, service.RELEASE_KEY, service.ORDERS_KEY, service.VIEW_KEY)
 
 
 @tasks.before_request
@@ -18,15 +19,17 @@ def administrator():
 
 @tasks.route("/settings/tasks")
 def index():
-    key=request.args.get('task',service.KEY)
-    if key not in {service.KEY,service.SALE_KEY,service.ORDERS_KEY,service.PUBLISHER_KEY,service.VIEW_KEY}: abort(404)
-    return render_template("scheduled_tasks.html",task=service.snapshot(db.session.get(ScheduledTask,key)),form=FlaskForm())
+    key=request.args.get('task')
+    if key and key not in KEYS: abort(404)
+    from app.operations_views import local_time
+    return render_template("scheduled_tasks.html", task=service.snapshot(db.session.get(ScheduledTask,key)) if key else None,
+        tasks=[service.snapshot(db.session.get(ScheduledTask,k)) for k in KEYS], form=FlaskForm(), local_time=local_time)
 
 
 @tasks.route("/settings/tasks/status")
 def status():
     key=request.args.get('task',service.KEY)
-    if key not in {service.KEY,service.SALE_KEY,service.ORDERS_KEY,service.PUBLISHER_KEY,service.VIEW_KEY}: abort(404)
+    if key not in KEYS: abort(404)
     return jsonify(service.snapshot(db.session.get(ScheduledTask,key))),200,{"Cache-Control":"no-store"}
 
 
@@ -50,15 +53,22 @@ def run_now(key):
     try:run_id=service.enqueue(key,manual=True,product_ids=data.get("product_ids"))
     except ValueError as exc:return jsonify(error=str(exc)),400
     task=service.snapshot(db.session.get(ScheduledTask,key))
+    if not request.is_json:
+        return redirect(url_for('tasks.run_detail',run_id=run_id))
     return jsonify(**task,history_url=url_for("tasks.run_detail",run_id=run_id)),202,{"Cache-Control":"no-store"}
 
 
 @tasks.route("/settings/tasks/<key>/history")
 def history(key):
-    if key not in {service.KEY,service.SALE_KEY,service.ORDERS_KEY,service.PUBLISHER_KEY,service.VIEW_KEY,'catalogue_startup'}:abort(404)
-    runs=ScheduledTaskRun.query.filter_by(task_key=key).order_by(ScheduledTaskRun.created_at.desc()).limit(100).all()
+    if key not in (*KEYS,'catalogue_startup'):abort(404)
+    query=ScheduledTaskRun.query.filter_by(task_key=key)
+    state=request.args.get('state','')
+    if state:query=query.filter_by(state=state)
+    page=query.order_by(ScheduledTaskRun.created_at.desc()).paginate(page=max(1,request.args.get('page',1,type=int)),per_page=25,error_out=False)
+    runs=page.items
     from app.operation_reporting import task_interpretation
-    return render_template("scheduled_task_history.html",runs=runs,detail=None,definition=service.definition(key),reports={r.id:task_interpretation(r) for r in runs})
+    from app.operations_views import local_time
+    return render_template("scheduled_task_history.html",runs=runs,detail=None,definition=service.definition(key),reports={r.id:task_interpretation(r) for r in runs},page=page,local_time=local_time)
 
 
 @tasks.route("/settings/tasks/runs/<run_id>")
@@ -71,6 +81,7 @@ def run_detail(run_id):
             error=run.error,diagnostic=data.get('diagnostic'),auth_requests=data.get('auth_requests',0),
             errors=data.get('errors', []),
             order_results={k:data.get('orders_'+k,0) for k in ('created','updated','unchanged','stale')},
-            outstanding=data.get('pending_orders',len(data.get("queue",[]))),items=data.get("items",[])),200,{"Cache-Control":"no-store"}
+            outstanding=data.get('pending_orders',len(data.get("queue",[]))),items=data.get("items",[]),request_profile=data.get('request_profile')),200,{"Cache-Control":"no-store"}
     from app.operation_reporting import task_interpretation
-    return render_template("scheduled_task_history.html",runs=[run],detail=data,definition=service.definition(run.task_key),reports={run.id:task_interpretation(run)})
+    from app.operations_views import local_time
+    return render_template("scheduled_task_history.html",runs=[run],detail=data,definition=service.definition(run.task_key),reports={run.id:task_interpretation(run)},page=None,local_time=local_time)

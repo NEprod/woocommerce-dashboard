@@ -10,7 +10,7 @@
     badge.textContent = task.state.replaceAll("_", " ");
     badge.className = "status-badge " + ({queued: "status-running", running: "status-running", completed: "status-succeeded", paused: "status-partial", partially_completed: "status-partial", failed: "status-failed"}[task.state] || "");
     panel.querySelectorAll("[data-task-time]").forEach(node => {
-      node.textContent = task[node.dataset.taskTime] ? new Date(task[node.dataset.taskTime]).toLocaleString() : "Not yet";
+      node.textContent = task[node.dataset.taskTime] ? new Date(task[node.dataset.taskTime]).toLocaleString('en-GB', {timeZone:'Europe/London',timeZoneName:'short',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : "Not yet";
     });
     panel.querySelector("[data-task-outcome]").textContent = task.outcome?.replaceAll("_", " ") || "Not yet run";
     panel.querySelector("[data-task-duration]").textContent = task.duration == null ? "Not yet" : `${task.duration.toFixed(1)} seconds`;
@@ -40,7 +40,7 @@
     } catch (error) { feedback.textContent = error.message; }
     finally { polling = false; button.disabled = false; }
   });
-  panel.querySelector("[data-task-settings]").addEventListener("submit", async event => {
+  panel.querySelector("[data-task-settings]")?.addEventListener("submit", async event => {
     event.preventDefault();
     const form = event.currentTarget;
     try { await fetchTask(form.getAttribute("action"), {enabled: form.elements.enabled.checked, interval: Number(form.elements.interval.value)}); }
