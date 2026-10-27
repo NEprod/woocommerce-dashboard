@@ -148,7 +148,8 @@ def invalidate(*, product_id=None, source=None, all_products=False):
     db.session.execute(update(ScheduledTask).where(ScheduledTask.key == KEY).values(next_due=drafts.now()))
 
 
-def saved_states(products):
+def saved_states(products, *, url_builder=None):
+    url_builder = url_builder or url_for
     products = list(products)
     current_context = context_digest()
     jobs = jobs_for(products)
@@ -170,14 +171,14 @@ def saved_states(products):
             'blockers': [], 'revision_checked_at': None,
             'message': 'Saved source/status health is incomplete. Existing background projection or a completed collection scan is required.'}
         state.update(saved.get('state', {}))
-        state['review_url'] = url_for('commerce.drafts', product_id=product.id) if product.catalogue_status == 'active' else None
+        state['review_url'] = url_builder('commerce.drafts', product_id=product.id) if product.catalogue_status == 'active' else None
         state['projected_at'] = job.projected_at.isoformat() + 'Z' if job and job.projected_at else None
         identities = [row for row in rows if row.product_id == product.id]
         if len(identities) == 1:
             identity = identities[0]
             evidence = drafts.evidence(identity)
             state.update(remote_id=identity.shopify_product_id, store_id=identity.store_id,
-                identity_url=url_for('commerce.draft_identity', identity_id=identity.id))
+                identity_url=url_builder('commerce.draft_identity', identity_id=identity.id))
             uncertain = (any(p.get('state') in {'pending', 'uncertain'} for p in evidence.get('package_assignments', {}).values())
                 or any(p.get('state') in {'pending', 'uncertain'} for p in evidence.get('variant_native', {}).values())
                 or evidence.get('native_dimensions', {}).get('state') in {'pending', 'uncertain'})
@@ -200,7 +201,8 @@ def saved_states(products):
             if job.state == 'recovery_required':
                 state.update(state='recovery_required', label='Recovery Required', message=job.error or 'Original publishing receipt requires recovery.')
             elif job.state == 'attention' and job.requested_revision != 'unscanned' and config is not None:
-                state.update(state='attention', label='Needs Attention', message=job.error or state['message'])
+                state.update(state='attention', label='Scan Required' if (job.error or '').startswith(
+                    'Local source changed after its completed scan.') else 'Needs Attention', message=job.error or state['message'])
             elif job.owner:
                 state.update(state='processing', label='Processing', execution_pending=True)
             elif job.state == 'paused' and not identities:

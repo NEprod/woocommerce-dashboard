@@ -49,6 +49,15 @@ def source_fingerprint(product, images):
         # Status invalidation uses the effective publishing projection. The
         # signed Preview still binds the complete source document independently.
         parts = source_parts(product)
+        # SQLite Numeric values may remain unscaled in the ingesting session
+        # (45) and reload as Decimal('45.000'). Fingerprint semantic numbers,
+        # not their transient ORM formatting. Signed plans remain unchanged.
+        from decimal import Decimal
+        def measurement(value):
+            return format(Decimal(str(value)).normalize(), 'f') if value is not None else None
+        for child in parts['variations']:
+            child['weight'] = measurement(child['weight'])
+            child['dimensions'] = [measurement(v) for v in child['dimensions']]
         # Variant source invalidation includes calculation inputs, not unrelated
         # proof/customisation/production notes. Actual publishing still validates
         # projection() against scanner results before allowing a write.

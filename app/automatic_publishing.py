@@ -78,7 +78,8 @@ def local_revision(product):
     from app.catalogue_images import product_image_diagnostics, variation_image_diagnostics
     from app.shopify_comparison import fingerprint
     images = product_image_diagnostics(product)
-    for variant in product.variations:
+    # Match the approved variable gallery order, not SQL relationship load order.
+    for variant in sorted(product.variations, key=lambda v: (v.menu_order or 0, v.id)):
         if variant.catalogue_status == 'active':
             images += variation_image_diagnostics(variant, include_parent_fallback=False)
     references = list(dict.fromkeys(i['source_reference'] for i in images
@@ -171,20 +172,37 @@ def live_readiness(product, authored):
     return missing
 
 
+def settle_matching_revision(job, revision, *, verified=True):
+    """CAS: a read/no-op cannot consume newer scan work or another owner's job."""
+    values = dict(state='verified', priority=0, manual_actor_id=None, manual_revision=None,
+                  manual_config=None, error=None, updated_at=drafts.now())
+    if verified:
+        values['verified_revision'] = revision
+    return db.session.execute(update(ShopifyPublishJob).where(
+        ShopifyPublishJob.product_id == job.product_id, ShopifyPublishJob.owner.is_(None),
+        ShopifyPublishJob.state != 'recovery_required',
+        ShopifyPublishJob.requested_revision == revision).values(**values)).rowcount == 1
+
+
 def observe_comparison(product, plan, *, expected_revision, complete):
-    """A conclusive drift read reopens the existing scanned desired work.
+    """Conclusive equality settles scanned work; drift reopens it.
 
     It cannot adopt unscanned JSON, clear recovery, or turn Draft metadata into
     executable work. The next hourly run still builds and verifies a fresh plan.
     """
-    if not complete or plan.get('classification') != 'update':
+    if not complete:
         return
     job = db.session.get(ShopifyPublishJob, product.id)
     if (not job or job.owner or job.state == 'recovery_required'
             or job.requested_revision != expected_revision):
         return
     from app.shopify_publication import intent
-    if intent(product_document(product))['status'] == 'ACTIVE':
+    if (plan.get('classification') == 'no_change' and not plan.get('blockers')
+            and not plan.get('local_package_changes')):
+        # This exact scanned revision has now been compared/verified elsewhere
+        # (including manual publication). Do not schedule a second publication.
+        settle_matching_revision(job, expected_revision)
+    elif plan.get('classification') == 'update' and intent(product_document(product))['status'] == 'ACTIVE':
         job.verified_revision, job.state = None, 'pending'
         job.trigger, job.next_attempt = 'reconciliation', drafts.now()
 
@@ -236,7 +254,7 @@ def _settle_job(job, *, owner, revision, state, operation_id=None, error=None, f
     event(job, state)
 
 
-def _preflight_receipt(job, product, error):
+def _preflight_receipt(job, product, error, *, selection=None):
     """Retain one real blocked attempt per scanned revision; never a write claim."""
     from app.utils.operation_control import acquire_catalogue_operation, finish_catalogue_operation
     if job.operation_id:
@@ -248,7 +266,7 @@ def _preflight_receipt(job, product, error):
     operation = acquire_catalogue_operation('shopify_draft_publish', {
         'product_id': product.id, 'sku': product.sku, 'title': product.title, 'mode': 'automatic_preflight',
         'automatic_publishing': {'revision': job.requested_revision, 'trigger': event_trigger(job)},
-        'write_attempted': False})
+        'write_attempted': False, 'selection': selection})
     finish_catalogue_operation(operation.id, status='failed', products_attempted=1, products_failed=1,
         error=error, operation_summary={'write_attempted': False, 'stage': 'publishing_preflight'})
     return operation.id
@@ -272,9 +290,9 @@ def processing_readback(row):
         and not any(p.get('state') in {'pending', 'uncertain'} for p in data.get('package_assignments', {}).values()))
 
 
-def _needs_attention(job, product, error, *, fence=lambda: None):
+def _needs_attention(job, product, error, *, fence=lambda: None, selection=None):
     try:
-        job.operation_id = _preflight_receipt(job, product, error)
+        job.operation_id = _preflight_receipt(job, product, error, selection=selection)
     except CatalogueOperationActive:
         job.state, job.error = 'pending', 'Another operation owns the slot; publishing validation is retained.'
         fence(); db.session.commit(); return 'deferred'
@@ -288,20 +306,26 @@ def _needs_attention(job, product, error, *, fence=lambda: None):
 def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
     adapter = adapter or ShopifyAdapter()
     guard()
+    if job.owner:
+        raise BackgroundYield('Another worker owns this product.')
     product = db.session.get(Product, job.product_id)
     if not product or product.catalogue_status != 'active' or product.source_relpath != job.source_identity:
         job.state, job.error = 'attention', 'Product source/identity is absent or changed; inspect the catalogue.'
         fence(); db.session.commit()
         return 'attention'
     config = drafts.configuration()
-    # A newer unscanned JSON/image edit must not be combined with old indexed
-    # variants or identities. Only a supported completed scan advances this job.
-    try:
-        current_revision = local_revision(product)
-    except (ShopifyError, ValueError, OSError, RuntimeError) as exc:
-        return _needs_attention(job, product, 'Local publishing source requires correction: ' + sanitize_operation_error(exc), fence=fence)
-    if current_revision != job.requested_revision:
-        return _needs_attention(job, product, 'Local source changed after its completed scan. Run its collection update before publication.', fence=fence)
+    selection = {'reason': 'due_' + job.state, 'trigger': event_trigger(job),
+                 'requested_revision': job.requested_revision,
+                 'verified_revision': job.verified_revision, 'generation': job.generation,
+                 'scan_operation_id': job.scan_operation_id}
+    from app.models import ShopifyProductComparison
+    comparison = ShopifyProductComparison.query.filter_by(source_identity=job.source_identity).first()
+    if comparison:
+        summary = json.loads(comparison.summary_json)
+        selection.update(comparison_revision=summary.get('local'), comparison_classification=summary.get('classification'),
+                         comparison_at=comparison.compared_at.isoformat())
+    if metrics is not None:
+        metrics['selection'] = selection
     if job.state in {'attention', 'recovery_required'}:
         return job.state
     row = None
@@ -315,6 +339,45 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
         return job.state
     if candidates:
         row = candidates[0]
+    # Use exactly the catalogue's persisted status rules. No JSON/gallery walk
+    # for idle matching/blocked products; source guards belong to executable work.
+    from app.catalogue_views import saved_states
+    saved = saved_states([product], url_builder=lambda *a, **kw: None)[product.id]
+    selection['catalogue_state'] = saved['state']
+    continuing = row and (processing_readback(row) or drafts.upload_pending(row))
+    if saved['state'] in {'processing', 'recovery_required'} and not continuing:
+        selection.update(outcome='blocked', write_attempted=False)
+        if saved['state'] == 'processing':
+            return 'deferred'
+        job.state, job.error = 'recovery_required', saved.get('message') or 'Retained remote evidence requires safe recovery.'
+        fence(); db.session.commit(); return 'recovery_required'
+    if saved['state'] in {'attention', 'unavailable'} and not continuing:
+        selection.update(outcome='blocked', write_attempted=False)
+        job.state, job.error = 'attention', saved.get('message') or 'Resolve the saved catalogue finding before publication.'
+        fence(); db.session.commit(); return 'attention'
+    if not continuing and (saved['state'] == 'no_change' or job.state == 'verified'):
+        revision = job.requested_revision
+        selection.update(outcome='no_changes', write_attempted=False)
+        fence()
+        # A display checkpoint may match a newer manual comparison than an old
+        # scan hash. Consume obsolete work without adopting that newer revision.
+        exact = bool(comparison and summary.get('local') == revision and summary.get('read_complete') is True
+                     and summary.get('classification') == 'no_change')
+        if not settle_matching_revision(job, revision, verified=exact):
+            db.session.rollback()
+            raise BackgroundYield('Queue revision or owner changed; no-op settlement discarded.')
+        db.session.commit()
+        return 'verified' if selection['verified_revision'] == revision else 'matching'
+    # A newer unscanned JSON/image edit must not be combined with old indexed
+    # variants or identities. Only a supported completed scan advances this job.
+    try:
+        current_revision = local_revision(product)
+    except (ShopifyError, ValueError, OSError, RuntimeError) as exc:
+        return _needs_attention(job, product, 'Local publishing source requires correction: ' + sanitize_operation_error(exc), fence=fence, selection=selection)
+    selection['current_revision'] = current_revision
+    if current_revision != job.requested_revision:
+        selection.update(outcome='scan_required', write_attempted=False)
+        return _needs_attention(job, product, 'Local source changed after its completed scan. Run its collection update before publication.', fence=fence, selection=selection)
     from app.shopify_publication import intent
     authored = product_document(product)
     wanted = intent(authored)
@@ -332,8 +395,12 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
     elif live_readiness(product, authored):
         return _needs_attention(job, product, 'TLC Live-required fields missing: ' + ', '.join(live_readiness(product, authored)), fence=fence)
     elif job.verified_revision == job.requested_revision:
-        job.state, job.priority, job.error, job.updated_at = 'verified', 0, None, drafts.now()
-        fence(); db.session.commit()
+        selection.update(outcome='no_changes', write_attempted=False)
+        fence()
+        if not settle_matching_revision(job, current_revision):
+            db.session.rollback()
+            raise BackgroundYield('Queue revision or owner changed; no-op settlement discarded.')
+        db.session.commit()
         return 'verified'  # No full Shopify fetch/mutation for unchanged local revision.
     revision = job.requested_revision
     claimed = db.session.execute(update(ShopifyPublishJob).where(ShopifyPublishJob.product_id == product.id,
@@ -593,7 +660,8 @@ def run_slice(run_id, owner, *, adapter=None):
                 deferred=sum(value=='p' for value in outcomes.values()),
                 attention=sum(value=='a' for value in outcomes.values()))
             data['items'] = (data.get('items', []) + [{'id': job.product_id, 'state': result,
-                'operation_id': job.operation_id, 'reason': (job.error or '')[:180]}])[-100:]
+                'operation_id': job.operation_id, 'reason': (job.error or '')[:180],
+                'selection': metrics.get('selection')}])[-100:]
         remains = jobs.filter(ShopifyPublishJob.owner.is_(None)).count()
         data['reason'] = 'Automatic publishing paused; pending work retained.' if not policy().enabled else None
         if remains:

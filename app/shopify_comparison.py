@@ -218,9 +218,8 @@ def record(product, plan, identity=None, *, post_write=False):
         db.session.add(row)
     from app.catalogue_views import invalidate as invalidate_view
     invalidate_view(product_id=product.id)
-    if not post_write:
-        from app.automatic_publishing import observe_comparison
-        observe_comparison(product, plan, expected_revision=expected_local, complete=not incomplete)
+    from app.automatic_publishing import observe_comparison
+    observe_comparison(product, plan, expected_revision=expected_local, complete=not incomplete)
     db.session.commit()
 
 

@@ -43,6 +43,19 @@ SCENARIO=prefix+'''
   result=json.loads(ShopifyProductComparison.query.filter_by(source_identity=product.source_relpath).one().summary_json)
   assert result['identity']==drafts.digest(row.media_evidence_json)
   assert result['classification']=='no_change' and result['read_complete']
+  # Old pending queue work must settle from the saved catalogue projection,
+  # without inspecting source images or replaying any acknowledged mutation.
+  from app import automatic_publishing as publisher
+  from unittest.mock import patch
+  from app.catalogue_views import capture
+  from app.models import ShopifyPublishJob
+  job=db.session.get(ShopifyPublishJob,product.id)
+  job.state='pending';job.verified_revision=None;capture(product);db.session.commit()
+  calls=list(adapter.calls);comparison=ShopifyProductComparison.query.filter_by(source_identity=product.source_relpath).one()
+  checkpoint=comparison.summary_json
+  with patch.object(publisher,'local_revision',side_effect=AssertionError('No-op walked source')):
+   assert publisher.publish_one(job,owner='offline-noop',guard=lambda:None,fence=lambda:None,adapter=adapter)=='matching'
+  assert job.state=='verified' and adapter.calls==calls and comparison.summary_json==checkpoint
   Path('/app/instance/verification-completed').write_text('same-operation-read-only-no-reconcile')
 '''
 
