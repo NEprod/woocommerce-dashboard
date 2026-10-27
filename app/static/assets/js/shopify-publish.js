@@ -1,7 +1,7 @@
 /* One confirmed POST; progress/reconnection reads durable server receipts only. */
 (function (root) {
   'use strict';
-  const terminal = state => ['completed','processing','attention','failed','recovery_required','receipt_unavailable'].includes(state);
+  const terminal = (state,value) => state==='processing' ? value?.background_active!==true : ['completed','attention','failed','stalled','recovery_required','receipt_unavailable'].includes(state);
   const confirmationUrl = (form, href) => {
     // HTMLFormElement.action is shadowed by our <input name="action">.
     // Read the content attribute, never the form's named-control property.
@@ -39,7 +39,7 @@
     if (completed) completed.textContent=(value.completed_stages || []).length ? 'Recorded completed stages: '+value.completed_stages.join(' · ') : 'No completed stage recorded yet.';
     if (value.state==='receipt_unavailable') { pause(); store(pending); back.hidden=false; return; }
     if (value.history_url) { history.href = value.history_url; history.hidden = false; }
-    if (terminal(value.state)) {
+    if (terminal(value.state,value)) {
       stopped = true; store(null); back.hidden = false;
       if (value.state==='completed' && !paused) {
         stage.textContent = (value.completion_label || 'Verified') + ' — returning to Products';

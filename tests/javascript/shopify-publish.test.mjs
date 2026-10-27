@@ -9,6 +9,15 @@ test('only independently reported terminal outcomes end progress',()=>{
   for(const s of ['waiting','running','creating','updating']) assert.equal(client.terminal(s),false);
   for(const s of ['completed','processing','attention','failed','recovery_required']) assert.equal(client.terminal(s),true);
 });
+test('active server processing is not a terminal modal outcome',async()=>{
+  assert.equal(client.terminal('processing',{background_active:true}),false);
+  assert.equal(client.terminal('stalled'),true);
+  const p=page({stored:{review:'signed-review',csrf:'csrf',url:'/products/7/shopify/progress',returnTo:'/products'}});
+  p.requests[0].resolve({state:'processing',background_active:true,stage:'verification_pending'});await p.flush();
+  assert.equal(p.storage.has(p.key),true);
+  await p.timer(2000);assert.equal(p.requests.length,2);
+  p.requests[1].resolve({state:'completed'});await p.flush();assert.equal(p.storage.has(p.key),false);
+});
 test('return destination preserves Products context but rejects other origins/routes',()=>{
   assert.equal(client.destination('/products?q=Hero#product-7','https://tlc.test'),'https://tlc.test/products?q=Hero#product-7');
   assert.throws(()=>client.destination('https://other.test/products','https://tlc.test'));

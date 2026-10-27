@@ -171,7 +171,9 @@ def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=N
             if upload_pending(row):
                 state.update(state='processing',label='Uploading gallery',message='Acknowledged uploads retained. Use the authorised publisher or Sync Now to continue; no product Create has been attempted.')
             elif row.state == "processing":
-                state.update(state="processing", label="Processing", message="Read-only reconciliation is required to check media processing.")
+                wait=data.get('verification_wait') or {}
+                state.update(state="processing", label="Pending verification" if wait.get('state') in {'pending','waiting_authority'} else "Processing",
+                    message="Shopify writes acknowledged; server read-only verification is pending. No product, image or variant mutation will be repeated." if wait.get('state') in {'pending','waiting_authority'} else "Read-only reconciliation is required to check media processing.")
             elif row.state=="attribute_review_required":
                 state.update(state="attention",label="Needs Attention",message="Base metadata/media/memberships are verified; remaining informational stages need a fresh signed Review. No automatic write replay.")
             elif row.state == "scoped_verified":

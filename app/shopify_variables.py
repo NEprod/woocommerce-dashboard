@@ -17,7 +17,7 @@ from app.models import Product, ShopifyProductIdentity
 from app.catalogue_images import variation_image_diagnostics
 from app.commerce import catalogue_snapshot
 from app.taxonomy_assignments import product_document, variation_drivers
-from app.shopify_connection import ShopifyAdapter, ShopifyError, ShopifyNativeWriteRejected, _gid
+from app.shopify_connection import ShopifyAdapter, ShopifyError, ShopifyNativeWriteRejected, ShopifyVariantMissing, _gid
 from app import shopify_simple_fields as fields
 from app.utils.operation_control import acquire_catalogue_operation, finish_catalogue_operation
 
@@ -620,7 +620,11 @@ def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attri
     remote = adapter.read_variable(config,row.shopify_product_id,plan["managed"]["namespace"])
     if getattr(adapter,'snapshot_restarts',None):data['gallery_snapshot_restarts']=(data.get('gallery_snapshot_restarts',[])+copy.deepcopy(adapter.snapshot_restarts))[-6:]
     from app.shopify_publication import expected_status
+    from app.shopify_variable_readback import pending,ReadbackLag,publication_acknowledged
+    waiting=pending(row)
     if remote.get('status') != expected_status(data):
+        if waiting and publication_acknowledged(data) and remote.get('status')==(plan.get('publication',{}).get('observed') or {}).get('status'):
+            raise ReadbackLag('Acknowledged Shopify status has not propagated to product readback yet.')
         raise ShopifyError('Product lifecycle changed during metadata verification; reconcile before another operation.')
     data["observed_status"] = remote.get("status")
     if recover:
@@ -646,7 +650,21 @@ def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attri
                 receipt["id"]=node["id"]
             data["media_mapping_approved_at"]=drafts.now().isoformat()
             drafts.save(row,data)
-    _save_maps(row,data,remote,recover=recover)
+    if waiting:
+        # A stale pre-update SKU is recognisable from the acknowledged plan.
+        # Other identity/correlation/option changes remain genuine conflicts.
+        remote_identity(row,dict(data,variant_maps={}),remote)
+        for key,mapping in data.get('variant_maps',{}).items():
+            actual=next((v for v in remote['variants']['nodes'] if v['id']==mapping['id']),None)
+            if (actual and actual.get('sku')!=mapping['sku'] and actual.get('sku')==data.get('variant_ack_before_sku',{}).get(mapping['id'])
+                    and actual['inventoryItem']['id']==mapping['inventory_id'] and actual['selectedOptions']==mapping['options']):
+                raise ReadbackLag('Acknowledged variant SKU has not propagated to complete readback: '+mapping['sku'])
+    try:_save_maps(row,data,remote,recover=recover)
+    except ShopifyVariantMissing:
+        acknowledged={m['id'] for a in data.get('variant_write_acknowledgements',[]) if a['operation_id']==row.operation_id for m in a['variants'].values()}
+        missing={m['id'] for m in data.get('variant_maps',{}).values()}-{v['id'] for v in remote['variants']['nodes']}
+        if waiting and missing and missing.issubset(acknowledged):raise ReadbackLag('Acknowledged variants are not all visible in complete readback yet.') from None
+        raise
     fields_found = parent_rows(plan,remote)
     media = {m["source"]:m.get("id") for m in data.get("media",[])}
     for wanted in plan["variants"]:
@@ -658,6 +676,7 @@ def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attri
     data["verification"] = {"identity":"verified","fields":"verified" if not any(f["changed"] for f in fields_found) else "differences"}
     drafts.save(row,data)
     if any(f["changed"] for f in fields_found):
+        if waiting:raise ReadbackLag('Acknowledged managed fields differ in current readback; bounded verification is pending, not a write retry.')
         raise ShopifyError("Managed variable fields differ from the retained reviewed plan. No whole-operation retry; reconcile the recorded stage.")
     from app.shopify_taxonomy import verify_memberships
     verify_memberships(plan,config,adapter,row.shopify_product_id)
@@ -707,6 +726,8 @@ def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attri
     if ready and not remaining: row.verified_at=drafts.now()
     data.update(stage="attribute_review_required" if ready and remaining else "verified" if ready else "media_reordering" if order!=expected else "media_processing",checked_at=drafts.now().isoformat())
     data.pop("error",None)
+    if ready and not remaining and data.get('verification_wait',{}).get('phase')=='final':
+        data['verification_wait']['state']='completed'
     drafts.save(row,data,"attribute_review_required" if ready and remaining else "verified" if ready else "processing")
     if ready and not remaining:
         from app.shopify_comparison import record
@@ -829,7 +850,8 @@ def confirm(reviewed, adapter=None):
                 data['creation_resume_from']={'operation_id':row.operation_id,'stage':data.get('stage'),'completed_steps':data.get('completed_steps',[])}
                 for receipt,mid in zip(data['media'],plan['creation_resume']['media_ids']):receipt['id']=mid
                 data['variant_creates_attempted']=[plan['variants'][0]['identity']]
-            data.update(plan=plan,stage="reviewed_update",update_attempted=True,completed_steps=[],publication_review_operation_id=lease.id)
+            data.update(plan=plan,stage="reviewed_update",update_attempted=True,completed_steps=[],publication_review_operation_id=lease.id,
+                variant_write_acknowledgements=[],variant_ack_before_sku={})
             row.operation_id,row.reviewed_digest,row.verification_state=lease.id,plan["digest"],"unverified"
             drafts.save(row,data,"updating")
             metadata,_=drafts.update_inputs(dict(plan,variant_id="unused"))
@@ -879,15 +901,16 @@ def confirm(reviewed, adapter=None):
         if updates:
             fresh()
             data["stage"]="variant_update"; drafts.save(row,data); attempted=True
-            drafts.payload_result(adapter.update_variants(config,row.shopify_product_id,updates),"productVariantsBulkUpdate")
-            drafts.completed_step(row,data,"variant_update")
+            payload=drafts.payload_result(adapter.update_variants(config,row.shopify_product_id,updates),"productVariantsBulkUpdate")
+            from app.shopify_variable_readback import acknowledge
+            acknowledge(row,data,payload,[v for v in plan['variants'] if v.get('remote_id') in {u['id'] for u in updates}], 'variant_update')
         if additions:
             fresh()
             data["variant_creates_attempted"] += [v["identity"] for v in plan["variants"] if v["action"]=="Create"]
             data["stage"]="variant_create"; drafts.save(row,data); attempted=True
-            drafts.payload_result(adapter.create_variants(config,row.shopify_product_id,additions),"productVariantsBulkCreate")
-            drafts.completed_step(row,data,"variant_create")
-        _save_maps(row,data,adapter.read_variable(config,row.shopify_product_id,plan["managed"]["namespace"]))
+            payload=drafts.payload_result(adapter.create_variants(config,row.shopify_product_id,additions),"productVariantsBulkCreate")
+            from app.shopify_variable_readback import acknowledge
+            acknowledge(row,data,payload,[v for v in plan['variants'] if v['action']=='Create'],'variant_create')
         from app.shopify_taxonomy import join_reviewed
         join_reviewed(row,data,config,adapter)
         from app.shopify_attributes import apply as apply_attributes
@@ -902,31 +925,9 @@ def confirm(reviewed, adapter=None):
         if any(s['changed'] for s in (plan.get('dimension_metadata') or {}).get('definitions', [])):
             attempted=True
         apply_dimensions(row,data,config,adapter)
-        from app.shopify_publication import apply_reviewed
-        if (creating or resuming) and plan.get('publication'):
-            verify(row,data,config,adapter)
-        if (plan.get('publication') or {}).get('pending') and (plan.get('publication') or {}).get('read_complete') and not (plan.get('publication') or {}).get('blockers'):
-            attempted=True
-        apply_reviewed(row,data,config,adapter)
-        verify(row,data,config,adapter)
-        native_state="blocked" if row.state=="processing" and plan["native"]["enabled"] else _native_apply(row,data,config,adapter,lease.id) if row.state=="verified" else "disabled"
-        if native_state=="uncertain":
-            drafts.save(row,data,"uncertain")
-        elif row.state=="verified":
-            # Re-record after native evidence without borrowing metadata timestamps.
-            from app.shopify_comparison import ShopifyProductComparison, store_summary
-            summary=ShopifyProductComparison.query.filter_by(store_id=row.store_id,source_identity=row.source_identity).first()
-            if summary:
-                value=json.loads(summary.summary_json); value.update(identity=drafts.digest(row.media_evidence_json),native=plan["native"])
-                store_summary(summary,value)
-        from app.shopify_package_assignments import apply as apply_packages
-        package_state=apply_packages(row,adapter,lease.id)
-        from app.shopify_publication import complete as publication_complete
-        finish_catalogue_operation(lease.id,status="succeeded" if row.state=="verified" and native_state in {"disabled","verified"} and package_state in {'none', 'accepted'} and publication_complete(data) else "partial",
-            recovery_state="review_required" if row.state=="uncertain" else "none",
-            products_attempted=1,products_succeeded=int(row.state=="verified"),
-            operation_summary={"identity_id":row.id,"mode":"variable","stage":drafts.evidence(row)['stage'],"variants":len(plan["variants"]),"native_dimensions":native_state,'package_assignment':package_state})
-        return row
+        from app.shopify_variable_readback import begin,complete
+        begin(row,data,'base')
+        return complete(row,adapter,allow_writes=True)
     except drafts.GalleryPending:
         data['upload_no_progress'] = data.get('upload_no_progress',0)+1 if len(data.get('upload_inputs',[]))==data.get('upload_start_count') else 0
         data.update(stage='gallery_uploading', error=None)

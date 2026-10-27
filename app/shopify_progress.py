@@ -9,6 +9,7 @@ from flask import g, url_for
 from sqlalchemy import func, case
 
 STAGES = {
+    'verification_pending':'Awaiting complete Shopify readback — writes acknowledged',
     'package_assignment':'Submitting reviewed saved-package assignment',
     'package_assignment_accepted':'Shopify accepted package assignment — independent readback unavailable',
     'customisation_definition':'Updating reviewed public configuration definition',
@@ -92,7 +93,8 @@ def receipt(product_id, token):
             live=view(operation)
             state=live['status']
             return {'state':'processing' if state in {'queued','running','waiting'} else state,
-                'operation_id':operation.id,'stage':live.get('stage'),'message':live.get('latest_message'),
+                'background_active':state in {'queued','running','waiting'},
+                'operation_id':operation.id,'stage':STAGES.get(live.get('stage'),live.get('stage')),'message':live.get('latest_message'),
                 'history_url':url_for('main.operation_detail',operation_id=operation.id),
                 'worker_health':live.get('worker_health'),'publishing':live.get('publishing')}
         running = operation.status in {"running","pending"}

@@ -137,24 +137,29 @@ def run_slice(run_id, owner, *, adapter=None):
             if drafts.configuration().fingerprint()!=reviewed['config_digest'] or local_revision(product)!=approval['source_revision']:
                 raise ShopifyError('Source revision or connection changed after signed approval; retained work needs fresh review.')
 
-        op.status='pending' if identity and identity.state=='processing' else 'running'
+        from app.shopify_variable_readback import pending as verification_pending
+        op.status='pending' if identity and (identity.state=='processing' or verification_pending(identity)) else 'running'
         op.finished_at=None;op.error=None;op.products_attempted=1
         update(op,stage='worker_running',message='Server worker owns this approved operation.',status='running')
         fence();db.session.commit()
         context_token=_lease.set(lease)
         with background_work(guard,fence=fence,requests=100,seconds=120,publisher_authority=authority):
             adapter=adapter or ShopifyAdapter()
-            if identity and identity.state=='processing':
+            if identity and (identity.state=='processing' or verification_pending(identity)):
                 data['readback_polls']=data.get('readback_polls',0)+1
                 # Read-only even though the original operation was approved.
                 with background_work(guard,fence=fence,requests=80,seconds=90):
                     identity=drafts.finalize_processing(identity,adapter)
-                if identity.state=='verified' and drafts.evidence(identity).get('kind')=='variable':
+                if verification_pending(identity):
+                    authority()
+                    from app.shopify_variable_readback import complete as finish_readback
+                    identity=finish_readback(identity,adapter,allow_writes=True)
+                elif identity.state=='verified' and drafts.evidence(identity).get('kind')=='variable':
                     authority()
                     from app.shopify_variables import complete_deferred_availability
                     identity=complete_deferred_availability(identity,adapter)
                 from app.shopify_notifications import complete
-                if complete(identity,drafts.evidence(identity)):
+                if complete(identity,drafts.evidence(identity)) and db.session.get(CatalogueOperation,lease.id).status!='succeeded':
                     finish_catalogue_operation(lease.id,status='succeeded',recovery_state='none',products_attempted=1,products_succeeded=1,products_failed=0)
                 if identity.state=='processing' and data['readback_polls']>=12:
                     raise ShopifyError('Shopify media remains processing after bounded polls; use read-only recovery, not another upload or Create.')
@@ -165,8 +170,10 @@ def run_slice(run_id, owner, *, adapter=None):
         if identity and (drafts.upload_pending(identity) or identity.state=='processing'):
             op.status='pending';op.finished_at=None
             scope=json.loads(op.scope);scope['manual_review']['state']='waiting';op.scope=json.dumps(scope)
-            update(op,stage='awaiting_shopify_processing' if identity.state=='processing' else 'waiting_for_next_batch',
-                message='Durable progress retained; the next server slice continues independently of browser polling.',status='waiting')
+            wait=drafts.evidence(identity).get('verification_wait') or {}
+            update(op,stage='verification_pending' if wait else 'awaiting_shopify_processing' if identity.state=='processing' else 'waiting_for_next_batch',
+                message=('Shopify writes acknowledged; awaiting complete readback without repeating mutations. '+str(wait.get('last_reason',''))) if wait else
+                    'Durable progress retained; the next server slice continues independently of browser polling.',status='waiting')
             fence();db.session.commit()
             return tasks.save_progress(KEY,run_id,owner,data,pause=True,resume_seconds=15 if identity.state=='processing' else 1)
         if identity and op.status=='succeeded' and op.recovery_state in {None,'none'} and identity.state in {'verified','scoped_verified'}:
@@ -188,7 +195,12 @@ def run_slice(run_id, owner, *, adapter=None):
             scope['manual_review']['state']='recovery_required' if uncertain else 'failed';op.scope=json.dumps(scope)
             update(op,stage='recovery_required' if uncertain else 'operation_failed',message=sanitize_operation_error(exc),status='recovery_required' if uncertain else 'failed')
             fence();db.session.commit()
-            finish_catalogue_operation(op.id,status='partial' if uncertain else 'failed',recovery_state='review_required' if uncertain else 'none',error=str(exc),products_attempted=1,products_failed=1)
+            acknowledged=bool(identity and drafts.evidence(identity).get('verification_wait'))
+            if acknowledged and uncertain and identity.state=='processing':
+                retained=drafts.evidence(identity);retained['verification_wait']['state']='recovery_required'
+                retained['error']=sanitize_operation_error(exc);identity.verification_state='unverified'
+                drafts.save(identity,retained,'uncertain')
+            finish_catalogue_operation(op.id,status='partial' if uncertain else 'failed',recovery_state='review_required' if uncertain else 'none',error=str(exc),products_attempted=1,products_failed=0 if acknowledged else 1)
         return tasks.save_progress(KEY,run_id,owner,data,terminal='failed',error=str(exc))
     finally:
         if context_token is not None:_lease.reset(context_token)

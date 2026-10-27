@@ -261,6 +261,8 @@ def event_trigger(job):
 def processing_readback(row):
     """Only the executor's known accepted media-processing state, never uncertainty."""
     data = drafts.evidence(row)
+    from app.shopify_variable_readback import pending
+    if pending(row):return True
     return bool(row.state == 'processing' and row.verification_state == 'processing' and row.shopify_product_id
         and data.get('verification', {}).get('identity') == 'verified'
         and data.get('verification', {}).get('media') == 'processing' and data.get('created_media')
@@ -377,6 +379,16 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
                     finally:
                         budget['requests'] += read_budget['requests']
                         budget['throttled'] += read_budget['throttled']
+                from app.shopify_variable_readback import pending as verification_pending,complete as finish_readback
+                if verification_pending(row):
+                    write_guard()
+                    finish_readback(row,adapter,allow_writes=True)
+                if proof.get('verification_wait'):
+                    from app.shopify_notifications import complete as fully_verified
+                    from app.shopify_variables import local_plan
+                    if fully_verified(row,drafts.evidence(row)) and local_plan(product)['digest']==proof['plan']['digest']:
+                        _settle_job(job,owner=owner,revision=revision,state='verified',operation_id=row.operation_id,fence=fence)
+                        return 'verified'
                 if processing_readback(row):
                     if polls+1 >= 12:
                         raise ShopifyError('Shopify media remains processing after bounded readback retries. Inspect its original receipt and use read-only reconciliation; no Create is retried.')

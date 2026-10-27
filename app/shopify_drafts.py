@@ -1138,6 +1138,9 @@ def reconcile(row, candidate_id=None, adapter=None, approval=None):
 
 
 def finalize_processing(row, adapter=None, *, force=True):
+    from app.shopify_variable_readback import pending,complete
+    if pending(row):
+        return complete(row,adapter or ShopifyAdapter(),allow_writes=False)
     if row.state != "processing":
         return row  # Never supersede genuinely uncertain attempts automatically.
     operation = db.session.get(CatalogueOperation, row.operation_id) if row.operation_id else None
