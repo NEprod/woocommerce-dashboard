@@ -303,6 +303,21 @@ class ShopifyIdentityConflict(ShopifyError):
     """Complete reads contradict a retained identity; never repair by creation."""
 
 
+class ShopifySnapshotChanged(ShopifyError):
+    """A mixed remote read, never evidence of a changed local source revision."""
+    def __init__(self, before, after):
+        keys=('id','updatedAt','status','metafield')
+        self.before={k:before.get(k) for k in keys}
+        self.after={k:after.get(k) for k in keys}
+        self.changed=[k for k in keys if self.before[k]!=self.after[k]]
+        # Only fixed identity/status/timestamp values; never emit a raw nonce.
+        def safe(k,v):
+            return hashlib.sha256(json.dumps(v,sort_keys=True).encode()).hexdigest()[:16] if k=='metafield' else str(v)[:100]
+        self.diagnostic={k:{'before':safe(k,self.before[k]),'after':safe(k,self.after[k])} for k in self.changed}
+        super().__init__('Product revision/correlation changed during gallery pagination; compare again without writing. Changed: '+
+            '; '.join(k+': '+v['before']+' -> '+v['after'] for k,v in self.diagnostic.items()))
+
+
 class ShopifyVariantMissing(ShopifyError):
     """A retained variant is absent from a COMPLETE bounded parent read."""
 
@@ -638,9 +653,33 @@ class ShopifyAdapter:
             "variants": [{"id": variant_id, "price": price, "inventoryItem": {"sku": sku}}]})
 
     def read_simple(self, configuration, product_id, namespace):
-        remote = self._read(configuration, SIMPLE_QUERY,
-            {"id": _gid(product_id, "Product"), "namespace": namespace}).get("product")
-        return self._complete_gallery(configuration, remote)
+        def read():
+            remote = self._read(configuration, SIMPLE_QUERY,
+                {"id": _gid(product_id, "Product"), "namespace": namespace}).get("product")
+            return self._complete_gallery(configuration, remote)
+        return ShopifyAdapter._stable_product_read(self,read)
+
+    def _stable_product_read(self, read):
+        """Discard a timestamp-mixed snapshot; retry READS only, at most twice.
+
+        Async media can update Product.updatedAt after an acknowledged Create.
+        Never ignore the guard or splice old variants into a newer media snapshot.
+        Correlation, identity or lifecycle changes are not retryable here.
+        """
+        deadline=monotonic()+60;anchor=None
+        self.snapshot_restarts=[]  # never attribute another product's read to this one
+        for attempt in range(3):
+            try:
+                result=read()
+                if anchor and (not isinstance(result,dict) or any(result.get(k)!=anchor[k] for k in ('id','status','metafield'))):
+                    raise ShopifySnapshotChanged(anchor,result or {})
+                if monotonic()>deadline:
+                    raise ShopifyError('Complete product snapshot deadline exceeded; no partial read is verification.')
+                return result
+            except ShopifySnapshotChanged as exc:
+                if exc.changed!=['updatedAt'] or attempt==2 or monotonic()>=deadline:raise
+                anchor=anchor or exc.before
+                self.snapshot_restarts=(getattr(self,'snapshot_restarts',[])+[exc.diagnostic])[-6:]
 
     def _complete_gallery(self, config, remote):
         """Bounded complete media, stable product revision/correlation across pages.
@@ -678,7 +717,7 @@ class ShopifyAdapter:
             cursors.add(cursor)
             payload=self._read(config,GALLERY_QUERY,{'id':_gid(remote.get('id'),'Product'),'after':cursor}).get('product')
             if not isinstance(payload,dict) or {k:payload.get(k) for k in header}!=header:
-                raise ShopifyError('Product revision/correlation changed during gallery pagination; compare again without writing.')
+                raise ShopifySnapshotChanged(header,payload if isinstance(payload,dict) else {})
             connection=payload.get('media')
         raise ShopifyError('Gallery page bound exceeded; complete readback remains unavailable.')
 
@@ -686,6 +725,9 @@ class ShopifyAdapter:
         return self._transport(config, NATIVE_CAPABILITY, api_version="2027-01")
 
     def read_variable(self, config, product_id, namespace, *, native=False):
+        return ShopifyAdapter._stable_product_read(self,lambda:ShopifyAdapter._read_variable_once(self,config,product_id,namespace,native=native))
+
+    def _read_variable_once(self, config, product_id, namespace, *, native=False):
         product_id=_gid(product_id,"Product")
         after, seen, nodes, first, header = None, set(), [], None, None
         deadline=monotonic()+60

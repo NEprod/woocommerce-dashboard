@@ -528,7 +528,7 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
     if reviewed.get('mode') == 'publication':
         from app.shopify_publication import confirm as publication_confirm
         return publication_confirm(reviewed,adapter)
-    if reviewed.get("mode") == "variable":
+    if reviewed.get("mode") in {"variable","variable_resume"}:
         from app.shopify_variables import confirm as variable_confirm
         return variable_confirm(reviewed, adapter)
     if reviewed.get("mode") == "update":

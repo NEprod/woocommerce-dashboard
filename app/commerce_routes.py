@@ -330,6 +330,7 @@ def draft_identity(identity_id):
         abort(404)
     form = FlaskForm()
     error = None
+    resume_plan,resume_token=None,None
     if request.method == "POST":
         if not form.validate_on_submit():
             abort(400)
@@ -337,7 +338,11 @@ def draft_identity(identity_id):
             approval = request.form.get("approval")
             if approval and request.form.get("acknowledge_mapping") != "yes":
                 raise ShopifyError("Explicit approval of the displayed media mapping is required.")
-            if row.state in {"deleting", "delete_uncertain"}:
+            if request.form.get('action')=='review_creation_completion':
+                from app.shopify_variables import preview
+                from app.models import Product
+                resume_plan,resume_token=preview(db.get_or_404(Product,row.product_id),resume_creation=True)
+            elif row.state in {"deleting", "delete_uncertain"}:
                 from app.shopify_lifecycle import reconcile
                 reconcile(row)
             else:
@@ -349,7 +354,7 @@ def draft_identity(identity_id):
             error = "Remote ID is already reserved by another local mapping. Review both identities; no duplicate mapping was saved."
     data = service.evidence(row)
     return render_template("shopify_draft_identity.html", form=form, row=row, data=data,
-        approval=service.recovery_token(row), error=error), 400 if error else 200, {"Cache-Control": "no-store"}
+        approval=service.recovery_token(row), error=error,resume_plan=resume_plan,resume_token=resume_token), 400 if error else 200, {"Cache-Control": "no-store"}
 
 
 @commerce.route("/taxonomy/shopify", methods=["GET", "POST"])

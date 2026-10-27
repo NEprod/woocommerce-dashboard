@@ -165,7 +165,8 @@ def test_incomplete_pages_never_return_partial_equality(kind):
 
 def test_late_complete_page_cannot_bypass_read_deadline(monkeypatch):
     import app.shopify_connection as connection
-    clock=iter([0,1,61]); monkeypatch.setattr(connection,'monotonic',lambda:next(clock))
+    # Outer coherent-snapshot and inner variant-page deadlines share the clock.
+    clock=iter([0,0,1,61]); monkeypatch.setattr(connection,'monotonic',lambda:next(clock))
     adapter=Pages([page([1])])
     with pytest.raises(ShopifyError,match='deadline'): adapter.read_variable(ShopifyConfiguration('fictional.myshopify.com',TOKEN),'gid://shopify/Product/100','tlc_dashboard')
     assert len(adapter.calls)==1

@@ -149,6 +149,10 @@ def run_slice(run_id, owner, *, adapter=None):
                 # Read-only even though the original operation was approved.
                 with background_work(guard,fence=fence,requests=80,seconds=90):
                     identity=drafts.finalize_processing(identity,adapter)
+                if identity.state=='verified' and drafts.evidence(identity).get('kind')=='variable':
+                    authority()
+                    from app.shopify_variables import complete_deferred_availability
+                    identity=complete_deferred_availability(identity,adapter)
                 from app.shopify_notifications import complete
                 if complete(identity,drafts.evidence(identity)):
                     finish_catalogue_operation(lease.id,status='succeeded',recovery_state='none',products_attempted=1,products_succeeded=1,products_failed=0)

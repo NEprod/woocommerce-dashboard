@@ -254,7 +254,7 @@ def variant_rows(wanted, remote):
     return rows
 
 
-def compare(plan, row, data, remote):
+def compare(plan, row, data, remote, *, initial_variant=None):
     nodes = remote_identity(row,data,remote)
     names = [o["name"] for o in plan["options"]]
     actual_options = remote.get("options")
@@ -273,6 +273,9 @@ def compare(plan, row, data, remote):
         if v["media_source"] and not v["media_id"]:
             plan["blockers"].append("Variant image lacks a retained media mapping: " + v["sku"])
         mapping = data.get("variant_maps",{}).get(v["identity"])
+        if not mapping and initial_variant and v['identity']==plan['variants'][0]['identity']:
+            mapping={'id':initial_variant['id'],'inventory_id':initial_variant['inventoryItem']['id'],
+                'sku':v['sku'],'options':v['options']}
         if mapping:
             if mapping["sku"] != v["sku"] or mapping["options"] != v["options"]:
                 plan["blockers"].append("Stable variant SKU/options cannot be silently rewritten: " + v["sku"])
@@ -342,13 +345,51 @@ def native_review(plan, row, data, config, shop, adapter):
     plan['native']['pending_capability'] = any(v.get('measurement_source') and v.get('reason') for v in plans.values())
 
 
-def preview(product, adapter=None, *, context=None, seed=None, scope="full", started=None):
+def _creation_resume(row, data, plan, remote=None):
+    """Only a conclusively acknowledged Create BEFORE any variant write.
+
+    This is a fresh signed update of that exact Draft, never a Create retry or
+    adoption of arbitrary media/variants. Ambiguous later mutations stay recovery.
+    """
+    if (not row or not row.shopify_product_id or data.get('kind')!='variable' or not data.get('create_attempted')
+            or 'product_create' not in data.get('completed_steps',[]) or data.get('variant_creates_attempted')
+            or data.get('variant_maps') or data.get('update_attempted')
+            or any(s not in {'staged_uploads','original_image_uploads','product_create'} for s in data.get('completed_steps',[]))):
+        raise ShopifyError('Partial creation is not conclusively before variant writes; use read-only identity recovery, never replay mutations.')
+    if row.reviewed_digest!=data['plan']['digest']:
+        raise ShopifyError('Retained reviewed digest conflicts with its creation receipt; inspect identity evidence before any continuation.')
+    if data['plan']['digest']!=plan['digest']:
+        raise ShopifyError('Local source changed since the retained Create; completion requires source/identity review, not a stale continuation.')
+    uploads=data.get('upload_inputs') or [];images=plan['images'];created=data.get('created_media') or []
+    if (len(uploads)!=len(images) or len(data.get('media',[]))!=len(images) or len(created)!=len(images)
+            or data.get('upload_attempt',{}).get('state')!='completed'
+            or any(u.get('source')!=i['source'] or u.get('sha256')!=i['sha256'] for u,i in zip(uploads,images))):
+        raise ShopifyError('Original upload/Create media acknowledgements are incomplete; no image upload or product Create may be retried.')
+    ids=[_gid(m.get('id'),'MediaImage') for m in created]
+    if len(set(ids))!=len(ids):raise ShopifyError('Duplicate creation media receipts require recovery review.')
+    if remote is None:return
+    nodes=remote_identity(row,data,remote)
+    if remote['status']!='DRAFT' or len(nodes)!=1 or nodes[0]['sku'] or nodes[0]['selectedOptions']!=plan['variants'][0]['options']:
+        raise ShopifyError('Partial Draft initial variant changed or is no longer uniquely blank; no variant is overwritten, deleted or recreated.')
+    actual=remote['media']['nodes']
+    if ([m['id'] for m in actual]!=ids or any(m.get('alt')!=i['alt'] or m.get('mediaContentType')!='IMAGE'
+            or m.get('status') not in {'READY','PROCESSING','UPLOADED'} for m,i in zip(actual,images))):
+        raise ShopifyError('Remote gallery differs from acknowledged creation IDs/order/alt text; no media is adopted or re-uploaded.')
+    for receipt,image,mid in zip(data['media'],images,ids):
+        if receipt.get('source')!=image['source'] or receipt.get('sha256')!=image['sha256'] or receipt.get('id') not in {None,mid}:
+            raise ShopifyError('Retained original-to-media acknowledgement conflicts; inspect recovery evidence.')
+        receipt['id']=mid
+    return nodes[0]
+
+
+def preview(product, adapter=None, *, context=None, seed=None, scope="full", started=None, resume_creation=False):
     adapter = adapter or ShopifyAdapter()
     plan = local_plan(product)
     plan['comparison_started_at'] = started or drafts.now().isoformat()
     config = drafts.configuration()
     shop = context["shop"] if context and context["config"] == config.fingerprint() else adapter.test_connection(config)
     row = drafts.matching_identity(shop["shop_id"],product)
+    if resume_creation:_creation_resume(row,drafts.evidence(row) if row else {},plan)
     from app.shopify_comparison import identity_revision
     plan['read_identity_digest'] = identity_revision(row)
     if row and any(p.get("state") in {"pending","uncertain"} for p in drafts.evidence(row).get("variant_native",{}).values()):
@@ -360,16 +401,16 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
         drafts.finalize_processing(row,adapter)
         if row.state == "processing":
             raise ShopifyError("Variable media is still processing. Refresh shortly; no retry/upload is needed.")
-    if row and row.state not in {"verified","failed_before_create","remote_deleted","attribute_review_required","scoped_verified"} and not drafts.upload_pending(row):
+    if row and row.state not in {"verified","failed_before_create","remote_deleted","attribute_review_required","scoped_verified"} and not drafts.upload_pending(row) and not resume_creation:
         raise ShopifyError("Recovery required for this variable identity. Reconcile the retained stage; no duplicate product/variant create.")
     if row and row.state in {"verified","attribute_review_required","scoped_verified"} and drafts.evidence(row).get("kind") != "variable":
         raise ShopifyError("Existing Simple-to-variable conversion requires a separately reviewed identity migration; another Create is blocked.")
     if row and (row.source_identity != product.source_relpath or row.sku != product.sku):
         raise ShopifyError("Retained parent source/SKU identity changed; restore it before any variable write.")
     plan.update(store_id=shop["shop_id"], store_key=drafts.digest({"id":shop["shop_id"]}), domain=config.domain,
-        config_digest=config.fingerprint(), nonce=seed or (drafts.evidence(row)["plan"]["nonce"] if row and (row.state in {"verified","attribute_review_required","scoped_verified"} or drafts.upload_pending(row)) else uuid.uuid4().hex))
+        config_digest=config.fingerprint(), nonce=seed or (drafts.evidence(row)["plan"]["nonce"] if row and (resume_creation or row.state in {"verified","attribute_review_required","scoped_verified"} or drafts.upload_pending(row)) else uuid.uuid4().hex))
     plan["handle"] = plan["managed"]["product"].get("handle") or "tlc-draft-"+plan["nonce"]
-    remote_id = row.shopify_product_id if row and row.state in {"verified","attribute_review_required","scoped_verified"} else None
+    remote_id = row.shopify_product_id if row and (resume_creation or row.state in {"verified","attribute_review_required","scoped_verified"}) else None
     from app.shopify_taxonomy import membership_plan
     plan["collections"], blockers, standard = ([],[],None) if scope == "inventory" else membership_plan(product,shop["shop_id"],remote_id,config,adapter)
     plan["blockers"] += blockers
@@ -385,9 +426,14 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
         if remote is None:
             from app.shopify_connection import ShopifyProductAbsent
             raise ShopifyProductAbsent("Exact Shopify variable parent read returned absent; reconcile existence before any new Create.")
-        compare(plan,row,data,remote)
+        identity_digest=drafts.digest(data)
+        initial_variant=_creation_resume(row,data,plan,remote) if resume_creation else None
+        compare(plan,row,data,remote,initial_variant=initial_variant)
+        if resume_creation:
+            plan['creation_resume']={'operation_id':row.operation_id,'media_ids':[m['id'] for m in data['created_media']]}
         plan.update(remote_id=remote_id,remote_digest=drafts.digest(remote),identity_digest=drafts.digest(data),
             identity_id=row.id,actual_status=remote["status"],remote_updated_at=remote.get("updatedAt"))
+        if resume_creation:plan['identity_digest']=identity_digest
         if "tags" in plan["managed"]["product"]:
             removed = sorted(set(remote["tags"]) - set(plan["managed"]["product"]["tags"]))
             if removed: plan["warnings"].append("Explicit tag replacement removes: " + ", ".join(removed))
@@ -463,8 +509,9 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
     drafts.encode(reserves)
     from app.shopify_comparison import record
     record(product,plan,row if remote_id else None)
-    reviewed = {"mode":"variable", **{key:plan.get(key) for key in
+    reviewed = {"mode":"variable_resume" if resume_creation else "variable", **{key:plan.get(key) for key in
         ("product_id","digest","store_id","config_digest","nonce","remote_id","remote_digest","identity_digest","taxonomy_review_digest","classification","identity_id","scope")}}
+    if resume_creation:reviewed['creation_resume']=plan['creation_resume']
     from app.shopify_publication import has_reviewed_changes
     token = drafts.serializer().dumps(reviewed) if plan["classification"] != "no_change" and not plan["blockers"] and (not remote_id or scope=='inventory' or has_reviewed_changes(plan)) else None
     return plan,token
@@ -571,6 +618,7 @@ def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attri
     package_guard(data)
     plan = data["plan"]
     remote = adapter.read_variable(config,row.shopify_product_id,plan["managed"]["namespace"])
+    if getattr(adapter,'snapshot_restarts',None):data['gallery_snapshot_restarts']=(data.get('gallery_snapshot_restarts',[])+copy.deepcopy(adapter.snapshot_restarts))[-6:]
     from app.shopify_publication import expected_status
     if remote.get('status') != expected_status(data):
         raise ShopifyError('Product lifecycle changed during metadata verification; reconcile before another operation.')
@@ -672,6 +720,35 @@ def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attri
     return row
 
 
+def complete_deferred_availability(row,adapter):
+    """Finish the ORIGINAL approved variable availability after async readback.
+
+    Called only by the accepted manual task, outside its read-only polling scope.
+    No uploads, Create or variant writes; stale source and uncertain steps block.
+    """
+    from app.shopify_capacity import guard_owner
+    guard_owner()
+    data=drafts.evidence(row);plan=data['plan'];config=drafts.configuration()
+    from app.shopify_publication import apply_reviewed,complete
+    if data.get('kind')!='variable' or row.state!='verified' or complete(data):return row
+    if (local_plan(db.session.get(Product,row.product_id))['digest']!=plan['digest'] or config.fingerprint()!=plan['config_digest']
+            or len(data.get('variant_maps',{}))!=len(plan['variants']) or data.get('verification',{}).get('media')!='verified'):
+        raise ShopifyError('Deferred variable availability source or full verification changed; no activation is authorised.')
+    from app.models import CatalogueOperation
+    from app.shopify_capacity import fence_owner
+    operation=db.session.get(CatalogueOperation,row.operation_id)
+    operation.status='running';fence_owner();db.session.commit()
+    apply_reviewed(row,data,config,adapter)
+    verify(row,data,config,adapter)
+    native_state=_native_apply(row,data,config,adapter,row.operation_id) if row.state=='verified' else 'blocked'
+    from app.shopify_package_assignments import apply as packages
+    package_state=packages(row,adapter,row.operation_id)
+    finish_catalogue_operation(row.operation_id,status='succeeded' if row.state=='verified' and native_state in {'disabled','verified'}
+        and package_state in {'none','accepted'} and complete(data) else 'partial',
+        products_attempted=1,products_succeeded=int(row.state=='verified'),recovery_state='review_required' if row.state=='uncertain' else 'none')
+    return row
+
+
 def confirm(reviewed, adapter=None):
     adapter = adapter or ShopifyAdapter()
     product = db.session.get(Product,reviewed["product_id"])
@@ -680,12 +757,15 @@ def confirm(reviewed, adapter=None):
     lease = acquire_catalogue_operation("shopify_draft_publish",{"product_id":product.id,"mode":"variable"})
     row, data, attempted, creating, previous = None, None, False, None, None
     try:
-        plan,_ = preview(product,adapter,seed=reviewed["nonce"])
+        resuming=reviewed.get('mode')=='variable_resume'
+        plan,_ = preview(product,adapter,seed=reviewed["nonce"],resume_creation=resuming)
         for key in ("digest","store_id","config_digest","remote_id","remote_digest","identity_digest","taxonomy_review_digest","classification"):
             if plan.get(key)!=reviewed.get(key):
                 raise ShopifyError("Variable source, identity, remote state, scopes or memberships changed after Review. No write attempted.")
         if plan["blockers"] or plan["classification"]=="no_change":
             raise ShopifyError("Resolve reviewed blockers or matching state; no unreviewed write allowed.")
+        if resuming and plan.get('creation_resume')!=reviewed.get('creation_resume'):
+            raise ShopifyError('Retained creation scope changed after recovery Review; no write attempted.')
         config = drafts.configuration()
         def fresh():
             if local_plan(product)["digest"]!=plan["digest"] or drafts.configuration().fingerprint()!=plan["config_digest"]:
@@ -732,6 +812,7 @@ def confirm(reviewed, adapter=None):
                 raise ShopifyError("Product create receipt is incomplete; resolve the retained correlation, never Create again.")
             drafts.completed_step(row,data,"product_create")
             remote=adapter.read_variable(config,row.shopify_product_id,plan["managed"]["namespace"])
+            if getattr(adapter,'snapshot_restarts',None):data['gallery_snapshot_restarts']=(data.get('gallery_snapshot_restarts',[])+copy.deepcopy(adapter.snapshot_restarts))[-6:]
             nodes=remote_identity(row,data,remote)
             first=plan["variants"][0]
             if len(nodes)!=1 or nodes[0]["selectedOptions"]!=first["options"] or nodes[0]["sku"]:
@@ -741,8 +822,13 @@ def confirm(reviewed, adapter=None):
             # Reserve its exact initial GIDs before setting the reviewed SKU.
             data["variant_creates_attempted"].append(first["identity"])
         else:
-            previous={"data":copy.deepcopy(drafts.evidence(row)),"operation_id":row.operation_id,"reviewed_digest":row.reviewed_digest}
+            previous={"data":copy.deepcopy(drafts.evidence(row)),"operation_id":row.operation_id,"reviewed_digest":row.reviewed_digest,
+                'state':row.state,'verification_state':row.verification_state}
             data=drafts.evidence(row)
+            if resuming:
+                data['creation_resume_from']={'operation_id':row.operation_id,'stage':data.get('stage'),'completed_steps':data.get('completed_steps',[])}
+                for receipt,mid in zip(data['media'],plan['creation_resume']['media_ids']):receipt['id']=mid
+                data['variant_creates_attempted']=[plan['variants'][0]['identity']]
             data.update(plan=plan,stage="reviewed_update",update_attempted=True,completed_steps=[],publication_review_operation_id=lease.id)
             row.operation_id,row.reviewed_digest,row.verification_state=lease.id,plan["digest"],"unverified"
             drafts.save(row,data,"updating")
@@ -817,7 +903,7 @@ def confirm(reviewed, adapter=None):
             attempted=True
         apply_dimensions(row,data,config,adapter)
         from app.shopify_publication import apply_reviewed
-        if creating and plan.get('publication'):
+        if (creating or resuming) and plan.get('publication'):
             verify(row,data,config,adapter)
         if (plan.get('publication') or {}).get('pending') and (plan.get('publication') or {}).get('read_complete') and not (plan.get('publication') or {}).get('blockers'):
             attempted=True
@@ -856,15 +942,16 @@ def confirm(reviewed, adapter=None):
             retained=drafts.evidence(row)
             if package_attempted(retained,lease.id):data=retained;attempted=True
             if not attempted and creating is False and previous:
-                row.operation_id,row.reviewed_digest,row.verification_state=previous["operation_id"],previous["reviewed_digest"],"verified"
-                drafts.save(row,previous["data"],"verified")
-                finish_catalogue_operation(lease.id,status="failed",error="Variable update stopped before writes; prior verified evidence retained.")
+                row.operation_id,row.reviewed_digest,row.verification_state=previous["operation_id"],previous["reviewed_digest"],previous['verification_state']
+                drafts.save(row,previous["data"],previous['state'])
+                finish_catalogue_operation(lease.id,status="failed",error="Variable update stopped before writes; prior identity evidence retained.")
                 raise
             data["error"] = str(exc)[:512] if isinstance(exc,ShopifyError) else "Variable operation interrupted; inspect its retained stage. No automatic retry."
             drafts.save(row,data,"uncertain" if attempted or data.get("create_attempted") else "failed_before_create" if not data.get("create_attempted") else "verified")
             finish_catalogue_operation(lease.id,status="partial" if attempted else "failed",recovery_state="review_required" if attempted else "none",operation_summary={"identity_id":row.id,"stage":data["stage"]})
             return row
-        finish_catalogue_operation(lease.id,status="failed",error="Variable review failed before remote writes.")
+        from app.utils.operation_control import sanitize_operation_error
+        finish_catalogue_operation(lease.id,status="failed",error="Variable review failed before remote writes. "+sanitize_operation_error(exc))
         raise
 
 
