@@ -136,7 +136,11 @@ def test_accepted_receipt_progress_does_not_claim_independent_verification(world
     client = _client(current_app._get_current_object())
     response = client.post(f'/products/{product.id}/shopify/review',
         data={'action': 'confirm', 'review': token, 'acknowledge': 'yes'}, headers={'Accept': 'application/json'})
-    assert response.json['state'] == 'completed'
+    assert response.status_code == 202
+    from test_manual_publishing_worker import step
+    step(adapter)
+    response=client.post(f'/products/{product.id}/shopify/progress',data={'review':token})
+    assert response.json['state'] == 'completed', response.json
     assert response.json['completion_label'] == 'Completed — Shopify Accepted'
     assert response.json['pending_stages'] == []
     assert 'unavailable' in response.json['message']

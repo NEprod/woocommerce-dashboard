@@ -77,6 +77,11 @@ def event_row(operation, event):
     if not isinstance(delivery, dict): delivery = {}
     from app.operation_reporting import interpretation
     report = interpretation(operation)
+    if operation.operation_type=='shopify_draft_publish' and scope.get('manual_review'):
+        from app.publishing_progress import view
+        health=view(operation)['status']
+        if health in {'queued','running','waiting','stalled','recovery_required'}:
+            report={**report,'label':health.replace('_',' ').title()+' — server task'}
     summary = scope.get('operation_summary') or {}
     result = {'operation': operation, 'event': event, 'receipt': receipt,
         'product_id': event.product_id if event else scope.get('product_id'),

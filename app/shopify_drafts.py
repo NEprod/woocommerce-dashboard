@@ -362,6 +362,8 @@ def save(row, data, state=None):
     encoded = encode(data)
     from app.shopify_capacity import fence_owner
     fence_owner()
+    from app.publishing_progress import capture
+    capture(row,data)
     row.media_evidence_json = encoded
     if state:
         row.state = state
@@ -452,6 +454,10 @@ def upload_gallery(product, row, data, plan, config, adapter):
     if len(uploads) > len(plan['images']):
         raise ShopifyError('Retained upload count conflicts with the reviewed complete gallery.')
     completed, completed_bytes = 0, 0
+    batches=[];offset=0
+    while offset<len(plan['images']):
+        part=upload_batch(plan['images'][offset:]);offset+=len(part);batches.append(offset)
+    data['upload_batch_total']=len(batches)
     while len(uploads) < len(plan['images']):
         budget = background()
         if completed >= UPLOAD_BATCH or budget and (budget['remaining'] < 4 or budget['deadline']-monotonic() < 35):
@@ -460,7 +466,12 @@ def upload_gallery(product, row, data, plan, config, adapter):
                              byte_limit=MAX_UPLOAD_BYTES-completed_bytes)
         if not batch:
             raise GalleryPending('The 30 MiB upload-slice budget is reached; acknowledged originals are retained for the next bounded slice.')
+        number=next(i+1 for i,end in enumerate(batches) if end>len(uploads))
+        batch=batch[:batches[number-1]-len(uploads)]
+        data.update(upload_batch_number=number,stage='upload_batch_prepared')
+        save(row,data)
         targets = stage_gallery(adapter, config, batch)
+        data['stage']='upload_batch_started';save(row,data)
         used = {u['input']['originalSource'] for u in uploads}
         resources = [t.get('resourceUrl') for t in targets if isinstance(t,dict)]
         if len(resources) != len(batch) or len(set(resources)) != len(resources) or used.intersection(resources):
@@ -481,6 +492,8 @@ def upload_gallery(product, row, data, plan, config, adapter):
             uploads.append({'source': image['source'], 'sha256': image['sha256'], 'input': value})
             data['media'].append({'source': image['source'], 'filename': filename, 'sha256': image['sha256'], 'upload': 'completed'})
             data['upload_attempt'] = {'source': image['source'], 'state': 'completed'}
+            data['last_upload_ack_at']=now().isoformat()+'Z'
+            if len(uploads)==batches[number-1]:data['stage']='batch_acknowledged'
             completed += 1
             completed_bytes += len(content)
             save(row, data)

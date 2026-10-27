@@ -207,6 +207,10 @@ def get_active_operation() -> dict | None:
 
 def acquire_catalogue_operation(operation_type: str, scope=None, *, transition_id=None) -> OperationLease:
     global _active_operation
+    if operation_type == 'shopify_draft_publish':
+        from app.manual_publishing import executing_lease
+        accepted=executing_lease()
+        if accepted:return accepted
 
     # Confirm has already committed the same authoritative operation before
     # network revalidation. Reuse only its request-scoped lease, never a global
@@ -278,6 +282,15 @@ def acquire_catalogue_operation(operation_type: str, scope=None, *, transition_i
         db.session.rollback()
         _catalogue_lock.release()
         raise
+
+
+def release_local_operation(operation_id):
+    """Release only this process's mutex; durable queued/worker evidence remains."""
+    global _active_operation
+    with _state_lock:
+        matches=_active_operation and _active_operation['id']==operation_id
+        if matches:_active_operation=None
+    if matches and _catalogue_lock.locked():_catalogue_lock.release()
 
 
 def finish_catalogue_operation(
@@ -425,6 +438,8 @@ def operation_context(operation_type: str, scope=None):
 
 def recover_interrupted_operations() -> int:
     rows = CatalogueOperation.query.filter_by(status="running").all()
+    from app.utils.operation_live import scope_dict
+    rows=[row for row in rows if not scope_dict(row).get('manual_review')]
     if not rows:
         return 0
     finished_at = _utcnow()

@@ -25,11 +25,14 @@ DEFINITION = {"name":"Shopify Product Reconciliation",
     "description":"Read-only verification of product, variant, inventory, media, taxonomy and attribute evidence."}
 SALE_KEY='shopify_sales'
 RELEASE_KEY='shopify_releases'
+MANUAL_KEY='shopify_manual_review'
 SALE_DEFINITION={'name':'Scheduled Sale Transitions','description':'Only explicitly authorised due price transitions; no due sale means no Shopify request.'}
 ORDERS_KEY='shopify_orders'
 
 
 def definition(key):
+    if key == MANUAL_KEY:
+        return {'name':'Approved Manual Shopify Publishing','description':'Signed merchant-approved work only; no recurring schedule or automatic authority.'}
     if key == RELEASE_KEY:
         return {'name': 'Scheduled Product Releases', 'description': 'Only indexed due releases; existing source save and containing-collection scan, then authorised publication.'}
     if key == VIEW_KEY:
@@ -98,8 +101,9 @@ def configure(key, *, enabled, interval):
 
 
 def enqueue(key=KEY, *, manual=False, product_ids=None, startup=False, orders_rescan=False, priority=False):
-    if key not in {KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY}:
+    if key not in {KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY,MANUAL_KEY}:
         raise ValueError("Unknown task.")
+    if key==MANUAL_KEY and not manual:raise ValueError('Manual publishing requires an accepted signed review.')
     if orders_rescan and (key!=ORDERS_KEY or not manual):raise ValueError('Recent Orders rescan requires explicit manual authority.')
     if priority and (key != PUBLISHER_KEY or manual or startup or product_ids is None):
         raise ValueError('Priority publishing requires an explicit automatic product scope.')
@@ -160,19 +164,19 @@ def renew(key, run_id, owner):
 
 def claim(owner, *, manual_only=False):
     stamp=now()
-    candidates=ScheduledTask.query.filter(ScheduledTask.key.in_({KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY}),ScheduledTask.active_run_id.isnot(None),
+    candidates=ScheduledTask.query.filter(ScheduledTask.key.in_({KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY,MANUAL_KEY}),ScheduledTask.active_run_id.isnot(None),
         or_(ScheduledTask.resume_at.is_(None),ScheduledTask.resume_at<=stamp),
         or_(ScheduledTask.owner.is_(None),ScheduledTask.lease_until<=stamp))
     if manual_only:
         candidates=candidates.join(ScheduledTaskRun,ScheduledTask.active_run_id==ScheduledTaskRun.id).filter(ScheduledTaskRun.trigger=='manual')
-    candidate=candidates.order_by((ScheduledTask.key==SALE_KEY).desc(),(ScheduledTask.key==PUBLISHER_KEY).desc(),ScheduledTask.next_due).first()
+    candidate=candidates.order_by((ScheduledTask.key==MANUAL_KEY).desc(),(ScheduledTask.key==SALE_KEY).desc(),(ScheduledTask.key==PUBLISHER_KEY).desc(),ScheduledTask.next_due).first()
     if not candidate:
         return None
     run_id,key=candidate.active_run_id,candidate.key
     previous_owner=candidate.owner
     busy = ScheduledTask.__table__.alias('busy_task')
     from sqlalchemy import select
-    occupied = select(busy.c.key).where(busy.c.key.in_({KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY}),
+    occupied = select(busy.c.key).where(busy.c.key.in_({KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY,MANUAL_KEY}),
         busy.c.owner.isnot(None), busy.c.lease_until > stamp).exists()
     changed=db.session.execute(update(ScheduledTask).where(ScheduledTask.key==key,ScheduledTask.active_run_id==run_id,
         ~occupied, or_(ScheduledTask.owner.is_(None),ScheduledTask.lease_until<=stamp)
@@ -339,7 +343,10 @@ def group_errors(data, errors):
 
 
 def run_slice(key,run_id,owner,*,adapter=None):
-    if key not in {KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY}: raise ValueError('Unknown or retired task; history is read-only.')
+    if key not in {KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY,MANUAL_KEY}: raise ValueError('Unknown or retired task; history is read-only.')
+    if key==MANUAL_KEY:
+        from app.manual_publishing import run_slice as manual_slice
+        return manual_slice(run_id,owner,adapter=adapter)
     if key == RELEASE_KEY:
         return release_slice(run_id, owner)
     if key==VIEW_KEY:

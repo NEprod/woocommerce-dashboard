@@ -38,14 +38,17 @@ def test_confirm_receipt_is_committed_before_api_validation(world,monkeypatch):
         assert json.loads(scope)['review_ticket']==drafts.digest(token)
         assert db.session.connection().connection.driver_connection.in_transaction is False
         result=receipt(product.id,token)
-        assert result['state']=='running' and result['operation_id']==opid
-        assert result['stage']=='Validating signed confirmation'
+        assert result['state']=='processing' and result['operation_id']==opid
+        assert result['worker_health']['state']=='healthy'
         return original(config)
     adapter.test_connection=connected
     monkeypatch.setattr(drafts,'ShopifyAdapter',lambda:adapter)
     client=_client(current_app._get_current_object())
     response=client.post(f'/products/{product.id}/shopify/review',data={'action':'confirm','review':token,'acknowledge':'yes'},headers={'Accept':'application/json'})
-    assert response.status_code==200,response.data
+    assert response.status_code==202,response.data
+    from test_manual_publishing_worker import step
+    with current_app.test_request_context():step(adapter)
+    response=client.post(f'/products/{product.id}/shopify/progress',data={'review':token})
     assert response.json['state']=='completed'
     assert CatalogueOperation.query.filter_by(operation_type='shopify_draft_publish').count()==2
 
@@ -56,7 +59,9 @@ def test_before_write_failure_has_durable_precise_receipt(world,monkeypatch):
     monkeypatch.setattr(drafts,'ShopifyAdapter',lambda:adapter)
     client=_client(current_app._get_current_object())
     response=client.post(f'/products/{product.id}/shopify/review',data={'action':'confirm','review':token,'acknowledge':'yes'},headers={'Accept':'application/json'})
-    assert response.status_code==400
+    assert response.status_code==202
+    from test_manual_publishing_worker import step
+    step(adapter)
     result=client.post(f'/products/{product.id}/shopify/progress',data={'review':token}).json
     assert result['state']=='failed' and 'changed' in result['message'].lower()
     assert 'product_update' not in adapter.calls
@@ -107,7 +112,11 @@ def test_mutation_success_final_receipt_failure_requires_recovery(world,monkeypa
     monkeypatch.setattr(drafts,'finish_catalogue_operation',lost)
     client=_client(current_app._get_current_object())
     result=client.post(f'/products/{product.id}/shopify/review',data={'action':'confirm','review':token,'acknowledge':'yes'},headers={'Accept':'application/json'})
-    assert result.status_code==200 and result.json['state']=='recovery_required'
+    assert result.status_code==202
+    from test_manual_publishing_worker import step
+    step(adapter)
+    result=client.post(f'/products/{product.id}/shopify/progress',data={'review':token})
+    assert result.json['state']=='recovery_required'
     assert ShopifyProductIdentity.query.one().shopify_product_id and adapter.calls.count('product_create')==1
     repeated=client.post(f'/products/{product.id}/shopify/review',data={'action':'confirm','review':token,'acknowledge':'yes'},headers={'Accept':'application/json'})
     assert repeated.json['state']=='recovery_required' and adapter.calls.count('product_create')==1
@@ -213,6 +222,7 @@ class PaginatedVariableAdapter(VariableAdapter):
     """The real bounded reader over fictional, independently paged remote data."""
     def __init__(self):
         super().__init__(); self.page_calls=[]
+    _complete_gallery=ShopifyAdapter._complete_gallery
 
     def read_variable(self,config,pid,namespace,*,native=False):
         return ShopifyAdapter.read_variable(self,config,pid,namespace,native=native)
@@ -269,7 +279,11 @@ def test_nine_variants_complete_readback_across_both_layouts(variable_world,monk
         monkeypatch.setattr(adapter,method,durable)
     client=_client(current_app._get_current_object())
     response=client.post(f'/products/{product.id}/shopify/review',data={'action':'confirm','review':token,'acknowledge':'yes'},headers={'Accept':'application/json'})
-    assert response.status_code==200 and response.json['state']=='completed',response.json
+    assert response.status_code==202,response.json
+    from test_manual_publishing_worker import step
+    step(adapter)
+    response=client.post(f'/products/{product.id}/shopify/progress',data={'review':token})
+    assert response.json['state']=='completed',response.json
     row=ShopifyProductIdentity.query.one(); proof=drafts.evidence(row)
     mappings=copy.deepcopy(proof['variant_maps'])
     assert len(mappings)==9 and len({v['inventory_id'] for v in mappings.values()})==9

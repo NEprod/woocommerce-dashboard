@@ -233,13 +233,14 @@ def test_access_timeout_retains_gids_and_reconciles_without_write_replay(world,r
     assert row.state=='verified'
 
 
-def test_confirm_without_javascript_returns_to_products(world,monkeypatch):
+def test_confirm_without_javascript_returns_to_durable_operation(world,monkeypatch):
     product,row,adapter=created(world); change(world,price='4.50')
     _,token=drafts.preview(product,adapter)
     monkeypatch.setattr(drafts,'ShopifyAdapter',lambda:adapter)
     client=_client(__import__('flask').current_app._get_current_object())
     response=client.post(f'/products/{product.id}/shopify/review',data={'action':'confirm','review':token,'acknowledge':'yes','return_to':'https://other.test/products'})
-    assert response.status_code==302 and response.location==f'/products#product-{product.id}'
+    assert response.status_code==302 and response.location.startswith('/operations/')
+    assert not adapter.inputs
 
 
 def test_delete_visible_from_product_detail_only_to_admin(world,monkeypatch):
@@ -265,8 +266,10 @@ def test_progress_completion_redirect_and_duplicate_post(world,monkeypatch):
     path=f'/products/{product.id}/shopify/review'
     body={'action':'confirm','review':token,'acknowledge':'yes','return_to':'/products?q=Hero'}
     response=client.post(path,data=body,headers={'Accept':'application/json'})
-    assert response.status_code==200,response.data
-    assert response.json['state']=='completed' and response.json['return_url']=='/products?q=Hero'
+    assert response.status_code==202,response.data
+    assert response.json['state']=='processing' and response.json['return_url'].startswith('/operations/')
+    from test_manual_publishing_worker import step
+    step(adapter)
     count=len(adapter.inputs)
     progress=client.post(f'/products/{product.id}/shopify/progress',data={'review':token})
     assert progress.json['state']=='completed'

@@ -14,7 +14,7 @@ import requests
 from PIL import Image
 
 from app import db, shopify_drafts as drafts
-from app.models import Product, ProductImage, ShopifyProductIdentity
+from app.models import Product, ProductImage, ShopifyProductIdentity, ScheduledTask
 from app.shopify_connection import ShopifyError
 from test_phase3_woo_publish_preview import preview_app, _client
 from test_shopify_drafts import world
@@ -108,29 +108,26 @@ def test_manual_original_uploads_are_bounded_by_count_and_bytes(world, count, si
         'peak_process_rss_mib': round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1048576 if sys.platform == 'darwin' else 1024), 2)}))
 
 
-def test_manual_http_review_continues_only_with_fresh_signed_approval(world, preview_app, monkeypatch):
+def test_manual_http_review_durably_queues_original_signed_approval(world, preview_app, monkeypatch):
     product, _ = originals(world)
     adapter = ByteAdapter(); client = _client(preview_app)
     monkeypatch.setattr(drafts, 'ShopifyAdapter', lambda: adapter)
     route = f'/products/{product.id}/shopify/review'
-    from itsdangerous.timed import TimestampSigner
     from flask import g
-    clock = TimestampSigner.get_timestamp(TimestampSigner('fixture'))
+    from app import scheduled_tasks as tasks, manual_publishing as manual
+    monkeypatch.setenv('TLC_SCHEDULER_READY_AT','99999999999')
+    response=client.post(route,data={'action':'preview'})
+    token=re.search(r'name="review" value="([^"]+)"',response.get_data(as_text=True)).group(1)
+    result=client.post(route,data={'action':'confirm','review':token,'acknowledge':'yes'},headers={'Accept':'application/json'})
+    assert result.status_code==202 and 'binary_upload' not in adapter.calls
     for index in range(3):
-        # world keeps an outer app context for ORM access; real HTTP requests
-        # have fresh g. Do not carry the prior request's accepted lease forward.
         g.pop('shopify_confirm_lease', None); g.pop('shopify_review_ticket', None)
-        with patch.object(TimestampSigner, 'get_timestamp', return_value=clock + index * 5):
-            response = client.post(route, data={'action': 'preview'})
-            assert response.status_code == 200
-            token = re.search(r'name="review" value="([^"]+)"', response.get_data(as_text=True)).group(1)
-            result = client.post(route, data={'action': 'confirm', 'review': token, 'acknowledge': 'yes'}, headers={'Accept': 'application/json'})
-            assert result.status_code == 200
-            assert result.json['state'] in {'processing', 'completed'}, (result.json, drafts.evidence(ShopifyProductIdentity.query.one()))
-            calls = adapter.calls.count('binary_upload')
-            # Same approved ticket is idempotent, including pending readback.
-            repeat = client.post(route, data={'action': 'confirm', 'review': token, 'acknowledge': 'yes'}, headers={'Accept': 'application/json'})
-            assert repeat.status_code == 200 and adapter.calls.count('binary_upload') == calls
+        task=db.session.get(ScheduledTask,manual.KEY)
+        task.resume_at=drafts.now();db.session.commit()
+        tasks.tick('manual-http-test',adapter=adapter)
+        calls=adapter.calls.count('binary_upload')
+        repeat=client.post(route,data={'action':'confirm','review':token,'acknowledge':'yes'},headers={'Accept':'application/json'})
+        assert repeat.status_code==200 and adapter.calls.count('binary_upload')==calls
     assert ShopifyProductIdentity.query.one().state == 'verified'
     assert adapter.calls.count('binary_upload') == 53 and adapter.calls.count('product_create') == 1
 

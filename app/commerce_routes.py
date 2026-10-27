@@ -216,24 +216,12 @@ def drafts(product_id=None):
                         return jsonify({**prior,"return_url":products_return(target)}), 200, {"Cache-Control":"no-store"}
                     return redirect(prior.get("history_url") or products_return(target))
                 g.shopify_review_ticket = service.digest(review)
-                from app.shopify_progress import accept, finalise_unfinished
+                from app.manual_publishing import accept
                 accepted = accept(target,review,request.form.get("acknowledge") == "yes")
-                confirmation_error=None
-                try:
-                    row = service.confirm(review, True, expected_product_id=target)
-                except (ShopifyError,config.CommerceConfigError) as exc:
-                    confirmation_error=str(exc)
-                    raise
-                finally:
-                    finalise_unfinished(accepted.id,confirmation_error)
                 result = receipt(target,review)
-                if result["state"] in {"completed","processing"}:
-                    flash(result['message'] if result.get('operation_type')=='customisations' else "Shopify product verified." if result["state"] == "completed" else "Shopify media is processing; check its product status.","success" if result["state"] == "completed" else "info")
                 if request.headers.get("Accept") == "application/json":
-                    return jsonify({**result,"return_url":products_return(target)}), 200, {"Cache-Control":"no-store"}
-                if result["state"] in {"completed","processing"}:
-                    return redirect(products_return(target))
-                return redirect(url_for("commerce.draft_identity", identity_id=row.id))
+                    return jsonify({**result,"return_url":url_for('main.operation_detail',operation_id=accepted.id)}), 202, {"Cache-Control":"no-store"}
+                return redirect(url_for('main.operation_detail',operation_id=accepted.id))
             else:
                 abort(400)
         except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:

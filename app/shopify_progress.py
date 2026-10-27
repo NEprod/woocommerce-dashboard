@@ -87,6 +87,14 @@ def receipt(product_id, token):
             continue
         row = ShopifyProductIdentity.query.filter_by(operation_id=operation.id).first()
         data = drafts.evidence(row) if row else {}
+        if scope.get('manual_review') and scope['manual_review'].get('state')!='completed':
+            from app.publishing_progress import view
+            live=view(operation)
+            state=live['status']
+            return {'state':'processing' if state in {'queued','running','waiting'} else state,
+                'operation_id':operation.id,'stage':live.get('stage'),'message':live.get('latest_message'),
+                'history_url':url_for('main.operation_detail',operation_id=operation.id),
+                'worker_health':live.get('worker_health'),'publishing':live.get('publishing')}
         running = operation.status in {"running","pending"}
         native = data.get("native_dimensions",{}).get("state")
         if running: state = "running"

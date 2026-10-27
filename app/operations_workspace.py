@@ -224,6 +224,9 @@ def operation_view(row, *, redaction_paths=None):
     scope = _safe_scope(row)
     persisted_summary = scope.get("operation_summary") if isinstance(scope.get("operation_summary"), dict) else {}
     live = _live_run(row.id, row)
+    if row.operation_type=='shopify_draft_publish':
+        from app.publishing_progress import view as publishing_view
+        live=publishing_view(row)
     active_summary = (live or {}).get("summary") or persisted_summary
     source = scope.get("collection_relpath") or scope.get("source_relpath")
     live_warnings = int((live or {}).get("counts", {}).get("warnings", 0) or 0)
@@ -242,6 +245,11 @@ def operation_view(row, *, redaction_paths=None):
     summary_error_count = len(summary_errors) if isinstance(summary_errors, list) else blocking_count({'errors': summary_errors})
     if row.operation_type != 'woo_connection_test':
         status_label = reporting['label']
+    if row.operation_type=='shopify_draft_publish' and live:
+        health=live.get('status')
+        if health in {'running','queued','waiting','stalled','recovery_required','attention'}:
+            status_label={'running':'Running — server worker','queued':'Queued — server worker','waiting':'Waiting — durable continuation','stalled':'Stalled — worker lease unavailable','recovery_required':'Recovery Required','attention':'Needs Attention — no continuing worker'}.get(health,health)
+            reporting={**reporting,'execution':health}
     if scope.get('scheduled_run'):
         status_label = 'Internal stage — ' + status_label
     return {
@@ -399,6 +407,9 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
     ]
     if row.finished_at:
         timeline.append({"label": view["status_label"], "state": "error" if row.status == "failed" else "complete", "at": row.finished_at})
+    if row.operation_type=='shopify_draft_publish' and live.get('logs'):
+        timeline=[{'label':entry['line'],'state':'error' if entry.get('severity')=='error' else 'complete','at':None}
+            for entry in live['logs'][-40:] if isinstance(entry,dict) and entry.get('line')]
     retry_mode = {"append": "append", "product_update": "update", "full": "full"}.get(row.operation_type)
     intake = None
     if row.operation_type in {"intake_group", "intake_folder_edit", "intake_image_rename", "intake_metadata_save", "intake_catalogue_handoff", "intake_structured_import"}:

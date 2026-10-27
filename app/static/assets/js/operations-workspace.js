@@ -65,6 +65,7 @@
   const wooPublishResultPanel = documentRef.querySelector("[data-woo-publish-result]");
   let cursor = 0;
   let terminal = hero.dataset.terminal === "true";
+  let workerHealth = null;
   let intakeResultReady = terminal || !intakeResultPanel;
   let wooPublishResultReady = terminal || !wooPublishResultPanel;
   let paused = false;
@@ -91,13 +92,13 @@
 
   function markConnected() {
     failures = 0;
-    if (connectivity) connectivity.textContent = terminal ? "Final state received" : "Live status connected";
+    if (connectivity) connectivity.textContent = workerHealth ? "Receipt polling connected · last reported worker: " + workerHealth.replaceAll("_", " ") : terminal ? "Final state received" : "Live status connected";
     if (retry) retry.hidden = true;
   }
 
   function markFailure() {
     failures += 1;
-    if (connectivity) connectivity.textContent = "Live status temporarily unavailable. The operation is continuing in the background.";
+    if (connectivity) connectivity.textContent = workerHealth ? "Receipt connection unavailable. Current worker health is unknown; inspect the recorded operation, not another confirmation." : "Live status temporarily unavailable. The operation is continuing in the background.";
     if (shouldPause(failures)) {
       paused = true;
       if (retry) retry.hidden = false;
@@ -107,6 +108,7 @@
   function renderStatus(payload) {
     const operation = payload.operation || {};
     const live = payload.live || {};
+    workerHealth = live.worker_health ? live.worker_health.state : null;
     const progress = live.progress || {};
     const counts = live.counts || {};
     const summary = payload.summary || live.summary || {};
@@ -124,7 +126,8 @@
     const status = documentRef.querySelector("[data-operation-status]");
     if (status) {
       status.textContent = operation.status_label || operation.status;
-      status.className = "status-badge status-" + (operation.status || "running");
+      const tone = {queued:"running",waiting:"running",stalled:"interrupted",recovery_required:"failed",attention:"partial"}[operation.status] || operation.status || "running";
+      status.className = "status-badge status-" + tone;
     }
     ["attempted", "succeeded", "failed", "warning_count", "error_count"].forEach(function (key) {
       text('[data-operation-count="' + key + '"]', operation[key]);
@@ -133,7 +136,15 @@
     text("[data-live-stage]", String(live.stage || operation.status || "running").replaceAll("_", " ").replace(/\b\w/g, function (letter) { return letter.toUpperCase(); }));
     text("[data-current-item]", live.current_item || (payload.terminal ? "Operation finished" : "Waiting for the current stage to complete"));
     text("[data-live-message]", live.latest_message || (payload.terminal ? "Final operation state received." : "Running — waiting for the current stage to complete."));
-    text("[data-live-activity]", formatActivity(payload.last_activity));
+    text("[data-live-activity]", live.worker_health && !payload.last_activity ? "No worker heartbeat retained" : formatActivity(payload.last_activity));
+    const publishing = live.publishing || {};
+    documentRef.querySelectorAll("[data-publishing-value]").forEach(function (node) {
+      const value = publishing[node.dataset.publishingValue];
+      node.textContent = value === undefined || value === null ? "Unknown / not retained" : String(value);
+    });
+    text("[data-publishing-create]", publishing.product_create_attempted === true ? "Yes" : publishing.product_create_attempted === false ? "No" : "Unknown");
+    const worker = live.worker_health || {};
+    text("[data-publishing-lease]", (worker.state || "Unknown") + " · " + (worker.lease_until || "No active lease"));
     const bar = documentRef.querySelector("[data-live-progressbar]");
     if (bar) {
       const total = Number(progress.total || 0);

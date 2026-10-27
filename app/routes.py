@@ -2188,7 +2188,7 @@ def operation_status(operation_id):
         "warning_summary": view.get("warning_summary") or [],
         "warning_entries": view.get("warning_entries") or [],
         "discord": view["discord"],
-        "terminal": view["status"] in {"succeeded", "partial", "failed", "interrupted"},
+        "terminal": view["status"] in {"succeeded", "partial", "failed", "interrupted", "stalled", "recovery_required", "attention"},
     })
     response.headers["Cache-Control"] = "no-store, max-age=0"
     response.headers["Pragma"] = "no-cache"
