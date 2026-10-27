@@ -217,7 +217,9 @@ Result: [ ] Pass [ ] Fail. Cleanup: restore staging destination; keep uncertaint
 
 ## 19 — Images, including 53 [S]
 
-Preconditions: copied originals within 10 MiB/file and 30 MiB total; new 53-image SKU.
+Preconditions: copied supported originals within 10 MiB/file; new 53-image SKU,
+including a gallery exceeding 30 MiB total. Upload slices remain limited to 20
+files and 30 MiB; Shopify API resolution/aspect-ratio checks apply per image.
 Action: create through publisher; observe 20-image upload slices, processing and
 readback; interrupt between acknowledged batches and resume. Test unchanged and
 reordered gallery separately. Attempt add/remove on an existing gallery in review.

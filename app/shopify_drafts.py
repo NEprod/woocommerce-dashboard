@@ -26,7 +26,8 @@ from app.utils.operation_control import acquire_catalogue_operation, finish_cata
 from app import shopify_simple_fields as fields
 
 MAX_IMAGE = 10 * 1024 * 1024
-MAX_TOTAL = 30 * 1024 * 1024
+MAX_UPLOAD_BYTES = 30 * 1024 * 1024  # A bounded upload slice, not the whole gallery.
+MAX_IMAGE_PIXELS = 20_000_000
 MAX_IMAGES = 250  # Complete Shopify image gallery; transport/evidence byte bounds still apply.
 UPLOAD_BATCH = 20
 MAX_EVIDENCE_BYTES = 1024 * 1024
@@ -90,6 +91,7 @@ def source_bytes(product, reference):
     if not context:
         raise ShopifyError("Catalogue source is unavailable; no upload is authorized.")
     root, folder, _ = context
+    name = Path(str(reference)).name
     try:
         path = (root / reference).resolve(strict=True)
         path.relative_to(root)
@@ -97,20 +99,27 @@ def source_bytes(product, reference):
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(fd, "rb") as stream:
             info = os.fstat(stream.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_IMAGE:
+            if not stat.S_ISREG(info.st_mode):
                 raise ValueError()
+            if info.st_size > MAX_IMAGE:
+                raise ShopifyError(f'Image "{name}" is {info.st_size:,} bytes; the TLC individual-file upload limit is {MAX_IMAGE:,} bytes (10 MiB). Batching cannot fix an oversized individual file; no image was changed.')
             content = stream.read(MAX_IMAGE + 1)
         if len(content) > MAX_IMAGE:
-            raise ValueError()
+            raise ShopifyError(f'Image "{name}" exceeds the TLC 10 MiB individual-file upload limit; no image was changed.')
         with Image.open(io.BytesIO(content)) as image:
             mime, suffixes = {"PNG": ("image/png", {".png"}), "JPEG": ("image/jpeg", {".jpg", ".jpeg"}),
                               "WEBP": ("image/webp", {".webp"})}[image.format]
+            width, height = image.size
+            if width * height > MAX_IMAGE_PIXELS or max(width, height) > 100 * min(width, height):
+                raise ShopifyError(f'Image "{name}" is {width} × {height} pixels; the supported Shopify MediaImage API requires at most 20 megapixels and an aspect ratio within 100:1. No image was resized or compressed.')
             image.verify()
         if path.suffix.lower() not in suffixes:
             raise ValueError()
         return content, path.name, mime
+    except ShopifyError:
+        raise
     except (OSError, ValueError, RuntimeError, KeyError, UnidentifiedImageError, Image.DecompressionBombError):
-        raise ShopifyError("A selected source image is unsafe, corrupt, too large or has an unsupported/mismatched extension.") from None
+        raise ShopifyError(f'Image "{name}" is unavailable, unsafe, corrupt or has an unsupported/mismatched extension. Supported original formats: PNG, JPEG and WebP; no image was changed.') from None
 
 
 def local_plan(product):
@@ -164,8 +173,6 @@ def common_plan(product, *, variable=False):
         images.append({"source": row["source_reference"], "filename": filename, "extension": Path(filename).suffix,
                        "mime": mime, "size": len(content), "sha256": hashlib.sha256(content).hexdigest(),
                        "alt": row["alt_text"] or title, "position": row["position"]})
-    if sum(i["size"] for i in images) > MAX_TOTAL:
-        raise ShopifyError("Selected images exceed the 30 MiB operation bound.")
     plan = {"product_id": product.id, "source_identity": snapshot.stable_identity, "sku": snapshot.sku,
             "title": title, "description": body, "price": format(price, ".2f"), "status": "DRAFT", "images": images}
     plan["managed"], plan["warnings"] = fields.contract(snapshot, plan)
@@ -381,16 +388,32 @@ def payload_result(data, name):
     return payload
 
 
+def upload_batch(images, *, count=UPLOAD_BATCH, byte_limit=MAX_UPLOAD_BYTES):
+    """Ordered prefix bounded by both file count and original bytes, never resized."""
+    batch, size = [], 0
+    for image in images:
+        amount = image.get('size')
+        if type(amount) is not int or not 0 < amount <= MAX_IMAGE:
+            raise ShopifyError(f'Image "{image.get("filename", "Unknown image")}" has an invalid or oversized individual-file byte count. Rebuild the review from its original file.')
+        if len(batch) >= count or size + amount > byte_limit:
+            break
+        batch.append(image)
+        size += amount
+    return batch
+
+
 def stage_gallery(adapter, config, images):
     """Bounded staging batches, one complete ordered creation input; no truncation."""
     targets = []
-    for offset in range(0, len(images), UPLOAD_BATCH):
-        batch = images[offset:offset + UPLOAD_BATCH]
+    offset = 0
+    while offset < len(images):
+        batch = upload_batch(images[offset:])
         stage = payload_result(adapter.stage_images(config, batch), 'stagedUploadsCreate')
         part = stage.get('stagedTargets')
         if not isinstance(part, list) or len(part) != len(batch):
             raise ShopifyError('Incomplete staged image batch. Product creation was not attempted.')
         targets.extend(part)
+        offset += len(batch)
     return targets
 
 
@@ -428,12 +451,15 @@ def upload_gallery(product, row, data, plan, config, adapter):
             raise ShopifyError('Retained upload belongs to different original artwork. No staged resource was reused.')
     if len(uploads) > len(plan['images']):
         raise ShopifyError('Retained upload count conflicts with the reviewed complete gallery.')
-    completed = 0
+    completed, completed_bytes = 0, 0
     while len(uploads) < len(plan['images']):
         budget = background()
         if completed >= UPLOAD_BATCH or budget and (budget['remaining'] < 4 or budget['deadline']-monotonic() < 35):
             raise GalleryPending('Acknowledged image uploads retained; next bounded slice continues without re-uploading.')
-        batch = plan['images'][len(uploads):len(uploads)+min(UPLOAD_BATCH, UPLOAD_BATCH-completed)]
+        batch = upload_batch(plan['images'][len(uploads):], count=UPLOAD_BATCH-completed,
+                             byte_limit=MAX_UPLOAD_BYTES-completed_bytes)
+        if not batch:
+            raise GalleryPending('The 30 MiB upload-slice budget is reached; acknowledged originals are retained for the next bounded slice.')
         targets = stage_gallery(adapter, config, batch)
         used = {u['input']['originalSource'] for u in uploads}
         resources = [t.get('resourceUrl') for t in targets if isinstance(t,dict)]
@@ -444,7 +470,7 @@ def upload_gallery(product, row, data, plan, config, adapter):
             if budget and (budget['remaining'] < 3 or budget['deadline']-monotonic() < 35):
                 raise GalleryPending('Acknowledged image uploads retained for the next bounded slice.')
             content, filename, _ = source_bytes(product, image['source'])
-            if hashlib.sha256(content).hexdigest() != image['sha256']:
+            if len(content) != image['size'] or hashlib.sha256(content).hexdigest() != image['sha256']:
                 raise ShopifyError('Original image changed since review; no product Create attempted.')
             # Durable before the binary request. If interrupted here, this is
             # NOT a known completed upload and requires explicit review.
@@ -456,6 +482,7 @@ def upload_gallery(product, row, data, plan, config, adapter):
             data['media'].append({'source': image['source'], 'filename': filename, 'sha256': image['sha256'], 'upload': 'completed'})
             data['upload_attempt'] = {'source': image['source'], 'state': 'completed'}
             completed += 1
+            completed_bytes += len(content)
             save(row, data)
     return [u['input'] for u in uploads]
 
