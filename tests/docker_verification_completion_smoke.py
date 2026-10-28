@@ -56,6 +56,25 @@ SCENARIO=prefix+'''
   with patch.object(publisher,'local_revision',side_effect=AssertionError('No-op walked source')):
    assert publisher.publish_one(job,owner='offline-noop',guard=lambda:None,fence=lambda:None,adapter=adapter)=='matching'
   assert job.state=='verified' and adapter.calls==calls and comparison.summary_json==checkpoint
+  # Retained pre-upgrade Attention must settle as a no-op, not become newly
+  # scanned or rewrite the failed preflight receipt after a container restart.
+  job.requested_revision='old-numeric-format';job.verified_revision=None;job.state='attention'
+  job.error='Local source changed after its completed scan. Run its collection update before publication.'
+  job.operation_id=None
+  job.operation_id=publisher._preflight_receipt(job,product,job.error);db.session.commit()
+  historical=db.session.get(CatalogueOperation,job.operation_id)
+  original=(historical.scope,historical.error,historical.status)
+  capture(product);db.session.commit()
+  assert job.state=='verified' and publisher.no_changes_settlement(job)
+  assert job.requested_revision=='old-numeric-format' and job.verified_revision is None
+  assert (historical.scope,historical.error,historical.status)==original
+  assert comparison.summary_json==checkpoint and adapter.calls==calls
+  # The same evidence may consume a bootstrap marker, never grant scan authority.
+  job.requested_revision='unscanned';job.state='attention';job.trigger='bootstrap';job.operation_id=None
+  job.scan_operation_id=None;db.session.commit();capture(product);db.session.commit()
+  assert job.state=='verified' and job.requested_revision=='unscanned' and job.verified_revision is None
+  assert job.scan_operation_id is None and adapter.calls==calls
+  assert publisher.no_changes_settlement(job)
   Path('/app/instance/verification-completed').write_text('same-operation-read-only-no-reconcile')
 '''
 

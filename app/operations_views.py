@@ -28,6 +28,8 @@ def queue():
         page=max(1, request.args.get('page', 1, type=int)), per_page=10, error_out=False)
     ids = [job.product_id for job in page.items]
     products = {p.id: p for p in Product.query.filter(Product.id.in_(ids))}
+    from app.catalogue_views import saved_states
+    states = saved_states(products.values())
     identities = {}
     for row in ShopifyProductIdentity.query.filter(ShopifyProductIdentity.product_id.in_(ids)):
         identities.setdefault(row.product_id, []).append(row)
@@ -44,13 +46,19 @@ def queue():
         except ValueError: intended = 'Configuration conflict'
         links = identities.get(product.id, [])
         identity = links[0] if len(links) == 1 else None
-        evidence = document(identity.media_evidence_json) if identity else {}
+        from app import shopify_drafts as drafts
+        from app.automatic_publishing import no_changes_settlement
+        evidence = drafts.evidence(identity) if identity else {}
         actual = evidence.get('observed_status') if identity and identity.verification_state == 'verified' else None
+        settlement = no_changes_settlement(job)
+        settled = bool(settlement and states[product.id]['state'] == 'no_change')
         operation = operations.get(job.operation_id)
         collection = collections.get(product.collection_id)
         rows.append({'job': job, 'product': product, 'title': view.get('display_title') or product.title,
             'intended': intended, 'actual': actual or 'Not verified', 'operation': operation,
-            'collection': collection, 'scan_required': job.requested_revision == 'unscanned' or 'scan' in (job.error or '').lower(),
+            'no_changes': settled,
+            'settlement_label': 'No Changes' if settled else states[product.id]['label'] if settlement else None,
+            'collection': collection, 'scan_required': not settled and (job.requested_revision == 'unscanned' or 'scan' in (job.error or '').lower()),
             'source': collection.source_relpath if collection else None})
     return {'rows': rows, 'page': page, 'filters': {'state': state, 'trigger': trigger, 'q': q}}
 

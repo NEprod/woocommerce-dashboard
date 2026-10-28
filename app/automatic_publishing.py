@@ -184,6 +184,119 @@ def settle_matching_revision(job, revision, *, verified=True):
         ShopifyPublishJob.requested_revision == revision).values(**values)).rowcount == 1
 
 
+def no_changes_settlement(job):
+    """Retained no-op evidence, NOT a scanned or freshly verified revision."""
+    if not job or job.owner or job.state != 'verified':
+        return None
+    try:
+        data = json.loads(job.view_json or '{}').get('queue_no_changes') or {}
+    except (ValueError, TypeError, AttributeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data if (data.get('requested_revision') == job.requested_revision
+        and data.get('generation') == job.generation and data.get('source') == job.source_identity
+        and data.get('operation_id') == job.operation_id) else None
+
+
+def settle_obsolete_attention(product):
+    """Worker/read-comparison only: consume obsolete work, never adopt scan authority.
+
+    Old fingerprints need not be equated to new ones. Instead the *current*
+    complete source must equal an identity-bound full comparison. Remote evidence
+    may be old, but its timestamps/receipts and the original queue revision stay
+    untouched. Ordinary GETs and the idle publisher never call this function.
+    """
+    from sqlalchemy import select, or_
+    from app.models import ShopifyProductComparison, ShopifyCollectionIdentity, ShopifyAttributeIdentity
+    from app.shopify_comparison import current, identity_revision
+    job = db.session.get(ShopifyPublishJob, product.id)
+    if (not job or job.owner or job.state != 'attention' or product.catalogue_status != 'active'
+            or job.source_identity != product.source_relpath):
+        return False
+    bootstrap = job.requested_revision == 'unscanned' and job.trigger == 'bootstrap' and not job.operation_id
+    source_guard = (job.error or '').startswith('Local source changed after its completed scan.')
+    if not bootstrap and not source_guard:
+        return False
+    # Do not race a scan or an accepted manual operation whose identity has not
+    # yet been advanced. The existing operation slot is authoritative.
+    if CatalogueOperation.query.filter(CatalogueOperation.status.in_({'running', 'pending'})).first():
+        return False
+    # Only an explicitly proven BEFORE-WRITE prerequisite can be superseded.
+    # Never infer the outcome of a failed/ambiguous mutation from matching prices.
+    if not bootstrap:
+        operation = db.session.get(CatalogueOperation, job.operation_id) if job.operation_id else None
+        scope = json.loads(operation.scope or '{}') if operation else {}
+        if (not operation or operation.status != 'failed' or operation.recovery_state != 'none'
+                or scope.get('mode') != 'automatic_preflight' or scope.get('product_id') != product.id
+                or scope.get('write_attempted') is not False
+                or (scope.get('operation_summary') or {}).get('write_attempted') is not False):
+            return False
+    identities = ShopifyProductIdentity.query.filter(or_(ShopifyProductIdentity.product_id == product.id,
+        ShopifyProductIdentity.source_identity == product.source_relpath)).all()
+    if len(identities) != 1:
+        return False
+    identity = identities[0]
+    if (identity.product_id != product.id or identity.source_identity != product.source_relpath
+            or identity.state != 'verified' or identity.verification_state != 'verified'
+            or not identity.shopify_product_id):
+        return False
+    evidence = drafts.evidence(identity)
+    stages = [evidence.get(key, {}) for key in ('native_dimensions', 'publication_update',
+        'customisation_update', 'sale_transition', 'inventory_update', 'verification_wait')]
+    stages += list(evidence.get('variant_native', {}).values()) + list(evidence.get('package_assignments', {}).values())
+    if any(p.get('state') in {'pending', 'uncertain', 'processing', 'waiting_authority'} for p in stages):
+        return False
+    operation = db.session.get(CatalogueOperation, identity.operation_id) if identity.operation_id else None
+    if operation and (operation.status in {'running', 'pending', 'interrupted'} or operation.recovery_state != 'none'):
+        return False
+    comparison = ShopifyProductComparison.query.filter_by(store_id=identity.store_id,
+        source_identity=product.source_relpath).order_by(ShopifyProductComparison.compared_at.desc()).first()
+    if not comparison:
+        return False
+    mappings = {(r.store_id, r.source_key): r for model in (ShopifyCollectionIdentity, ShopifyAttributeIdentity)
+        for r in model.query.filter_by(store_id=identity.store_id)}
+    try:
+        data = current(product, comparison, identity, mappings, freshness=False)
+        if (not data or data.get('read_complete') is not True or data.get('scope') != 'full'
+                or data.get('classification') != 'no_change' or data.get('blockers')
+                or data.get('change_count') != 0 or data.get('local_package_changes')
+                or data.get('refresh_failure') or data.get('conflicting_changes')
+                or data.get('equality_local') != data.get('local') or not data.get('equality_at')
+                or local_revision(product) != data.get('local')):
+            return False
+    except (ValueError, OSError, RuntimeError, ShopifyError):
+        return False
+    old_view, original_receipt = job.view_json, identity.media_evidence_json
+    view = json.loads(old_view or '{}')
+    view['queue_no_changes'] = dict(requested_revision=job.requested_revision, generation=job.generation,
+        source=job.source_identity, operation_id=job.operation_id, local=data['local'],
+        comparison=drafts.digest(comparison.summary_json), identity=identity_revision(identity),
+        compared_at=comparison.compared_at.isoformat(), settled_at=drafts.now().isoformat())
+    from app.shopify_capacity import fence_owner
+    fence_owner()
+    changed = db.session.execute(update(ShopifyPublishJob).where(
+        ShopifyPublishJob.product_id == product.id, ShopifyPublishJob.owner.is_(None),
+        ShopifyPublishJob.state == 'attention', ShopifyPublishJob.requested_revision == job.requested_revision,
+        ShopifyPublishJob.source_identity == job.source_identity,
+        ShopifyPublishJob.generation == job.generation, ShopifyPublishJob.error == job.error,
+        ShopifyPublishJob.operation_id == job.operation_id, ShopifyPublishJob.view_json == old_view,
+        ~select(CatalogueOperation.id).where(CatalogueOperation.status.in_({'running', 'pending'})).exists(),
+        select(ShopifyProductIdentity.id).where(ShopifyProductIdentity.id == identity.id,
+            ShopifyProductIdentity.media_evidence_json == original_receipt, ShopifyProductIdentity.state == 'verified',
+            ShopifyProductIdentity.operation_id == identity.operation_id,
+            ShopifyProductIdentity.shopify_product_id == identity.shopify_product_id,
+            ShopifyProductIdentity.product_id == product.id, ShopifyProductIdentity.store_id == identity.store_id,
+            ShopifyProductIdentity.source_identity == product.source_relpath,
+            ShopifyProductIdentity.verification_state == 'verified').exists(),
+        select(ShopifyProductComparison.id).where(ShopifyProductComparison.id == comparison.id,
+            ShopifyProductComparison.summary_json == comparison.summary_json).exists()
+        ).values(state='verified', priority=0, manual_actor_id=None, manual_revision=None, manual_config=None,
+                 view_json=json.dumps(view), view_pending=True, updated_at=drafts.now())).rowcount
+    # Keep requested/verified revisions, scan receipt, original error and operation.
+    return changed == 1
+
+
 def observe_comparison(product, plan, *, expected_revision, complete):
     """Conclusive equality settles scanned work; drift reopens it.
 
@@ -193,8 +306,13 @@ def observe_comparison(product, plan, *, expected_revision, complete):
     if not complete:
         return
     job = db.session.get(ShopifyPublishJob, product.id)
-    if (not job or job.owner or job.state == 'recovery_required'
-            or job.requested_revision != expected_revision):
+    if not job or job.owner or job.state == 'recovery_required':
+        return
+    if job.requested_revision != expected_revision:
+        if no_changes_settlement(job):
+            job.state = 'attention'  # Re-evaluate evidence; a no-op is never write authority.
+        db.session.flush()  # Include the just-recorded comparison in the same transaction.
+        settle_obsolete_attention(product)
         return
     from app.shopify_publication import intent
     if (plan.get('classification') == 'no_change' and not plan.get('blockers')

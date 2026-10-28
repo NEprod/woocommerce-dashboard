@@ -8,7 +8,7 @@ from functools import wraps
 from datetime import datetime
 
 from flask import current_app, g, has_request_context, request, url_for
-from sqlalchemy import or_, update, func
+from sqlalchemy import or_, update, func, case
 
 from app import db, shopify_drafts as drafts
 from app.models import Product, ShopifyPublishJob, ShopifyProductIdentity, ScheduledTask, ScheduledTaskRun, CatalogueOperation
@@ -125,6 +125,15 @@ def capture(product, *, scan_operation=None, context=None):
         except ValueError: config = None
         data = {'version': 1, 'authored': authored, 'display_title': title, 'state': state, 'config': config,
             'context': context or context_digest()}
+        from app.automatic_publishing import settle_obsolete_attention, no_changes_settlement
+        if state['state'] == 'no_change':
+            settle_obsolete_attention(product)
+        settlement = no_changes_settlement(job)
+        if settlement and state['state'] == 'no_change':
+            data['queue_no_changes'] = settlement
+        elif settlement:
+            # A historical no-op never turns subsequent differences into scanned work.
+            job.state = 'attention'
     except (ValueError, OSError, RuntimeError) as exc:
         from app.utils.operation_control import sanitize_operation_error
         data = {'version': 1, 'authored': {}, 'state': {'state': 'unavailable',
@@ -249,6 +258,22 @@ def run_slice(run_id, owner):
         if product: capture(product, context=context)
         tasks.fence(KEY, run_id, owner); db.session.commit()
         data['counts']['checked'] += 1
+    # One bounded pass over retained Attention entries, including pre-upgrade
+    # projections already marked current. This is the existing view worker, not
+    # publisher eligibility or GET work; no scan or remote request is performed.
+    attention = ShopifyPublishJob.query.filter(ShopifyPublishJob.state == 'attention',
+        ShopifyPublishJob.owner.is_(None), ShopifyPublishJob.product_id > data.get('attention_cursor', 0),
+        or_((ShopifyPublishJob.requested_revision == 'unscanned') & (ShopifyPublishJob.trigger == 'bootstrap'),
+            ShopifyPublishJob.error.startswith('Local source changed after its completed scan.')),
+        func.json_extract(case((func.json_valid(ShopifyPublishJob.view_json), ShopifyPublishJob.view_json),
+                               else_='{}'), '$.state.state') == 'no_change'
+        ).order_by(ShopifyPublishJob.product_id).limit(25).all()
+    for job in attention:
+        tasks.renew(KEY, run_id, owner)
+        product = db.session.get(Product, job.product_id)
+        if product: capture(product, context=context)
+        data['attention_cursor'] = job.product_id
+        tasks.fence(KEY, run_id, owner); db.session.commit()
     remains = ShopifyPublishJob.query.filter_by(view_pending=True).count()
-    tasks.save_progress(KEY, run_id, owner, data, pause=True) if remains or len(missing) == 25 else tasks.save_progress(
+    tasks.save_progress(KEY, run_id, owner, data, pause=True) if remains or len(missing) == 25 or len(attention) == 25 else tasks.save_progress(
         KEY, run_id, owner, data, terminal='completed')
