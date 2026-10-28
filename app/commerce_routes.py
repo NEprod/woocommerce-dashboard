@@ -353,7 +353,9 @@ def draft_identity(identity_id):
             db.session.rollback()
             error = "Remote ID is already reserved by another local mapping. Review both identities; no duplicate mapping was saved."
     data = service.evidence(row)
+    from app.operations_views import product_authority, local_time
     return render_template("shopify_draft_identity.html", form=form, row=row, data=data,
+        publisher_authority=product_authority(row.product_id), local_time=local_time,
         approval=service.recovery_token(row), error=error,resume_plan=resume_plan,resume_token=resume_token), 400 if error else 200, {"Cache-Control": "no-store"}
 
 

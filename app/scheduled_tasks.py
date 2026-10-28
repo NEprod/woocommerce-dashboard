@@ -68,9 +68,11 @@ def encoded(data):
 def snapshot(task):
     run = db.session.get(ScheduledTaskRun, task.active_run_id) if task.active_run_id else ScheduledTaskRun.query.filter_by(task_key=task.key).order_by(ScheduledTaskRun.created_at.desc()).first()
     data=json.loads(run.data_json) if run else {}
+    from app.operations_views import task_summary
     return {"key":task.key, **definition(task.key), "enabled":task.enabled,"interval":task.interval_minutes,
         'intervals':intervals(task.key),
         "state":task.state,"outcome":task.last_outcome,
+        "summary":task_summary(run) if run and task.key in {KEY, PUBLISHER_KEY} else None,
         "duration":max(0,(now()-run.started_at).total_seconds()) if task.active_run_id and run and run.started_at else None if task.active_run_id else task.duration_seconds,
         **{key:getattr(task,key).isoformat()+"Z" if getattr(task,key) and not (task.key==ORDERS_KEY and key in {'next_due','last_scheduled'}) else None for key in
             ("next_due","last_scheduled","last_started","last_completed","last_successful")},
@@ -323,6 +325,15 @@ def item_result(data,product,state):
     counts=data["counts"];counts["checked"]+=1
     bucket="up_to_date" if state["state"]=="no_change" and state["label"]=="Up to Date" else "updates" if state["state"]=="update" else "unavailable" if state["state"] in {"unavailable","unknown","local_changes"} else "attention"
     counts[bucket]+=1
+    outcomes = data.setdefault('comparison_outcomes', {})
+    kind = ('remote_missing' if state.get('remote_status') == 'Deleted (verified absent)' else
+        'matches' if state['state'] == 'no_change' else 'differences' if state['state'] == 'update'
+        else 'uncreated_local' if state['state'] in {'create', 'draft'} else
+        'recovery_identity_conflict' if state['state'] == 'recovery_required' else
+        'verification_incomplete' if state['state'] in {'unknown', 'local_changes', 'unavailable'} else 'product_attention')
+    # The bounded task scope consumes each product once; these are observations,
+    # not counts of Shopify writes. Older runs have no invented outcome fields.
+    outcomes[kind] = outcomes.get(kind, 0) + 1
     item = {"id":product.id,"sku":product.sku[:64],"state":state["label"]}
     if bucket in {'unavailable', 'attention'}:
         item['reason'] = sanitize_operation_error('; '.join(state.get('blockers', [])) or state.get('message', ''))[:220]
@@ -370,6 +381,7 @@ def run_slice(key,run_id,owner,*,adapter=None):
         renew(key,run_id,owner)
         if not data.get("initialized"):
             data=select_products(task,data)
+            data['read_only'] = True
             save_progress(key,run_id,owner,data)
         if not task.enabled and run.trigger in {"scheduled","startup"}:
             data["reason"]="Disabled by administrator; outstanding products retained for future runs."

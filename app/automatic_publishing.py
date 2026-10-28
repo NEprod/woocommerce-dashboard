@@ -321,8 +321,56 @@ def observe_comparison(product, plan, *, expected_revision, complete):
         # (including manual publication). Do not schedule a second publication.
         settle_matching_revision(job, expected_revision)
     elif plan.get('classification') == 'update' and intent(product_document(product))['status'] == 'ACTIVE':
-        job.verified_revision, job.state = None, 'pending'
-        job.trigger, job.next_attempt = 'reconciliation', drafts.now()
+        # A remote difference is not local write authority or an identity repair.
+        # Full read evidence may reopen existing scanned work, never uncertain work.
+        from app.shopify_notifications import complete as identity_complete
+        identities = ShopifyProductIdentity.query.filter(
+            (ShopifyProductIdentity.product_id == product.id) |
+            (ShopifyProductIdentity.source_identity == product.source_relpath)).all()
+        if (job.state not in {'verified', 'pending', 'retry', 'paused'} or not job.scan_operation_id
+                or job.source_identity != product.source_relpath or plan.get('scope', 'full') != 'full'
+                or plan.get('blockers') or plan.get('conflicting_changes') or len(identities) != 1):
+            return
+        identity = identities[0]
+        if (identity.product_id != product.id or identity.source_identity != product.source_relpath
+                or identity.store_id != plan.get('store_id') or identity.shopify_product_id != plan.get('remote_id')
+                or not identity_complete(identity, drafts.evidence(identity))):
+            return
+        from app.shopify_capacity import fence_owner
+        fence_owner()
+        db.session.execute(update(ShopifyPublishJob).where(
+            ShopifyPublishJob.product_id == product.id, ShopifyPublishJob.owner.is_(None),
+            ShopifyPublishJob.requested_revision == expected_revision,
+            ShopifyPublishJob.state.in_({'verified', 'pending', 'retry', 'paused'})
+        ).values(verified_revision=None, state='pending', trigger='reconciliation',
+                 next_attempt=drafts.now(), view_pending=True, error=None))
+
+
+def eligibility_summary(product_ids=None):
+    """Saved-only cycle inventory. No JSON, image walks, remote reads or writes."""
+    from collections import Counter
+    from app.shopify_publication import intent
+    counts = Counter()
+    query = ShopifyPublishJob.query.join(Product).filter(Product.catalogue_status == 'active')
+    if product_ids is not None: query = query.filter(Product.id.in_(product_ids))
+    for job in query.yield_per(100):
+        try: view = json.loads(job.view_json or '{}')
+        except (ValueError, TypeError): view = {}
+        if not isinstance(view, dict): view = {}
+        state = view.get('state', {}).get('state')
+        authored = view.get('authored', {})
+        try: draft = intent(authored, required=False)['status'] == 'DRAFT'
+        except (ValueError, ShopifyError, TypeError, AttributeError): draft = False
+        if job.owner or job.state == 'processing': bucket = 'processing_owned'
+        elif job.state == 'recovery_required' or state == 'recovery_required': bucket = 'recovery_identity_conflict'
+        elif job.state == 'verified' and state == 'no_change': bucket = 'already_matched'
+        elif job.state in {'pending', 'retry'}: bucket = 'pending'
+        elif draft or state == 'draft' or job.state == 'paused': bucket = 'draft_paused'
+        elif job.requested_revision == 'unscanned': bucket = 'missing_checkpoint'
+        elif job.state == 'attention': bucket = 'other_attention'
+        else: bucket = 'other'
+        counts[bucket] += 1
+    return dict(counts)
 
 
 def execution_proof(product, plan):
@@ -745,6 +793,9 @@ def run_slice(run_id, owner, *, adapter=None):
                     error='Automatic publishing needs a completed scan revision. Run the existing containing-collection update scan.'))
                 seeded += 1
             fence(); db.session.commit()
+        if 'eligibility' not in data:
+            data['eligibility'] = eligibility_summary(data.get('scope'))
+            data['eligibility_at'] = drafts.now().isoformat()
         jobs = ShopifyPublishJob.query.filter(ShopifyPublishJob.state.in_({'pending', 'retry'})).order_by(
             ShopifyPublishJob.priority.desc(), ShopifyPublishJob.product_id)
         if data.get('scope') is not None:
@@ -771,17 +822,38 @@ def run_slice(run_id, owner, *, adapter=None):
                                      adapter=adapter, metrics=metrics)
             data['counts']['api_requests'] += metrics.get('api_requests', 0)
             data['counts']['throttled'] += metrics.get('throttled', 0)
-            outcomes[str(job.product_id)] = 'v' if result in {'verified','matching'} else 'p' if result in {'deferred','retry','paused'} else 'a'
+            selection = metrics.get('selection') or {}
+            operation = db.session.get(CatalogueOperation, job.operation_id) if job.operation_id else None
+            mode = json.loads(operation.scope or '{}').get('mode') if operation else None
+            identity = ShopifyProductIdentity.query.filter_by(product_id=job.product_id).first() if result == 'verified' else None
+            evidence = drafts.evidence(identity) if identity else {}
+            created = operation and (mode in {None, 'create'} or mode == 'variable' and evidence.get('create_attempted') and not evidence.get('update_attempted'))
+            result_kind = ('already_matched' if selection.get('outcome') == 'no_changes' else
+                'created_verified' if result == 'verified' and created else
+                'updated_verified' if result == 'verified' else
+                'verification_incomplete' if result in {'retry', 'deferred'} else
+                'recovery_required' if result == 'recovery_required' else
+                'draft_paused' if result == 'paused' else
+                'failed_before_write' if mode == 'automatic_preflight' else 'failed_or_blocked')
+            codes = {'created_verified': 'c', 'updated_verified': 'u', 'already_matched': 'm',
+                'verification_incomplete': 'i', 'recovery_required': 'r', 'draft_paused': 'd',
+                'failed_before_write': 'f', 'failed_or_blocked': 'a', 'previous_verified_or_matching': 'v',
+                'previous_deferred': 'p'}
+            outcomes[str(job.product_id)] = codes[result_kind]
+            data['publication_counts'] = {label: sum(value == code for value in outcomes.values())
+                for label, code in codes.items() if code in outcomes.values()}
             data['counts']['attempts'] = data['counts'].get('attempts', 0) + 1
             data['counts'].update(considered=len(outcomes), checked=len(outcomes),
-                up_to_date=sum(value=='v' for value in outcomes.values()),
-                deferred=sum(value=='p' for value in outcomes.values()),
-                attention=sum(value=='a' for value in outcomes.values()))
+                up_to_date=sum(value in {'v','c','u','m'} for value in outcomes.values()),
+                deferred=sum(value in {'p','i','d'} for value in outcomes.values()),
+                attention=sum(value in {'a','r','f'} for value in outcomes.values()))
             data['items'] = (data.get('items', []) + [{'id': job.product_id, 'state': result,
                 'operation_id': job.operation_id, 'reason': (job.error or '')[:180],
                 'selection': metrics.get('selection')}])[-100:]
         remains = jobs.filter(ShopifyPublishJob.owner.is_(None)).count()
-        data['reason'] = 'Automatic publishing paused; pending work retained.' if not policy().enabled else None
+        data['reason'] = 'Automatic publishing paused; pending work retained.' if not policy().enabled else (
+            'No eligible publishing work. See saved eligibility counts; no Shopify mutation was attempted.'
+            if not outcomes else 'Scheduler execution completed; only verified product outcomes count as publication success.')
         if remains:
             data['reason'] = 'Pending retry/readback work retained in this run; no product success is inferred before complete verification.'
         elif len(outcomes) >= tasks.MAX_PRODUCTS:

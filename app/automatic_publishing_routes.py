@@ -109,3 +109,18 @@ def sync_now(product_id):
     except (ValueError, RuntimeError) as exc:
         return jsonify(error=str(exc)), 409
     return (jsonify(product_id=product.id, state=job.state, queue_url=url_for('publishing.queue')), 202) if request.is_json else redirect(url_for('publishing.queue'))
+
+
+@publishing.post('/publishing/checkpoint/<int:product_id>')
+def validate_checkpoint(product_id):
+    from app.publishing_checkpoint import validate
+    from app.utils.operation_control import CatalogueOperationActive
+    product = db.session.get(Product, product_id)
+    if not product: abort(404)
+    try:
+        operation_id = validate(product, actor_id=current_user.id,
+            acknowledged=request.form.get('confirmed') == 'yes')
+    except (ValueError, RuntimeError, OSError, CatalogueOperationActive) as exc:
+        return render_template('publishing_scan.html', product=product, relative=None,
+            error=str(exc), form=FlaskForm()), 409
+    return redirect(url_for('main.operation_detail', operation_id=operation_id))

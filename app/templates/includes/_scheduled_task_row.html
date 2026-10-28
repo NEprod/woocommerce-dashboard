@@ -1,7 +1,7 @@
 <tr>
 <td data-label="Task"><a href="{{ url_for('tasks.index',task=row.key) }}">{{ row.name }}</a></td>
 <td data-label="Enabled / interval">{{ 'Yes' if row.enabled else 'No' }} · {{ 'Startup/manual only' if row.key=='shopify_orders' else 'Daily' if row.interval==1440 else row.interval|string+' min' }}</td>
-<td data-label="Last execution / duration">{{ local_time(row.last_started) }}<br>{{ '%.1f s'|format(row.duration) if row.duration is not none else 'Not yet' }}</td>
+<td data-label="Last execution / duration">{{ local_time(row.last_started) }}<br>{{ '%.1f s'|format(row.duration) if row.duration is not none else 'Not yet' }}{% if row.summary %}<details><summary>Execution / product outcomes</summary><p>{{ row.summary }}</p></details>{% endif %}</td>
 <td data-label="Next due">{{ local_time(row.next_due) }}</td>
 <td data-label="State / last outcome"><span class="status-badge {{ 'status-running' if row.state in ['queued','running'] else 'status-failed' if row.state=='failed' else 'status-partial' if row.state in ['paused','partially_completed'] else '' }}">{{ row.state|replace('_',' ')|title }}</span><br>{{ row.outcome|replace('_',' ')|title if row.outcome else 'Not yet run' }}</td>
 <td data-label="Actions"><form method="post" action="{{ url_for('tasks.run_now',key=row.key) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary">Run Now</button></form><a href="{{ url_for('tasks.index',task=row.key) }}">Details / settings</a> · <a href="{{ url_for('tasks.history',key=row.key) }}">History</a></td>

@@ -154,6 +154,8 @@ def capture(product, *, scan_operation=None, context=None):
         except ValueError: config = None
         data = {'version': 1, 'authored': authored, 'display_title': title, 'state': state, 'config': config,
             'context': context or context_digest()}
+        proof = json.loads(job.view_json or '{}').get('checkpoint_validation')
+        if proof and proof.get('revision') == expected: data['checkpoint_validation'] = proof
         from app.automatic_publishing import settle_obsolete_attention, no_changes_settlement
         if state['state'] == 'no_change':
             settle_obsolete_attention(product)

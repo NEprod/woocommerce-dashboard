@@ -1,6 +1,7 @@
 {% extends 'layouts/base.html' %}
 {% block title %}Shopify draft identity{% endblock %}
 {% block content %}
+{% include 'includes/_publisher_authority.html' %}
 <section class="page-heading"><p class="eyebrow">Shopify · Durable evidence</p><h1>{{ row.sku }} · {{ row.state }}</h1><p>Identity {{ row.id }} · {{ row.verification_state }} · Updated {{ row.updated_at }}</p><a href="{{ url_for('commerce.drafts') }}">Back to draft Preview</a></section>
 {% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
 {% if row.state == 'remote_deleted' %}<section class="workspace-panel"><h2>Shopify deletion independently verified</h2><p>Former product {{ data.previous_remote_id }}. Local SKU, catalogue files and image assignments remain intact.</p><a href="{{ url_for('main.operation_detail', operation_id=data.history_operation) }}">Archived parent, variant, inventory and media evidence</a><p><a class="btn btn-primary" href="{{ url_for('commerce.drafts', product_id=row.product_id) }}">Review a fresh Create</a></p><p>New duplicate checks and new remote identities are required. Former remote bindings are historical only.</p></section>{% else %}

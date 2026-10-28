@@ -15,7 +15,7 @@ import pytest
 import requests
 from flask import request,session,abort
 from app import db
-from app.models import Product,User,ShopifyPublishJob,ShopifyPublishingEvent,CatalogueOperation,ScheduledTask
+from app.models import Product,User,ShopifyPublishJob,ShopifyPublishingEvent,CatalogueOperation,ScheduledTask,ScheduledTaskRun
 from test_phase3_woo_publish_preview import preview_app
 from test_shopify_drafts import world
 
@@ -49,6 +49,13 @@ with app.app_context():
     for task in ScheduledTask.query.all():
         task.last_started=datetime(2026,10,26,12,15);task.last_completed=datetime(2026,10,26,12,15,3)
         task.next_due=datetime(2026,10,28,12);task.duration_seconds=3;task.last_outcome='completed'
+    for key in ('shopify_publisher','shopify_products'):
+        db.session.add(ScheduledTaskRun(id='fixture-cycle-'+key, task_key=key, trigger='scheduled',
+            state='completed',created_at=datetime(2026,10,28,14),started_at=datetime(2026,10,28,14),
+            completed_at=datetime(2026,10,28,14,0,1),duration_seconds=1,
+            data_json=json.dumps({'counts':{'considered':0,'checked':0,'api_requests':0},
+                'items':[], 'eligibility':{'missing_checkpoint':4,'already_matched':2,'draft_paused':9},
+                'read_only':key=='shopify_products','reason':'No eligible publishing work; checkpoint validation required.'})))
     db.session.commit()
 
 

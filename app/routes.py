@@ -1034,7 +1034,9 @@ def product_detail(product_id):
     workspace["publishing_intent"].update(projected_publishing_intent(shopify["intent_value"]))
     if shopify["intent_value"] is None:
         workspace["publishing_intent"].update(source="Not authored or invalid", inheritance="Resolution required")
-    return render_template("product_detail.html", workspace=workspace, shopify=shopify)
+    from app.operations_views import product_authority, local_time
+    return render_template("product_detail.html", workspace=workspace, shopify=shopify,
+        publisher_authority=product_authority(product.id), local_time=local_time)
 
 
 def _relationship_payload():

@@ -1,5 +1,11 @@
 # Automatic Shopify publishing — merchant staging acceptance
 
+For legacy source validation and reconciliation-detected drift, also complete
+[PUBLISHING_CHECKPOINT_RECONCILIATION.md](PUBLISHING_CHECKPOINT_RECONCILIATION.md).
+Pause automatic publishing before establishing legacy checkpoints: valid Live
+work can become eligible immediately. Validation is explicit and local-only;
+it is not an automatic scan or permission to enable the live store.
+
 For the operations-acceptance follow-up, also complete
 [OPERATIONS_ACCEPTANCE_CHECKLIST.md](OPERATIONS_ACCEPTANCE_CHECKLIST.md). It adds
 the compact operations views, measured reconciliation profiles, scoped bootstrap

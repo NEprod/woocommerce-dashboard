@@ -4,6 +4,7 @@
 {% block content %}
 {% include 'includes/shopify_product_state.html' %}
 {% set product = workspace.product %}
+{% include 'includes/_publisher_authority.html' %}
 <nav class="workspace-breadcrumb" aria-label="Breadcrumb">
   <a href="{{ url_for('main.products') }}">Catalogue</a><span aria-hidden="true">/</span><span>Products</span><span aria-hidden="true">/</span><span aria-current="page">{{ workspace.title }}</span>
 </nav>

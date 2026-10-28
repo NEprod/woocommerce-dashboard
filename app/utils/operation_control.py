@@ -16,6 +16,7 @@ from app.utils.redaction import redact_diagnostic, runtime_redaction_paths
 
 
 ALLOWED_OPERATION_TYPES = {
+    "publishing_checkpoint_validation",
     "shopify_product_lifecycle",
     "shopify_native_dimensions",
     "shopify_status_refresh",
@@ -122,6 +123,12 @@ def prune_operation_history(*, now=None, protected_ids=None):
     protected.update(row.operation_id for row in ShopifySaleSchedule.query.all() if row.operation_id)
     for model in (ShopifyPublishingEvent, ShopifyPublishJob, ShopifyDueEvent):
         protected.update(value for value, in db.session.query(model.operation_id).filter(model.operation_id.isnot(None)))
+    protected.update(value for value, in db.session.query(ShopifyPublishJob.scan_operation_id).filter(
+        ShopifyPublishJob.scan_operation_id.isnot(None)))
+    from sqlalchemy import func, case
+    safe_view = case((func.json_valid(ShopifyPublishJob.view_json), ShopifyPublishJob.view_json), else_='{}')
+    validation_reference = func.json_extract(safe_view, '$.checkpoint_validation.validation_operation_id')
+    protected.update(value for value, in db.session.query(validation_reference).filter(validation_reference.isnot(None)))
 
     completed = CatalogueOperation.query.filter(
         CatalogueOperation.finished_at.isnot(None),
