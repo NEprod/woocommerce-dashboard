@@ -83,6 +83,12 @@ the subsequent update and persists readback/Up to Date. Missing or stale local
 authority remains blocked until explicit validation or a real targeted scan.
 Remote deletion is not authority to recreate a replacement.
 
+The Identity/History Reconcile button now accepts a scoped durable manual
+reconciliation task for already completely verified identities (no candidate ID
+or mapping approval supplied). It does not run recovery verification against an
+old desired state when the intent is ordinary drift inspection. Uncertain,
+incomplete, deletion and explicitly approved recovery paths stay unchanged.
+
 ## Visibility, not another event store
 
 Event History SQL-paginates a union of existing product operations and publisher/
@@ -158,14 +164,17 @@ the isolated mocked and network-disabled Docker evidence.
 ## Recorded offline validation
 
 * Main focused publisher/scheduler/saved-status/history suites: **192 passed**.
-* Latest checkpoint integration suite: **22 passed**, including both variable
+* Latest checkpoint integration suite: **24 passed**, including both variable
   layouts with 14 variants/53 images, real scheduler dispatch, daily/manual drift
   correction, unchanged source bytes, bad sources and missing/unsafe authority.
+  The final run also passed **31 existing manual draft/readback checks** (55
+  together), including the verified-identity button and unchanged uncertain
+  recovery dispatch.
 * Existing scanner/transaction, gallery-byte, variable recovery/readback and
   browser-independent manual-worker safety suites: **152 passed**.
 * Adjacent onboarding/marker/scanner, Production Time, Orders and package suites:
   **110 passed**, one pre-existing assertion failure.
-* Deduplicating overlapping focused/integration tests gives **457 passing Python
+* Deduplicating overlapping focused/integration tests gives **490 passing Python
   cases and one baseline failure**, not the sum of repeated runs.
 * Focused existing JavaScript suites: **73 passed**. Isolated desktop (1440×1000)
   and mobile (390×844) browser checks passed for tasks, cycle/detail history,

@@ -346,6 +346,14 @@ def draft_identity(identity_id):
                 from app.shopify_lifecycle import reconcile
                 reconcile(row)
             else:
+                from app.shopify_notifications import complete
+                if row.product_id and not approval and not request.form.get('candidate_id') and complete(row, service.evidence(row)):
+                    # Routine drift inspection is not uncertain-mutation recovery.
+                    # Reuse the same scoped, durable read-only task as Run Now;
+                    # its comparison hook can reopen valid scanned Live work.
+                    from app import scheduled_tasks
+                    run_id = scheduled_tasks.enqueue(scheduled_tasks.KEY, manual=True, product_ids=[row.product_id])
+                    return redirect(url_for('tasks.run_detail', run_id=run_id))
                 service.reconcile(row, request.form.get("candidate_id") or None, approval=approval)
         except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
             error = str(exc)

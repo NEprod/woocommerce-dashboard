@@ -252,3 +252,44 @@ def test_legacy_variable_checkpoint_validates_fourteen_variants_and_fifty_three_
         task.resume_at = drafts.now(); db.session.commit()
     assert job.state == 'verified', job.error
     assert_complete(product, ShopifyProductIdentity.query.one(), adapter)
+
+
+def test_verified_identity_reconcile_button_uses_durable_read_only_drift_task(world):
+    product, *_ = world; change(world, live=True)
+    scan = history(product)
+    adapter = AcceptanceAdapter(); authorise(adapter)
+    assert execute(product, adapter) == 'verified'
+    identity = ShopifyProductIdentity.query.one()
+    job = db.session.get(ShopifyPublishJob, product.id); job.scan_operation_id = scan.id
+    db.session.commit()
+    adapter.remote['title'] = 'Remote edit found via Identity History'
+    adapter.calls.clear()
+    client = _client(current_app)
+    with patch('requests.Session.request', side_effect=AssertionError('HTTP request must only accept durable work')):
+        response = client.post(f'/shopify/drafts/identity/{identity.id}', data={})
+    assert response.status_code == 302, response.get_data(as_text=True)
+    run_id = response.headers['Location'].rsplit('/', 1)[-1]
+    run = db.session.get(ScheduledTaskRun, run_id)
+    assert run.task_key == tasks.KEY and run.trigger == 'manual'
+    assert tasks.claim('identity-read-worker') == (tasks.KEY, run_id)
+    tasks.run_slice(tasks.KEY, run_id, 'identity-read-worker', adapter=adapter)
+    db.session.refresh(job)
+    assert job.state == 'pending' and job.trigger == 'reconciliation'
+    assert not any('write' in call or 'create' in call or 'update' in call for call in adapter.calls)
+    cycle(adapter)
+    assert identity.shopify_product_id == 'gid://shopify/Product/100'
+    assert adapter.remote['title'] != 'Remote edit found via Identity History'
+
+
+def test_uncertain_identity_reconcile_button_keeps_existing_recovery_path(world):
+    product, *_ = world; change(world, live=True)
+    adapter = AcceptanceAdapter(); authorise(adapter)
+    assert execute(product, adapter) == 'verified'
+    identity = ShopifyProductIdentity.query.one()
+    identity.state = identity.verification_state = 'uncertain'; db.session.commit()
+    with patch.object(drafts, 'reconcile') as recovery:
+        response = _client(current_app).post(f'/shopify/drafts/identity/{identity.id}', data={})
+    assert response.status_code == 200
+    recovery.assert_called_once()
+    assert recovery.call_args.args[0].id == identity.id
+    assert not ScheduledTaskRun.query.filter_by(task_key=tasks.KEY).count()
