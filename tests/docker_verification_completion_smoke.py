@@ -64,7 +64,18 @@ SCENARIO=prefix+'''
   job.operation_id=publisher._preflight_receipt(job,product,job.error);db.session.commit()
   historical=db.session.get(CatalogueOperation,job.operation_id)
   original=(historical.scope,historical.error,historical.status)
-  capture(product);db.session.commit()
+  # Use the real non-manual enqueue gate with clean saved projections.
+  job.view_revision=job.requested_revision;job.view_pending=False;db.session.commit()
+  from app import catalogue_views as views
+  # The inherited smoke also retains an unrelated queued Orders startup catch-up.
+  # Defer that fixture work without cancelling it or bypassing task ownership.
+  ScheduledTask.query.filter(ScheduledTask.key!=views.KEY,ScheduledTask.owner.is_(None)).update(
+   {'resume_at':tasks.now()+timedelta(days=1)})
+  view_task=db.session.get(ScheduledTask,views.KEY)
+  view_task.enabled=True;view_task.next_due=tasks.now()-timedelta(seconds=1);db.session.commit()
+  view_run=tasks.enqueue(views.KEY);assert view_run
+  claimed=tasks.claim('offline-obsolete-settlement');assert claimed==(views.KEY,view_run),repr(claimed)
+  tasks.run_slice(*claimed,'offline-obsolete-settlement')
   assert job.state=='verified' and publisher.no_changes_settlement(job)
   assert job.requested_revision=='old-numeric-format' and job.verified_revision is None
   assert (historical.scope,historical.error,historical.status)==original
@@ -81,6 +92,8 @@ SCENARIO=prefix+'''
 recovery.previous.MOCK=setup+SCENARIO
 smoke.IMPORT=smoke.IMPORT.replace(old_mock,recovery.previous.MOCK)
 smoke.CHECK=smoke.CHECK.split("\nwith sqlite3.connect('/app/instance/site.db') as connection:\n raw=connection.execute",1)[0]
+smoke.CHECK=smoke.CHECK.replace("where trigger='scheduled'\").fetchone()[0]==0",
+ "where trigger='scheduled'\").fetchone()[0]==int(Path('/app/instance/verification-completed').exists())")
 smoke.CHECK+='''
 with sqlite3.connect('/app/instance/site.db') as connection:
  row=connection.execute("select state,shopify_product_id,operation_id from shopify_product_identity where source_identity='Variable Worker/Partial Wall Print'").fetchone()

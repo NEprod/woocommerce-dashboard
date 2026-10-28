@@ -29,6 +29,12 @@ def intent(authored, *, required=True):
     return {'status':status,'channels':dict(channels)}
 
 
+def immediate_intent(authored):
+    """Draft parks channel preferences; authored intent stays intact for Live."""
+    wanted = intent(authored)
+    return {**wanted, 'channels': {}} if wanted['status'] == 'DRAFT' else wanted
+
+
 def discovered(adapter,config,shop):
     if not {'read_publications','write_publications'}.intersection(shop['scopes']):
         raise ShopifyError('Missing read_publications for channel discovery/readback. Saved evidence remains historical, not unpublished.')
@@ -107,7 +113,7 @@ def preview(product,adapter=None, *, status_only=False):
     if not row or not complete(row, drafts.evidence(row)):
         raise ShopifyError('Publication requires a fully verified retained product. Create/verify its draft first or reconcile outstanding recovery.')
     data = drafts.evidence(row)
-    wanted = intent(product_document(product))
+    wanted = immediate_intent(product_document(product))
     if status_only:
         if wanted['status'] != 'DRAFT':
             raise ShopifyError('The priority status-only path can only make an existing product Draft.')
@@ -224,7 +230,7 @@ def verify(row,data,adapter):
 def proof_matches(product,data):
     try:
         proof=data.get('publication_update',{})
-        return proof.get('state')=='verified' and proof['plan']['intent']==intent(product_document(product))
+        return proof.get('state')=='verified' and proof['plan']['intent']==immediate_intent(product_document(product))
     except (ShopifyError,KeyError,TypeError): return False
 
 
@@ -235,7 +241,7 @@ def annotate(product,plan,row,config,shop,adapter):
     can still be reviewed, with the deferred scope retained in the comparison.
     """
     from app import shopify_drafts as drafts
-    wanted=intent(product_document(product))
+    wanted=immediate_intent(product_document(product))
     if wanted['status']=='DRAFT' and (not row or plan.get('actual_status', 'DRAFT')=='DRAFT') and not wanted['channels'] and not (row and drafts.evidence(row).get('publication_update')):
         return
     result={'intent':wanted,'read_complete':False,'pending':True}
@@ -391,7 +397,7 @@ def comparison_after_write(product, result, row, adapter):
     Failed channel reads remain incomplete rather than borrowing old equality.
     """
     from app import shopify_drafts as drafts
-    if result.get('publication') or result.get('actual_status') != 'DRAFT' or intent(product_document(product))['channels']:
+    if result.get('publication') or result.get('actual_status') != 'DRAFT' or immediate_intent(product_document(product))['channels']:
         result['fields'] = [f for f in result['fields'] if not f.get('publication_only')]
         try:
             config = drafts.configuration()

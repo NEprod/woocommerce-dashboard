@@ -114,13 +114,14 @@ def enqueue(key=KEY, *, manual=False, product_ids=None, startup=False, orders_re
         raise ValueError("An explicit manual scope accepts one to 25 distinct product IDs.")
     task = db.session.get(ScheduledTask,key)
     if key == VIEW_KEY and not manual and not startup and task.next_due <= now():
-        from app.catalogue_views import refresh_context
+        from app.catalogue_views import refresh_context, attention_candidates
         refresh_context()
         from app.models import ShopifyPublishJob
         dirty = ShopifyPublishJob.query.filter_by(view_pending=True).first()
         missing = Product.query.outerjoin(ShopifyPublishJob, Product.id == ShopifyPublishJob.product_id).filter(
             Product.catalogue_status == 'active', ShopifyPublishJob.product_id.is_(None)).first() if not dirty else None
-        if not dirty and not missing:
+        obsolete_attention = next(attention_candidates(), None) if not dirty and not missing else None
+        if not dirty and not missing and not obsolete_attention:
             task.next_due = now() + timedelta(minutes=task.interval_minutes)
             db.session.commit()
             return None

@@ -21,7 +21,7 @@ def test_actionable_conflict_alerts_once_resolves_and_reopens(world, monkeypatch
     _, token = drafts.preview(product, adapter)
     identity = drafts.confirm(token, True, adapter)
     assert not sent
-    change(world, live=False, shopify_status='DRAFT', shopify_channels={'online-store': True})
+    change(world, live=False, shopify_status='ARCHIVED', shopify_channels={'online-store': True})
     for _ in range(2):
         assert not shopify_status.refresh([product], force=True, adapter=adapter)['errors']
         db.session.expire_all()
@@ -46,7 +46,7 @@ def test_execution_failure_alert_repeats_only_after_recovery(world, monkeypatch)
     adapter = AcceptanceAdapter()
     _, token = drafts.preview(product, adapter)
     drafts.confirm(token, True, adapter)
-    change(world, live=False, shopify_status='DRAFT', shopify_channels={'online-store': False})
+    change(world, live=True, shopify_status='ACTIVE', shopify_channels={'online-store': False})
     adapter.incomplete_channels = True
     for _ in range(2):
         assert shopify_status.refresh([product], force=True, adapter=adapter)['errors']
@@ -63,7 +63,7 @@ def test_publication_conflict_is_not_failed_inspection(world):
     adapter = AcceptanceAdapter()
     _, token = drafts.preview(product, adapter)
     drafts.confirm(token, True, adapter)
-    change(world, live=False, shopify_status='DRAFT', shopify_channels={'online-store': True})
+    change(world, live=False, shopify_status='ARCHIVED', shopify_channels={'online-store': True})
     saved = ShopifyProductComparison.query.one()
     before = json.loads(saved.summary_json).get('full_compared_at')
     adapter.calls.clear()
@@ -84,7 +84,7 @@ def test_incomplete_channel_read_remains_execution_failure(world):
     adapter = AcceptanceAdapter()
     _, token = drafts.preview(product, adapter)
     drafts.confirm(token, True, adapter)
-    change(world, live=False, shopify_status='DRAFT', shopify_channels={'online-store': True})
+    change(world, live=True, shopify_status='ACTIVE', shopify_channels={'online-store': True})
     adapter.incomplete_channels = True
     result = shopify_status.refresh([product], force=True, adapter=adapter)
     assert result['errors']

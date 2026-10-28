@@ -144,8 +144,8 @@ def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=N
              "change_count": None, "change_summary": [], "blockers": [], "revision_checked_at": None}
     try:
         live = product_document(product).get("live")
-        from app.shopify_publication import intent
-        try: desired_publication=intent(product_document(product))
+        from app.shopify_publication import immediate_intent
+        try: desired_publication=immediate_intent(product_document(product))
         except ShopifyError: desired_publication={'status':None,'channels':{}}
         state["intent_value"] = live if isinstance(live, bool) else None
         state['intent']=desired_publication['status'].title()+' intended' if desired_publication['status'] else 'Unresolved · edit metadata'
@@ -291,6 +291,22 @@ def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=N
                         if kind in {"identity_conflict","variant_missing"}:
                             state.update(state="recovery_required" if kind=="identity_conflict" else "attention",label="Recovery Required" if kind=="identity_conflict" else "Needs Attention")
                         break
+        if not rows and desired_publication['status'] == 'DRAFT':
+            # Intent is local, not a claim of remote absence or fresh verification.
+            # Only the obsolete Draft/channel finding may be superseded; never
+            # hide genuine read, identity, source or customisation failures.
+            latest = max(comparisons, key=lambda r: r.compared_at, default=None)
+            known = json.loads(latest.summary_json) if latest else {}
+            parked_conflict = (known.get('refresh_failure', {}).get('kind') == 'authored_configuration'
+                and state['message'] == known['refresh_failure'].get('message')
+                and known.get('missing_evidence')
+                and all(v.get('component') == 'publication' and v.get('kind') == 'authored_configuration'
+                        and v.get('reason') == 'Draft/Archived intent cannot request channel publication.'
+                        for v in known['missing_evidence']))
+            if state['state'] in {'unknown', 'create', 'draft'} or (state['state'] == 'unavailable' and parked_conflict):
+                state.update(state='draft', label='Local Draft', remote_status='Not created by TLCDashboard',
+                    message='Local Draft — not created on Shopify by TLCDashboard. Channel preferences are retained for Live; automatic creation is paused.',
+                    blockers=[], change_count=None, change_summary=[])
     except CustomisationDefinitionError as exc:
         state.update(state='attention', label='Customisation review required',
                      message=str(exc), blockers=[str(exc)], can_delete=False,

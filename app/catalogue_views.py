@@ -45,7 +45,7 @@ def context_digest():
     from app.shopify_comparison import mapping_digest, attribute_mapping_digest
     try: config = drafts.configuration().fingerprint()
     except ValueError: config = None
-    value = drafts.digest({'registry': registry.snapshot.digest if registry.available else registry.status,
+    value = drafts.digest({'status_policy': 2, 'registry': registry.snapshot.digest if registry.available else registry.status,
         'config': config,
         'collections': sorted((r.store_id, r.source_key, mapping_digest(r)) for r in ShopifyCollectionIdentity.query.all()),
         'attributes': sorted((r.store_id, r.source_key, attribute_mapping_digest(r)) for r in ShopifyAttributeIdentity.query.all())})
@@ -103,6 +103,35 @@ def pending_count():
         ShopifyPublishJob.image_available.is_(None))).count()
 
 
+def attention_check(job):
+    """Cheap persisted-evidence binding; never inspect product folders at enqueue."""
+    from app.models import ShopifyProductComparison
+    identities = ShopifyProductIdentity.query.filter_by(product_id=job.product_id).all()
+    comparisons = ShopifyProductComparison.query.filter_by(source_identity=job.source_identity).all()
+    operation = db.session.get(CatalogueOperation, job.operation_id) if job.operation_id else None
+    return drafts.digest({'revision': job.requested_revision, 'generation': job.generation, 'error': job.error,
+        'context': context_digest(),
+        'identities': sorted((r.id, r.state, r.verification_state, r.media_evidence_json, r.shopify_product_id,
+                              r.operation_id) for r in identities),
+        'comparisons': sorted((r.id, r.summary_json) for r in comparisons),
+        'operation': [operation.status, operation.recovery_state, operation.scope] if operation else None})
+
+
+def attention_candidates(after=0):
+    """Same bounded candidate policy for scheduled entry and worker continuation."""
+    if CatalogueOperation.query.filter(CatalogueOperation.status.in_({'running', 'pending'})).first():
+        return  # transient operation ownership is not a permanent rejection
+    query = ShopifyPublishJob.query.filter(ShopifyPublishJob.state == 'attention',
+        ShopifyPublishJob.owner.is_(None), ShopifyPublishJob.product_id > after,
+        or_((ShopifyPublishJob.requested_revision == 'unscanned') & (ShopifyPublishJob.trigger == 'bootstrap'),
+            ShopifyPublishJob.error.startswith('Local source changed after its completed scan.')),
+        func.json_extract(case((func.json_valid(ShopifyPublishJob.view_json), ShopifyPublishJob.view_json),
+                               else_='{}'), '$.state.state') == 'no_change')
+    for job in query.order_by(ShopifyPublishJob.product_id).yield_per(25):
+        if json.loads(job.view_json).get('attention_check') != attention_check(job):
+            yield job
+
+
 def capture(product, *, scan_operation=None, context=None):
     from app.taxonomy_assignments import product_document
     from app.catalogue_images import resolve_product_catalogue_image
@@ -128,6 +157,11 @@ def capture(product, *, scan_operation=None, context=None):
         from app.automatic_publishing import settle_obsolete_attention, no_changes_settlement
         if state['state'] == 'no_change':
             settle_obsolete_attention(product)
+            if job.state == 'attention' and not job.owner and not CatalogueOperation.query.filter(
+                    CatalogueOperation.status.in_({'running', 'pending'})).first():
+                # Do not schedule the same conclusively ineligible evidence every
+                # five minutes. A scan/comparison/identity/context change reopens it.
+                data['attention_check'] = attention_check(job)
         settlement = no_changes_settlement(job)
         if settlement and state['state'] == 'no_change':
             data['queue_no_changes'] = settlement
@@ -214,7 +248,7 @@ def saved_states(products, *, url_builder=None):
                     'Local source changed after its completed scan.') else 'Needs Attention', message=job.error or state['message'])
             elif job.owner:
                 state.update(state='processing', label='Processing', execution_pending=True)
-            elif job.state == 'paused' and not identities:
+            elif job.state == 'paused' and not identities and state['state'] in {'unknown', 'create', 'draft'}:
                 state.update(state='draft', label='Local Draft', message='Draft remains local; no automatic creation is requested.')
             elif (job.verified_revision != job.requested_revision and job.requested_revision != 'unscanned'
                     and not compared_matching and not (view_current and state['state'] == 'update')
@@ -261,13 +295,8 @@ def run_slice(run_id, owner):
     # One bounded pass over retained Attention entries, including pre-upgrade
     # projections already marked current. This is the existing view worker, not
     # publisher eligibility or GET work; no scan or remote request is performed.
-    attention = ShopifyPublishJob.query.filter(ShopifyPublishJob.state == 'attention',
-        ShopifyPublishJob.owner.is_(None), ShopifyPublishJob.product_id > data.get('attention_cursor', 0),
-        or_((ShopifyPublishJob.requested_revision == 'unscanned') & (ShopifyPublishJob.trigger == 'bootstrap'),
-            ShopifyPublishJob.error.startswith('Local source changed after its completed scan.')),
-        func.json_extract(case((func.json_valid(ShopifyPublishJob.view_json), ShopifyPublishJob.view_json),
-                               else_='{}'), '$.state.state') == 'no_change'
-        ).order_by(ShopifyPublishJob.product_id).limit(25).all()
+    from itertools import islice
+    attention = list(islice(attention_candidates(data.get('attention_cursor', 0)), 25))
     for job in attention:
         tasks.renew(KEY, run_id, owner)
         product = db.session.get(Product, job.product_id)
