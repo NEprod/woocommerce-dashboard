@@ -262,10 +262,13 @@ def issue_projection():
             resolved = bool(job and job.state == 'verified' and job.verified_revision == job.requested_revision
                 and job.updated_at > (row.finished_at or row.started_at))
             if not resolved and job:
-                from app.automatic_publishing import no_changes_settlement
+                from app.automatic_publishing import no_changes_settlement, draft_pause_settlement
                 proof = no_changes_settlement(job)
                 resolved = bool(proof and proof.get('operation_id') == row.id
                     and states.get(job.product_id, {}).get('state') == 'no_change'
+                    and job.updated_at > (row.finished_at or row.started_at))
+                paused = draft_pause_settlement(job)
+                resolved = resolved or bool(paused and paused.get('operation_id') == row.id
                     and job.updated_at > (row.finished_at or row.started_at))
         if row.operation_type == 'shopify_status_refresh' and isinstance(ids, list) and 0 < len(ids) < 20:
             try:

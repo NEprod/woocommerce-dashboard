@@ -199,6 +199,19 @@ def no_changes_settlement(job):
         and data.get('operation_id') == job.operation_id) else None
 
 
+def draft_pause_settlement(job):
+    """Cheap retained pause evidence; never a metadata verification checkpoint."""
+    if not job or job.owner or job.state != 'paused':
+        return None
+    try:
+        proof = json.loads(job.view_json or '{}').get('queue_draft_pause') or {}
+        return proof if (proof.get('requested_revision') == job.requested_revision
+            and proof.get('generation') == job.generation and proof.get('source') == job.source_identity
+            and proof.get('operation_id') == job.operation_id) else None
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
 def settle_obsolete_attention(product):
     """Worker/read-comparison only: consume obsolete work, never adopt scan authority.
 
@@ -216,7 +229,8 @@ def settle_obsolete_attention(product):
         return False
     bootstrap = job.requested_revision == 'unscanned' and job.trigger == 'bootstrap' and not job.operation_id
     source_guard = (job.error or '').startswith('Local source changed after its completed scan.')
-    if not bootstrap and not source_guard:
+    draft_guard = (job.error or '').startswith('Publication requires a fully verified retained product.')
+    if not bootstrap and not source_guard and not draft_guard:
         return False
     # Do not race a scan or an accepted manual operation whose identity has not
     # yet been advanced. The existing operation slot is authoritative.
@@ -257,19 +271,28 @@ def settle_obsolete_attention(product):
     mappings = {(r.store_id, r.source_key): r for model in (ShopifyCollectionIdentity, ShopifyAttributeIdentity)
         for r in model.query.filter_by(store_id=identity.store_id)}
     try:
-        data = current(product, comparison, identity, mappings, freshness=False)
+        data = current(product, comparison, identity, mappings, freshness=draft_guard)
         if (not data or data.get('read_complete') is not True or data.get('scope') != 'full'
-                or data.get('classification') != 'no_change' or data.get('blockers')
-                or data.get('change_count') != 0 or data.get('local_package_changes')
+                or data.get('blockers')
                 or data.get('refresh_failure') or data.get('conflicting_changes')
-                or data.get('equality_local') != data.get('local') or not data.get('equality_at')
                 or local_revision(product) != data.get('local')):
+            return False
+        if draft_guard:
+            from app.shopify_publication import intent
+            if (intent(product_document(product))['status'] != 'DRAFT' or data.get('actual_status') != 'DRAFT'
+                    or data.get('classification') not in {'update', 'no_change'}
+                    or job.requested_revision != data.get('local')):
+                return False
+        elif (data.get('classification') != 'no_change' or data.get('change_count') != 0
+                or data.get('local_package_changes') or data.get('equality_local') != data.get('local')
+                or not data.get('equality_at')):
             return False
     except (ValueError, OSError, RuntimeError, ShopifyError):
         return False
     old_view, original_receipt = job.view_json, identity.media_evidence_json
     view = json.loads(old_view or '{}')
-    view['queue_no_changes'] = dict(requested_revision=job.requested_revision, generation=job.generation,
+    view['queue_draft_pause' if draft_guard else 'queue_no_changes'] = dict(
+        requested_revision=job.requested_revision, generation=job.generation,
         source=job.source_identity, operation_id=job.operation_id, local=data['local'],
         comparison=drafts.digest(comparison.summary_json), identity=identity_revision(identity),
         compared_at=comparison.compared_at.isoformat(), settled_at=drafts.now().isoformat())
@@ -291,9 +314,12 @@ def settle_obsolete_attention(product):
             ShopifyProductIdentity.verification_state == 'verified').exists(),
         select(ShopifyProductComparison.id).where(ShopifyProductComparison.id == comparison.id,
             ShopifyProductComparison.summary_json == comparison.summary_json).exists()
-        ).values(state='verified', priority=0, manual_actor_id=None, manual_revision=None, manual_config=None,
+        ).values(state='paused' if draft_guard else 'verified', priority=0,
+                 error='Shopify Draft confirmed by a complete current comparison; local metadata remains paused.' if draft_guard else job.error,
+                 manual_actor_id=None, manual_revision=None, manual_config=None,
                  view_json=json.dumps(view), view_pending=True, updated_at=drafts.now())).rowcount
-    # Keep requested/verified revisions, scan receipt, original error and operation.
+    # Keep revisions, scan receipt and original failed operation. Pausing a Draft
+    # is not metadata equality, a new scan checkpoint, or permission to publish.
     return changed == 1
 
 
@@ -307,6 +333,10 @@ def observe_comparison(product, plan, *, expected_revision, complete):
         return
     job = db.session.get(ShopifyPublishJob, product.id)
     if not job or job.owner or job.state == 'recovery_required':
+        return
+    if job.state == 'attention' and (job.error or '').startswith('Publication requires a fully verified retained product.'):
+        db.session.flush()  # Include this newly completed read in the same transaction.
+        settle_obsolete_attention(product)
         return
     if job.requested_revision != expected_revision:
         if no_changes_settlement(job):

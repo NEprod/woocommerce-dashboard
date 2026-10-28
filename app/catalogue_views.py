@@ -123,10 +123,12 @@ def attention_candidates(after=0):
         return  # transient operation ownership is not a permanent rejection
     query = ShopifyPublishJob.query.filter(ShopifyPublishJob.state == 'attention',
         ShopifyPublishJob.owner.is_(None), ShopifyPublishJob.product_id > after,
-        or_((ShopifyPublishJob.requested_revision == 'unscanned') & (ShopifyPublishJob.trigger == 'bootstrap'),
-            ShopifyPublishJob.error.startswith('Local source changed after its completed scan.')),
-        func.json_extract(case((func.json_valid(ShopifyPublishJob.view_json), ShopifyPublishJob.view_json),
-                               else_='{}'), '$.state.state') == 'no_change')
+        or_(
+            or_((ShopifyPublishJob.requested_revision == 'unscanned') & (ShopifyPublishJob.trigger == 'bootstrap'),
+                ShopifyPublishJob.error.startswith('Local source changed after its completed scan.')) &
+            (func.json_extract(case((func.json_valid(ShopifyPublishJob.view_json), ShopifyPublishJob.view_json),
+                                   else_='{}'), '$.state.state') == 'no_change'),
+            ShopifyPublishJob.error.startswith('Publication requires a fully verified retained product.')))
     for job in query.order_by(ShopifyPublishJob.product_id).yield_per(25):
         if json.loads(job.view_json).get('attention_check') != attention_check(job):
             yield job
@@ -156,8 +158,10 @@ def capture(product, *, scan_operation=None, context=None):
             'context': context or context_digest()}
         proof = json.loads(job.view_json or '{}').get('checkpoint_validation')
         if proof and proof.get('revision') == expected: data['checkpoint_validation'] = proof
-        from app.automatic_publishing import settle_obsolete_attention, no_changes_settlement
-        if state['state'] == 'no_change':
+        from app.automatic_publishing import settle_obsolete_attention, no_changes_settlement, draft_pause_settlement
+        draft_attention = (job.state == 'attention' and (job.error or '').startswith(
+            'Publication requires a fully verified retained product.'))
+        if state['state'] == 'no_change' or draft_attention:
             settle_obsolete_attention(product)
             if job.state == 'attention' and not job.owner and not CatalogueOperation.query.filter(
                     CatalogueOperation.status.in_({'running', 'pending'})).first():
@@ -170,6 +174,9 @@ def capture(product, *, scan_operation=None, context=None):
         elif settlement:
             # A historical no-op never turns subsequent differences into scanned work.
             job.state = 'attention'
+        paused = draft_pause_settlement(job)
+        if paused:
+            data['queue_draft_pause'] = paused
     except (ValueError, OSError, RuntimeError) as exc:
         from app.utils.operation_control import sanitize_operation_error
         data = {'version': 1, 'authored': {}, 'state': {'state': 'unavailable',
