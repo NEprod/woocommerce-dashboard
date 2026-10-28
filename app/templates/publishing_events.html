@@ -5,6 +5,9 @@
 {% include 'includes/_publishing_navigation.html' %}
 {% if detail %}
 <section class="workspace-panel"><h2>{{ detail.title }} · {{ detail.sku }}</h2><p>{{ local_time(detail.occurred_at) }} · {{ detail.trigger }} · {{ detail.kind }} · {{ detail.result }}</p><p>{{ detail.verification }} · Discord: {{ detail.discord }}</p>
+{% if detail.receipt.verified_stages %}<p>Verified in this operation: {{ detail.receipt.verified_stages|join(', ') }}. This does not clear any outstanding recovery stage.</p>{% endif %}
+{% if detail.receipt.package_stage and detail.receipt.package_stage != 'none' %}<p>Package stage: {{ detail.receipt.package_stage }}. {% if not detail.receipt.package_attempted %}No assignment attempt or acknowledgement retained for this operation.{% endif %} Independent package readback is unavailable.</p>{% endif %}
+{% if detail.receipt.diagnostic %}<p>{{ detail.receipt.diagnostic.category }} at {{ detail.receipt.diagnostic.stage }}: {{ detail.receipt.diagnostic.reason }}</p>{% endif %}
 <ul>{% for change in detail.changes %}<li>{{ change.label }}: {{ change.before }} → {{ change.after }}{% if change.detail %} — {{ change.detail }}{% endif %}</li>{% else %}<li>Detailed previous field values are unavailable in this historical receipt. No differences have been inferred from a hash.</li>{% endfor %}</ul>
 <p>{{ detail.receipt.reason or detail.operation.error or '' }}</p><a href="{{ url_for('main.operation_detail',operation_id=detail.operation.id) }}">Original operation, diagnostics and safe recovery</a>{% if detail.product_id %} · <a href="{{ url_for('main.product_detail',product_id=detail.product_id) }}">Product</a>{% endif %} · <a href="{{ url_for('publishing.events') }}">Back to history</a></section>
 {% else %}

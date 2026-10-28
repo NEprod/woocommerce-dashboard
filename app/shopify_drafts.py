@@ -665,10 +665,13 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
             apply_readback(row,data,adapter.read_simple(config,row.shopify_product_id,plan['managed']['namespace']),adapter)
         state = row.state
         from app.shopify_native_dimensions import after_publish
+        finalisation_stage = 'native_dimensions'
         native_state = after_publish(row, plan, adapter, lease.id)
         from app.shopify_package_assignments import apply as apply_packages
+        finalisation_stage = 'package_preflight'
         package_state=apply_packages(row,adapter,lease.id)
-        finish_catalogue_operation(lease.id, status="succeeded" if state == "verified" and native_state in {"disabled", "verified"} and package_state in {'none', 'accepted'} and publication_complete(evidence(row)) else "partial",
+        finalisation_stage = 'operation_finalisation'
+        finish_catalogue_operation(lease.id, status="succeeded" if state == "verified" and native_state in {"disabled", "verified", "unconfigured"} and package_state in {'none', 'accepted'} and publication_complete(evidence(row)) else "partial",
             products_attempted=1, products_succeeded=int(state == "verified"), recovery_state="none" if state == "verified" and native_state != "uncertain" and package_state!='uncertain' else "review_required",
             operation_summary={"identity_id": row.id, "shopify_product_id": row.shopify_product_id, "stage": evidence(row)['stage'], "state": row.state, "native_dimensions": native_state,'package_assignment':package_state})
         return row
@@ -687,11 +690,33 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
         data = evidence(row)
         message = str(exc) if isinstance(exc, ShopifyError) else "Draft execution failed unexpectedly. Retained identity requires explicit reconciliation."
         data["error"] = message
+        diagnostic = failure_diagnostic(exc, locals().get('finalisation_stage') or data.get('stage'), lease.id)
+        data['failure_diagnostic'] = diagnostic
+        data['stage'] = 'recovery_required' if data['create_attempted'] else 'failed_before_create'
         save(row, data, "uncertain" if data["create_attempted"] else "failed_before_create")
         finish_catalogue_operation(lease.id, status="partial" if data["create_attempted"] else "failed", products_attempted=1,
             products_failed=1, error=message, recovery_state="review_required" if data["create_attempted"] else "none",
-            operation_summary={"identity_id": row.id, "stage": data["stage"], "state": row.state, "create_attempted": data["create_attempted"]})
+            operation_summary={"identity_id": row.id, "stage": diagnostic['stage'], "state": row.state,
+                "create_attempted": data["create_attempted"], "diagnostic": diagnostic})
         return row
+
+
+def failure_diagnostic(error, stage, operation_id):
+    """Retain structural context, never arbitrary exception payloads/SQL/URLs."""
+    from app.shopify_capacity import BackgroundYield
+    from app.utils.redaction import redact_diagnostic
+    reasons = {KeyError: 'Required internal state key is missing.',
+        ValueError: 'Internal value validation failed.', TypeError: 'Internal state has an unexpected type.',
+        TimeoutError: 'An execution step timed out.', OSError: 'An operating-system or transport step failed.'}
+    reason = next((message for kind, message in reasons.items() if isinstance(error, kind)),
+        'Unexpected internal exception; inspect the retained operation stage. No retry authorised.')
+    if isinstance(error, (ShopifyError, BackgroundYield)):
+        reason = 'Shopify request or verification rejected the execution step.' if isinstance(error, ShopifyError) else 'Worker ownership, capacity or bounded execution deferred this step.'
+    if isinstance(error, KeyError) and error.args and isinstance(error.args[0], str) and error.args[0] in {
+            'config_digest', 'digest', 'inventory_id', 'variant_id', 'shipping_package_id', 'native', 'plan'}:
+        reason += ' Key: ' + error.args[0]
+    return {'operation_id': operation_id, 'category': redact_diagnostic(type(error).__name__, limit=80),
+        'stage': redact_diagnostic(stage or 'unknown', limit=100), 'reason': reason}
 
 
 def apply_readback(row, data, remote, adapter=None, *, allow_attribute_review=False):
@@ -993,11 +1018,14 @@ def confirm_update(reviewed, adapter=None):
         apply_reviewed(row,data,config,adapter)
         apply_simple_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]), adapter)
         from app.shopify_native_dimensions import after_publish
+        finalisation_stage = 'native_dimensions'
         native_state = after_publish(row, plan, adapter, lease.id)
         from app.shopify_package_assignments import apply as apply_packages
+        finalisation_stage = 'package_preflight'
         package_state=apply_packages(row,adapter,lease.id)
+        finalisation_stage = 'operation_finalisation'
         from app.shopify_publication import complete as publication_complete
-        finish_catalogue_operation(lease.id, status="succeeded" if row.state == "verified" and native_state in {"disabled", "verified"} and package_state in {'none', 'accepted'} and publication_complete(evidence(row)) else "partial",
+        finish_catalogue_operation(lease.id, status="succeeded" if row.state == "verified" and native_state in {"disabled", "verified", "unconfigured"} and package_state in {'none', 'accepted'} and publication_complete(evidence(row)) else "partial",
             products_attempted=1, products_succeeded=int(row.state == "verified"),
             recovery_state="none" if row.state == "verified" and native_state != "uncertain" else "review_required",
             operation_summary={"identity_id": row.id, "mode": "update", "stage": evidence(row)['stage'], "completed_steps": evidence(row).get("completed_steps", []), "native_dimensions": native_state,'package_assignment':package_state})
@@ -1007,14 +1035,18 @@ def confirm_update(reviewed, adapter=None):
         message = str(exc) if isinstance(exc, ShopifyError) else "Update failed with uncertain evidence. Reconcile before another write."
         from app.shopify_package_assignments import attempted as package_attempted
         attempted=attempted or package_attempted(evidence(row),lease.id)
+        diagnostic = failure_diagnostic(exc, locals().get('finalisation_stage') or evidence(row).get('stage'), lease.id)
         if attempted:
             row = db.session.get(ShopifyProductIdentity, row.id)
             data = evidence(row)
             data["error"] = message
+            data['failure_diagnostic'] = diagnostic
+            data['stage'] = 'recovery_required'
             save(row, data, "uncertain")
         finish_catalogue_operation(lease.id, status="partial" if attempted else "failed", error=message,
             recovery_state="review_required" if attempted else "none", products_attempted=1, products_failed=1,
-            operation_summary={"identity_id": row.id, "mode": "update", "write_attempted": attempted})
+            operation_summary={"identity_id": row.id, "mode": "update", "write_attempted": attempted,
+                "stage": diagnostic['stage'], "diagnostic": diagnostic})
         if not attempted:
             # A local failure after reservation but before any write is safe to
             # restore; the failed operation remains visible in history.
@@ -1049,7 +1081,8 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
     # Retain trusted identity/media observations before optional-field parsing.
     # A later verifier error must not obscure successful creation or its gallery.
     data["verification"] = {"identity": "verified", "fields": "unverified",
-        "memberships": "unverified", "media": "unverified", "checked_at": data["checked_at"]}
+        "memberships": "unverified", "media": "unverified", "checked_at": data["checked_at"],
+        "operation_id": row.operation_id}
     data["stage"] = "managed_field_verification"
     save(row, data)
     rows = fields.field_rows(managed, remote)

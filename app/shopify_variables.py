@@ -673,7 +673,8 @@ def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attri
             raise ShopifyError("Reviewed variant creation remains incomplete/uncertain: "+wanted["sku"]+". No blind retry; inspect the retained operation/Shopify product.")
         actual = next(v for v in remote["variants"]["nodes"] if v["id"]==mapping["id"])
         fields_found += variant_rows(dict(wanted,media_id=media.get(wanted["media_source"])),actual)
-    data["verification"] = {"identity":"verified","fields":"verified" if not any(f["changed"] for f in fields_found) else "differences"}
+    data["verification"] = {"identity":"verified","fields":"verified" if not any(f["changed"] for f in fields_found) else "differences",
+        "operation_id":row.operation_id,"checked_at":drafts.now().isoformat()}
     drafts.save(row,data)
     if any(f["changed"] for f in fields_found):
         if waiting:raise ReadbackLag('Acknowledged managed fields differ in current readback; bounded verification is pending, not a write retry.')
@@ -764,7 +765,7 @@ def complete_deferred_availability(row,adapter):
     native_state=_native_apply(row,data,config,adapter,row.operation_id) if row.state=='verified' else 'blocked'
     from app.shopify_package_assignments import apply as packages
     package_state=packages(row,adapter,row.operation_id)
-    finish_catalogue_operation(row.operation_id,status='succeeded' if row.state=='verified' and native_state in {'disabled','verified'}
+    finish_catalogue_operation(row.operation_id,status='succeeded' if row.state=='verified' and native_state in {'disabled','verified','unconfigured'}
         and package_state in {'none','accepted'} and complete(data) else 'partial',
         products_attempted=1,products_succeeded=int(row.state=='verified'),recovery_state='review_required' if row.state=='uncertain' else 'none')
     return row

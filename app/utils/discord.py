@@ -185,6 +185,12 @@ def publishing_message(summary):
             ("images", "Images synchronised/retained"), ("shopify_status", "Shopify status"), ('sale_status', 'Sale status')] if key in product]
         if proof:
             fields.append({'name': 'Verified scope', 'value': ' · '.join(proof)})
+        if product.get('verified_stages'):
+            fields.append({'name': 'Product readback completed', 'value': ', '.join(product['verified_stages']) +
+                ('; outstanding stages below still require attention.' if not success else '')})
+        for key, label in [('evidence_note', 'Package evidence'), ('historical_evidence_note', 'Historical evidence')]:
+            if product.get(key):
+                fields.append({'name': label, 'value': product[key]})
         notes = product.get("deferred", []) + ([product["reason"]] if product.get("reason") else [])
         if product.get('trigger'):
             fields.append({'name': 'Trigger / receipt', 'value': str(product['trigger']) + ' · ' + str(product.get('operation_reference', ''))})
@@ -198,7 +204,7 @@ def publishing_message(summary):
             fields.append({'name': 'Actual changes', 'value': '\n'.join(lines)})
         if notes:
             fields.append({"name": "Outstanding / deferred", "value": "\n".join(notes)})
-        description = f"[View verified Shopify product]({product['url']})" if product.get("url") else "Open TLCDashboard Operations for retained evidence."
+        description = f"[View Shopify product]({product['url']})" if product.get("url") else "Open TLCDashboard Operations for retained evidence."
     else:
         description = f"Attempted: {summary['attempted']} · Verified: {summary['verified_success']} · Shopify accepted: {summary.get('shopify_accepted', 0)} · Failed: {summary.get('failed', 0) + summary['failed_before_write']} · Recovery: {summary['recovery_required']} · Partial: {summary['partial_completion']}"
         fields = [{"name": "Product outcomes", "value": "\n".join(f"{p['sku']} — {labels[p['outcome']]}" for p in products)}]

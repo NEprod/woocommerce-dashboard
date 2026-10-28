@@ -64,6 +64,46 @@ def complete(identity, data):
     return True
 
 
+def operation_facts(operation, identity, data):
+    """Reporting only: bind readback/package claims to this operation, not its lifetime identity."""
+    scope = scope_of(operation)
+    summary = scope.get('operation_summary') or {}
+    mode = scope.get('mode') or summary.get('mode')
+    if mode == 'automatic_preflight':
+        action = 'Publication check — no write'
+    elif mode == 'update' or (mode == 'variable' and data.get('plan', {}).get('remote_id')):
+        action = 'Updated'
+    else:
+        action = 'Created'
+    current = {key: proof for key, proof in data.get('package_assignments', {}).items()
+        if proof.get('operation_id') == operation.id}
+    current.update({key: proof for key, proof in (scope.get('package_assignments') or {}).items()
+        if proof.get('operation_id') == operation.id})
+    from app.shopify_package_assignments import completion
+    package_completion = completion(data)
+    package = ('uncertain' if any(p.get('state') in {'pending', 'uncertain'} for p in current.values()) else
+        'rejected' if any(p.get('state') == 'rejected' for p in current.values()) else
+        package_completion if package_completion in {'outstanding', 'rejected', 'uncertain'} else
+        'accepted' if any(p.get('state') == 'accepted' for p in current.values()) else
+        'none')
+    verification = data.get('verification') or {}
+    bound = bool(identity and identity.operation_id == operation.id and verification.get('operation_id') == operation.id)
+    if not verification.get('operation_id') and identity and identity.operation_id == operation.id:
+        try:
+            bound = datetime.fromisoformat(verification.get('checked_at', '')) >= operation.started_at
+        except (ValueError, TypeError):
+            bound = False  # historical verification is not current operation evidence
+    stages = [key for key in ('identity', 'fields', 'media', 'memberships', 'attributes')
+        if bound and verification.get(key) == 'verified']
+    diagnostic = summary.get('diagnostic') or {}
+    return {'action': action, 'package': package, 'package_attempted': bool(current),
+        'historical_package_accepted': any(p.get('state') == 'accepted' and p.get('operation_id') != operation.id
+            for p in data.get('package_assignments', {}).values()),
+        'verified_stages': stages, 'readback_complete': len(stages) == 5,
+        'stage': diagnostic.get('stage') or summary.get('stage') or data.get('stage'),
+        'diagnostic': diagnostic}
+
+
 def product_result(operation):
     from app.shopify_drafts import evidence
     scope = scope_of(operation)
@@ -71,8 +111,8 @@ def product_result(operation):
     identity = ShopifyProductIdentity.query.filter_by(operation_id=operation.id).first()
     data = evidence(identity) if identity else {}
     plan = data.get("plan", {})
-    from app.shopify_package_assignments import completion
-    package_state = completion(data)
+    facts = operation_facts(operation, identity, data)
+    package_state = facts['package']
     product = db.session.get(Product, identity.product_id or scope.get("product_id")) if identity else db.session.get(Product, scope["product_id"]) if scope.get("product_id") else None
     if not product and not scope.get("title") and not plan.get("title"):
         return None  # taxonomy-only operations are not product publishing
@@ -91,15 +131,19 @@ def product_result(operation):
         outcome = "partial_completion"
     result = {"title": plan.get("title") or scope.get("title") or (product.title if product else None),
         "sku": identity.sku if identity else scope.get("sku") or (product.sku if product else "Unknown"),
-        "operation": "Updated" if scope.get("mode") == "update" or summary.get("mode") == "update" or data.get("update_attempted") else "Created",
-        "outcome": outcome, "stage": data.get("stage") or summary.get("stage"),
+        "operation": facts['action'],
+        "outcome": outcome, "stage": facts['stage'],
+        "verified_stages": facts['verified_stages'],
         "completed_at": operation.finished_at.isoformat() + "Z",
         "deferred": [str(v)[:300] for v in plan.get("blockers", [])[:5]],
         "reason": operation.error or data.get("error")}
     if package_state == 'accepted':
         result['evidence_note'] = 'Shopify accepted the saved-package input; independent package readback is unavailable. Detailed acknowledgement remains in the receipt.'
     elif package_state in {'rejected', 'outstanding', 'uncertain'}:
-        result['deferred'].append('Saved-package assignment ' + package_state + '; inspect the exact variant and retained receipt. No automatic replay.')
+        result['deferred'].append('Saved-package assignment ' + package_state +
+            ('; no assignment attempt or acknowledgement retained for this operation.' if not facts['package_attempted'] else '; inspect the exact variant and retained receipt.') + ' No automatic replay.')
+    if facts['historical_package_accepted']:
+        result['historical_evidence_note'] = 'Historical package acknowledgement retained; not an assignment attempted by this operation. Independent package readback unavailable.'
     from app.shopify_publication import complete as publication_complete
     publication=plan.get('publication') or {}
     if not publication_complete(data):
@@ -128,13 +172,13 @@ def product_result(operation):
     if outcome in {"verified_success", "shopify_accepted"}:
         result["shopify_status"] = data.get("observed_status")  # independently read, never intended status
         result.pop("reason", None)  # original uncertainty stays in history, not current-success warnings
-    if data.get("verification", {}).get("identity") == "verified":
+    if 'identity' in facts['verified_stages']:
         result["variants"] = len(data["variant_maps"]) if data.get("kind") == "variable" and data.get("variant_maps") else 1 if data.get("variant_id") else None
-    if data.get("verification", {}).get("media") == "verified":
+    if 'media' in facts['verified_stages']:
         result["images"] = len(data.get("media", []))
         result["image_action"] = "Synchronised/retained" if result["operation"] == "Updated" else "Synchronised"
     domain, gid = (identity.store_domain, identity.shopify_product_id) if identity else (None, None)
-    if data.get("verification", {}).get("identity") == "verified" and re.fullmatch(r"[a-z0-9][a-z0-9-]*\.myshopify\.com", domain or "") and re.fullmatch(r"gid://shopify/Product/[0-9]+", gid or ""):
+    if 'identity' in facts['verified_stages'] and re.fullmatch(r"[a-z0-9][a-z0-9-]*\.myshopify\.com", domain or "") and re.fullmatch(r"gid://shopify/Product/[0-9]+", gid or ""):
         result["url"] = f"https://{domain}/admin/products/{gid.rsplit('/', 1)[-1]}"
     # Only allowlisted operational fields, never payloads/credentials/customer data.
     return {k: redact_diagnostic(v, limit=500) if isinstance(v, str) else v for k, v in result.items() if v is not None}

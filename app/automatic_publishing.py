@@ -346,6 +346,34 @@ def observe_comparison(product, plan, *, expected_revision, complete):
                  next_attempt=drafts.now(), view_pending=True, error=None))
 
 
+def current_draft_comparison(product, identity):
+    """A complete bound Draft observation pauses metadata, not verifies it anew."""
+    from app.models import ShopifyProductComparison, ShopifyCollectionIdentity, ShopifyAttributeIdentity
+    from app.shopify_comparison import current
+    if identity.state != 'verified' or identity.verification_state != 'verified':
+        return False
+    proof = drafts.evidence(identity)
+    if any(p.get('state') in {'pending', 'uncertain'} for p in proof.get('package_assignments', {}).values()):
+        return False
+    operation = db.session.get(CatalogueOperation, identity.operation_id) if identity.operation_id else None
+    if operation and (operation.status in {'pending', 'running', 'interrupted'} or operation.recovery_state not in {None, 'none'}):
+        return False
+    comparison = ShopifyProductComparison.query.filter_by(store_id=identity.store_id,
+        source_identity=product.source_relpath).order_by(ShopifyProductComparison.compared_at.desc()).first()
+    if not comparison:
+        return False
+    mappings = {(r.store_id, r.source_key): r for model in (ShopifyCollectionIdentity, ShopifyAttributeIdentity)
+        for r in model.query.filter_by(store_id=identity.store_id)}
+    try:
+        value = current(product, comparison, identity, mappings)
+        return bool(value and identity.product_id == product.id and identity.source_identity == product.source_relpath
+            and value.get('scope') == 'full' and value.get('read_complete') is True
+            and value.get('actual_status') == 'DRAFT' and not value.get('refresh_failure')
+            and not value.get('conflicting_changes') and not value.get('blockers'))
+    except (ValueError, KeyError, OSError, ShopifyError):
+        return False
+
+
 def eligibility_summary(product_ids=None):
     """Saved-only cycle inventory. No JSON, image walks, remote reads or writes."""
     from collections import Counter
@@ -555,7 +583,8 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
         if not row or not row.shopify_product_id or wanted['status'] != 'DRAFT':
             job.state, job.error = 'paused', 'Draft remains local; ordinary Draft metadata is paused.'
             fence(); db.session.commit(); return 'paused'
-        if row.state == 'verified' and drafts.evidence(row).get('observed_status') == 'DRAFT':
+        if row.state == 'verified' and (drafts.evidence(row).get('observed_status') == 'DRAFT'
+                or current_draft_comparison(product, row)):
             job.state, job.error = 'paused', 'Shopify remains Draft; local metadata changes are retained.'
             fence(); db.session.commit(); return 'paused'
     elif live_readiness(product, authored):

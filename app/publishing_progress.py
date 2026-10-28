@@ -46,6 +46,11 @@ def capture(row, data):
         'last_acknowledgement':data.get('last_upload_ack_at'),'product_create_attempted':data.get('create_attempted'),
         'shopify_product_id':row.shopify_product_id,'pending_stage':data.get('stage'),
         'retry_reason':data.get('error')}
+    from app.shopify_notifications import operation_facts
+    facts = operation_facts(op, row, data)
+    if facts['action'] != 'Created':
+        summary.update(product_create_attempted=False, uploads_acknowledged=None, bytes_acknowledged=None,
+            batch=None, total_batches=None, last_acknowledgement=None)
     stage=data.get('stage') or row.state
     if stage=='product_create' and row.shopify_product_id:stage='product_identity_confirmed'
     labels={'upload_batch_prepared':'Upload batch prepared','upload_batch_started':'Upload batch started',
@@ -96,6 +101,14 @@ def view(op):
         state='waiting';reason='Awaiting Shopify processing; this receipt does not prove that an active worker is polling readback.'
     elif op.recovery_state not in {None,'none'}:state='recovery_required'
     if not live.get('stage'):live['stage']=proof.get('stage') or state
+    if state == 'recovery_required' and live.get('stage') == 'verified':
+        live['stage']='recovery_required'  # prior product readback is not overall success
+    diagnostic=(scope.get('operation_summary') or {}).get('diagnostic') or {}
+    if diagnostic:
+        live['diagnostic']=diagnostic
+        if state in {'recovery_required','failed'}:
+            live['stage']=diagnostic['stage']
+            reason=(reason+' '+diagnostic['category']+' at '+diagnostic['stage']+': '+diagnostic['reason']).strip()
     live.update(status=state,latest_message=reason or live.get('latest_message',''),worker_health={
         'state':'healthy' if healthy else 'waiting' if waiting else 'no_active_lease',
         'lease_until':task.lease_until.isoformat()+'Z' if task and task.lease_until else None,
@@ -113,4 +126,12 @@ def view(op):
         retained=scope['operation_summary']
         live['publishing']={'total_images':retained.get('images'),'uploads_acknowledged':retained.get('uploads_acknowledged'),
             'product_create_attempted':retained.get('create_attempted'),'pending_stage':'gallery_uploading'}
+    if row and live.get('publishing'):
+        from app.shopify_notifications import operation_facts
+        facts=operation_facts(op,row,proof)
+        if facts['action'] != 'Created':
+            live['publishing']={**live['publishing'],'product_create_attempted':False,
+                'uploads_acknowledged':None,'bytes_acknowledged':None,'batch':None,'total_batches':None,
+                'last_acknowledgement':None}
+        live['publishing']['pending_stage']=live['stage']
     return live
