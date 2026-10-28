@@ -293,3 +293,22 @@ def test_uncertain_identity_reconcile_button_keeps_existing_recovery_path(world)
     recovery.assert_called_once()
     assert recovery.call_args.args[0].id == identity.id
     assert not ScheduledTaskRun.query.filter_by(task_key=tasks.KEY).count()
+
+
+def test_frequent_sale_cycles_do_not_evict_daily_reconciliation_history(world):
+    stamp = drafts.now()
+    for index in range(130):
+        db.session.add(ScheduledTaskRun(id=f'frequent-sale-{index}', task_key=tasks.SALE_KEY,
+            trigger='scheduled',state='completed',created_at=stamp-timedelta(minutes=index),
+            completed_at=stamp-timedelta(minutes=index),data_json='{}'))
+    db.session.add(ScheduledTaskRun(id='daily-retained',task_key=tasks.KEY,trigger='scheduled',
+        state='completed',created_at=stamp-timedelta(days=1),completed_at=stamp-timedelta(days=1),data_json='{}'))
+    db.session.add(ScheduledTaskRun(id='expired-daily',task_key=tasks.KEY,trigger='scheduled',
+        state='completed',created_at=stamp-timedelta(days=91),completed_at=stamp-timedelta(days=91),data_json='{}'))
+    db.session.add(ScheduledTaskRun(id='active-read',task_key=tasks.KEY,trigger='manual',
+        state='running',created_at=stamp,data_json='{}'))
+    db.session.commit(); tasks.prune_history()
+    assert db.session.get(ScheduledTaskRun,'daily-retained')
+    assert not db.session.get(ScheduledTaskRun,'expired-daily')
+    assert db.session.get(ScheduledTaskRun,'active-read')
+    assert ScheduledTaskRun.query.filter_by(task_key=tasks.SALE_KEY).count()==100

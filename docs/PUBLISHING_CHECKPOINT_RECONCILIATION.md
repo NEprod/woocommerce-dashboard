@@ -96,6 +96,11 @@ product-reconciliation task runs (10 rows/page). Task entries link to the existi
 run detail. Manual versus scheduled reconciliation is explicit. Original product
 receipts and recovery links remain unchanged.
 
+The previous 100-completed-runs global retention limit could evict daily results
+after frequent five-minute sales/releases. The same existing retention now keeps
+up to 100 completed runs **per task**, still expiring history older than 90 days
+and preserving active runs. Product/recovery receipt retention is not shortened.
+
 New publisher cycles retain a source-free saved-state eligibility inventory,
 timestamp and compact per-product outcome codes in the existing bounded run
 JSON. Counts distinguish missing checkpoints, matching state, paused Drafts,
@@ -164,17 +169,19 @@ the isolated mocked and network-disabled Docker evidence.
 ## Recorded offline validation
 
 * Main focused publisher/scheduler/saved-status/history suites: **192 passed**.
-* Latest checkpoint integration suite: **24 passed**, including both variable
+* Checkpoint integration coverage: **25 passing cases**, including both variable
   layouts with 14 variants/53 images, real scheduler dispatch, daily/manual drift
   correction, unchanged source bytes, bad sources and missing/unsafe authority.
   The final run also passed **31 existing manual draft/readback checks** (55
   together), including the verified-identity button and unchanged uncertain
-  recovery dispatch.
+  recovery dispatch. A further four-check focused run verified per-task retention
+  and the manual button/recovery branches; those overlapping checks are not added
+  again to the unique total.
 * Existing scanner/transaction, gallery-byte, variable recovery/readback and
   browser-independent manual-worker safety suites: **152 passed**.
 * Adjacent onboarding/marker/scanner, Production Time, Orders and package suites:
   **110 passed**, one pre-existing assertion failure.
-* Deduplicating overlapping focused/integration tests gives **490 passing Python
+* Deduplicating overlapping focused/integration tests gives **491 passing Python
   cases and one baseline failure**, not the sum of repeated runs.
 * Focused existing JavaScript suites: **73 passed**. Isolated desktop (1440×1000)
   and mobile (390×844) browser checks passed for tasks, cycle/detail history,

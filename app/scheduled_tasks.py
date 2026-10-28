@@ -250,9 +250,13 @@ def save_progress(key,run_id,owner,data,*,pause=False,terminal=None,error=None,r
 
 
 def prune_history():
-    # Latest 100 completed runs retained, but older-than-90-day history expires.
+    # Per-task bounds: frequent empty sale/release cycles must not evict the
+    # daily reconciliation or hourly publisher's last actual execution.
     rows=ScheduledTaskRun.query.filter(ScheduledTaskRun.completed_at.isnot(None)).order_by(ScheduledTaskRun.completed_at.desc()).all()
-    for index,row in enumerate(rows):
+    positions = {}
+    for row in rows:
+        index = positions.get(row.task_key, 0)
+        positions[row.task_key] = index + 1
         if index>=100 or row.completed_at<now()-timedelta(days=90):
             db.session.delete(row)
     db.session.commit()
