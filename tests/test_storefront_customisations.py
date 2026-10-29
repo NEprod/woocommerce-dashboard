@@ -310,8 +310,14 @@ def test_normal_review_and_editor_render_scoped_configuration(world,monkeypatch)
     assert b'not authorising other product fields' in response.data
     _,token=drafts.preview(world[0],adapter,scope='customisations')
     response=client.post(target,data={'action':'confirm','review':token,'acknowledge':'yes'},headers={'Accept':'application/json'})
-    assert response.status_code==200 and response.json['state']=='completed',response.json
-    assert 'theme activation remain separate' in response.json['message']
+    assert response.status_code==202 and response.json['background_active'],response.json
+    from app import scheduled_tasks as tasks, manual_publishing as manual
+    operation_id=response.json['operation_id']
+    claimed=tasks.claim('customisation-worker',manual_only=True)
+    assert claimed and claimed[0]==manual.KEY
+    tasks.run_slice(*claimed,'customisation-worker',adapter=adapter)
+    operation=db.session.get(CatalogueOperation,operation_id)
+    assert operation.status=='succeeded',operation.error
     operation=db.session.get(CatalogueOperation,row.operation_id)
     assert json.loads(operation.scope)['mode']=='customisations'
     assert drafts.evidence(row)['plan']['managed']['namespace']

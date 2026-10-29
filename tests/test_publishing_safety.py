@@ -167,6 +167,10 @@ def test_different_worker_cannot_overlap_publisher_and_reconciliation(world):
 def test_complete_drift_read_reopens_pending_work_but_not_draft_metadata(world):
     product, *_ = world
     change(world, live=True)
+    from test_publishing_checkpoint_integration import history, bootstrap, validate_local
+    history(product)
+    bootstrap(product)
+    validate_local(product)
     adapter = AcceptanceAdapter(); authorise(adapter)
     assert execute(product, adapter) == 'verified'
     job = db.session.get(ShopifyPublishJob, product.id)
@@ -196,6 +200,11 @@ def test_new_live_requirement_blocks_existing_verified_live_until_corrected(worl
     publisher.configure(enabled=True, actor_id=User.query.first().id,
         confirmation=drafts.configuration().domain, required_fields=['short_description'], adapter=adapter)
     before = adapter.remote.copy(); adapter.calls.clear()
+    # A new policy never republishes a conclusively unchanged product. The
+    # requirement applies when a later authored change reaches the write boundary.
+    assert execute(product, adapter) == 'verified'
+    assert not adapter.calls
+    change(world, description='A pending metadata edit')
     assert execute(product, adapter) == 'attention'
     assert adapter.remote == before and not adapter.calls
     operation = db.session.get(CatalogueOperation, ShopifyPublishJob.query.one().operation_id)

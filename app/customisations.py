@@ -64,6 +64,8 @@ def validate(value, *, product_override=False, resolved=False):
             raise CustomisationDefinitionError('customisation.template:null is obsolete. Remove the null template key manually; template exclusion is not supported.')
         fields = value.get('fields')
         for key, field in fields.items() if isinstance(fields, dict) else ():
+            if not isinstance(key, str) or not re.fullmatch(ID, key):
+                raise CustomisationDefinitionError('customisation.fields: field IDs must start with a lowercase letter and use only lowercase letters, digits and underscores (e.g. dogs_name), up to 64 characters. No hyphens or spaces.')
             if isinstance(field, dict) and 'remove' in field:
                 raise CustomisationDefinitionError(f'customisation.fields.{key}.remove is obsolete. Remove this instruction manually; inherited fields cannot be excluded. No JSON was changed.')
     error = next(Draft202012Validator(SCHEMA).iter_errors(value), None)

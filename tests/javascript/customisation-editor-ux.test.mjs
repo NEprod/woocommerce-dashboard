@@ -73,6 +73,14 @@ test('new ID collision and existing ID tampering are rejected without draft muta
   const {designer:d,nodes,changes}=fixture();d.inputs.id.value='other';d.applyField();assert.equal(changes(),0);assert.match(nodes.get('[data-custom-dialog-error]').textContent,/remain stable/);
   d.edit();d.inputs.id.value='name_on_card';d.inputs.label.value='Other';d.applyField();assert.equal(changes(),0);assert.match(nodes.get('[data-custom-dialog-error]').textContent,/already exists/);
 });
+test('hyphenated ID explains exact canonical rule; underscore ID applies immediately',()=>{
+  const {designer:d,nodes,changes}=fixture();d.edit();d.inputs.id.value='dogs-name';d.inputs.label.value="Dog's name";d.applyField();
+  assert.equal(changes(),0);assert.match(nodes.get('[data-custom-dialog-error]').textContent,/underscores.*dogs_name/);
+  assert.match(nodes.get('[data-custom-dialog-error]').textContent,/No hyphens or spaces/);
+  d.inputs.id.value='dogs_name';d.applyField();assert.equal(changes(),1);
+  assert.equal(d.get().fields.dogs_name.label,"Dog's name");
+  d.edit('dogs_name');assert.equal(d.inputs.id.readOnly,true);assert.equal(d.inputs.id.value,'dogs_name');
+});
 test('type change keeps a manually chosen new ID and label, removes incompatible constraints only',()=>{
   const {designer:d}=fixture();d.edit();d.inputs.id.value='customer_age';d.inputs.id.dataset.edited='true';d.inputs.label.value='Age';d.inputs.type.value='number';d.inputs.type.emit('change');
   assert.equal(d.inputs.id.value,'customer_age');assert.equal(d.inputs.label.value,'Age');assert.ok(d.inputs.minimum);assert.equal('max_length' in d.inputs,false);

@@ -19,6 +19,7 @@ from sqlalchemy import or_
 from app import db
 from app.commerce import catalogue_snapshot
 from app.commerce_config import shopify_settings
+from app.customisations import CustomisationDefinitionError
 from app.catalogue_images import product_image_diagnostics, _source_context
 from app.models import Product, ShopifyProductIdentity, CatalogueOperation
 from app.shopify_connection import ShopifyAdapter, ShopifyConfiguration, ShopifyError, _gid
@@ -230,6 +231,11 @@ def preview(product, adapter=None, *, context=None, scope="full"):
     started = now().isoformat()
     try:
         return _preview(product, adapter, context=context, scope=scope, started=started)
+    except CustomisationDefinitionError as exc:
+        from app.shopify_connection import ShopifyReadinessFinding
+        from app.shopify_comparison import failed
+        failed(product, str(exc), started=started)
+        raise ShopifyReadinessFinding(str(exc), code='customisation_configuration') from None
     except ShopifyError as exc:
         from app.shopify_comparison import failed
         failed(product, str(exc), started=started)

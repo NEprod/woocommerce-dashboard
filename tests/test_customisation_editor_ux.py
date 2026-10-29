@@ -12,6 +12,26 @@ from test_metadata_editor_core import core, save
 NAME={'type':'text','label':'Name','required':True,'enabled':True,'max_length':30,'help_text':'Check spelling','future':{'keep':[]}}
 
 
+@pytest.mark.parametrize('field_id', ['dogs-name', 'Dogs_name', 'dogs name', '1dog', 'd' * 65])
+def test_invalid_field_id_reports_exact_format_without_saving(core, field_id):
+    source = core[2] / 'Simple Collection/Blue Token/product_info.json'
+    before = source.read_bytes()
+    result = save(core, data={'customisation': {'fields': {field_id: NAME}}})
+    assert result.status_code == 400
+    assert 'lowercase letters, digits and underscores' in str(result.json)
+    assert 'dogs_name' in str(result.json)
+    assert source.read_bytes() == before and not core[5]
+
+
+def test_dogs_name_creates_and_edits_canonical_field_without_renaming(core):
+    result = save(core, data={'customisation': {'fields': {'dogs_name': NAME}}})
+    assert result.status_code == 200, result.json
+    result = save(core, data={'customisation': {'fields': {'dogs_name': {'label': "Dog's name"}}}})
+    assert result.status_code == 200, result.json
+    field = result.json['authored']['customisation']['fields']['dogs_name']
+    assert field == {**NAME, 'label': "Dog's name"}
+
+
 @pytest.mark.parametrize('enabled,required',[(True,True),(True,False),(False,False),(False,True)])
 def test_boolean_controls_preserve_each_authored_combination(core,enabled,required):
     field={**NAME,'enabled':enabled,'required':required}

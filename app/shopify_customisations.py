@@ -7,6 +7,7 @@ import json
 import re
 
 from app import db
+from app.customisations import CustomisationDefinitionError
 from app.models import Product, ShopifyProductIdentity
 from app.shopify_connection import ShopifyAdapter, ShopifyError, _gid
 from app.storefront_customisations import canonical, public_configuration
@@ -19,6 +20,9 @@ def desired(product):
     from app.taxonomy_assignments import product_document
     try:
         return public_configuration(product_document(product).get('customisation'))
+    except CustomisationDefinitionError as exc:
+        from app.shopify_connection import ShopifyReadinessFinding
+        raise ShopifyReadinessFinding(str(exc), code='customisation_configuration') from None
     except (ValueError, KeyError, TypeError):
         raise ShopifyError('Storefront customisation definition is invalid, empty or contains an enabled file/photo field. Secure uploads are not implemented; correct the definition at its owning collection/template before publication.') from None
 

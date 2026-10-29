@@ -3,7 +3,7 @@ from copy import deepcopy
 import hashlib
 import json
 
-from app.customisations import TYPES, ordered_fields, validate
+from app.customisations import CustomisationDefinitionError, TYPES, ordered_fields, validate
 
 VERSION = 1
 FIELD_KEYS = frozenset(('label', 'required', 'order', 'help_text', 'placeholder',
@@ -27,7 +27,7 @@ def public_configuration(definition):
                 continue
             kind = TYPES[field['type']]
             if kind == 'file_upload':
-                raise ValueError('Customer file/photo uploads require a verified secure upload service. Disable the upload field at its owner before reviewing storefront publication.')
+                raise CustomisationDefinitionError('Customer file/photo uploads require a verified secure upload service. Disable the upload field at its owner before reviewing storefront publication.')
             public = {k: deepcopy(v) for k, v in field.items() if k in FIELD_KEYS}
             public.update(id=key, type=kind)
             if 'choices' in field:
@@ -36,6 +36,6 @@ def public_configuration(definition):
                     for c in field['choices']]
             result['fields'].append(public)
         if not result['fields']:
-            raise ValueError('Storefront customisations are enabled but no supported enabled fields remain.')
+            raise CustomisationDefinitionError('Storefront customisations are enabled but no supported enabled fields remain. Add an enabled supported field, or disable storefront customisations at their owning source.')
     result['revision'] = hashlib.sha256(canonical(result).encode()).hexdigest()
     return result

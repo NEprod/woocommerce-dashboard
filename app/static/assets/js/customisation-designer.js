@@ -202,6 +202,7 @@
         const text=element('span',label);wrapper.append(text,control);parent.append(wrapper);this.inputs[key]=control;return control;
       };
       const id=input(basic,'id','Stable field ID','text',this.editID||previousID||'');id.readOnly=!!this.editID;id.pattern='[a-z][a-z0-9_]{0,63}';id.maxLength=64;
+      basic.append(element('p','Start with a lowercase letter; use lowercase letters, digits and underscores only (e.g. dogs_name). Maximum 64 characters. No hyphens or spaces.','field-helper'));
       const label=input(basic,'label','Customer-facing label');label.maxLength=191;
       label.addEventListener('input',()=>{if(!this.editID&&!id.dataset.edited)id.value=label.value.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^\d+|^_+|_+$/g,'').slice(0,64);});id.addEventListener('input',()=>id.dataset.edited='true');
       const wrapper=element('label','Input type'),select=element('select');select.className='form-select';select.dataset.customControl='type';select.setAttribute('aria-label','Input type');
@@ -315,7 +316,7 @@
       try{
         for(const node of Object.values(this.inputs))if(node.validity?.badInput)throw new Error(node.type==='date'?'Please choose a valid date.':'Please enter a valid number.');
         if(this.defaultState.present && this.defaultState.value===undefined)throw new Error('Choose a default value or select no default override.');
-        const id=this.inputs.id.value,values=this.readInputs();if(!/^[a-z][a-z0-9_]{0,63}$/.test(id))throw new Error("Use a stable lowercase field ID.");
+        const id=this.inputs.id.value,values=this.readInputs();if(!/^[a-z][a-z0-9_]{0,63}$/.test(id))throw new Error("Field ID must start with a lowercase letter and use only lowercase letters, digits and underscores (e.g. dogs_name), up to 64 characters. No hyphens or spaces.");
         if(this.editID&&id!==this.editID)throw new Error('Field IDs remain stable after creation. Reopen the existing field.');
         if(!this.editID&&Object.hasOwn(this.effective().fields||{},id))throw new Error("Field ID already exists. Choose another ID.");
         const problem=configurationError(values);if(problem)throw new Error(problem);
@@ -331,7 +332,7 @@
         const effective=resolve(this.base,this.shared,next,this.productOverride).fields[id];
         const inheritedProblem=configurationError(effective);if(inheritedProblem)throw new Error(inheritedProblem);
         this.value=next;this.changed();this.fieldDialog.close();
-      }catch(error){this.root.querySelector("[data-custom-dialog-error]").textContent=error.message;}
+      }catch(error){const message=this.root.querySelector("[data-custom-dialog-error]");message.textContent=error.message;message.scrollIntoView?.({block:'nearest'});}
     }
     preview() {
       const form=this.root.querySelector("[data-custom-preview-form]");form.replaceChildren();const readers=[];

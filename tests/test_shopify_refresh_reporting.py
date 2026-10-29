@@ -1,5 +1,6 @@
 """Read-only refresh execution is independent of authored product readiness."""
 import json
+import pytest
 from datetime import timedelta
 
 from app import db, shopify_drafts as drafts, shopify_status
@@ -10,6 +11,62 @@ from test_shopify_publication_sales import AcceptanceAdapter
 from test_shopify_simple_updates import change
 from app import shopify_notifications as notices
 from app.utils import discord
+from test_shopify_variables import variable_world
+from test_shopify_publication_sales import VariableAcceptanceAdapter
+
+
+@pytest.mark.parametrize('definition,reason', [
+    ({'storefront_enabled': True, 'proof_policy': 'none'}, 'no supported enabled fields'),
+    ({'storefront_enabled': True, 'fields': {'photo': {'type': 'photo', 'label': 'Photo'}}}, 'secure upload service'),
+])
+def test_invalid_customer_configuration_is_specific_readiness_not_missing_source(world, definition, reason):
+    check_customer_readiness(world, AcceptanceAdapter(), definition, reason)
+
+
+def test_variable_customer_readiness_preserves_retained_identity(variable_world):
+    check_customer_readiness(variable_world, VariableAcceptanceAdapter(),
+        {'storefront_enabled': True, 'proof_policy': 'none'}, 'no supported enabled fields')
+
+
+def check_customer_readiness(fixture, adapter, definition, reason):
+    product = fixture[0]
+    _, token = drafts.preview(product, adapter)
+    identity = drafts.confirm(token, True, adapter)
+    assert identity.state == 'verified'
+    saved = ShopifyProductComparison.query.one()
+    previous = json.loads(saved.summary_json).get('full_compared_at')
+    source = fixture[2] if fixture[2].is_file() else fixture[1]
+    source.write_text(json.dumps({**json.loads(source.read_text()), 'customisation': definition}))
+    authored = source.read_bytes()
+    adapter.calls.clear()
+    result = shopify_status.refresh([product], force=True, adapter=adapter)
+    assert not result['errors'], result
+    assert any(f['code'] == 'customisation_configuration' and reason in f['message'] for f in result['findings'])
+    assert CatalogueOperation.query.filter_by(operation_type='shopify_status_refresh').one().status == 'succeeded'
+    retained = json.loads(saved.summary_json)
+    assert retained.get('full_compared_at') == previous
+    assert retained['refresh_failure']['kind'] == 'readiness'
+    assert identity.state == 'verified' and source.read_bytes() == authored
+    assert adapter.calls == ['connection_read']  # refresh's single shared connection check only
+    from app.shopify_products import product_state
+    from flask import current_app
+    with current_app.test_request_context():
+        state = product_state(product, [identity])
+    assert state['state'] == 'attention' and reason in state['message']
+    assert 'unavailable' not in state['message'].lower()
+    from app.shopify_customisations import desired
+    from app.shopify_connection import ShopifyReadinessFinding
+    with pytest.raises(ShopifyReadinessFinding, match=reason):
+        desired(product)
+    # Correcting the owning JSON makes a subsequent real read conclusive again;
+    # the old finding must not permanently override newer comparison evidence.
+    source.write_text(json.dumps({**json.loads(source.read_text()), 'customisation': {'storefront_enabled': False}}))
+    adapter.calls.clear()
+    assert not shopify_status.refresh([product], force=True, adapter=adapter)['errors']
+    retained = json.loads(saved.summary_json)
+    assert retained['read_complete'] and not retained.get('refresh_failure')
+    assert retained['full_compared_at'] != previous
+    assert not any('write' in call or 'update' in call or 'create' in call for call in adapter.calls)
 
 
 def test_actionable_conflict_alerts_once_resolves_and_reopens(world, monkeypatch):
