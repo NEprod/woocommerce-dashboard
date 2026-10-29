@@ -25,6 +25,20 @@ def executing_lease():
     return value
 
 
+def require_no_prior_recovery(product_id, reviewed):
+    # Explicit variable-creation completion has its own signed recovery guards.
+    if reviewed.get('mode') == 'variable_resume':
+        return
+    from app.models import ShopifyPublishJob
+    job = db.session.get(ShopifyPublishJob, product_id)
+    identities = ShopifyProductIdentity.query.filter_by(product_id=product_id).all()
+    operations = [db.session.get(CatalogueOperation, row.operation_id) for row in identities if row.operation_id]
+    if ((job and job.state == 'recovery_required') or any(
+            op and op.recovery_state not in {None, 'none'} for op in operations)):
+        raise ShopifyError('Existing Recovery Required blocks this new update; no new Shopify write was attempted. '
+            'Inspect the original operation and unresolved package evidence before separately authorised recovery.')
+
+
 def accept(product_id, token, acknowledged):
     from flask import g
     from flask_login import current_user
@@ -41,6 +55,7 @@ def accept(product_id, token, acknowledged):
     if len(json.dumps(reviewed).encode()) > 16384:
         raise ShopifyError('Signed review is outside the bounded manual approval contract.')
     product = db.get_or_404(Product, product_id)
+    require_no_prior_recovery(product.id, reviewed)
     revision = local_revision(product)
     g.shopify_review_ticket = drafts.digest(token)
     mode = reviewed.get('classification') or reviewed.get('mode') or 'create'
@@ -164,6 +179,8 @@ def run_slice(run_id, owner, *, adapter=None):
                 if identity.state=='processing' and data['readback_polls']>=12:
                     raise ShopifyError('Shopify media remains processing after bounded polls; use read-only recovery, not another upload or Create.')
             elif not identity or drafts.upload_pending(identity):
+                if not identity:
+                    require_no_prior_recovery(product.id, reviewed)
                 authority()
                 identity=drafts.execute_reviewed(reviewed,adapter,expected_product_id=product.id)
         op=db.session.get(CatalogueOperation,lease.id)
@@ -184,6 +201,13 @@ def run_slice(run_id, owner, *, adapter=None):
         raise ShopifyError(op.error or (drafts.evidence(identity).get('error') if identity else None) or 'Publishing was not completely verified. Inspect its receipt before any retry.')
     except BackgroundYield:
         db.session.rollback()
+        if lease:
+            op=db.session.get(CatalogueOperation,lease.id)
+            if op.status in {'running','pending'}:
+                scope=json.loads(op.scope);scope['manual_review']['state']='waiting';op.scope=json.dumps(scope)
+                op.status='pending';op.finished_at=None;op.error=None
+                update(op,stage='worker_deferred',message='Worker deferred before continuing; retained approval and receipts remain protected. No failed mutation is inferred.',status='waiting')
+                fence();db.session.commit()
         return tasks.save_progress(KEY,run_id,owner,data,pause=True)
     except Exception as exc:
         db.session.rollback()

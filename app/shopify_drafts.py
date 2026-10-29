@@ -1032,6 +1032,11 @@ def confirm_update(reviewed, adapter=None):
         return row
     except Exception as exc:
         db.session.rollback()
+        from app.shopify_capacity import BackgroundYield
+        if isinstance(exc, BackgroundYield) and not attempted and row.operation_id != lease.id:
+            # Preflight has not reserved this identity or attempted a mutation.
+            # Let the existing task owner defer the same signed operation.
+            raise
         message = str(exc) if isinstance(exc, ShopifyError) else "Update failed with uncertain evidence. Reconcile before another write."
         from app.shopify_package_assignments import attempted as package_attempted
         attempted=attempted or package_attempted(evidence(row),lease.id)

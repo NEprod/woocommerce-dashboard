@@ -346,8 +346,8 @@ def draft_identity(identity_id):
                 from app.shopify_lifecycle import reconcile
                 reconcile(row)
             else:
-                from app.shopify_notifications import complete
-                if row.product_id and not approval and not request.form.get('candidate_id') and complete(row, service.evidence(row)):
+                if (row.product_id and not approval and not request.form.get('candidate_id')
+                        and row.state == 'verified' and row.verification_state == 'verified'):
                     # Routine drift inspection is not uncertain-mutation recovery.
                     # Reuse the same scoped, durable read-only task as Run Now;
                     # its comparison hook can reopen valid scanned Live work.

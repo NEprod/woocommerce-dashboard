@@ -92,11 +92,21 @@ def receipt(product_id, token):
             from app.publishing_progress import view
             live=view(operation)
             state=live['status']
+            from app.shopify_notifications import operation_facts
+            facts=operation_facts(operation,row,data)
+            summary=scope.get('operation_summary') or {}
+            completed = [STAGES.get(s,s.replace('_',' ')) for s in data.get('completed_steps', [])]
+            completed += [s.title() + ' readback verified' for s in facts['verified_stages']]
             return {'state':'processing' if state in {'queued','running','waiting'} else state,
                 'background_active':state in {'queued','running','waiting'},
                 'operation_id':operation.id,'stage':STAGES.get(live.get('stage'),live.get('stage')),'message':live.get('latest_message'),
                 'history_url':url_for('main.operation_detail',operation_id=operation.id),
-                'worker_health':live.get('worker_health'),'publishing':live.get('publishing')}
+                'worker_health':live.get('worker_health'),'publishing':live.get('publishing'),
+                'completed_stages':completed,
+                'completion_note':'No Shopify mutation was attempted by this operation.' if summary.get('write_attempted') is False else
+                    'No completed stage retained for this operation; earlier product verification is separate.',
+                'package_state':facts['package'],
+                'pending_stages':['Saved-package assignment: '+facts['package']] if facts['package'] in {'outstanding','uncertain','rejected'} else []}
         running = operation.status in {"running","pending"}
         native = data.get("native_dimensions",{}).get("state")
         if running: state = "running"

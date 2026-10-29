@@ -120,6 +120,16 @@ test('completed acceptance-only receipt is not relabelled as API verified',async
   assert.equal(p.requests.length,1);
 });
 
+test('before-write deferral displays operation-specific evidence and keeps polling',async()=>{
+  const p=page({stored:{review:'signed-review',csrf:'csrf',url:'/products/7/shopify/progress',returnTo:'/products'}});
+  p.requests[0].resolve({state:'processing',background_active:true,stage:'worker_deferred',
+    completed_stages:[],completion_note:'No Shopify mutation was attempted by this operation.'});
+  await p.flush();
+  assert.equal(p.elements.completed.textContent,'No Shopify mutation was attempted by this operation.');
+  assert.equal(p.storage.has(p.key),true);
+  await p.timer(2000);assert.equal(p.requests.length,2);
+});
+
 test('temporary receipt failure preserves the recovery ticket and can be read again',async()=>{
   const p=page({stored:{review:'signed-review',csrf:'csrf',url:'/products/7/shopify/progress',returnTo:'/products'}});
   p.requests[0].resolve({state:'receipt_unavailable',message:'Receipt temporarily unavailable'});await p.flush();

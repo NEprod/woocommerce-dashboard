@@ -36,7 +36,7 @@
     message.textContent = value.message || '';
     if (identity) identity.textContent=[value.title || pending?.title,value.sku || pending?.sku,value.operation_type].filter(Boolean).join(' · ');
     if (details) details.textContent=`Status: ${value.state} · ${value.elapsed_seconds ?? Math.floor((Date.now()-started)/1000)} s elapsed · Last server response: ${value.server_checked_at || new Date().toISOString()}${value.operation_id ? ' · Operation '+value.operation_id : ''}`;
-    if (completed) completed.textContent=(value.completed_stages || []).length ? 'Recorded completed stages: '+value.completed_stages.join(' · ') : 'No completed stage recorded yet.';
+    if (completed) completed.textContent=(value.completed_stages || []).length ? 'Recorded completed stages: '+value.completed_stages.join(' · ') : (value.completion_note || 'No completed stage recorded yet.');
     if (value.state==='receipt_unavailable') { pause(); store(pending); back.hidden=false; return; }
     if (value.history_url) { history.href = value.history_url; history.hidden = false; }
     if (terminal(value.state,value)) {

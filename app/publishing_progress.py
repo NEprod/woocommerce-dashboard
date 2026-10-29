@@ -92,7 +92,10 @@ def view(op):
         state='stalled' if now()-stamp>LEASE else 'queued'
         reason='No worker has claimed the accepted operation within its lease threshold; inspect the scheduler.' if state=='stalled' else 'Waiting for the durable server task; no browser connection is required.'
     elif healthy:state='running'
-    elif waiting:state='waiting';reason='Awaiting Shopify processing/readback.' if row and row.state=='processing' else 'Waiting for the next byte-bounded upload slice.'
+    elif waiting:
+        state='waiting'
+        reason=('Worker deferred; waiting for the existing task to resume. No failed mutation is inferred.' if live.get('stage')=='worker_deferred' else
+            'Awaiting Shopify processing/readback.' if row and row.state=='processing' else 'Waiting for the next byte-bounded upload slice.')
     elif (manual and manual.get('state') not in {'completed','failed','recovery_required'} and worker or op.status=='running'):
         state='stalled';reason='Worker lease expired or no durable heartbeat was retained. Inspect receipts; browser polling does not authorize a retry.'
     elif not manual and (row and row.state=='uploading' or (scope.get('operation_summary') or {}).get('stage')=='gallery_uploading'):
@@ -104,6 +107,12 @@ def view(op):
     if state == 'recovery_required' and live.get('stage') == 'verified':
         live['stage']='recovery_required'  # prior product readback is not overall success
     diagnostic=(scope.get('operation_summary') or {}).get('diagnostic') or {}
+    if (op.status=='failed' and diagnostic.get('category')=='BackgroundYield'
+            and (scope.get('operation_summary') or {}).get('write_attempted') is False):
+        # Historical swallowed yields are stopped receipts, not active workers
+        # and not evidence of a new uncertain Shopify mutation.
+        state='attention';live['stage']='deferred_before_write'
+        reason='Historical worker deferral stopped before any Shopify mutation. No new write failed; existing product recovery evidence remains separate. No replay is authorised.'
     if diagnostic:
         live['diagnostic']=diagnostic
         if state in {'recovery_required','failed'}:

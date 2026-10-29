@@ -143,7 +143,13 @@ def apply(row,adapter,operation_id):
             response=adapter.assign_package(config,inventory,link.remote_id)
             payload=response.get('inventoryItemUpdate')
             if isinstance(payload,dict) and isinstance(payload.get('userErrors'),list) and payload['userErrors']:
-                proof.update(state='rejected',message='Shopify rejected the package input. Inspect the saved ID and inventory permission; no automatic retry.')
+                from app.utils.redaction import redact_diagnostic
+                errors = [{'field': redact_diagnostic('.'.join(str(part) for part in
+                    (error.get('field') if isinstance(error.get('field'), list) else [])[:8]), limit=200),
+                    'message': redact_diagnostic(error.get('message', 'Package input rejected'), limit=350)}
+                    for error in payload['userErrors'][:5] if isinstance(error, dict)]
+                proof.update(state='rejected',errors=errors,
+                    message='Shopify rejected the package input. Inspect the retained safe errors; no automatic retry.')
                 row.state='verified';row.verification_state='verified'
                 persist(row,data,key,proof);return 'blocked'
             if not isinstance(payload,dict) or payload.get('userErrors')!=[] or (payload.get('inventoryItem') or {}).get('id')!=inventory:
