@@ -26,8 +26,8 @@ def executing_lease():
 
 
 def require_no_prior_recovery(product_id, reviewed):
-    # Explicit variable-creation completion has its own signed recovery guards.
-    if reviewed.get('mode') == 'variable_resume':
+    # Only these explicit, signed correction modes have their own narrow guards.
+    if reviewed.get('mode') in {'variable_resume', 'package_correction'}:
         return
     from app.models import ShopifyPublishJob
     job = db.session.get(ShopifyPublishJob, product_id)
@@ -137,7 +137,8 @@ def run_slice(run_id, owner, *, adapter=None):
         # Crash recovery is deliberately limited to an exact acknowledged
         # pre-create prefix or known processing/verified evidence. Never replay
         # an unknown binary upload, Create, update or other mutation.
-        if identity and identity.state not in {'uploading','processing','verified','scoped_verified'}:
+        package_correction = reviewed.get('mode') == 'package_correction'
+        if identity and not package_correction and identity.state not in {'uploading','processing','verified','scoped_verified'}:
             proof=drafts.evidence(identity)
             candidate=SimpleNamespace(state='uploading',shopify_product_id=identity.shopify_product_id,
                 reviewed_digest=identity.reviewed_digest,media_evidence_json=identity.media_evidence_json)
@@ -160,7 +161,10 @@ def run_slice(run_id, owner, *, adapter=None):
         context_token=_lease.set(lease)
         with background_work(guard,fence=fence,requests=100,seconds=120,publisher_authority=authority):
             adapter=adapter or ShopifyAdapter()
-            if identity and (identity.state=='processing' or verification_pending(identity)):
+            if package_correction:
+                authority()
+                identity=drafts.execute_reviewed(reviewed,adapter,expected_product_id=product.id)
+            elif identity and (identity.state=='processing' or verification_pending(identity)):
                 data['readback_polls']=data.get('readback_polls',0)+1
                 # Read-only even though the original operation was approved.
                 with background_work(guard,fence=fence,requests=80,seconds=90):
@@ -184,6 +188,19 @@ def run_slice(run_id, owner, *, adapter=None):
                 authority()
                 identity=drafts.execute_reviewed(reviewed,adapter,expected_product_id=product.id)
         op=db.session.get(CatalogueOperation,lease.id)
+        if package_correction and op.status in {'failed','partial'}:
+            # A definite input rejection is not a transport-uncertain write.
+            # The original package blocker remains in the queue/history either
+            # way; do not let the generic publisher exception overwrite this
+            # exact operation's retained acknowledgement/rejection outcome.
+            proof=drafts.evidence(identity).get('package_assignments',{}).get(reviewed['package']['identity'],{})
+            rejected=proof.get('state')=='rejected'
+            scope=json.loads(op.scope);scope['manual_review']['state']='failed' if rejected else 'recovery_required'
+            op.scope=json.dumps(scope)
+            update(op,stage='package_assignment_rejected' if rejected else 'recovery_required',
+                message=op.error or 'Inspect retained package evidence; no automatic replay.',status='failed' if rejected else 'recovery_required')
+            fence();db.session.commit()
+            return tasks.save_progress(KEY,run_id,owner,data,terminal='failed',error=op.error)
         if identity and (drafts.upload_pending(identity) or identity.state=='processing'):
             op.status='pending';op.finished_at=None
             scope=json.loads(op.scope);scope['manual_review']['state']='waiting';op.scope=json.dumps(scope)

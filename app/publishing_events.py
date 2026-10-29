@@ -42,11 +42,19 @@ def record(operation, product, identity, evidence):
     plan = evidence.get('plan', {})
     if scope.get('mode') == 'publication':
         plan = evidence.get('publication_update', {}).get('plan', plan)
+    if scope.get('mode') == 'package_correction':
+        entry = scope.get('manual_review', {}).get('reviewed', {}).get('package', {})
+        plan = {'fields':[{'field':'package_assignment.'+str(entry.get('sku','')),
+            'label':'Saved package (Shopify Accepted, not API Verified)',
+            'before':'Previous assignment not API-readable; merchant inspected exact variant',
+            'after':entry.get('shipping_package_id'),'changed':True}]}
     items = changes(plan)
     facts = operation_facts(operation, identity, evidence)
     kind = 'verified' if operation.status == 'succeeded' else 'processing' if identity and identity.state in {'processing','uploading'} else 'recovery_required' if operation.recovery_state not in {None, 'none'} else 'partial' if operation.status == 'partial' else 'failed'
+    if scope.get('mode') == 'package_correction' and kind == 'verified':
+        kind = 'accepted'
     reviewed_items = items
-    if kind != 'verified':
+    if kind not in {'verified','accepted'}:
         # A later package failure must not hide conclusively verified product
         # work. Never promote reviewed intent or package input to readback proof.
         from app.shopify_publication import complete as publication_complete
@@ -65,7 +73,7 @@ def record(operation, product, identity, evidence):
     if not db.session.get(ShopifyPublishingEvent, event_id):
         data = {'sku': product.sku if product else identity.sku if identity else None,
             'title': product.title if product else plan.get('title'), 'changes': items,
-            'reviewed_changes': reviewed_items if kind != 'verified' else [],
+            'reviewed_changes': reviewed_items if kind not in {'verified','accepted'} else [],
             'status': operation.status, 'recovery_state': operation.recovery_state,
             'verified_stages': facts['verified_stages'], 'diagnostic': facts['diagnostic'],
             'package_stage': facts['package'], 'package_attempted': facts['package_attempted'],
@@ -73,6 +81,7 @@ def record(operation, product, identity, evidence):
             'reason': redact_diagnostic(operation.error or '', limit=1000),
             'started_at': operation.started_at.isoformat(), 'finished_at': operation.finished_at.isoformat(),
             'verification_scope': {'publication': 'status/channels only',
+                'package_correction': 'saved-package assignment only; previous metadata verification not renewed',
                 'customisations': 'customer configuration only', 'automatic_preflight': 'local preflight; no remote write',
                 'sale_activate': 'scheduled price only', 'sale_end': 'scheduled price only'}.get(scope.get('mode'),
                     'inventory only' if scope.get('scope') == 'inventory' else 'acknowledged uploads only; no ProductCreate attempted' if identity and identity.state == 'uploading' else 'managed product'),

@@ -69,7 +69,9 @@ def operation_facts(operation, identity, data):
     scope = scope_of(operation)
     summary = scope.get('operation_summary') or {}
     mode = scope.get('mode') or summary.get('mode')
-    if mode == 'automatic_preflight':
+    if mode == 'package_correction':
+        action = 'Package corrected'
+    elif mode == 'automatic_preflight':
         action = 'Publication check — no write'
     elif mode == 'update' or (mode == 'variable' and data.get('plan', {}).get('remote_id')):
         action = 'Updated'
@@ -153,6 +155,10 @@ def product_result(operation):
     if scope.get('mode')=='publication':
         result['operation']='Publication updated'
         result['deferred'].append('Status/channel scope only; metadata verification is retained, not renewed.')
+    if scope.get('mode') == 'package_correction':
+        result['deferred'] = ['Package-only correction; previous managed-product verification is retained, not renewed.']
+        if operation.status == 'succeeded' and package_state == 'accepted':
+            result['outcome'] = 'shopify_accepted'
     if scope.get('mode') == 'customisations':
         result['operation'] = 'Customer configuration updated'
         result['deferred'].append('Configuration scope only; theme activation, cart/order acceptance and full product comparison remain separate.')
@@ -207,7 +213,8 @@ def enqueue(operation):
     scope = scope_of(operation)
     from app.automatic_publishing import policy
     authority = policy()
-    notify_verified = bool(scope.get('automatic_publishing') or authority and authority.actor_id)
+    notify_verified = bool(scope.get('automatic_publishing') or authority and authority.actor_id
+        or scope.get('mode') == 'package_correction')
     if notify_verified:
         from app.publishing_events import record
         identity = ShopifyProductIdentity.query.filter_by(operation_id=operation.id).first()

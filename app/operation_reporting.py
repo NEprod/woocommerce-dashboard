@@ -121,7 +121,12 @@ def _issue(key, category, entity, cause, severity, detected, action, destination
 def operation_issues(rows):
     """Conservative incident folding. A read success cannot resolve a write failure."""
     active, recovery, resolved = {}, [], []
+    from app.shopify_package_assignments import superseded_operations
+    superseded = superseded_operations(rows)
     for row in sorted(rows, key=lambda r: (r.started_at, r.id)):
+        if row.id in superseded:
+            resolved.append(row.id)
+            continue
         scope = document(row.scope)
         # A durable scheduled run owns its slices; represented below once per run.
         if scope.get('scheduled_run') and row.recovery_state in (None, 'none'):

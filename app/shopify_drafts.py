@@ -519,6 +519,9 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
     """
     if expected_product_id is not None and reviewed.get("product_id") != expected_product_id:
         raise ShopifyError("Reviewed product does not match this Products workspace. Open its own review; no write occurred.")
+    if reviewed.get('mode') == 'package_correction':
+        from app.shopify_package_assignments import correction_confirm
+        return correction_confirm(reviewed, adapter)
     if reviewed.get('mode') == 'customisations':
         from app.shopify_customisations import confirm as customisation_confirm
         return customisation_confirm(reviewed, adapter)

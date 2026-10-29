@@ -1,5 +1,9 @@
 # Focused live acceptance correction — 29 October 2026
 
+Follow-up: the separately approved practical package-only correction is now
+documented in [PACKAGE_CORRECTION.md](PACKAGE_CORRECTION.md). The earlier design
+limitations below describe the previous release; historical receipts remain intact.
+
 ## Confirmed evidence; no live repair performed
 
 Deployed `4c3e24505b76`, automatic publishing paused. New manual operation

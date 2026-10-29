@@ -176,6 +176,61 @@ def discovery():
                            action=action), 400 if error else 200, {"Cache-Control": "no-store"}
 
 
+@commerce.route("/products/<int:product_id>/shopify/package-correction", methods=["GET", "POST"])
+@login_required
+def package_correction(product_id):
+    from app import db, shopify_drafts as service
+    from app.models import Product, ShopifyProductIdentity, CatalogueOperation
+    from app.shopify_package_assignments import correction_review
+    from app.taxonomy_assignments import product_document
+    from app.packaging_contract import effective
+    from app.packaging_models import Package
+    from app.utils.operation_control import CatalogueOperationActive
+    if not current_user.is_admin: abort(403)
+    product = db.get_or_404(Product, product_id)
+    form = FlaskForm()
+    reviewed = token = error = None
+    if request.method == 'POST':
+        if not form.validate_on_submit(): abort(400)
+        try:
+            if request.form.get('action') == 'preview':
+                reviewed, token = correction_review(product)
+            elif request.form.get('action') == 'confirm':
+                # Repeated POSTs observe the same durable operation, never
+                # grant another assignment. The normal manual worker owns it.
+                from app.shopify_progress import receipt, review_data
+                from app.manual_publishing import accept
+                proof = request.form.get('review', '')
+                if review_data(product_id,proof,max_age=900).get('mode') != 'package_correction':
+                    raise ShopifyError('A fresh package-only review is required.')
+                prior = receipt(product_id,proof)
+                accepted = accept(product_id,proof,request.form.get('acknowledge') == 'yes') if prior['state'] == 'waiting' else None
+                result = receipt(product_id,proof)
+                if request.headers.get('Accept') == 'application/json':
+                    return jsonify({**result,'return_url':products_return(product_id)}), 202 if accepted else 200, {'Cache-Control':'no-store'}
+                return redirect(url_for('main.operation_detail',operation_id=accepted.id) if accepted else result.get('history_url') or products_return(product_id))
+            else: abort(400)
+        except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive, ValueError) as exc:
+            error = str(exc)
+            if request.headers.get('Accept') == 'application/json':
+                return jsonify(state='failed',message=error,return_url=products_return(product_id)),400,{'Cache-Control':'no-store'}
+    rows = ShopifyProductIdentity.query.filter_by(product_id=product_id).limit(2).all()
+    row = rows[0] if len(rows) == 1 else None
+    data = service.evidence(row) if row else {}
+    original = db.session.get(CatalogueOperation,row.operation_id) if row and row.operation_id else None
+    from app.utils.operation_control import sanitize_operation_error
+    prior_issue = sanitize_operation_error(original.error or original.recovery_state) if original and original.recovery_state not in {None,'none'} else None
+    selected = effective(product_document(product)).get('selected_package_id')
+    package = db.session.get(Package,selected) if selected else None
+    link = None
+    if package:
+        from app import package_links
+        try: link = package_links.find(package.id,service.configuration(),row.store_id if row else None)
+        except ValueError: pass
+    return render_template('shopify_package_correction.html',form=form,product=product,row=row,data=data,
+        package=package,link=link,prior_issue=prior_issue,reviewed=reviewed,token=token,error=error,return_to=products_return(product_id)),400 if error else 200,{'Cache-Control':'no-store'}
+
+
 @commerce.route("/shopify/drafts", methods=["GET", "POST"])
 @commerce.route("/products/<int:product_id>/shopify/review", methods=["GET", "POST"])
 @login_required
