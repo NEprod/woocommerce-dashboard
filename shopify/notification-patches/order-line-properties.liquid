@@ -1,0 +1,12 @@
+{% comment %}
+REVIEW ONLY. No live notification has been edited.
+Inside the existing purchased-line loop, using its actual `line` variable.
+Install ONLY if that template does not already render public line properties.
+Keep private underscore-prefixed data hidden; never read current product metafields.
+{% endcomment %}
+{% for property in line.properties %}
+  {% assign first_character = property.first | slice: 0 %}
+  {% if property.last != blank and first_character != '_' %}
+    <p><strong>{{ property.first | escape_once }}:</strong> {{ property.last | escape_once }}</p>
+  {% endif %}
+{% endfor %}

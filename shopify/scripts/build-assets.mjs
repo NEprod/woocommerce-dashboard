@@ -1,6 +1,7 @@
 // Local asset build only. Never invokes Shopify APIs or reads app credentials.
 import {build} from 'esbuild';
-import {stat} from 'node:fs/promises';
+import {readFile,stat} from 'node:fs/promises';
+import {gzipSync} from 'node:zlib';
 import {fileURLToPath} from 'node:url';
 
 const root = new URL('../extensions/tlc-customisations/', import.meta.url);
@@ -12,5 +13,7 @@ await build({
   banner: {js:'/* Generated from src/tlc-customer-fields.js by npm run build:assets. */'}
 });
 const {size} = await stat(outfile);
-if (size > 10000) throw Error(`Shopify app-block JavaScript exceeds Theme Check's 10000-byte limit: ${size}`);
-console.log(`TLC theme asset: ${size} / 10000 bytes`);
+// Shopify's suggested Theme Check budget measures compressed bytes, not source.
+const compressed=gzipSync(await readFile(outfile)).length;
+if (compressed > 10000) throw Error(`Shopify app-block JavaScript exceeds Theme Check's 10000-byte compressed budget: ${compressed}`);
+console.log(`TLC theme asset: ${size} bytes; gzip ${compressed} / 10000 bytes`);

@@ -20,6 +20,31 @@ test('theme extension contains only Shopify-supported deployable directories',()
 const configuration = fields => ({schema_version:1,enabled:true,revision:'a'.repeat(64),fields});
 const name = {id:'name',type:'text',label:'Name',required:true,max_length:30};
 
+test('proof uses the existing properties and revision snapshot, after customer fields',()=>{
+  const optional={...configuration([name]),proof_policy:'optional'};
+  assert.throws(()=>api.properties(optional,100,{name:'Ellie'}),/choose.*digital proof/);
+  for(const choice of ['yes','no']) {
+    const value=plain(api.properties(optional,100,{name:'Ellie'},'3-5 Days',choice));
+    assert.deepEqual(Object.keys(value).slice(0,3),['Production time','Name','Digital proof']);
+    const snapshot=JSON.parse(value._tlc_personalisation);
+    assert.equal(snapshot.proof.choice,choice);assert.equal(snapshot.proof.policy,'optional');
+    assert.equal(snapshot.fields.length,1);assert.equal(snapshot.fields[0].id,'name');
+    assert.equal(snapshot.proof.display,value['Digital proof']);
+  }
+  const required=plain(api.properties({...optional,proof_policy:'required'},100,{name:'Ellie'}));
+  assert.equal(required['Digital proof'],'Proof Required');
+  const none=plain(api.properties(configuration([name]),100,{name:'Ellie'}));
+  assert.ok(!Object.hasOwn(none,'Digital proof') && !Object.hasOwn(JSON.parse(none._tlc_personalisation),'proof'));
+  assert.deepEqual(plain(api.properties({...optional,enabled:false},100,{})),{});
+  assert.equal(api.properties({...configuration([]),proof_policy:'required'},100,{})['Digital proof'],'Proof Required');
+  assert.throws(()=>api.configuration({...optional,proof_policy:'unknown'}),/proof settings/);
+});
+test('a customer field labelled Digital proof cannot be overwritten by policy capture',()=>{
+  const value=plain(api.properties({...configuration([{...name,label:'Digital proof'}]),proof_policy:'required'},100,{name:'Customer answer'}));
+  assert.equal(value['Digital proof'],'Customer answer');assert.equal(value['Digital proof (2)'],'Proof Required');
+  assert.equal(JSON.parse(value._tlc_personalisation).proof.property_key,'Digital proof (2)');
+});
+
 test('production metadata is optional, first, safely encoded and independent of customisations',()=>{
   for (const config of [null,{...configuration([]),enabled:false}]) {
     assert.deepEqual(plain(api.properties(config,100,{},'3-5 Days')),{'Production time':'3-5 Days'});
@@ -46,6 +71,9 @@ test('one existing Liquid block resolves published Lead Time outside customer co
   assert.match(liquid,/tlc_lead_time.name.value/);
   assert.match(liquid,/tlc_config.enabled == true or tlc_production_time != blank/);
   assert.ok(liquid.indexOf('data-tlc-fields')<liquid.indexOf("render 'production-time'"));
+  assert.ok(liquid.indexOf('data-tlc-fields')<liquid.indexOf('data-tlc-proof'));
+  assert.ok(liquid.indexOf('data-tlc-proof')<liquid.indexOf("render 'production-time'"));
+  assert.match(liquid,/data-configuration="{{ tlc_config \| json \| escape }}"/);
   assert.equal((liquid.match(/<tlc-customer-fields /g)||[]).length,1);
   assert.doesNotMatch(liquid,/3-5 Days|PUBLIC_READ|storefrontAccess|production_time_namespace/);
   const snippet=fs.readFileSync(new URL('../../shopify/extensions/tlc-customisations/snippets/production-time.liquid',import.meta.url),'utf8');
@@ -120,7 +148,7 @@ test('renderer preserves native theme variant/cart and supports formdata lifecyc
   assert.match(source,/guardTarget\.addEventListener\('submit',this.submit,true\)/);
   assert.match(source,/event\.target !== this\.form/);
   assert.match(source,/guardTarget\?\.removeEventListener\('submit',this.submit,true\)/);
-  assert.match(source,/formdata/);assert.match(source,/setAttribute\('form',form.getAttribute\('id'\)\)/);
+  assert.match(source,/formdata/);assert.match(source,/setAttribute\('form',this.form.getAttribute\('id'\)\)/);
   assert.doesNotMatch(source,/\bform\.id\b[^\n]*\)/);
   assert.match(source,/disconnectedCallback\(\)/);assert.match(source,/MutationObserver/);
   assert.doesNotMatch(source,/fetch\(|XMLHttpRequest|\/cart\/change|\.value\s*=.*variant|type=['"]file/);

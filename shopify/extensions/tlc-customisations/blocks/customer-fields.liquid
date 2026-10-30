@@ -27,6 +27,7 @@
     data-production-time="{{ tlc_production_time | escape }}" {{ block.shopify_attributes }}>
     <p data-tlc-status role="status">{% if tlc_config.enabled == true %}Loading your personalisation options…{% endif %}</p>
     <div data-tlc-fields></div>
+    <div data-tlc-proof></div>
     {% render 'production-time', production_time: tlc_production_time, form_id: tlc_form_id %}
     {% if tlc_config.enabled == true %}<noscript>Personalisation needs JavaScript. Do not purchase this personalised product without supplying its required details.</noscript>{% endif %}
   </tlc-customer-fields>

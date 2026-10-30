@@ -6,6 +6,7 @@
   <p>Current: {{ configuration.before }}. Reviewed: {{ configuration.after }}.</p>
   {% if detail.message %}<p data-customisation-message>{{ detail.message }}</p>{% endif %}
   {% if detail.enabled_change %}<p><strong>Enabled:</strong> {{ detail.enabled_change.before }} → {{ detail.enabled_change.after }}</p>{% endif %}
+  {% if detail.proof_change %}<p data-customisation-proof><strong>Digital proof:</strong> {{ detail.proof_change.before }} → {{ detail.proof_change.after }}</p>{% endif %}
   {% if detail.changes %}<ul data-customisation-changes>
     {% for field in detail.changes %}<li class="text-break">
       <strong>{{ field.label }}</strong> — {{ field.kind }}{% if field.description %} · {{ field.description }}{% endif %}

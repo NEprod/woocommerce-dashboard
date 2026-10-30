@@ -44,6 +44,7 @@ def parse(properties, product_id=None):
     if snapshot is None and '_tlc_personalisation' not in private and (public or private):
         warnings.append('No TLC private snapshot: use the original customer properties; stable field identities are unavailable.')
     revision = private.get('_tlc_configuration')
+    proof = None
     if snapshot:
         if not isinstance(snapshot.get('revision'),str) or not REVISION.fullmatch(snapshot['revision']):
             warnings.append('Snapshot configuration revision is invalid.')
@@ -55,6 +56,23 @@ def parse(properties, product_id=None):
             warnings.append('Snapshot product identity differs from the purchased line; review before production.')
         if snapshot.get('visible_encoding') == 'html_entities':
             public = [{'label':html.unescape(p['label']), 'value':html.unescape(p['value'])} for p in public]
+        if 'proof' in snapshot:
+            value = snapshot['proof']
+            labels = {'yes':'Yes, send me a proof for approval.',
+                      'no':'No, proceed without a proof.', 'required':'Proof Required'}
+            if (isinstance(value, dict) and isinstance(value.get('policy'), str)
+                    and value['policy'] in {'optional', 'required'}
+                    and isinstance(value.get('choice'), str)
+                    and value['choice'] in ({'yes', 'no'} if value['policy'] == 'optional' else {'required'})
+                    and isinstance(value.get('property_key'), str)
+                    and value['property_key'] not in snapshot_keys
+                    and value.get('display') == labels[value['choice']]):
+                matching = [p for p in public if p['label'] == value['property_key']]
+                if len(matching) == 1 and matching[0]['value'] == value['display']:
+                    proof = dict(value)
+                    public = [p for p in public if p not in matching]
+            if proof is None:
+                warnings.append('Digital proof snapshot and customer-visible preference are inconsistent; review original properties before production.')
         seen = set()
         for f in snapshot['fields']:
             if not isinstance(f,dict):
@@ -89,5 +107,5 @@ def parse(properties, product_id=None):
               for f in fields if isinstance(f.get('property_key'),str)}
         if keys and any(p['label'] not in keys for p in public):
             warnings.append('Additional customer-visible properties are retained below; review before production.')
-    return {'schema_version':1,'revision':revision,'fields':fields,'public':public,'production_times':production_times,
+    return {'schema_version':1,'revision':revision,'fields':fields,'public':public,'production_times':production_times,'proof':proof,
             'warnings':list(dict.fromkeys(warnings)), 'has_personalisation':bool(public or private)}

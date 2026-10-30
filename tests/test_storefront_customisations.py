@@ -96,7 +96,7 @@ def test_allowlist_resolved_sparse_overrides_and_stable_revision():
     assert [f['id'] for f in value['fields']] == ['name','age','message','colour']
     assert next(f for f in value['fields'] if f['id']=='name')['max_length'] == 30
     assert value['fields'][-1]['choices'] == [{'id':'red','label':'Red','value':'#ff0000'}]
-    assert 'PRIVATE' not in json.dumps(value) and 'proof_policy' not in value and PUBLIC == before
+    assert 'PRIVATE' not in json.dumps(value) and value['proof_policy'] == 'required' and PUBLIC == before
     assert value == public_configuration(json.loads(json.dumps(resolved,sort_keys=True)))
     resolved['private_notes'] = 'other private text'
     assert value == public_configuration(resolved)
@@ -266,9 +266,12 @@ def test_enabled_public_only_fingerprint_and_private_notes(world):
     row,adapter=create(world)
     images=drafts.local_plan(world[0])['images']
     before=source_fingerprint(world[0],images)
-    private=copy.deepcopy(PUBLIC);private['proof_policy']='none';private['private_notes']='another'
+    private=copy.deepcopy(PUBLIC);private['private_notes']='another'
     change(world,customisation=private)
     assert source_fingerprint(world[0],images)==before
+    private['proof_policy']='none'
+    change(world,customisation=private)
+    assert source_fingerprint(world[0],images)!=before
     private['fields']['name']['label']='Recipient'
     change(world,customisation=private)
     assert source_fingerprint(world[0],images)!=before

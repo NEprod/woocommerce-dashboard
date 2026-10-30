@@ -53,7 +53,9 @@ def _fields(config):
                            or not isinstance(c.get('label'), str) for c in field['choices']))):
             return None
         fields[field['id']] = field
-    if config['enabled'] and not fields:
+    if not isinstance(config.get('proof_policy', 'none'), str) or config.get('proof_policy', 'none') not in {'none', 'optional', 'required'}:
+        return None
+    if config['enabled'] and not fields and config.get('proof_policy', 'none') == 'none':
         return None
     try:
         validate({'fields': {key: {k: v for k, v in field.items() if k != 'id'}
@@ -113,7 +115,7 @@ def compare(spec, before_summary=None, after_summary=None):
     desired = spec.get('desired')
     result = {'before': 'Not published' if known_absent else _summary(previous, before_summary),
         'after': _summary(desired, after_summary), 'available': False, 'changes': [], 'matching': [],
-        'enabled_change': None, 'message': UNAVAILABLE,
+        'enabled_change': None, 'proof_change': None, 'message': UNAVAILABLE,
         'previous_revision': _revision(previous, before_summary),
         'reviewed_revision': _revision(desired, after_summary)}
     old = {} if known_absent else _fields(previous)
@@ -121,6 +123,11 @@ def compare(spec, before_summary=None, after_summary=None):
     if old is None or new is None:
         return result
     result['available'] = True
+    modes = {'none': 'No proof', 'optional': 'Optional', 'required': 'Required'}
+    old_mode = 'none' if known_absent else previous.get('proof_policy', 'none')
+    new_mode = desired.get('proof_policy', 'none')
+    if old_mode in modes and new_mode in modes and old_mode != new_mode:
+        result['proof_change'] = {'before': modes[old_mode], 'after': modes[new_mode]}
     if not known_absent and previous['enabled'] != desired['enabled']:
         result['enabled_change'] = {'before': display(previous['enabled']), 'after': display(desired['enabled'])}
     old_common, new_common = [key for key in old if key in new], [key for key in new if key in old]
@@ -148,7 +155,7 @@ def compare(spec, before_summary=None, after_summary=None):
             entry.update(kind='Reordered' if all(c['setting'] == 'Position' for c in entry['changes']) else 'Changed',
                          description='')
         result['changes'].append(entry)
-    result['message'] = '' if result['changes'] or result['enabled_change'] else (
+    result['message'] = '' if result['changes'] or result['enabled_change'] or result['proof_change'] else (
         'No customer-facing field differences were found in the available definitions. '
         'Any technical configuration or revision difference still follows the existing review action.')
     return result

@@ -14,7 +14,7 @@ const root=new URL('../../',import.meta.url);
 const fixture='/tests/browser/tinker-cart-guard.html';
 const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-async function world(browser,mobile,production=false) {
+async function world(browser,mobile,production=false,proof='none') {
   const state={items:[],adds:0,changes:0};
   const server=createServer(async(req,res)=>{
     try {
@@ -46,6 +46,7 @@ async function world(browser,mobile,production=false) {
       if(![fixture,'/tests/browser/storefront-customisations.html','/shopify/extensions/tlc-customisations/assets/tlc-customer-fields.js','/shopify/extensions/tlc-customisations/assets/tlc-customer-fields.css'].includes(path)) {res.writeHead(404);res.end();return;}
       res.setHeader('Content-Type',path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':'text/html');
       let content=await readFile(new URL('.'+path,root));
+      if(proof!=='none' && path===fixture)content=content.toString().replace("schema_version:1,enabled:true,revision:'a'",`schema_version:1,enabled:true,proof_policy:${JSON.stringify(proof)},revision:'a'`);
       if(production && path===fixture) {
         content=content.toString().replace('id="personalisation"','id="personalisation" data-production-time="3-5 Days"')
           .replace('<div data-tlc-fields></div>','<div data-tlc-fields></div><p class="tlc-production-time"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg><span>Production Time: 3-5 Days</span></p><input data-tlc-production-input type="hidden" name="properties[Production time]" value="3-5 Days" form="BuyButtons-ProductForm-main">')
@@ -78,8 +79,63 @@ for(const engine of (process.env.TLC_TEST_ENGINES || 'chromium,webkit').split(',
     await mkdir(process.env.TLC_BROWSER_ARTIFACT_DIR,{recursive:true});
     await page.screenshot({path:join(process.env.TLC_BROWSER_ARTIFACT_DIR,`${engine}-${name}.png`),fullPage:true});
   };
-  const run=async(name,fn,production=false)=>t.test(name,async()=>{const w=await world(browser,engine==='webkit'||process.env.TLC_MOBILE==='1',production);try{await fn(w);}finally{await w.close();}});
+  const run=async(name,fn,production=false,proof='none')=>t.test(name,async()=>{const w=await world(browser,engine==='webkit'||process.env.TLC_MOBILE==='1',production,proof);try{await fn(w);}finally{await w.close();}});
   try {
+    await run('optional proof requires an explicit choice and keeps Yes/No separate through cart and checkout fixture',async({page,state})=>{
+      await fill(page,'Ellie','6');
+      await page.getByRole('button',{name:'Add personalised item',exact:true}).click();await settle(page);
+      assert.equal(state.adds,0);assert.match(await page.locator('#personalisation [data-tlc-status]').innerText(),/digital proof/);
+      assert.equal(await page.locator('#BuyButtons-ProductForm-main .shopify-payment-button').isVisible(),false);
+      const radios=page.locator('#personalisation input[type=radio]');
+      assert.equal(await radios.count(),2);
+      assert.equal(await page.getByRole('group',{name:'Would you like a digital proof before we make your item?'}).count(),1);
+      await page.getByLabel('Yes, send me a proof for approval.',{exact:true}).check();
+      await page.getByRole('button',{name:'Add personalised item',exact:true}).click();await added(page,1);
+      await page.getByLabel('No, proceed without a proof.',{exact:true}).check();
+      await page.getByRole('button',{name:'Add personalised item',exact:true}).click();await added(page,2);
+      assert.notEqual(state.items[0].key,state.items[1].key);
+      assert.equal(JSON.parse(state.items[0].properties._tlc_personalisation).proof.choice,'yes');
+      assert.equal(JSON.parse(state.items[1].properties._tlc_personalisation).proof.choice,'no');
+      await page.evaluate(()=>{const form=document.querySelector('#BuyButtons-ProductForm-main');form.querySelector('[name=id]').value='205';form.replaceWith(form.cloneNode(true));});
+      await page.waitForFunction(()=>document.querySelector('#personalisation').form===document.querySelector('#BuyButtons-ProductForm-main'));
+      await page.getByRole('button',{name:'Add personalised item',exact:true}).click();await added(page,3);
+      assert.equal(state.items[2].id,'205');assert.match(state.items[2].properties['Digital proof'],/^No,/);
+      assert.equal(await page.evaluate(()=>new FormData(document.querySelector('#BuyButtons-ProductForm-main')).getAll('properties[Digital proof]').length),1);
+      await page.getByLabel('Second message').fill('Another product');
+      await page.getByRole('button',{name:'Add second item',exact:true}).click();await added(page,4);
+      assert.equal(state.items[3].properties['Digital proof'],undefined);
+      for(const target of ['#cart-drawer','#cart-page'])assert.match(await page.locator(target).innerText(),/Digital proof: Yes, send me a proof/);
+      await capture(page,'proof-optional');
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+      await page.evaluate(()=>document.querySelector('#BuyButtons-ProductForm-main').reset());
+      await page.waitForFunction(()=>!document.querySelector('#personalisation').proofControls.some(i=>i.checked));
+      assert.equal(await page.evaluate(()=>document.querySelector('#personalisation').validate(false)),false);
+      assert.equal(state.adds,4,'reset does not change already captured cart lines');
+      await page.getByRole('link',{name:'Offline checkout fixture (no order)',exact:true}).click();
+      assert.match(await page.locator('body').innerText(),/Digital proof: No, proceed without a proof/);
+    },true,'optional');
+    await run('required proof follows existing answers, has no radios, and native submission captures Proof Required',async({page,state})=>{
+      assert.match(await page.locator('#personalisation').innerText(),/A digital proof will be sent for your approval before we make your item/);
+      assert.equal(await page.locator('#personalisation input[type=radio]').count(),0);
+      await fill(page,'Freddie','5');
+      await page.evaluate(()=>{const form=document.querySelector('#BuyButtons-ProductForm-main');form.removeAttribute('on:submit');form.noValidate=false;form.requestSubmit();});
+      await page.waitForFunction(()=>document.querySelector('iframe').contentDocument?.body.textContent.includes('Proof Required'));
+      assert.equal(state.adds,1);assert.equal(state.items[0].properties['Digital proof'],'Proof Required');
+      assert.deepEqual(Object.keys(state.items[0].properties).slice(0,4),['Production time','Recipients Name','Anniversary Years','Digital proof']);
+      await capture(page,'proof-required');
+    },true,'required');
+    await run('proof-only configuration uses the same block and form without inventing customer fields',async({page,state})=>{
+      await page.evaluate(()=>{
+        const old=document.querySelector('#personalisation'),config={...old.config,fields:[]};
+        const block=old.cloneNode(false);block.dataset.configuration=JSON.stringify(config);
+        block.innerHTML='<p data-tlc-status></p><div data-tlc-fields></div><div data-tlc-proof></div>';
+        old.replaceWith(block);
+      });
+      await page.waitForFunction(()=>document.querySelector('#personalisation').form && document.querySelector('#personalisation').controls.size===0);
+      await page.getByRole('button',{name:'Add personalised item',exact:true}).click();await added(page,1);
+      assert.equal(state.items[0].properties['Digital proof'],'Proof Required');
+      assert.deepEqual(JSON.parse(state.items[0].properties._tlc_personalisation).fields,[]);
+    },true,'required');
     await run('production-only and personalised blocks capture once, keep variant identity and snapshot order',async({page,state})=>{
       assert.equal(await page.locator('#personalisation .shopify-payment-button').count(),0);
       assert.equal(await page.locator('#BuyButtons-ProductForm-main .shopify-payment-button').isVisible(),false);

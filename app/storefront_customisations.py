@@ -22,6 +22,10 @@ def public_configuration(definition):
     enabled = definition.get('storefront_enabled', False)
     result = {'schema_version': VERSION, 'enabled': enabled, 'fields': []}
     if enabled:
+        # Existing local policy, projected through the same reviewed metafield.
+        # Omit "none" so unchanged legacy configurations need no blanket rewrite.
+        if definition.get('proof_policy', 'none') != 'none':
+            result['proof_policy'] = definition['proof_policy']
         for key, field in ordered_fields(definition):
             if not field.get('enabled', True) or field.get('remove'):
                 continue
@@ -35,7 +39,7 @@ def public_configuration(definition):
                     if isinstance(c, str) else {k: c[k] for k in ('id', 'label', 'value') if k in c})
                     for c in field['choices']]
             result['fields'].append(public)
-        if not result['fields']:
+        if not result['fields'] and 'proof_policy' not in result:
             raise CustomisationDefinitionError('Storefront customisations are enabled but no supported enabled fields remain. Add an enabled supported field, or disable storefront customisations at their owning source.')
     result['revision'] = hashlib.sha256(canonical(result).encode()).hexdigest()
     return result

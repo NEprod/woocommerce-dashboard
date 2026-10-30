@@ -3,6 +3,8 @@
   'use strict';
   const kinds = new Set(['text','textarea','number','dropdown','radio','checkbox','checkbox_group','date','colour']);
   const idPattern = /^[a-z][a-z0-9_]{0,63}$/;
+  const proofText = {yes:'Yes, send me a proof for approval.',no:'No, proceed without a proof.',required:'Proof Required'};
+  const proofMode = config => config?.enabled ? config.proof_policy ?? 'none' : 'none';
   const empty = value => value == null || typeof value === 'string' && !value.trim() || Array.isArray(value) && !value.length || value === false;
   const htmlText = value => String(value).replace(/[&<>"'/]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#47;'}[c]));
   function configuration(value) {
@@ -13,7 +15,8 @@
       seen.add(f.id);
       if (['dropdown','radio','checkbox_group'].includes(f.type) && !f.choices?.length) throw Error('Customer choices are unavailable.');
     }
-    if (value.enabled && !value.fields.length) throw Error('Customer fields are unavailable.');
+    if (!['none','optional','required'].includes(value.proof_policy ?? 'none')) throw Error('Digital proof settings are unavailable.');
+    if (value.enabled && !value.fields.length && proofMode(value)==='none') throw Error('Customer fields are unavailable.');
     return value;
   }
   function error(f, value) {
@@ -36,7 +39,7 @@
     }
     return null;
   }
-  function properties(config, product, answers, productionTime = '') {
+  function properties(config, product, answers, productionTime = '', proofChoice = '') {
     const result = Object.create(null), snapshot = [];
     if (productionTime.trim()) result['Production time'] = htmlText(productionTime);
     if (!config) return result;
@@ -60,9 +63,18 @@
       if(field.choices)saved.choice_ids=field.choices.filter(c=>Array.isArray(value)?value.includes(c.id):c.id===value||c.value===value).map(c=>c.id);
       snapshot.push(saved);
     }
+    let proof;
+    if (proofMode(config)!=='none') {
+      const choice=proofMode(config)==='required'?'required':proofChoice;
+      if (proofMode(config)==='optional' && !['yes','no'].includes(choice)) throw Error('Please choose whether you would like a digital proof.');
+      let key='Digital proof';
+      for(let n=2;Object.hasOwn(result,key);n++)key=`Digital proof (${n})`;
+      result[key]=proofText[choice];
+      proof={policy:proofMode(config),choice,property_key:key,display:proofText[choice]};
+    }
     result._tlc_configuration = config.revision;
     result._tlc_personalisation = JSON.stringify({schema_version:1,product_id:String(product),revision:config.revision,
-      visible_encoding:'html_entities',fields:snapshot});
+      visible_encoding:'html_entities',fields:snapshot,...(proof?{proof}:{})});
     return result;
   }
   const api = {configuration,error,properties};
@@ -103,7 +115,7 @@
       if (this.productionInput) this.productionInput.disabled=true;
       this.guardWallets();
       // Shopify's input[name=id] shadows form.id. Always read the attribute.
-      for (const inputs of this.controls.values()) for (const input of inputs) input.setAttribute('form',form.getAttribute('id'));
+      this.associate();
       // Horizon delegates submit from document capture: form capture is too late.
       // Window capture precedes it regardless of script registration order. Ignore
       // every other form; do not intercept clicks, fetch, checkout or payment APIs.
@@ -116,7 +128,7 @@
         for (const input of this.propertyInputs) event.formData.delete(input.name);
         if (this.validate(false)) for (const [key,value] of Object.entries(this.values())) event.formData.set(`properties[${key}]`,value);
       };
-      this.reset = event => queueMicrotask(()=>{if(event.defaultPrevented || !this.isConnected)return;this.answers=Object.create(null);if(this.config?.enabled)this.render();for(const inputs of this.controls.values())for(const input of inputs)input.setAttribute('form',this.form.getAttribute('id'));this.sync();});
+      this.reset = event => queueMicrotask(()=>{if(event.defaultPrevented || !this.isConnected)return;this.answers=Object.create(null);this.proofChoice='';if(this.config?.enabled)this.render();this.associate();this.sync();});
       this.guardTarget = this.ownerDocument.defaultView;
       this.guardTarget.addEventListener('submit',this.submit,true);
       form.addEventListener('formdata',this.formdata);form.addEventListener('reset',this.reset);
@@ -141,7 +153,8 @@
         element.hidden=true;
       }
     }
-    values() {return properties(this.config,this.dataset.productId,this.answers,this.dataset.productionTime || '');}
+    associate() {for(const inputs of [...this.controls.values(),this.proofControls || []])for(const input of inputs)input.setAttribute('form',this.form.getAttribute('id'));}
+    values() {return properties(this.config,this.dataset.productId,this.answers,this.dataset.productionTime || '',this.proofChoice);}
     sync() {
       this.propertyInputs.forEach(n=>n.remove());this.propertyInputs=[];
       if (!this.form || this.blockReason || !this.validate(false)) return;
@@ -160,6 +173,13 @@
         input?.setCustomValidity(message || '');
         if (input) input.setAttribute('aria-invalid',message?'true':'false');
         if (message && !first) first={input,message:`${f.label}: ${message}`};
+      }
+      if(proofMode(this.config)==='optional') {
+        this.proofChoice=this.proofControls?.find(i=>i.checked)?.value || '';
+        const message=['yes','no'].includes(this.proofChoice)?'':'Please choose whether you would like a digital proof.';
+        const input=this.proofControls?.[0];input?.setCustomValidity(message);
+        if(input)input.setAttribute('aria-invalid',message?'true':'false');
+        if(message && !first)first={input,message};
       }
       if(report || !first)this.status.textContent=first?.message || '';
       if(first && report){first.input?.reportValidity();first.input?.focus();}
@@ -200,6 +220,22 @@
         inputs.forEach(i=>i.addEventListener('input',update));inputs.forEach(i=>i.addEventListener('change',update));
         this.controls.set(f.id,inputs);this.container.append(wrap);
       }
+      this.proofControls=[];
+      const target=this.querySelector('[data-tlc-proof]') || this.container;
+      if(target!==this.container)target.replaceChildren();
+      const mode=proofMode(this.config);
+      if(mode==='none')return;
+      const wrap=document.createElement(mode==='optional'?'fieldset':'p');wrap.className='tlc-field';
+      if(mode==='required')wrap.textContent='A digital proof will be sent for your approval before we make your item.';
+      else {
+        const legend=document.createElement('legend');legend.textContent='Would you like a digital proof before we make your item?';wrap.append(legend);
+        for(const choice of ['yes','no']) {
+          const label=document.createElement('label'),input=document.createElement('input');
+          input.type='radio';input.name=`tlc-proof-${this.dataset.productId}-${this.dataset.formId}`;input.value=choice;input.required=true;input.checked=this.proofChoice===choice;
+          input.addEventListener('change',()=>this.sync());label.append(input,document.createTextNode(proofText[choice]));wrap.append(label);this.proofControls.push(input);
+        }
+      }
+      target.append(wrap);
     }
   }
   customElements.define('tlc-customer-fields',CustomerFields);

@@ -404,8 +404,10 @@ Plus; do not assume entitlement or claim universal required-field enforcement.
 
 No live customer upload service, malware scanning/retention/order-file association,
 paid extras, proof request/approval emails, Orders dashboard or order automation is
-included. `proof_policy` remains local workflow metadata, not an automatic customer
-control. A future customer approval checkbox must be an explicitly authored field.
+included in that original milestone. The subsequent proof-preference integration
+projects enabled `proof_policy` through the same reviewed configuration and captures
+per-line choices; see [PROOF_CUSTOMISATIONS.md](PROOF_CUSTOMISATIONS.md). Proof
+delivery, approval links/emails and production automation remain unimplemented.
 No theme/menu/collection/variant creation is performed by the scoped config action.
 
 ## Disable and rollback
