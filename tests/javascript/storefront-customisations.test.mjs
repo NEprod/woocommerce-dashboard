@@ -20,6 +20,14 @@ test('theme extension contains only Shopify-supported deployable directories',()
 const configuration = fields => ({schema_version:1,enabled:true,revision:'a'.repeat(64),fields});
 const name = {id:'name',type:'text',label:'Name',required:true,max_length:30};
 
+test('review-only notification addition escapes public values and does not duplicate gift-card properties',()=>{
+  const patch=fs.readFileSync(new URL('../../shopify/notification-patches/order-line-properties.liquid',import.meta.url),'utf8');
+  assert.match(patch,/unless tlc_notification_line.gift_card and tlc_notification_line.properties/);
+  assert.match(patch,/first_character != '_'/);
+  assert.match(patch,/property.first \| escape_once/);assert.match(patch,/property.last \| escape_once/);
+  assert.doesNotMatch(patch,/\.product\.metafields|\b(?:render|include)\s+['"]/);
+});
+
 test('proof uses the existing properties and revision snapshot, after customer fields',()=>{
   const optional={...configuration([name]),proof_policy:'optional'};
   assert.throws(()=>api.properties(optional,100,{name:'Ellie'}),/choose.*digital proof/);

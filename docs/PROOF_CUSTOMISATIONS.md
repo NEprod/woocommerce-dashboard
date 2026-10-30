@@ -11,8 +11,13 @@ Shopify Admin identified live theme **Tinker 4.3.0**, renamed **Live**, ID
 `201872474495`, and unpublished **Copy of Live**, ID `202396205439`. Craft is not
 the installed theme. The working source is the existing `tlc-customisations`
 theme app extension, not a second Craft Custom Liquid personalisation form.
-Further live code/notification inspection was interrupted by Safari reporting
-the Mac locked. No actual checkout, order or email acceptance is claimed.
+Safari temporarily reported a locked Mac, then worked on retry. Follow-up read-only
+inspection confirmed one saved `shopify://apps/tlcdashboard/blocks/customer-fields`
+block in `templates/product.json`, namespace `app--434537660417--tlc_customisations`,
+empty custom form ID and placement between the variant picker and buy buttons.
+The saved `snippets/cart-products.liquid` already loops over nonblank public line
+properties and hides underscore-prefixed properties. No actual checkout, order or
+sent-email acceptance is claimed.
 
 The editor, canonical JSON, scalar proof inheritance and scoped scanner already
 supported `customisation.proof_policy`: `none`, `optional`, `required`.
@@ -113,12 +118,31 @@ without pretending it is an authored customer field. Invalid, missing or conflic
 proof evidence stays available with a warning, never silently discarded. Production
 Time and customer answer parsing are otherwise unchanged. No database migration.
 
-The actual saved customer order-confirmation email is **not verified**. If its
-per-line public `line.properties` loop already exists, no edit is needed. Otherwise
-`shopify/notification-patches/order-line-properties.liquid` is an optional, minimal
-per-line renderer. Inspect the actual loop variable, back up the notification,
-install only after separate approval, and do not duplicate an existing renderer.
-Never read today's product metafield to explain an old purchase. No email was sent.
+Read-only inspection of the actual saved order-confirmation email found the public
+property loops **inside gift-card-only conditions**. Ordinary product lines currently
+omit these preferences. This is a confirmed missing email stage, not a cart or order
+capture defect. No email template was changed, and no email was sent; Revert changes
+remained disabled and the unchanged notification preview was reopened afterwards.
+
+The review-only `shopify/notification-patches/order-line-properties.liquid` adds safe
+public-property display for the ordinary branch without duplicating the existing
+gift-card renderer. After backing up the notification, installation requires
+**separate approval**:
+
+- Before each existing `{% if line.gift_card and line.properties["__shopify_send_gift_card_to_recipient"] %}`,
+  insert the supplied snippet unchanged. Three ordinary `line` branches were observed
+  at source lines 500, 1196 and 2519 on 30 October; verify current context, not just offsets.
+- Before the equivalent `component.gift_card` guard (observed at line 2191), insert
+  the same snippet with its first assignment changed to
+  `{% assign tlc_notification_line = component %}`.
+- Do not change the existing gift-card blocks, private-property filters, RTL wrappers,
+  prices or order summaries. Do not insert where a future template already has an
+  ordinary public-property renderer. Preview all delivery branches and a gift-card
+  fixture, then separately authorise any test email.
+
+The addition uses captured properties with `escape_once`, not today's metafields.
+It includes proof, existing customisations and Production Time only when actually
+present on that purchased line. Actual email delivery/rendering still needs acceptance.
 
 Orders is a read-only purchase viewer, not a proof delivery/approval system. No proof
 file storage, approval links, approval state machine, approval/customer email sending,
@@ -154,7 +178,7 @@ but migration 0021 safely refuses downgrade because retained manual approvals ne
 a paired backup. No migration or downgrade guard was changed; this baseline failure
 is reported separately and excluded from the final bounded regression run.
 Final bounded results: **237 Python tests passed, one baseline test deselected**
-(2,888 warnings), and **122 focused JavaScript checks passed**. There were no
+(2,888 warnings), and **123 focused JavaScript checks passed**. There were no
 introduced failures in those selected suites. `shopify app build` completed with
 the size diagnostic described below; no deploy/release command was executed.
 
