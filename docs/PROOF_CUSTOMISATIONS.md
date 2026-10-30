@@ -194,7 +194,13 @@ the old extension, which ignores them, is still serving customers.
 
 1. Back up `/app/instance` and retain the previous immutable dashboard image.
 2. Deploy the dashboard candidate only under merchant control, automation paused.
-   Preserve all current mounts; no scan/reset/migration is required for this feature.
+   Preserve all current mounts; no reset or database migration is required. Do not
+   add a startup scan. A normal proof-setting edit uses its existing scoped scan.
+   For Optional/Required policies already authored before this feature, the newly
+   public representation changes the publishing fingerprint even though the file
+   is unchanged. If the retained checkpoint predates it, use the existing explicit
+   affected-collection update once, only after merchant approval. Do not bypass
+   the source guard, run a full scan or claim the older checkpoint is current.
 3. Separately review/build the extension, then prepare an unreleased named app
    version (`shopify app deploy --no-release` only after approval). Review the
    retained size diagnostic before release. Creation is not activation. An app
