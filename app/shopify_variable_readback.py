@@ -180,12 +180,20 @@ def complete(row,adapter,*,allow_writes=False):
     except Exception as exc:
         # Only READ phases are safely retryable. A timeout during a mutation is
         # never converted into a pending/read-only continuation.
-        if data['verification_wait'].get('state') in {'pending','waiting_authority'} and _transient(exc):return _pause(row,data,exc)
-        if isinstance(exc,ShopifyError):
-            # Retain a truthful protected outcome on the ORIGINAL operation,
-            # including automatic continuations outside confirm's stack.
-            data['error']=str(exc)[:500];data['verification_wait']['state']='recovery_required'
-            row.verification_state='unverified';drafts.save(row,data,'uncertain')
-            finish_catalogue_operation(row.operation_id,status='partial',recovery_state='review_required',error=exc,
-                products_attempted=1,products_succeeded=0,products_failed=0)
+        if data['verification_wait'].get('state') in {'pending','waiting_authority','completed'} and _transient(exc):return _pause(row,data,exc)
+        # Preserve the latest COMMITTED acknowledgement/readback on every error,
+        # including non-Shopify exceptions and continuations outside confirm().
+        # Unknown exceptions remain protected; they do not authorise write replay.
+        diagnostic=drafts.failure_diagnostic(exc,'variable_readback.'+w['phase'],row.operation_id)
+        db.session.rollback()
+        data=drafts.evidence(row)
+        from app.utils.operation_control import sanitize_operation_error
+        message=sanitize_operation_error(exc) if isinstance(exc,ShopifyError) else (
+            'Variable readback interrupted ('+diagnostic['category']+'). '+diagnostic['reason']+' No automatic retry.')
+        data['error']=message;data['failure_diagnostic']=diagnostic
+        data['verification_wait']['state']='recovery_required'
+        row.verification_state='unverified';drafts.save(row,data,'uncertain')
+        finish_catalogue_operation(row.operation_id,status='partial',recovery_state='review_required',error=message,
+            products_attempted=1,products_succeeded=0,products_failed=0,
+            operation_summary={'identity_id':row.id,'stage':diagnostic['stage'],'diagnostic':diagnostic})
         raise

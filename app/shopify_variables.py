@@ -939,18 +939,37 @@ def confirm(reviewed, adapter=None):
         return row
     except Exception as exc:
         db.session.rollback()
+        from app.shopify_capacity import BackgroundYield
+        if isinstance(exc, BackgroundYield) and not attempted and (not row or row.operation_id != lease.id):
+            # A read-only preflight yield is owned by the existing task runner.
+            # Do not terminalise/notify an operation which will resume there.
+            raise
         if row and data:
             from app.shopify_package_assignments import attempted as package_attempted
             retained=drafts.evidence(row)
-            if package_attempted(retained,lease.id):data=retained;attempted=True
+            if row.operation_id == lease.id:
+                # complete() works on its own decoded receipt. Its later commits
+                # must never be replaced by confirm's earlier in-memory snapshot.
+                data=retained
+            if package_attempted(retained,lease.id):attempted=True
             if not attempted and creating is False and previous:
                 row.operation_id,row.reviewed_digest,row.verification_state=previous["operation_id"],previous["reviewed_digest"],previous['verification_state']
                 drafts.save(row,previous["data"],previous['state'])
+                if isinstance(exc, BackgroundYield):raise
                 finish_catalogue_operation(lease.id,status="failed",error="Variable update stopped before writes; prior identity evidence retained.")
                 raise
-            data["error"] = str(exc)[:512] if isinstance(exc,ShopifyError) else "Variable operation interrupted; inspect its retained stage. No automatic retry."
+            from app.utils.operation_control import sanitize_operation_error
+            phase=(data.get('verification_wait') or {}).get('phase')
+            diagnostic=data.get('failure_diagnostic') or {}
+            diagnostic=diagnostic if diagnostic.get('operation_id')==lease.id else drafts.failure_diagnostic(
+                exc,'variable_readback.'+phase if phase else data.get('stage'),lease.id)
+            data['failure_diagnostic']=diagnostic
+            data["error"] = sanitize_operation_error(exc) if isinstance(exc,ShopifyError) else (
+                'Variable operation interrupted at '+diagnostic['stage']+' ('+diagnostic['category']+'). '
+                +diagnostic['reason']+' No automatic retry.')
             drafts.save(row,data,"uncertain" if attempted or data.get("create_attempted") else "failed_before_create" if not data.get("create_attempted") else "verified")
-            finish_catalogue_operation(lease.id,status="partial" if attempted else "failed",recovery_state="review_required" if attempted else "none",operation_summary={"identity_id":row.id,"stage":data["stage"]})
+            finish_catalogue_operation(lease.id,status="partial" if attempted else "failed",recovery_state="review_required" if attempted else "none",operation_summary={
+                "identity_id":row.id,"stage":diagnostic['stage'],'diagnostic':diagnostic,'write_attempted':attempted})
             return row
         from app.utils.operation_control import sanitize_operation_error
         finish_catalogue_operation(lease.id,status="failed",error="Variable review failed before remote writes. "+sanitize_operation_error(exc))

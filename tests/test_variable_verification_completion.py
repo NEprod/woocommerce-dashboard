@@ -252,6 +252,90 @@ def test_documented_completion_probe_is_read_only(variable_world,monkeypatch,cap
     assert path.read_bytes()==before and row.state=='verified'
 
 
+@pytest.mark.parametrize('interruption', ['none','preflight_yield','final_yield','final_exception','final_mismatch'])
+def test_full_manual_variable_proof_update_keeps_current_receipts(variable_world,monkeypatch,interruption):
+    """ADOC's full signed worker route, not the configuration-only shortcut."""
+    from flask import g
+    from app.shopify_capacity import BackgroundYield
+    from app.shopify_notifications import product_result, KEY as notifications_key
+    from test_adoc_status_handoff import AdocAdapter
+    monkeypatch.setenv('TLC_SCHEDULER_READY_AT','99999999999')
+    monkeypatch.setenv('SHOPIFY_NATIVE_DIMENSIONS_ENABLED','true')
+    monkeypatch.setattr('requests.sessions.Session.request',lambda *a,**k:pytest.fail('External network'))
+    monkeypatch.setattr('app.utils.discord.publishing_message',lambda *a,**k:(False,'disabled'))
+    custom={'storefront_enabled':True,'proof_policy':'none','fields':{
+        'dogs_name':{'type':'text','label':'Dogs Name','required':True,'min_length':2,'max_length':16,'order':0}}}
+    rescan(variable_world,live=True,customisation=custom)
+    product=variable_world[0];source_identity=product.source_relpath;adapter=AdocAdapter()
+    _,token=drafts.preview(product,adapter);row=drafts.confirm(token,True,adapter)
+    old_operation=row.operation_id;old_receipt=db.session.get(CatalogueOperation,old_operation).scope
+    remote_id=row.shopify_product_id;variants=copy.deepcopy(adapter.remote['variants']);media=copy.deepcopy(adapter.remote['media'])
+    assert db.session.get(CatalogueOperation,old_operation).status=='succeeded'
+    rescan(variable_world,customisation={**custom,'proof_policy':'optional'})
+    plan,token=drafts.preview(product,adapter)
+    assert token and plan['scope']=='full'
+    assert [f['field'] for f in plan['fields'] if f['changed']]==['customisations.configuration']
+    g.pop('shopify_confirm_lease',None);g.pop('shopify_review_ticket',None)
+    response=_client(current_app).post(f'/products/{product.id}/shopify/review',
+        data={'action':'confirm','review':token,'acknowledge':'yes'},headers={'Accept':'application/json'})
+    assert response.status_code==202,response.json
+    operation_id=response.json['operation_id'];original=adapter.read_variable;used=[]
+    def read(*args,**kwargs):
+        receipt=drafts.evidence(row);wait=receipt.get('verification_wait') or {}
+        final=wait.get('operation_id')==operation_id and wait.get('phase')=='final'
+        if not used and (interruption=='preflight_yield' or final and interruption!='none'):
+            used.append(True)
+            if interruption.endswith('yield'):raise BackgroundYield('Interactive work temporarily owns capacity')
+            if interruption=='final_exception':raise KeyError('config_digest SECRET_TOKEN signed-url customer-answer')
+            result=original(*args,**kwargs);result['title']='Genuine remote mismatch';return result
+        return original(*args,**kwargs)
+    monkeypatch.setattr(adapter,'read_variable',read)
+    adapter.calls.clear();step(adapter)
+    op=db.session.get(CatalogueOperation,operation_id)
+    if interruption in {'preflight_yield','final_yield'}:
+        assert op.status=='pending' and op.recovery_state in {None,'none'}
+        assert not json.loads(op.scope).get(notifications_key), 'Deferral must not generate failed-before-write notifications'
+        assert adapter.calls.count('configuration_value_write')==int(interruption=='final_yield')
+        # Lose the backend DB session between slices. The retained approval and
+        # acknowledgements, not the browser, drive the replacement worker.
+        identity_id=row.id;db.session.remove();db.engine.dispose()
+        step(adapter,owner='proof-replacement');row=db.session.get(ShopifyProductIdentity,identity_id)
+        op=db.session.get(CatalogueOperation,operation_id)
+    receipt=drafts.evidence(row)
+    assert row.operation_id==operation_id and row.shopify_product_id==remote_id
+    assert adapter.calls.count('configuration_value_write')==1
+    assert not any(c in adapter.calls for c in ('product_create','binary_upload','variants_create','variants_update','native_write','publication_write','status_write'))
+    assert adapter.remote['variants']==variants and adapter.remote['media']==media and adapter.remote['status']=='ACTIVE'
+    assert receipt['storefront_configuration']['state']=='verified'
+    assert receipt['storefront_configuration']['operation_id']==operation_id
+    assert receipt['verification']['operation_id']==operation_id
+    assert db.session.get(CatalogueOperation,old_operation).scope==old_receipt
+    if interruption=='final_exception':
+        assert op.recovery_state=='review_required' and row.state=='uncertain'
+        assert receipt['verification_wait']['phase']=='final' and receipt['verification_wait']['state']=='recovery_required'
+        assert all(receipt['verification'][k]=='verified' for k in ('identity','fields','media','memberships','attributes'))
+        diagnostic=json.loads(op.scope)['operation_summary']['diagnostic']
+        assert diagnostic['category']=='KeyError' and diagnostic['stage']=='variable_readback.final'
+        assert 'SECRET_TOKEN' not in op.scope+row.media_evidence_json+str(op.error)
+        result=product_result(op)
+        assert result['outcome']=='recovery_required' and result['verified_stages']
+        writes=list(adapter.calls);step(adapter)
+        assert adapter.calls==writes, 'Unknown exceptions must not auto-resume or repeat writes'
+        retry=_client(current_app).post(f'/products/{product.id}/shopify/review',
+            data={'action':'confirm','review':token,'acknowledge':'yes'},headers={'Accept':'application/json'})
+        assert retry.status_code!=202 and adapter.calls==writes
+    elif interruption=='final_mismatch':
+        assert op.status=='pending' and row.state=='processing'  # existing bounded readback-lag handling
+        assert receipt['verification_wait']['phase']=='final'
+        step(adapter);assert db.session.get(CatalogueOperation,operation_id).status=='succeeded'
+        assert adapter.calls.count('configuration_value_write')==1
+    else:
+        assert op.status=='succeeded' and row.state=='verified'
+        summary=json.loads(ShopifyProductComparison.query.filter_by(source_identity=source_identity).one().summary_json)
+        assert summary['classification']=='no_change' and summary['identity']==drafts.digest(row.media_evidence_json)
+        assert product_result(op)['outcome']=='verified_success'
+
+
 def test_automatic_exhausted_readback_is_terminal_recovery_not_an_active_root(variable_world):
     from test_automatic_publishing import authorise,execute
     rescan(variable_world,live=True)
