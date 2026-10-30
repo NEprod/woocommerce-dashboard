@@ -152,6 +152,12 @@ def capture(product, *, scan_operation=None, context=None):
         title = current_title(product, resolved=authored)
         adapter = current_app.url_map.bind('')
         state = states_for([product], fresh=True, url_builder=lambda endpoint, **values: adapter.build(endpoint, values))[product.id]
+        if scan_operation and job.error is None and state['state'] == 'unavailable':
+            # Ingestion just resolved a valid local revision. An older failed
+            # comparison is not a failure of this scan. Keep the unavailable
+            # write gate until the queued read completes, but explain the wait.
+            state.update(label='Status refresh pending',
+                message='Local scan completed; read-only Shopify comparison is pending. Previous verification failures remain in History. No publication occurred.')
         try: config = drafts.configuration().fingerprint()
         except ValueError: config = None
         data = {'version': 1, 'authored': authored, 'display_title': title, 'state': state, 'config': config,

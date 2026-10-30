@@ -229,6 +229,17 @@ def _refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, s
                 mark_failure(product,saved,message)
                 errors.append({"product_id":product.id,"message":message})
                 results.append(product.id)
+        # The comparison is current now. Persist its existing saved projection
+        # in this read task rather than leaving an old failure visible until the
+        # separate view worker is permitted to run (notably during startup grace).
+        from app.catalogue_views import capture
+        from app.shopify_capacity import guard_owner, fence_owner
+        for product in products:
+            if product.id in results and product.id not in pending:
+                guard_owner()
+                capture(product)
+                fence_owner()
+                db.session.commit()
         return {"checked": results, "pending": pending, "errors": errors, "findings": findings, "full_comparisons": full, "deferred_reason":deferred_reason}
     except BackgroundYield as exc:
         pending = [p.id for p in products if p.id not in results]

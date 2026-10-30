@@ -113,7 +113,8 @@ def test_stale_clean_attention_is_bounded_not_continual_scheduler_work(world):
     # The stale evidence was already checked once; no continuous five-minute work.
     assert not list(views.attention_candidates()) and not job.view_pending
     run(product, adapter, manual=True)
-    assert job.view_pending
+    assert not job.view_pending  # the completed read now persists its saved status
+    assert list(views.attention_candidates())  # historical settlement still has its normal owner
     view_cycle()
     assert job.state == 'paused' and not list(views.attention_candidates())
 

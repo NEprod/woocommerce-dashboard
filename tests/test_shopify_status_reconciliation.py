@@ -100,12 +100,12 @@ def test_missing_remote_is_not_create_and_failures_back_off(world):
 def test_verified_absence_is_cached_but_create_still_rechecks(world):
     adapter = RevisionAdapter()
     result = status_service.refresh([world[0]], adapter=adapter)
-    assert result["full_comparisons"] == 1 and displayed(world[0])["label"] == "Needs Creating"
+    assert result["full_comparisons"] == 1 and displayed(world[0])["label"] == "Local Draft"
     calls = adapter.calls[:]
     status_service.refresh([world[0]], adapter=adapter)
     assert adapter.calls == calls
     age(31, "absence_checked_at")
-    assert displayed(world[0])["label"] == "Not yet verified"
+    assert displayed(world[0])["label"] == "Local Draft"  # local intent is not a claim of fresh remote absence
     status_service.refresh([world[0]], adapter=adapter)
     assert len(adapter.calls) > len(calls)
 
