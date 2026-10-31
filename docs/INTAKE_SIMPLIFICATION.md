@@ -1,5 +1,10 @@
 # Intake simplification — implementation and acceptance
 
+> Historical milestone at `9bf6b574b63b`. Its preparation transaction journal and
+> continuation mechanism are superseded by [independent direct file tools](INTAKE_FILE_TOOLS.md).
+> Retained historical receipts are read-only; do not use this document's old
+> preparation-recovery instructions for the current implementation.
+
 ## Inspection (baseline 59ad54a32e95)
 
 | Stage | Existing implementation | Old physical paths |

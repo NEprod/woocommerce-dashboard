@@ -58,6 +58,9 @@ def workspace(tmp_path, monkeypatch):
 def accept(client, stage, preview):
     response = client.post('/image-preparation/' + stage + '/confirm', data={
         'path': preview['source'], 'options': json.dumps(preview['options']), 'digest': preview['digest']})
+    if stage != 'handoff':
+        assert response.status_code == 200, response.get_data(as_text=True)
+        return response
     assert '/image-preparation/result/' in response.location, response.location
     return response.location.rsplit('/', 1)[1]
 
@@ -93,7 +96,7 @@ def test_complete_real_file_workflow_and_registration(workspace, kind, monkeypat
     with patch('requests.sessions.Session.request', side_effect=AssertionError('No Shopify/network calls permitted')):
         with app.app_context(): preview = intake.plan('group', 'Dogs')
         operation = accept(client, 'group', preview)
-        assert client.get('/image-preparation/result/' + operation).status_code == 200
+        assert 'Actual files now' in operation.get_data(as_text=True)
         assert not list(source.glob('*.png'))
         assert (source / 'hound' / 'hound 1.png').exists()
         with app.app_context():
@@ -161,35 +164,42 @@ def test_handoff_preview_reuses_existing_sku_counter_without_writing(workspace):
     assert json.loads((catalogue / 'Dogs' / 'sku_index.json').read_text())['counter'] == 42
 
 
-def test_external_addition_during_file_transaction_is_reported_and_preserved(workspace):
+def test_failure_reports_completed_and_untouched_files_without_global_block(workspace):
+    from app import intake_file_tools as files
+    app, client, root, *_ = workspace
+    image(root / 'Dogs' / 'hound1.png')
+    image(root / 'Dogs' / 'hound2.png', 'blue')
+    original = (root / 'Dogs' / 'hound2.png').read_bytes()
+    with app.app_context(): preview = intake.plan('group', 'Dogs')
+    rename = files.rename
+    count = 0
+    def fail_second(source, destination, **kwargs):
+        nonlocal count
+        count += 1
+        if count == 2: raise OSError('Injected failure at hound2.png')
+        rename(source, destination, **kwargs)
+    with patch.object(files, 'rename', fail_second):
+        response = accept(client, 'group', preview)
+    body = response.get_data(as_text=True)
+    assert '1 changes completed' in body and 'hound2.png' in body and 'stopped' in body
+    assert (root / 'Dogs' / 'hound' / 'hound1.png').exists()
+    assert (root / 'Dogs' / 'hound2.png').read_bytes() == original
+    assert not list((root / 'Dogs').glob('.tlc-*'))
+    with app.app_context(): assert CatalogueOperation.query.count() == 0
+    image(root / 'Other' / 'beagle1.png')
+    with app.app_context(): second = intake.plan('group', 'Other')
+    accept(client, 'group', second)
+    assert (root / 'Other' / 'beagle' / 'beagle1.png').exists()
+
+def test_preparation_never_queues_work_scans_publishes_or_sends_discord(workspace):
     app, client, root, *_ = workspace
     image(root / 'Dogs' / 'hound1.png')
     with app.app_context(): preview = intake.plan('group', 'Dogs')
-    persist = intake._persist
-    def external(operation, transaction):
-        persist(operation, transaction)
-        if transaction['phase'] == 'placing':
-            (root / 'Dogs' / 'new-author-file.txt').write_text('preserve me')
-    with patch.object(intake, '_persist', external): operation = accept(client, 'group', preview)
-    with app.app_context():
-        result = intake.operation_result(operation)
-        assert result['status'] == 'failed' and 'contents changed' in result['error']
-    assert (root / 'Dogs' / 'new-author-file.txt').read_text() == 'preserve me'
+    with patch('app.utils.discord.send_discord_message') as notice, patch('app.utils.scan_runner.start_scan') as scan:
+        accept(client, 'group', preview)
+        notice.assert_not_called(); scan.assert_not_called()
+    with app.app_context(): assert CatalogueOperation.query.count() == 0
     assert (root / 'Dogs' / 'hound' / 'hound1.png').exists()
-
-
-def test_discord_delivery_failure_does_not_undo_original_file_success(workspace):
-    app, client, root, *_ = workspace
-    image(root / 'Dogs' / 'hound1.png')
-    with app.app_context(): preview = intake.plan('group', 'Dogs')
-    with patch('app.utils.discord.send_discord_message', side_effect=RuntimeError('Isolated delivery outage')):
-        operation = accept(client, 'group', preview)
-    with app.app_context():
-        assert intake.operation_result(operation)['status'] == 'succeeded'
-        receipt = json.loads(db.session.get(CatalogueOperation, operation).scope)
-        assert receipt[intake.JOURNAL]['notification']['state'] == 'uncertain_or_failed'
-    assert (root / 'Dogs' / 'hound' / 'hound1.png').exists()
-
 
 def test_accept_requires_authentication_and_csrf_and_binds_settings(workspace):
     app, client, root, *_ = workspace
@@ -245,31 +255,99 @@ def test_stale_preview_symlinks_collisions_and_bytes(workspace):
         with app.app_context(), pytest.raises(ValueError): intake.plan('group', path)
 
 
-def test_rename_cycle_case_only_and_interruption_resume(workspace, monkeypatch):
+def test_directory_cycles_case_only_and_original_bytes(workspace):
     app, client, root, *_ = workspace
     image(root / 'Dogs' / 'Hound' / 'one.png', 'red')
     image(root / 'Dogs' / 'Beagle' / 'two.png', 'blue')
     before = {p.name: p.read_bytes() for p in (root / 'Dogs').rglob('*.png')}
     with app.app_context():
         preview = intake.plan('folders', 'Dogs', {'root_name': 'dogs', 'renames': {'Hound': 'Beagle', 'Beagle': 'Hound'}})
-    move = intake._move
-    calls = 0
-    def interrupt(source, destination):
-        nonlocal calls
-        calls += 1
-        move(source, destination)
-        if calls == 1: raise OSError('Injected termination after atomic move')
-    with patch.object(intake, '_move', interrupt): operation = accept(client, 'folders', preview)
-    with app.app_context():
-        assert intake.operation_result(operation)['status'] == 'failed'
-        db.session.remove(); db.engine.dispose()
-        intake.recover(operation)
-        assert intake.operation_result(operation)['transaction_phase'] == 'complete'
+    response = accept(client, 'folders', preview)
+    assert 'Changes applied' in response.get_data(as_text=True)
     assert 'dogs' in os.listdir(root) and 'Dogs' not in os.listdir(root)
     assert (root / 'dogs' / 'Beagle' / 'one.png').read_bytes() == before['one.png']
     assert (root / 'dogs' / 'Hound' / 'two.png').read_bytes() == before['two.png']
     assert not list((root / 'dogs').glob('.tlc-*'))
 
+
+def test_nested_folder_renames_reparent_original_directories(workspace):
+    app, client, root, *_ = workspace
+    image(root / 'Dogs' / 'A' / 'Small' / 'one.png')
+    image(root / 'Dogs' / 'B' / 'two.png', 'blue')
+    original = (root / 'Dogs' / 'A' / 'Small' / 'one.png').stat().st_ino
+    with app.app_context():
+        preview = intake.plan('folders', 'Dogs', {'renames': {'A': 'Alpha', 'A/Small': 'Beta/Tiny', 'B': 'Beta'}})
+        assert preview['ready'], preview['issues']
+    accept(client, 'folders', preview)
+    assert (root / 'Dogs' / 'Beta' / 'Tiny' / 'one.png').stat().st_ino == original
+    assert (root / 'Dogs' / 'Beta' / 'two.png').exists()
+    assert not list((root / 'Dogs').rglob('.tlc-*'))
+
+
+def test_folder_prefix_suffix_and_sku_save_preserve_authored_json(workspace):
+    app, client, root, *_ = workspace
+    image(root / 'Dogs' / 'Hound' / 'one.png')
+    authored = document(); authored['description'] = 'Keep exactly'; authored['sku_prefix'] = 'OLD-'
+    target = root / 'Dogs' / 'product_info.json'; target.write_text(json.dumps(authored))
+    index = root / 'Dogs' / 'sku_index.json'; index.write_text('{"counter":19}')
+    data = {'path': 'Dogs', 'folder_current': 'Hound', 'folder_proposed': 'Hound',
+            'folder_prefix': 'TLC ', 'folder_suffix': ' Cards', 'sku_prefix': 'DOG-'}
+    response = client.post('/image-preparation/folders/preview?live=1', data=data)
+    assert response.json['ready'], response.json['html']
+    data.update(options=json.dumps(response.json['options']), digest=response.json['digest'])
+    assert client.post('/image-preparation/folders/confirm', data=data).status_code == 200
+    assert (root / 'Dogs' / 'TLC Hound Cards' / 'one.png').exists()
+    authored['sku_prefix'] = 'DOG-'
+    assert json.loads(target.read_text()) == authored
+    assert index.read_text() == '{"counter":19}'
+
+
+def test_original_image_script_order_last_two_folders_and_root_skip(workspace):
+    app, client, root, *_ = workspace
+    image(root / 'Dogs' / 'loose.png')
+    for name in ['image2.png', 'image10.png']:
+        image(root / 'Dogs' / 'Outer' / 'Breed' / 'Large' / name)
+    image(root / 'Dogs' / 'Parent' / 'old.png')
+    with app.app_context():
+        preview = intake.plan('rename', 'Dogs', {'prefix': 'DOG'})
+        assert preview['ready'], preview['issues']
+    mapping = {row['path']: row['target'] for row in preview['moves']}
+    assert mapping['Outer/Breed/Large/image10.png'] == 'Outer/Breed/Large/dog_breed_large_01.png'
+    assert mapping['Outer/Breed/Large/image2.png'] == 'Outer/Breed/Large/dog_breed_large_02.png'
+    assert mapping['Parent/old.png'] == 'Parent/dog_dogs_01.png'
+    accept(client, 'rename', preview)
+    assert (root / 'Dogs' / 'loose.png').exists()
+
+
+def test_read_only_selected_folder_blocks_accept_without_changes(workspace, monkeypatch):
+    app, client, root, *_ = workspace
+    selected = root / 'Dogs'; image(selected / 'hound1.png')
+    access = os.access
+    monkeypatch.setattr(os, 'access', lambda p, mode: False if Path(p) == selected else access(p, mode))
+    with app.app_context():
+        preview = intake.plan('group', 'Dogs')
+        assert not preview['ready']
+        assert any('read-only' in row.get('message', '') for row in preview['issues'])
+        with pytest.raises(ValueError): intake.accept('group', 'Dogs', {}, preview['digest'])
+    assert (selected / 'hound1.png').exists()
+
+
+def test_error_listing_does_not_hide_completed_file_changes(workspace):
+    app, client, root, *_ = workspace
+    image(root / 'Dogs' / 'hound1.png')
+    with app.app_context(): preview = intake.plan('group', 'Dogs')
+    snapshot = intake.snapshot
+    calls = 0
+    def inaccessible_after_execution(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 3: raise PermissionError('listing denied')
+        return snapshot(*args, **kwargs)
+    with app.app_context(), patch.object(intake, 'snapshot', inaccessible_after_execution):
+        result = intake.accept('group', 'Dogs', {}, preview['digest'])
+    assert result['status'] == 'partial' and len(result['changed']) == 1
+    assert 'listing denied' in result['error']
+    assert (root / 'Dogs' / 'hound' / 'hound1.png').exists()
 
 def test_existing_json_is_reopened_and_overrides_preserved(workspace):
     app, client, root, *_ = workspace
@@ -285,6 +363,33 @@ def test_existing_json_is_reopened_and_overrides_preserved(workspace):
     accept(client, 'metadata', preview)
     assert child.read_bytes() == before
     assert json.loads((source / 'product_info.json').read_text()) == shared
+
+
+def test_json_live_preview_transport_preserves_authored_field_order(workspace):
+    app, client, root, *_ = workspace
+    image(root / 'Dogs' / 'Card' / 'one.png')
+    authored = document()
+    authored['customisation'] = {'storefront_enabled': True, 'fields': {
+        'recipient': {'label': 'Recipient', 'type': 'text', 'required': True},
+        'age': {'label': 'Age', 'type': 'number', 'required': True}}}
+    preview = client.post('/image-preparation/metadata/preview?live=1', data={
+        'path': 'Dogs', 'options': json.dumps({'document': authored})}).json
+    assert preview['ready']
+    response = client.post('/image-preparation/metadata/confirm', data={
+        'path': 'Dogs', 'options': json.dumps(preview['options']), 'digest': preview['digest']})
+    assert response.status_code == 200 and 'Changes applied' in response.get_data(as_text=True)
+    assert list(json.loads((root/'Dogs/product_info.json').read_text())['customisation']['fields']) == ['recipient','age']
+
+
+def test_source_root_alias_does_not_report_successful_files_as_failed(workspace):
+    app, client, root, *_ = workspace
+    alias = root.parent / 'alias';alias.symlink_to(root.parent, target_is_directory=True)
+    app.config['INTAKE_ROOT'] = str(alias / root.name)
+    image(root / 'Dogs' / 'hound1.png')
+    with app.app_context(): preview = intake.plan('group', 'Dogs')
+    response = accept(client, 'group', preview)
+    assert 'Changes applied' in response.get_data(as_text=True)
+    assert (root/'Dogs/hound/hound1.png').exists()
 
 
 def test_catalogue_collision_never_overwrites_or_merges(workspace):
@@ -385,29 +490,30 @@ def test_cross_filesystem_interruption_can_resume_explicitly(workspace, monkeypa
     assert len(list((catalogue / 'Dogs').rglob('*.webp'))) == 1
 
 
-@pytest.mark.parametrize('boundary', ['directories', 'placing', 'json', 'rename_root', 'verify'])
-def test_restart_at_every_file_phase_is_idempotent(workspace, boundary):
+@pytest.mark.parametrize('stage', ['group', 'folders', 'rename', 'metadata'])
+def test_old_journal_and_retained_private_files_do_not_gate_preparation(workspace, stage):
     app, client, root, *_ = workspace
-    image(root / 'Dogs' / 'dog1.png')
-    before = (root / 'Dogs' / 'dog1.png').read_bytes()
-    with app.app_context(): preview = intake.plan('group', 'Dogs')
-    persist = intake._persist
-    injected = False
-    def fail_after_commit(operation_id, transaction):
-        nonlocal injected
-        persist(operation_id, transaction)
-        if transaction['phase'] == boundary and not injected:
-            injected = True
-            raise OSError('Injected persisted phase interruption')
-    with patch.object(intake, '_persist', fail_after_commit):
-        operation = accept(client, 'group', preview)
+    image(root / 'Dogs' / 'Card' / 'one.png')
+    (root / 'Dogs' / 'product_info.json').write_text(json.dumps(document()))
+    private = root / 'Dogs' / ('.tlc-intake-txn-' + 'a' * 32)
+    private.mkdir(); (private / 'original-retained.bin').write_bytes(b'never delete')
     with app.app_context():
-        db.session.remove(); db.engine.dispose()
-        intake.recover(operation)
-        assert intake.operation_result(operation)['status'] == 'succeeded'
-    assert (root / 'Dogs' / 'dog' / 'dog1.png').read_bytes() == before
-    assert not list((root / 'Dogs').glob('.tlc-*'))
-
+        old_plan = intake.plan('group', 'Dogs')
+        scope = json.dumps({intake.JOURNAL: {'phase': 'parking', 'plan': old_plan}})
+        db.session.add(CatalogueOperation(id='a'*32, operation_type='intake_image_rename', status='failed', scope=scope))
+        db.session.commit()
+        settings = {'prefix': 'DOG'} if stage == 'rename' else {}
+        preview = intake.plan(stage, 'Dogs', settings)
+        assert preview['ready'], preview['issues']
+    accept(client, stage, preview)
+    assert (private / 'original-retained.bin').read_bytes() == b'never delete'
+    with app.app_context():
+        assert db.session.get(CatalogueOperation, 'a'*32).scope == scope
+        assert CatalogueOperation.query.count() == 1
+        assert not intake.plan('handoff', 'Dogs')['ready']
+        with pytest.raises(ValueError, match='read-only'): intake.recover('a'*32)
+    historical = client.get('/image-preparation/result/' + 'a'*32)
+    assert historical.status_code == 200 and 'Continue accepted file changes' not in historical.get_data(as_text=True)
 
 def test_old_copy_preview_and_force_replacement_are_not_accepted(workspace):
     app, client, root, catalogue, *_ = workspace

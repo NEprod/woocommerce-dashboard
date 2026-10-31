@@ -23,6 +23,7 @@ def options(stage):
             'created': values.get('created_folders', '').splitlines(), 'remove_empty': values.getlist('remove_empty'),
             'preview_prefix': values.get('preview_prefix', 'preview')}
         if values.get('root_name'): result['root_name'] = values['root_name']
+        if values.get('sku_prefix', '').strip(): result['sku_prefix'] = values['sku_prefix'].strip()
         prefix, suffix = values.get('folder_prefix', ''), values.get('folder_suffix', '')
         if prefix or suffix:
             result['renames'] = {a: str(service.PurePosixPath(b).parent / (prefix + service.PurePosixPath(b).name + suffix))
@@ -40,25 +41,19 @@ def index():
     if readiness['readable']:
         try: browser = browse_intake(configured_intake_root(), selected)
         except ValueError as exc: error = str(exc)
-    pending = []
-    # Bounded history, not a recursive filesystem discovery or a new job source.
-    for row in CatalogueOperation.query.filter(CatalogueOperation.operation_type.in_(
-            [v[1] for v in service.STAGES.values()])).order_by(CatalogueOperation.started_at.desc()).limit(50):
-        scope = json.loads(row.scope or '{}')
-        transaction = scope.get(service.JOURNAL)
-        if transaction and not service._transaction_complete(transaction):
-            pending.append(service.operation_result(row.id))
     return render_template('image_preparation/direct_index.html', readiness=readiness,
-        browser=browser, intake_error=error, stages=service.STAGES, pending=pending)
+        browser=browser, intake_error=error, stages=service.STAGES)
 
 
 def page(stage):
     values = request.form if request.method == 'POST' else request.args
     relative = values.get('path', '')
-    if not relative:
-        return redirect(url_for('main.image_preparation', stage=stage))
+    browser = None
+    try: browser = browse_intake(configured_intake_root(), relative)
+    except (ValueError, OSError): pass
     preview, error = None, None
-    try: preview = service.plan(stage, relative, options(stage))
+    try:
+        if relative: preview = service.plan(stage, relative, options(stage))
     except (ValueError, OSError, TypeError) as exc: error = str(exc)
     if request.args.get('live') == '1':
         html = render_template('image_preparation/_direct_plan.html', proposal=preview, intake_error=error)
@@ -67,13 +62,15 @@ def page(stage):
                 'options': preview['options'] if preview else {}}, 200
     return render_template('image_preparation/direct_stage.html', proposal=preview,
         stage=stage, title=service.STAGES[stage][0], source=relative,
-        readiness=intake_readiness(), intake_error=error, stages=service.STAGES)
+        readiness=intake_readiness(), intake_error=error, stages=service.STAGES, browser=browser)
 
 
 def confirm(stage):
     try:
-        operation_id = service.accept(stage, request.form.get('path', ''), options(stage), request.form.get('digest', ''))
-        return redirect(url_for('main.image_preparation_direct_result', operation_id=operation_id))
+        value = service.accept(stage, request.form.get('path', ''), options(stage), request.form.get('digest', ''))
+        if stage == 'handoff':
+            return redirect(url_for('main.image_preparation_direct_result', operation_id=value))
+        return render_template('image_preparation/preparation_result.html', result=value, stages=service.STAGES)
     except Exception as exc:
         from app.intake_grouping import IntakeOperationActive
         from app.utils.operation_control import CatalogueOperationActive

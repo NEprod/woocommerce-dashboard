@@ -1,0 +1,11 @@
+{% extends 'layouts/base.html' %}
+{% block title %}File preparation result | TLCDashboard{% endblock %}
+{% block content %}
+<header class="page-header"><div><p class="eyebrow">Catalogue Intake · {{ result.result }}</p><h1>{{ 'Changes applied' if result.status == 'succeeded' else 'File changes stopped' }}</h1><p>{{ result.changed|length }} changes completed. No catalogue scan or Shopify publication.</p></div></header>
+<nav class="button-row" aria-label="Independent Intake tools">{% for stage,definition in stages.items() %}<a class="btn btn-ghost" href="{{ url_for('main.image_preparation_direct_stage', stage=stage, path=result.result) }}">{{ definition[0] }}</a>{% endfor %}</nav>
+{% if result.error %}<section class="workspace-panel"><p class="field-error">{{ result.error }}</p><p>The changes listed below completed. Other files were not processed after the error. Review the actual files before accepting a fresh proposal.</p></section>{% endif %}
+{% if result.temporary %}<section class="workspace-panel"><h2>Originals retained under temporary names</h2>{% for path in result.temporary %}<p><code>{{ path }}</code></p>{% endfor %}<p>Do not delete these originals. No automatic replay or cleanup is performed.</p></section>{% endif %}
+<section class="workspace-panel"><h2>Completed changes</h2>{% if not result.changed and not result.error %}<p>No changes needed.</p>{% endif %}{% for item in result.changed %}<p><code>{{ item.before }}</code> → <code>{{ item.after }}</code></p>{% endfor %}</section>
+<section class="workspace-panel"><h2>Actual files now</h2>{% for path in result.files %}<p><code>{{ path }}</code></p>{% endfor %}</section>
+<a class="btn btn-primary" href="{{ url_for('main.image_preparation_direct_stage', stage=result.stage, path=result.result) }}">Open this tool with current files</a>
+{% endblock %}

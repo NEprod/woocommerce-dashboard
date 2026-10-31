@@ -16,9 +16,24 @@ try {
     async function accept() {
       await page.locator('[data-intake-accept] button:not([disabled])').waitFor();
       await page.locator('[data-intake-accept] button').click();
-      await page.waitForURL('**/image-preparation/result/**');
-      await page.getByText('Original files prepared in place.',{exact:false}).waitFor();
+      try {await page.getByRole('heading',{name:'Changes applied',exact:true}).waitFor();}
+      catch (error) {
+        await page.screenshot({path:'/tmp/tlc-intake-browser-failure.png',fullPage:true});
+        throw new Error(page.url()+' '+(await page.locator('main').innerText()).slice(0,2000));
+      }
+      await page.getByRole('heading',{name:'Actual files now',exact:true}).waitFor();
     }
+    // Every tool opens independently and keeps folder navigation in that tool.
+    for (const stage of ['group','folders','rename','metadata','handoff']) {
+      await open(stage);
+      assert.equal(await page.getByRole('textbox',{name:'Selected Intake folder',exact:true}).inputValue(),source);
+      assert.ok((await page.locator('[data-intake-folder-picker]').boundingBox()).y < (await page.locator('[data-intake-direct]').boundingBox()).y);
+    }
+    await open('rename');
+    await page.getByRole('textbox',{name:'Selected Intake folder',exact:true}).fill('Folder Switch Target');
+    await page.getByRole('textbox',{name:'Selected Intake folder',exact:true}).press('Enter');
+    await page.waitForURL(url=>url.pathname.endsWith('/stage/rename') && url.searchParams.get('path')!==source);
+    await page.locator('.intake-selected-path').getByText(/Folder Switch Target/).waitFor();
     await open('group');
     await page.screenshot({path:`/tmp/tlc-intake-${name.toLowerCase()}-group.png`,fullPage:true});
     await accept();
@@ -48,7 +63,7 @@ try {
     const data=await (await context.request.get('http://127.0.0.1:7518/api/edit_products')).text();
     assert.ok(data.includes(prefix+'0001'));
     assert.deepEqual(errors,[]);
-    evidence.push({layout:name,reactiveGroupingFoldersImagesJSON:true,acceptedOriginalsInPlace:true,scopedRegistration:true,noHorizontalOverflow:true,consoleErrors:errors});
+    evidence.push({layout:name,folderSelectorTop:true,folderSwitchRetainsTool:true,independentTools:true,reactiveGroupingFoldersImagesJSON:true,acceptedOriginalsInPlace:true,scopedRegistration:true,noHorizontalOverflow:true,consoleErrors:errors});
     await context.close();
   }
   console.log(JSON.stringify(evidence));

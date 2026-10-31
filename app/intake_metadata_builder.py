@@ -146,6 +146,8 @@ def _snapshot(root, relative, *, independent=False):
         children = []
         for entry in entries:
             kind, info = _classify_entry(entry)
+            if independent and entry.name.startswith(('.tlc-intake-txn-', '.tlc-rename-')) and kind == 'hidden':
+                continue  # preserved historical work is not authored metadata
             relative_path = _join_rel(*parts, entry.name)
             if kind == "directory":
                 folders.append(relative_path)
@@ -407,7 +409,7 @@ def metadata_preview(root, relative, proposed=None, *, independent=False):
     snapshot = _snapshot(root, relative, independent=independent)
     existing, parse_error, exists = _read_existing(snapshot)
     if proposed is None:
-        document = existing
+        document = _normalise_document(existing) if independent else existing
     else:
         document = _normalise_document(proposed)
     findings, analysis = _validate(document, snapshot)

@@ -2,7 +2,7 @@
 
 ## Current workflow
 
-See [Intake simplification — workflow, safety, validation and deployment](INTAKE_SIMPLIFICATION.md).
+See [Intake file tools — workflow, safety, validation and deployment](INTAKE_FILE_TOOLS.md).
 Current Intake prepares original files in place, keeps all five stages independent,
 and explicitly moves a finished collection once before collection-scoped append
 registration. It does not publish to Shopify. Existing unfinished Prepared/private

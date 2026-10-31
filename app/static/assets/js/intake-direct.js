@@ -1,5 +1,6 @@
 (function () {
   'use strict';
+  document.querySelector('[data-intake-folder-picker]')?.addEventListener('change', event => event.currentTarget.requestSubmit());
   const root = document.querySelector('[data-intake-direct]');
   if (!root) return;
   const accept = root.querySelector('[data-intake-accept]');

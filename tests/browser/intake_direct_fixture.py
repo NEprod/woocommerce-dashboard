@@ -26,6 +26,7 @@ app.config['INTAKE_RUN_INLINE'] = False
 for name in ['Dogs Desktop', 'Dogs Mobile']:
     for index, filename in enumerate(['hound 1.png', 'hound 2.png', 'beagle 1.png', 'beagle 2.png']):
         image(intake / name / filename, ['red', 'blue', 'green', 'yellow'][index])
+image(intake / 'Folder Switch Target' / 'Card' / 'already-prepared.png')
 
 @app.before_request
 def login():

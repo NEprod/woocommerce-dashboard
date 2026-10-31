@@ -600,7 +600,7 @@ def _normalised_components(parts):
     return [_safe_component(part, lowercase=True) for part in parts]
 
 
-def rename_preview(root, relative, prefix):
+def rename_preview(root, relative, prefix, *, preparation=False):
     root = _safe_root(Path(root))
     folder, selected = resolve_intake_folder(root, relative)
     normalised_prefix = normalize_prefix(prefix)
@@ -621,7 +621,7 @@ def rename_preview(root, relative, prefix):
         by_directory.setdefault(image["folder_parts"], []).append(image)
     mappings = []
     for folder_parts in sorted(by_directory, key=lambda parts: tuple(_ordered(part) for part in parts)):
-        rows = sorted(by_directory[folder_parts], key=lambda item: _ordered(item["name"]))
+        rows = sorted(by_directory[folder_parts], key=lambda item: item['name'] if preparation else _ordered(item['name']))
         for sequence, image in enumerate(rows, start=1):
             hierarchy_type = "unclassified"
             hierarchy_state = "warning"
@@ -629,7 +629,7 @@ def rename_preview(root, relative, prefix):
             recommended = None
             legacy = None
             if folder_parts:
-                legacy_parts = (folder.name,) if is_reserved_directory_name(folder_parts[-1]) else folder_parts
+                legacy_parts = (folder.name,) if is_reserved_directory_name(folder_parts[-1]) else (folder_parts[-2:] if preparation else folder_parts)
                 legacy_component = "_".join(_normalised_components(legacy_parts))
                 legacy = f"{normalised_prefix}_{legacy_component}_{sequence:02d}{Path(image['name']).suffix.lower()}".lower()
                 is_root_parent = len(folder_parts) == 1 and is_reserved_directory_name(folder_parts[0])
@@ -662,6 +662,11 @@ def rename_preview(root, relative, prefix):
                         hierarchy_type = "product"
                     elif len(folder_parts) >= 2:
                         hierarchy_type = "variation"
+                if preparation:
+                    # The retained original script names from the last two
+                    # folders and does not require catalogue-readiness metadata.
+                    recommended_parts = legacy_parts
+                    hierarchy_state = 'ready'
                 try:
                     component = "_".join(_normalised_components(recommended_parts))
                     recommended = f"{normalised_prefix}_{component}_{sequence:02d}{Path(image['name']).suffix.lower()}".lower()
@@ -687,7 +692,7 @@ def rename_preview(root, relative, prefix):
                 }
             )
             if not folder_parts:
-                issues.append(_issue(image["source_relpath"], "hierarchy", "Root-level files are not renamed by the legacy tool and have no scanner-owned product folder", code="root_level_image", state="blocking"))
+                issues.append(_issue(image["source_relpath"], "hierarchy", "Root-level files are unchanged by the original rename tool", code="root_level_image", state="warning" if preparation else "blocking"))
             elif hierarchy_state == "blocking":
                 issues.append(_issue(image["source_relpath"], "hierarchy", hierarchy_note, code="unsupported_depth", state="blocking"))
 
@@ -723,6 +728,10 @@ def rename_preview(root, relative, prefix):
                 row["conflict"] = "exact_collision"
 
     mappings.sort(key=lambda item: tuple(_ordered(part) for part in (*item["folder_parts"], item["name"])))
+    if preparation:
+        for issue in issues:
+            if issue.get('code') in {'flattened_collision', 'exact_collision'}:
+                issue['state'] = 'warning'  # actual in-folder collisions are checked by the direct plan
     issues.sort(key=lambda item: (_ordered(item["name"]), item["code"]))
     digest = _digest("rename", selected, result_name, mappings, issues, {"prefix": normalised_prefix, "collection_type": collection_type, "image_attributes": image_attributes})
     layout = None

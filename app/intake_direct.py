@@ -1,9 +1,4 @@
-"""In-place Intake plans and recoverable file operations; no Shopify execution.
-
-Reuse the preparation algorithms, Intake flock, catalogue-operation lock and
-scanner. The small file journal lives in the existing operation receipt. It is
-not a queue: interrupted file changes require explicit continuation.
-"""
+"""Independent Intake plans, direct file preparation and explicit catalogue import."""
 from __future__ import annotations
 
 import errno
@@ -25,9 +20,8 @@ from app import db
 from app import image_preparation as images
 from app.intake_folder_editor import _canonical_spec, _proposal_issues, _future_mappings
 from app.intake_grouping import (
-    GroupingRejected, acquire_intake_operation, finish_intake_operation,
+    GroupingRejected,
     acquire_intake_mutation_guard, release_intake_mutation_guard,
-    _specialised_promote_noreplace,
 )
 from app.intake_metadata_builder import metadata_preview
 from app.intake_handoff import _catalogue_readiness
@@ -74,7 +68,7 @@ def file_hash(path):
 def folder(root, relative):
     path, selected = images.resolve_intake_folder(root, relative)
     parts = PurePosixPath(selected).parts
-    if not parts or any(part.startswith('.') for part in parts) or selected == images.PREPARED_DIRECTORY:
+    if not parts or any(part.startswith('.') for part in parts):
         raise ValueError('Select a product/collection folder inside Intake, not its root or a private work directory')
     return path, selected
 
@@ -94,6 +88,9 @@ def snapshot(path, *, private=None):
             if private and rel == private:
                 continue
             info = entry.lstat()
+            if entry.name.startswith(('.tlc-intake-txn-', '.tlc-rename-')) and not stat.S_ISLNK(info.st_mode):
+                issues.append({'state': 'warning', 'message': 'Retained old/temporary work is excluded and not modified: ' + rel})
+                continue
             if len(directories) + len(files) >= images.MAX_PREVIEW_FILES:
                 raise ValueError('Intake folder exceeds the 5,000-entry operation bound')
             key = folded(rel)
@@ -174,7 +171,10 @@ def plan(stage, relative, options=None):
         canonical, findings = _canonical_spec(source, options)
         result['options'] = {k: canonical[k] for k in ['root_name', 'renames', 'created', 'remove_empty', 'preview_prefix']}
         result['folder_inputs'] = source['folders']
-        result['issues'] += findings + _proposal_issues(source, canonical)
+        layout_findings = _proposal_issues(source, canonical)
+        for issue in layout_findings:
+            if issue.get('code') == 'unsupported_depth': issue['state'] = 'warning'
+        result['issues'] += findings + layout_findings
         result['directories'] = list(canonical['renames'].values()) + canonical['created']
         result['result'] = str(PurePosixPath(selected).parent / canonical['root_name'])
         for value in targets:
@@ -182,9 +182,24 @@ def plan(stage, relative, options=None):
         future, findings = _future_mappings(source, canonical)
         result['future_images'] = future
         result['issues'] += findings
+        authored = images._metadata_context(path)
+        result['sku_prefix'] = options.get('sku_prefix', authored.get('sku_prefix', ''))
+        if 'sku_prefix' in options and str(options['sku_prefix']).strip():
+            from app.intake_metadata_builder import _UNSAFE_SKU
+            prefix = str(options['sku_prefix']).strip()
+            result['options']['sku_prefix'] = prefix
+            if _UNSAFE_SKU.search(prefix):
+                _blocked(result, 'SKU prefix cannot contain path separators or control characters')
+            else:
+                existing = path / 'product_info.json'
+                document = json.loads(existing.read_text()) if existing.exists() else {}
+                if not isinstance(document, dict): raise ValueError('Existing product_info.json must be an object')
+                if document.get('sku_prefix') != prefix:
+                    document['sku_prefix'] = prefix
+                    result['writes'] = [{'path': 'product_info.json', 'text': json.dumps(document, ensure_ascii=False, indent=2) + '\n'}]
     elif stage == 'rename':
         prefix = str(options.get('prefix') or '').strip()
-        base = images.rename_preview(root, selected, prefix)
+        base = images.rename_preview(root, selected, prefix, preparation=True)
         result['issues'] += base['issues']
         result['prefix'] = base['normalised_prefix']
         for item in base['mappings']:
@@ -213,6 +228,9 @@ def plan(stage, relative, options=None):
         # reinterpret them; a specific mapping must be corrected by the merchant.
     elif stage == 'metadata':
         preview = metadata_preview(root, selected, options.get('document'), independent=True)
+        # Transport authored ordering as JSON text, not an object that Flask's
+        # response encoder may key-sort between preview and acceptance.
+        result['options'] = {'document': preview['json_text']}
         result['metadata'] = preview
         result['issues'] += preview['findings']
         result['writes'] = [{'path': 'product_info.json', 'text': preview['json_text']}]
@@ -260,12 +278,16 @@ def plan(stage, relative, options=None):
     readiness = images.intake_readiness()
     if not readiness['writable']:
         _blocked(result, readiness['message'])
+    if not os.access(path, os.W_OK | os.X_OK):
+        _blocked(result, 'The selected folder is read-only for the application user')
     result['ready'] = not any(i.get('state') == 'blocking' for i in result['issues'])
     result['digest'] = digest(result)
     return result
 
 
 def _handoff_plan(result, path):
+    if any('Retained old/temporary work' in issue.get('message', '') for issue in result['issues']):
+        _blocked(result, 'Inspect retained private work before moving this collection. It is never discarded or imported silently.')
     metadata = metadata_preview(images.configured_intake_root(), result['source'], independent=True)
     result['issues'] += metadata['findings']
     result['metadata'] = metadata
@@ -357,8 +379,9 @@ def _matches(path, expected):
 
 
 def _move(source, target):
-    # All renames are non-overwriting, including races with external writers.
-    _specialised_promote_noreplace(source, target)
+    # Immediate no-overwrite checks under the existing app mutation lock.
+    from app.intake_file_tools import rename
+    rename(source, target)
     _sync(source.parent)
     if source.parent != target.parent: _sync(target.parent)
 
@@ -373,136 +396,6 @@ def _mkdirs(base, directories):
             _sync(target.parent)
 
 
-def _apply_files(operation_id, transaction):
-    approved = transaction['plan']
-    root = images.configured_intake_root()
-    if digest(str(Path(root).resolve(strict=True))) != approved['intake_binding']:
-        raise ValueError('Intake mount changed after acceptance')
-    # A containing-folder rename is itself journalled and may already have run.
-    source = root / approved['source']
-    result = root / approved['result']
-    private_name = '.tlc-intake-txn-' + operation_id
-    temporary_root = root / transaction['root_temporary'] if transaction.get('root_temporary') else None
-    if (transaction['phase'] == 'rename_root' and temporary_root and temporary_root.exists()
-            and not source.exists() and not result.exists()):
-        # Explicit recovery of the one case-only directory-rename boundary.
-        images.resolve_intake_folder(root, transaction['root_temporary'])
-        _verify_prepared_files(temporary_root, approved, private=private_name)
-        _move(temporary_root, _safe_parent(root, approved['result']))
-    renamed = transaction.get('root_renamed', False)
-    if not source.exists() and result.exists() and transaction.get('phase') == 'rename_root':
-        renamed = True
-    selected = approved['result'] if renamed else approved['source']
-    base, _ = folder(root, selected)
-    private = base / private_name
-    moves = approved['moves']
-    if transaction['phase'] == 'accepted':
-        if snapshot(base) != approved['tree']:
-            raise ValueError('Source changed after acceptance; no file changes started')
-        transaction['phase'] = 'parking'
-        _persist(operation_id, transaction)
-    if transaction['phase'] == 'parking':
-        if private.exists() and (private.is_symlink() or not private.is_dir()):
-            raise ValueError('Unsafe transaction directory')
-        private.mkdir(mode=0o700, exist_ok=True)
-        for index, row in enumerate(moves):
-            original = _safe_parent(base, row['path'])
-            parked = private / str(index)
-            if parked.exists():
-                if not _matches(parked, row): raise ValueError('Parked original changed; inspect operation ' + operation_id)
-            else:
-                if not _matches(original, row): raise ValueError('Original changed: ' + row['path'])
-                _move(original, parked)
-        transaction['phase'] = 'directories'
-        _persist(operation_id, transaction)
-    if transaction['phase'] == 'directories':
-        # Files not in the plan stay in place; never remove a non-empty folder.
-        retained = set(approved['directories'])
-        for row in sorted(approved['tree']['directories'], key=lambda r: len(PurePosixPath(r['path']).parts), reverse=True):
-            if not (base / row['path']).exists(): continue
-            candidate = _safe_parent(base, row['path'])
-            if row['path'] not in retained and candidate.exists(): candidate.rmdir()
-        _mkdirs(base, approved['directories'])
-        renames = approved['options'].get('renames', {}) if approved['stage'] == 'folders' else {}
-        for original in approved['tree']['directories']:
-            target = renames.get(original['path'], original['path'])
-            if target in approved['directories']: os.chmod(_safe_parent(base, target), original['mode'])
-        transaction['phase'] = 'placing'
-        _persist(operation_id, transaction)
-    if transaction['phase'] == 'placing':
-        for index, row in enumerate(moves):
-            parked = private / str(index)
-            target = _safe_parent(base, row['target'])
-            if not parked.exists():
-                if not _matches(target, row): raise ValueError('Missing original/destination: ' + row['path'])
-            else:
-                if not _matches(parked, row): raise ValueError('Parked original changed')
-                _move(parked, target)
-        transaction['phase'] = 'json'
-        _persist(operation_id, transaction)
-    if transaction['phase'] == 'json':
-        for row in approved['writes']:
-            target = _safe_parent(base, row['path'])
-            before = next((r for r in approved['tree']['files'] if r['path'] == row['path']), None)
-            intended = row['text'].encode()
-            if target.exists() and file_hash(target) == hashlib.sha256(intended).hexdigest():
-                continue
-            if (before and not _matches(target, before)) or (not before and target.exists()):
-                raise ValueError('JSON changed since acceptance; existing authored data was preserved')
-            temporary = private / 'product_info.new'
-            if temporary.exists() and file_hash(temporary) != hashlib.sha256(intended).hexdigest():
-                raise ValueError('Unexpected metadata transaction file')
-            if not temporary.exists():
-                with temporary.open('xb') as handle:
-                    handle.write(intended); handle.flush(); os.fsync(handle.fileno())
-                os.chmod(temporary, before['mode'] if before else 0o644)
-            os.replace(temporary, target)
-            _sync(target.parent)
-        transaction['phase'] = 'rename_root'
-        _persist(operation_id, transaction)
-    if transaction['phase'] == 'rename_root':
-        if approved['source'] != approved['result'] and not renamed:
-            # The operation-owned directory travels with the original folder.
-            target = _safe_parent(root, approved['result'])
-            if source.name.casefold() == target.name.casefold() and source.name != target.name:
-                intermediate = source.parent / ('.tlc-intake-root-' + operation_id)
-                transaction['root_temporary'] = intermediate.relative_to(root).as_posix()
-                _persist(operation_id, transaction)
-                _move(source, intermediate); _move(intermediate, target)
-            else: _move(source, target)
-            base, private = target, target / private_name
-        transaction['root_renamed'] = True
-        transaction['phase'] = 'verify'
-        _persist(operation_id, transaction)
-    if transaction['phase'] == 'verify':
-        _verify_prepared_files(base, approved, private=private_name)
-        if private.exists(): private.rmdir()
-        _sync(base)
-        transaction['phase'] = 'complete'
-        _persist(operation_id, transaction)
-
-
-def _verify_prepared_files(base, approved, *, private=None):
-    inventory = snapshot(base, private=private)
-    expected_files = {r.get('target', r['path']) for r in approved['moves']}
-    expected_files.update(r['path'] for r in approved['tree']['files']
-                          if not any(m['path'] == r['path'] for m in approved['moves']))
-    expected_files.update(r['path'] for r in approved['writes'])
-    if (set(r['path'] for r in inventory['files']) != expected_files
-            or set(r['path'] for r in inventory['directories']) != set(approved['directories'])):
-        raise ValueError('Folder contents changed during preparation; inspect the retained originals before continuing')
-    for original in approved['tree']['files']:
-        move = next((r for r in approved['moves'] if r['path'] == original['path']), None)
-        write = next((r for r in approved['writes'] if r['path'] == original['path']), None)
-        target = _safe_parent(base, move['target'] if move else original['path'])
-        if write:
-            if file_hash(target) != hashlib.sha256(write['text'].encode()).hexdigest(): raise ValueError('JSON verification failed')
-        elif not _matches(target, original): raise ValueError('Byte verification failed: ' + original['path'])
-    for write in approved['writes']:
-        if file_hash(_safe_parent(base, write['path'])) != hashlib.sha256(write['text'].encode()).hexdigest():
-            raise ValueError('JSON verification failed')
-
-
 def _summary(transaction):
     approved = transaction['plan']
     return {'source_relpath': approved['source'], 'prepared_relpath': approved['result'],
@@ -512,21 +405,6 @@ def _summary(transaction):
         'workflow_status': 'complete' if transaction['phase'] == 'complete' else 'recovery_required',
         'transaction_phase': transaction['phase'], 'registration_operation_id': transaction.get('registration_operation_id'),
         'catalogue_relpath': approved.get('destination'), 'installed': transaction.get('installed', False)}
-
-
-def _execute(app, lease, transaction):
-    with app.app_context():
-        failure = None
-        try:
-            _persist(lease.id, transaction)
-            _apply_files(lease.id, transaction)
-        except Exception as exc:
-            failure = sanitize_operation_error(exc)
-            db.session.rollback()
-        finally:
-            finish_intake_operation(lease, status='failed' if failure else 'succeeded',
-                                    error=failure, summary=_summary(transaction))
-        _notify(lease.id, transaction, failure)
 
 
 def _notify(operation_id, transaction, error=None):
@@ -564,32 +442,8 @@ def accept(stage, relative, options, submitted_digest):
     if not preview['ready']:
         raise ValueError('Resolve the displayed blocking issues before accepting changes')
     if stage == 'handoff': return start_handoff(preview)
-    lease = acquire_intake_operation({'source_relpath': preview['source'], 'proposal_digest': preview['digest']},
-                                     operation_type=STAGES[stage][1])
-    try:
-        # Recheck under the cross-worker filesystem lock.
-        if plan(stage, relative, options)['digest'] != preview['digest']:
-            raise ValueError('Source changed while acquiring Intake ownership')
-        for operation in CatalogueOperation.query.filter(CatalogueOperation.id != lease.id).filter(
-                CatalogueOperation.operation_type.in_([v[1] for v in STAGES.values()])).all():
-            pending = json.loads(operation.scope or '{}').get(JOURNAL)
-            if pending and not _transaction_complete(pending):
-                raise ValueError('Finish or inspect interrupted Intake operation ' + operation.id + ' before new changes')
-        transaction = {'version': 1, 'phase': 'accepted', 'plan': preview}
-        _persist(lease.id, transaction)
-    except Exception:
-        finish_intake_operation(lease, status='failed', error='Acceptance invalidated before file changes')
-        raise
-    app = current_app._get_current_object()
-    if app.config.get('INTAKE_RUN_INLINE'):
-        _execute(app, lease, transaction)
-    else:
-        try:
-            threading.Thread(target=_execute, args=(app, lease, transaction), daemon=True,
-                             name='intake-' + lease.id[:8]).start()
-        except Exception as exc:
-            finish_intake_operation(lease, status='failed', error=sanitize_operation_error(exc), summary=_summary(transaction))
-    return lease.id
+    from app.intake_file_tools import apply
+    return apply(preview, options, submitted_digest)
 
 
 def _verify_installed(destination, approved, *, scanner_owned=False):
@@ -808,20 +662,7 @@ def recover(operation_id):
         _persist(lease.id, resumed)
         _execute_handoff(current_app._get_current_object(), lease, resumed, continuation=True)
         return lease.id
-    guard = acquire_intake_mutation_guard(recovery_operation_id=operation_id)
-    try:
-        _apply_files(operation_id, transaction)
-        row, scope = _receipt(operation_id)
-        scope.setdefault('intake_recovery_history', []).append({'status': row.status, 'error': row.error,
-                                                               'finished_at': str(row.finished_at)})
-        row.status, row.error = 'succeeded', None
-        scope['operation_summary'] = _summary(transaction)
-        row.scope = json.dumps(scope, ensure_ascii=False)
-        db.session.commit()
-    finally:
-        release_intake_mutation_guard(guard)
-    _notify(operation_id, transaction)
-    return operation_id
+    raise ValueError('Historical preparation evidence is read-only. Inspect retained files; ordinary tools no longer resume transaction journals.')
 
 
 def _transaction_complete(transaction):

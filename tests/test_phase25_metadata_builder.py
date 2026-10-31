@@ -247,8 +247,8 @@ def test_variable_title_preview_uses_existing_product_json_without_editing_it(me
         "/image-preparation/metadata/confirm",
         data={"path": direct['source'], "options": json.dumps(direct['options']), "digest": direct['digest']},
     )
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id).status in {"succeeded", "partial"}
+    assert response.status_code == 200
+    assert 'Changes applied' in response.get_data(as_text=True)
     assert product_json.read_bytes() == before
 
 

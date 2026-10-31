@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 from docker_orders_smoke import docker, wait_ready
 
@@ -36,42 +37,37 @@ print('seeded')
 HOLD = r'''
 import time
 from pathlib import Path
-from app import create_app
-from app.intake_grouping import acquire_intake_operation,finish_intake_operation
-app=create_app(recover=False)
-with app.app_context():
- lease=acquire_intake_operation({'source_relpath':'Dogs','fixture_only':True})
+from flask import Flask
+from app.intake_file_tools import changing_files
+app=Flask('lock_probe',instance_path='/app/instance')
+with app.app_context(),changing_files():
  Path('/app/instance/lock-ready').touch()
- deadline=time.monotonic()+45
+ deadline=time.monotonic()+120
  while not Path('/app/instance/lock-release').exists() and time.monotonic()<deadline:time.sleep(.1)
- finish_intake_operation(lease,status='succeeded')
+ assert Path('/app/instance/lock-release').exists(),'Contention probe expired before explicit release'
 '''
 
 CONTEND = r'''
-from app import create_app
-from app.intake_grouping import acquire_intake_mutation_guard,IntakeOperationActive
-app=create_app(recover=False)
+from flask import Flask
+from app.intake_file_tools import changing_files
+app=Flask('lock_probe',instance_path='/app/instance')
 with app.app_context():
- try:acquire_intake_mutation_guard()
- except IntakeOperationActive:print('safely_excluded')
- else:raise AssertionError('Competing process acquired active Intake')
+ try:
+  with changing_files():raise AssertionError('Competing process acquired active Intake')
+ except ValueError:print('safely_excluded')
 '''
 
 INTERRUPT = r'''
 import os
 from pathlib import Path
 from app import create_app
-from app import intake_direct as service
+from app import intake_direct as service,intake_file_tools as files
 app=create_app(recover=False);app.config['INTAKE_RUN_INLINE']=True
-move=service._move
-persist=service._persist
-def save(operation,transaction):
- persist(operation,transaction)
- Path('/app/instance/interrupted-id').write_text(operation)
-def terminate(source,target):
- move(source,target)
- os._exit(78)  # real process death after atomic park; no finally or cleanup
-service._persist=save;service._move=terminate
+move=files.rename
+def terminate(source,target,**kwargs):
+ move(source,target,**kwargs)
+ os._exit(78)  # real death after first original move; no journal or finally
+files.rename=terminate
 with app.app_context():
  proposal=service.plan('group','Dogs');assert proposal['ready'],proposal['issues']
  service.accept('group','Dogs',{},proposal['digest'])
@@ -93,10 +89,7 @@ login=get('/login');post('/login',{'csrf_token':token(login),'username':'intake'
 
 WORKFLOW = HTTP + r'''
 import hashlib,sqlite3
-operation=Path('/app/instance/interrupted-id').read_text()
-body=get('/image-preparation/result/'+operation)
-assert 'interrupted' in body and 'Continue accepted file changes' in body,body
-post('/image-preparation/result/'+operation+'/continue',{'csrf_token':token(body)})
+assert len(list(Path('/intake/Dogs').glob('*.png')))==3
 assert len(list(Path('/intake/Dogs').rglob('*.png')))==4
 def stage(name,settings):
  page=get('/image-preparation/stage/'+name+'?path=Dogs')
@@ -104,6 +97,9 @@ def stage(name,settings):
  _,body=post('/image-preparation/'+name+'/preview?live=1',{'csrf_token':csrf,'path':'Dogs','options':json.dumps(settings)})
  preview=json.loads(body);assert preview['ready'],preview['html']
  url,body=post('/image-preparation/'+name+'/confirm',{'csrf_token':csrf,'path':'Dogs','options':json.dumps(preview['options']),'digest':preview['digest']})
+ if name!='handoff':
+  assert 'Changes applied' in body and 'Actual files now' in body,(url,body)
+  return
  assert '/image-preparation/result/' in url,url
  op=url.rsplit('/',1)[-1]
  for _ in range(100):
@@ -112,6 +108,8 @@ def stage(name,settings):
   if row[0]=='succeeded':return op
   time.sleep(.1)
  raise AssertionError('File operation did not finish')
+stage('group',{})  # fresh proposal of actual remaining files, not automatic replay
+assert not list(Path('/intake/Dogs').glob('*.png'))
 stage('folders',{'renames':{'hound':'Hound','beagle':'Beagle'}})
 stage('rename',{'prefix':'DOG'})
 stage('metadata',{'document':{'collection_type':'Simple','sku_prefix':'DOG-','title':'Dogs','live':False,'price':'3.50','variation_attributes':[],'attributes':{}}})
@@ -137,9 +135,9 @@ with sqlite3.connect('/app/instance/site.db') as connection:
  assert connection.execute('select enabled from automatic_publishing').fetchone()==(0,)
  assert connection.execute('select count(*) from catalogue_operation where operation_type in ("full","update","shared_collection")').fetchone()[0]==0
  assert connection.execute('select count(*) from catalogue_operation where operation_type="append"').fetchone()[0]==1
- assert connection.execute('select status from catalogue_operation where id=?',(operation,)).fetchone()==('succeeded',)
- history=json.loads(connection.execute('select scope from catalogue_operation where id=?',(operation,)).fetchone()[0])['intake_recovery_history']
- assert history[-1]['status']=='interrupted'
+ assert connection.execute('select count(*) from catalogue_operation where operation_type in ("intake_group","intake_folder_edit","intake_image_rename","intake_metadata_save")').fetchone()[0]==0
+assert not list(Path('/intake').rglob('.tlc-intake-txn-*'))
+assert not list(Path('/intake').rglob('.tlc-rename-*'))
 snapshot={'handoff':handoff,'scan':scan,'cross_filesystem':bool(transaction.get('cross_filesystem'))}
 Path('/app/instance/accepted.json').write_text(json.dumps(snapshot))
 print(json.dumps(snapshot))
@@ -168,9 +166,14 @@ def main(image):
     assert meta['Architecture']=='amd64' and meta['Os']=='linux'
     for workers in (2,4):
         container=None
+        instance='tlc-intake-instance-'+uuid.uuid4().hex
         with tempfile.TemporaryDirectory(prefix='tlc-intake-docker-') as temporary:
-            root=Path(temporary);mounts=[]
-            for name,target in [('instance','/app/instance'),('intake','/intake'),('catalogue','/catalogue'),('output','/output')]:
+            # Mac Docker Desktop bind mounts do not reliably enforce flock.
+            # Linux-native persistent appdata matches the real Unraid appdata
+            # contract; source/catalogue/output still use separate bind mounts.
+            docker('volume','create',instance)
+            root=Path(temporary);mounts=['--mount',f'type=volume,src={instance},dst=/app/instance']
+            for name,target in [('intake','/intake'),('catalogue','/catalogue'),('output','/output')]:
                 (root/name).mkdir(mode=0o777);(root/name).chmod(0o777)
                 mounts.extend(['--mount',f'type=bind,src={root/name},dst={target}'])
             env=['-e','SECRET_KEY=intake-docker-isolated-000000000000000000000','-e','DISCORD_ENABLED=false','-e','URL_PREFIX=https://invalid.example/images/']
@@ -182,12 +185,15 @@ def main(image):
                 with concurrent.futures.ThreadPoolExecutor(max_workers=workers+1) as pool:
                     holder=pool.submit(execute,HOLD)
                     for _ in range(100):
-                        if (root/'instance/lock-ready').exists():break
+                        try:
+                            docker('exec',container,'test','-f','/app/instance/lock-ready')
+                            break
+                        except subprocess.CalledProcessError:pass
                         time.sleep(.1)
                     else:raise AssertionError('Lock holder did not start')
                     contenders=list(pool.map(execute,[CONTEND]*workers))
                     assert all('safely_excluded' in value for value in contenders)
-                    (root/'instance/lock-release').touch();holder.result(timeout=20)
+                    docker('exec',container,'touch','/app/instance/lock-release');holder.result(timeout=20)
                 try:execute(INTERRUPT)
                 except subprocess.CalledProcessError as exc:assert exc.returncode==78,exc.stderr
                 else:raise AssertionError('Expected actual process interruption')
@@ -202,6 +208,7 @@ def main(image):
                 raise
             finally:
                 if container:docker('rm','-f',container)
+                docker('volume','rm',instance)
 
 
 if __name__=='__main__':main(sys.argv[1])

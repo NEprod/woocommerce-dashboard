@@ -49,7 +49,7 @@ explicit final action safely moves the finished folder once into the catalogue
 and registers only that collection through the existing append scanner. Failed
 registration is retryable without reimporting. No Intake action publishes to
 Shopify; existing unfinished legacy folders are preserved. See the
-[workflow, safety and acceptance guide](docs/INTAKE_SIMPLIFICATION.md).
+[workflow, safety and acceptance guide](docs/INTAKE_FILE_TOOLS.md).
 
 ## Current capabilities
 
