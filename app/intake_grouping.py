@@ -190,7 +190,7 @@ def acquire_intake_operation(scope, *, operation_type=INTAKE_OPERATION_TYPE) -> 
         raise
 
 
-def acquire_intake_mutation_guard() -> IntakeMutationGuard:
+def acquire_intake_mutation_guard(*, recovery_operation_id=None) -> IntakeMutationGuard:
     """Acquire Intake mutation exclusion without creating an operation row."""
 
     if not _process_lock.acquire(blocking=False):
@@ -204,12 +204,15 @@ def acquire_intake_mutation_guard() -> IntakeMutationGuard:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
             raise IntakeOperationActive(get_active_intake_operation() or {"id": "unknown"}) from error
-        existing = (
+        query = (
             CatalogueOperation.query.filter(CatalogueOperation.operation_type.in_(INTAKE_OPERATION_TYPES))
             .filter(CatalogueOperation.status.in_({"running", "pending"}))
-            .order_by(CatalogueOperation.started_at.asc())
-            .first()
         )
+        # Only after acquiring the OS lock can an explicit Intake continuation
+        # exclude its own interrupted row. A live worker still holds that lock.
+        if recovery_operation_id:
+            query = query.filter(CatalogueOperation.id != recovery_operation_id)
+        existing = query.order_by(CatalogueOperation.started_at.asc()).first()
         if existing:
             raise IntakeOperationActive({"id": existing.id, "operation_type": existing.operation_type})
         return IntakeMutationGuard(fd)
@@ -241,7 +244,7 @@ def finish_intake_operation(lease, *, status, error=None, summary=None):
             lease.id,
             status=status,
             products_attempted=(summary or {}).get("source_images", 0),
-            products_succeeded=(summary or {}).get("copied_images", 0),
+            products_succeeded=(summary or {}).get("completed_images", (summary or {}).get("copied_images", 0)),
             products_failed=(summary or {}).get("failed_images", int(status == "failed")),
             error=error,
             operation_summary=summary,

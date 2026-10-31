@@ -1,6 +1,8 @@
 {% from 'image_preparation/_shared.html' import warning_details %}
 {% set terminal_success = workspace.operation.status in ['succeeded', 'partial'] and not workspace.operation.recoverable %}
-{% if not terminal_success %}
+{% if workspace.intake.direct_result_url %}
+<section class="workspace-panel intake-operation-result"><h2>Direct Intake file preparation</h2><p>Original-file changes, registration status and any controlled continuation are retained with this operation. No Shopify publication is performed by Intake.</p><a class="btn btn-primary" href="{{ workspace.intake.direct_result_url }}">Inspect Intake result / registration</a></section>
+{% elif not terminal_success %}
 <section class="workspace-panel intake-operation-result" aria-labelledby="intake-live-result-heading">
   <div class="panel-heading">
     <div><p class="eyebrow">Catalogue Intake workflow</p><h2 id="intake-live-result-heading">{{ workspace.intake.navigation.heading }}</h2></div>

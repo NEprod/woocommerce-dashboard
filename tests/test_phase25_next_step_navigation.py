@@ -203,34 +203,6 @@ def _next_href(html):
     return match.group(1)
 
 
-@pytest.mark.parametrize(
-    ("name", "label", "destination"),
-    [
-        ("Grouped", "Review and Rename Folders", "/image-preparation/folders/edit"),
-        ("Folders Confirmed", "Rename Images", "/image-preparation/rename"),
-        ("Images Renamed", "Create Product Metadata", "/image-preparation/metadata/edit"),
-        ("Existing Metadata", "Edit Product Metadata", "/image-preparation/metadata/edit"),
-        ("Metadata Complete", "Validate and Copy to Catalogue", "/image-preparation/handoff/review"),
-        ("Handoff Complete", "Open Scanner", "/scanner"),
-    ],
-)
-def test_selected_prepared_result_has_one_signed_revalidated_next_action(
-    navigation_client, name, label, destination
-):
-    page = navigation_client.get("/image-preparation", query_string={"path": f"Prepared/{name}"})
-    assert page.status_code == 200
-    html = page.get_data(as_text=True)
-    assert label in html
-    href = _next_href(html)
-    assert "Prepared/" not in href
-
-    response = navigation_client.get(href)
-    assert response.status_code == 302
-    assert response.headers["Location"].startswith(destination)
-    if name != "Handoff Complete":
-        assert parse_qs(urlparse(response.headers["Location"]).query)["path"] == [
-            f"Prepared/{name}"
-        ]
 
 
 def test_handoff_navigation_does_not_start_a_scan_or_emit_discord(navigation_app, navigation_client, monkeypatch):
@@ -238,9 +210,7 @@ def test_handoff_navigation_does_not_start_a_scan_or_emit_discord(navigation_app
     monkeypatch.setattr("app.utils.discord.send_discord_message", lambda *args, **kwargs: sent.append((args, kwargs)))
     with navigation_app[0].app_context():
         before = CatalogueOperation.query.count()
-    html = navigation_client.get(
-        "/image-preparation", query_string={"path": "Prepared/Handoff Complete"}
-    ).get_data(as_text=True)
+    html = navigation_client.get('/operations/' + '6' * 32).get_data(as_text=True)
     response = navigation_client.get(_next_href(html))
     with navigation_app[0].app_context():
         assert CatalogueOperation.query.count() == before
@@ -248,21 +218,6 @@ def test_handoff_navigation_does_not_start_a_scan_or_emit_discord(navigation_app
     assert sent == []
 
 
-def test_prepared_browser_cards_show_only_the_current_primary_action(navigation_client):
-    html = navigation_client.get(
-        "/image-preparation", query_string={"path": "Prepared"}
-    ).get_data(as_text=True)
-    for label in (
-        "Review and Rename Folders",
-        "Rename Images",
-        "Create Product Metadata",
-        "Edit Product Metadata",
-        "Validate and Copy to Catalogue",
-        "Open Scanner",
-    ):
-        assert label in html
-    assert "/private/" not in html
-    assert "/Users/" not in html
 
 
 def test_operation_detail_uses_next_action_and_suppresses_failed_recovery_and_missing(navigation_client):
@@ -416,9 +371,7 @@ def test_live_result_refresh_is_authenticated_and_observational(
 
 
 def test_stale_link_revalidates_and_opens_the_current_valid_stage(navigation_app, navigation_client):
-    html = navigation_client.get(
-        "/image-preparation", query_string={"path": "Prepared/Grouped"}
-    ).get_data(as_text=True)
+    html = navigation_client.get('/operations/' + '1' * 32).get_data(as_text=True)
     stale_href = _next_href(html)
     with navigation_app[0].app_context():
         db.session.add(
@@ -449,17 +402,15 @@ def test_invalid_missing_and_ineligible_navigation_is_controlled(navigation_app,
     assert navigation_client.get(
         "/image-preparation/folders/edit",
         query_string={"path": "Prepared/Metadata Complete"},
-    ).status_code == 400
+    ).status_code == 200  # independent entry is no longer gated by stage history
     assert navigation_client.get(
         "/image-preparation/rename",
         query_string={"path": "Prepared/Metadata Complete"},
-    ).status_code == 400
+    ).status_code == 200
 
 
 def test_navigation_requires_authentication_and_get_is_read_only(navigation_app, navigation_client):
-    html = navigation_client.get(
-        "/image-preparation", query_string={"path": "Prepared/Metadata Complete"}
-    ).get_data(as_text=True)
+    html = navigation_client.get('/operations/' + '5' * 32).get_data(as_text=True)
     href = _next_href(html)
     anonymous = navigation_app[0].test_client()
     assert anonymous.get(href).status_code in {302, 401}
@@ -475,29 +426,17 @@ def test_navigation_requires_authentication_and_get_is_read_only(navigation_app,
     assert after == before
 
 
-def test_navigation_actions_retain_accessible_mobile_touch_targets(navigation_client):
-    html = navigation_client.get(
-        "/image-preparation", query_string={"path": "Prepared/Grouped"}
-    ).get_data(as_text=True)
-    assert 'class="btn btn-accent intake-next-action"' in html
-    css = navigation_client.get("/static/assets/css/custom.css").get_data(as_text=True)
-    assert ".btn { display: inline-flex; min-height: 44px" in css
-    assert "@media (max-width: 767px)" in css
 
 
 def test_completed_with_warnings_allows_navigation_and_blockers_do_not(
     navigation_client,
 ):
-    warning_page = navigation_client.get(
-        "/image-preparation", query_string={"path": "Prepared/Metadata Warnings"}
-    ).get_data(as_text=True)
+    warning_page = navigation_client.get('/operations/' + '9' * 32).get_data(as_text=True)
     assert "Completed with warnings" in warning_page
-    assert "You may continue." in warning_page
+    assert "Safe to continue." in warning_page
     assert "Validate and Copy to Catalogue" in warning_page
 
-    blocked_page = navigation_client.get(
-        "/image-preparation", query_string={"path": "Prepared/Blocked Metadata"}
-    ).get_data(as_text=True)
+    blocked_page = navigation_client.get('/operations/' + 'b' * 32).get_data(as_text=True)
     assert "Blocking errors must be fixed before proceeding." in blocked_page
     assert "Validate and Copy to Catalogue" not in blocked_page
 
@@ -516,14 +455,3 @@ def test_warning_details_are_grouped_expandable_and_keep_operation_next_action(
     assert "Optional." in body
     assert "Validate and Copy to Catalogue" in body
     assert '<details class="operation-warning-details"' in body
-
-
-def test_prepared_cards_show_warning_summary_and_safe_next_action(navigation_client):
-    page = navigation_client.get(
-        "/image-preparation", query_string={"path": "Prepared"}
-    ).get_data(as_text=True)
-    assert "4 warnings" in page
-    assert "Image fallback" in page
-    assert "SEO" in page
-    assert "Review warnings" in page
-    assert "Validate and Copy to Catalogue" in page

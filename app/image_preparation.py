@@ -400,10 +400,11 @@ def _digest(kind, selected, result_name, mappings, issues, extra=None):
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def grouping_preview(root, relative=""):
+def grouping_preview(root, relative="", *, in_place=False):
     root = _safe_root(Path(root))
     browser = browse_intake(root, relative)
-    result_name, result_conflict = _prepared_result(root, browser["folder_name"])
+    result_name, result_conflict = ((browser['folder_name'], False) if in_place else
+                                    _prepared_result(root, browser["folder_name"]))
     mappings = []
     issues = list(browser["issues"])
     if not browser["path"]:

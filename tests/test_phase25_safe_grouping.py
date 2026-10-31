@@ -121,102 +121,10 @@ def test_confirm_requires_authentication_and_csrf(grouping_app):
     assert _confirm(client, "Cards", preview).status_code == 400
 
 
-def test_valid_csrf_confirmation_is_accepted(grouping_app):
-    app, intake, *_ = grouping_app
-    source = intake / "Cards"
-    source.mkdir()
-    _image(source / "Card1.png")
-    app.config["WTF_CSRF_ENABLED"] = True
-    client = app.test_client()
-    with app.app_context():
-        user_id = User.query.one().id
-    with client.session_transaction() as session:
-        session["_user_id"] = str(user_id)
-        session["_fresh"] = True
-    page = client.get("/image-preparation/group?path=Cards")
-    token = re.search(r'name="csrf_token"[^>]*value="([^"]+)"', page.get_data(as_text=True)).group(1)
-    preview = grouping_preview(intake, "Cards")
-    response = client.post(
-        "/image-preparation/group/confirm",
-        data={"csrf_token": token, "path": "Cards", "digest": preview["digest"], "acknowledge": "yes"},
-    )
-    assert response.status_code == 302
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait_for_operation(app, operation_id) in {"succeeded", "partial"}
 
 
-def test_valid_confirmation_copies_first_and_records_bounded_result(grouping_app, grouping_client):
-    app, intake, catalogue, output = grouping_app
-    source = intake / "Christmas Countdown"
-    source.mkdir()
-    _image(source / "Train1.png", (1, 2, 3))
-    _image(source / "Train2.JPG", (4, 5, 6))
-    _image(source / "Solo1.webp", (7, 8, 9))
-    _image(source / "Parent1.png", (10, 11, 12))
-    (source / ".DS_Store").write_text("hidden", encoding="utf-8")
-    (source / "notes.txt").write_text("unsupported", encoding="utf-8")
-    (source / "broken.png").write_text("corrupt", encoding="utf-8")
-    source_before = _tree(source)
-    catalogue_before = _tree(catalogue)
-    output_before = _tree(output)
-    preview = grouping_preview(intake, "Christmas Countdown")
-
-    response = _confirm(grouping_client, "Christmas Countdown", preview)
-    assert response.status_code == 302
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait_for_operation(app, operation_id) in {"succeeded", "partial"}
-
-    result = intake / "Prepared" / "Christmas Countdown"
-    assert (result / "Train" / "Train1.png").read_bytes() == (source / "Train1.png").read_bytes()
-    assert (result / "Train" / "Train2.JPG").read_bytes() == (source / "Train2.JPG").read_bytes()
-    assert (result / "Solo" / "Solo1.webp").exists()
-    assert (result / "Parent" / "Parent1.png").exists()
-    assert not (result / ".DS_Store").exists()
-    assert not (result / "notes.txt").exists()
-    assert not (result / "broken.png").exists()
-    assert not list(result.rglob("product_info.json"))
-    assert _tree(source) == source_before
-    assert _tree(catalogue) == catalogue_before
-    assert _tree(output) == output_before
-    assert not (intake / ".catalogue-intake-staging" / operation_id).exists()
-
-    with app.app_context():
-        row = db.session.get(CatalogueOperation, operation_id)
-        scope = json.loads(row.scope)
-        summary = scope["operation_summary"]
-        assert row.operation_type == "intake_group"
-        assert summary["workflow_status"] == "folder_review_required"
-        assert summary["copied_images"] == 4
-        assert summary["ignored_entries"] == 3
-        assert summary["prepared_relpath"] == "Prepared/Christmas Countdown"
-        assert len(row.scope.encode("utf-8")) < 256 * 1024
-        assert str(intake) not in row.scope
-        assert CatalogueOperation.query.count() == 1
-        assert not row.items
 
 
-def test_copy_progress_is_batched_instead_of_committing_per_file(grouping_app, grouping_client, monkeypatch):
-    import app.intake_grouping as grouping
-
-    app, intake, *_ = grouping_app
-    source = intake / "Batched Progress"
-    source.mkdir()
-    for number in range(1, 13):
-        _image(source / f"Card{number}.png")
-    preview = grouping_preview(intake, "Batched Progress")
-    persisted_copy_counts = []
-    original_persist = grouping.persist_live_state
-
-    def record_persist(operation_id, state, logs=()):
-        if state.get("stage") == "copying_grouped_images" and state.get("progress", {}).get("completed", 0):
-            persisted_copy_counts.append(state["progress"]["completed"])
-        return original_persist(operation_id, state, logs)
-
-    monkeypatch.setattr(grouping, "persist_live_state", record_persist)
-    response = _confirm(grouping_client, "Batched Progress", preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait_for_operation(app, operation_id) in {"succeeded", "partial"}
-    assert persisted_copy_counts == [5, 10, 12]
 
 
 @pytest.mark.parametrize("change", ["size", "mtime", "new", "removed"])
@@ -239,7 +147,7 @@ def test_stale_source_or_digest_is_rejected_without_partial_copy(grouping_app, g
     changed = _tree(source)
     response = _confirm(grouping_client, "Cards", preview, follow=True)
     assert response.status_code == 200
-    assert "source folder changed after preview" in response.get_data(as_text=True).lower()
+    assert "changed after preview" in response.get_data(as_text=True).lower()
     assert not (intake / "Prepared").exists()
     assert _tree(source) == changed
     assert changed != before
@@ -259,21 +167,6 @@ def test_blocking_ambiguity_and_unsafe_entries_prevent_confirmation(grouping_app
     assert not (intake / "Prepared").exists()
 
 
-def test_duplicate_safe_destinations_and_duplicate_submission(grouping_app, grouping_client):
-    app, intake, *_ = grouping_app
-    source = intake / "Cards"
-    source.mkdir()
-    _image(source / "Card1.png")
-    (intake / "Prepared" / "Cards").mkdir(parents=True)
-    (intake / "Prepared" / "cards (2)").mkdir()
-    preview = grouping_preview(intake, "Cards")
-    first = _confirm(grouping_client, "Cards", preview)
-    operation_id = first.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait_for_operation(app, operation_id) in {"succeeded", "partial"}
-    assert (intake / "Prepared" / "Cards (3)" / "Card" / "Card1.png").exists()
-    second = _confirm(grouping_client, "Cards", preview, follow=True)
-    assert "source folder changed after preview" in second.get_data(as_text=True).lower()
-    assert not (intake / "Prepared" / "Cards (4)").exists()
 
 
 def test_dedicated_intake_lock_is_exclusive_and_scanner_lock_is_separate(grouping_app):
@@ -289,79 +182,10 @@ def test_dedicated_intake_lock_is_exclusive_and_scanner_lock_is_separate(groupin
         finish_intake_operation(lease, status="failed", error="fictional test cleanup")
 
 
-def test_rapid_duplicate_submission_returns_existing_operation(grouping_app, grouping_client, monkeypatch):
-    import threading
-    import app.intake_grouping as grouping
-
-    app, intake, *_ = grouping_app
-    source = intake / "Slow Cards"
-    source.mkdir()
-    _image(source / "Card1.png")
-    preview = grouping_preview(intake, "Slow Cards")
-    entered = threading.Event()
-    release = threading.Event()
-    original = grouping._copy_source_file
-
-    def slow_copy(*args, **kwargs):
-        entered.set()
-        assert release.wait(3)
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(grouping, "_copy_source_file", slow_copy)
-    first = _confirm(grouping_client, "Slow Cards", preview)
-    first_id = first.headers["Location"].rstrip("/").split("/")[-1]
-    assert entered.wait(3)
-    second = _confirm(grouping_client, "Slow Cards", preview)
-    assert second.status_code == 302
-    assert second.headers["Location"].endswith(first_id)
-    release.set()
-    assert _wait_for_operation(app, first_id) in {"succeeded", "partial"}
-    assert len(list((intake / "Prepared").glob("Slow Cards*"))) == 1
 
 
-@pytest.mark.parametrize("failure_point", ["copy", "verify"])
-def test_failure_exposes_no_final_result_and_cleans_only_owned_staging(grouping_app, grouping_client, monkeypatch, failure_point):
-    import app.intake_grouping as grouping
-
-    app, intake, *_ = grouping_app
-    source = intake / "Failure Fixture"
-    source.mkdir()
-    _image(source / "Image1.png")
-    unrelated = intake / ".catalogue-intake-staging" / "user-created"
-    unrelated.mkdir(parents=True)
-    (unrelated / "keep.txt").write_text("keep", encoding="utf-8")
-    preview = grouping_preview(intake, "Failure Fixture")
-    target = "_copy_source_file" if failure_point == "copy" else "_verify_staged_result"
-    monkeypatch.setattr(grouping, target, lambda *args, **kwargs: (_ for _ in ()).throw(OSError(f"injected {failure_point} failure")))
-    response = _confirm(grouping_client, "Failure Fixture", preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait_for_operation(app, operation_id) == "failed"
-    assert not (intake / "Prepared" / "Failure Fixture").exists()
-    assert (source / "Image1.png").exists()
-    assert (unrelated / "keep.txt").read_text(encoding="utf-8") == "keep"
-    assert not (intake / ".catalogue-intake-staging" / operation_id).exists()
 
 
-def test_cleanup_failure_is_bounded_and_preserves_owned_staging_for_review(grouping_app, grouping_client, monkeypatch):
-    import app.intake_grouping as grouping
-
-    app, intake, *_ = grouping_app
-    source = intake / "Cleanup Failure"
-    source.mkdir()
-    _image(source / "Image1.png")
-    preview = grouping_preview(intake, "Cleanup Failure")
-    monkeypatch.setattr(grouping, "_verify_staged_result", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("injected verification failure")))
-    monkeypatch.setattr(grouping, "_cleanup_operation_staging", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("injected cleanup failure")))
-    response = _confirm(grouping_client, "Cleanup Failure", preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait_for_operation(app, operation_id) == "failed"
-    assert not (intake / "Prepared" / "Cleanup Failure").exists()
-    assert (intake / ".catalogue-intake-staging" / operation_id / ".operation-owner").exists()
-    with app.app_context():
-        row = db.session.get(CatalogueOperation, operation_id)
-        summary = json.loads(row.scope)["operation_summary"]
-        assert summary["cleanup_warning"] == "Operation staging cleanup requires review"
-        assert str(intake) not in row.scope
 
 
 def test_hard_link_and_symlink_are_blocking_for_mutation(grouping_app, grouping_client):
@@ -376,7 +200,9 @@ def test_hard_link_and_symlink_are_blocking_for_mutation(grouping_app, grouping_
     preview = grouping_preview(intake, "Unsafe")
     response = _confirm(grouping_client, "Unsafe", preview, follow=True)
     assert response.status_code == 200
-    assert "cannot be confirmed" in response.get_data(as_text=True).lower()
+    assert any(message in response.get_data(as_text=True).lower() for message in ('hard-linked', 'symbolic link'))
+    assert (source / 'Image1.png').exists() and (source / 'Image2.png').exists()
+    assert (source / 'escape.png').is_symlink()
     assert not (intake / "Prepared").exists()
 
 
@@ -386,10 +212,10 @@ def test_read_only_intake_keeps_preview_and_disables_confirmation(grouping_app, 
     source.mkdir()
     _image(source / "Card1.png")
     app.config["INTAKE_TEST_MOUNTED"] = True
-    monkeypatch.setattr("app.routes.intake_readiness", lambda: {"state": "read_only", "mounted": True, "readable": True, "writable": False, "message": "Catalogue Intake is mounted but read-only", "label": "Mounted but read-only"})
+    monkeypatch.setattr("app.image_preparation.intake_readiness", lambda: {"state": "read_only", "mounted": True, "readable": True, "writable": False, "message": "Catalogue Intake is mounted but read-only", "label": "Mounted but read-only"})
     html = grouping_client.get("/image-preparation/group?path=Cards").get_data(as_text=True)
     assert "Mounted but read-only" in html
-    assert "Confirmation unavailable" in html
+    assert 'disabled' in html and "Resolve the displayed issues" in html
     assert "Create grouped copies" not in html
 
 
@@ -428,27 +254,6 @@ def test_private_staging_is_hidden_and_stale_cleanup_is_conservative(grouping_ap
     assert ".catalogue-intake-staging" not in json.dumps(browser)
 
 
-def test_destination_race_never_overwrites_or_merges(grouping_app, grouping_client, monkeypatch):
-    import app.intake_grouping as grouping
-
-    app, intake, *_ = grouping_app
-    source = intake / "Race"
-    source.mkdir()
-    _image(source / "Card1.png")
-    preview = grouping_preview(intake, "Race")
-
-    def race(_source, destination):
-        destination.mkdir()
-        (destination / "external.txt").write_text("external", encoding="utf-8")
-        raise FileExistsError(str(destination))
-
-    monkeypatch.setattr(grouping, "_promote_prepared_result", race)
-    response = _confirm(grouping_client, "Race", preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait_for_operation(app, operation_id) == "failed"
-    assert (intake / "Prepared" / "Race" / "external.txt").read_text(encoding="utf-8") == "external"
-    assert not (intake / "Prepared" / "Race" / "Card").exists()
-    assert (source / "Card1.png").exists()
 
 
 def test_specialised_no_replace_promotion_is_used_when_supported(tmp_path, monkeypatch):
@@ -570,133 +375,14 @@ def test_fallback_filesystem_errors_are_controlled(tmp_path, monkeypatch, error_
         grouping._promote_prepared_result(source, destination)
 
 
-def test_einval_fallback_flushes_full_progress_before_verification(grouping_app, grouping_client, monkeypatch):
-    import app.intake_grouping as grouping
-
-    app, intake, *_ = grouping_app
-    source = intake / "Unraid Fixture"
-    source.mkdir()
-    for number in range(1, 27):
-        _image(source / f"Card{number}.png")
-    preview = grouping_preview(intake, "Unraid Fixture")
-    monkeypatch.setattr(grouping, "_specialised_promote_noreplace", lambda *_args: (_ for _ in ()).throw(OSError(errno.EINVAL, "unsupported")))
-    response = _confirm(grouping_client, "Unraid Fixture", preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait_for_operation(app, operation_id) in {"succeeded", "partial"}
-    result = intake / "Prepared" / "Unraid Fixture"
-    assert len(list(result.rglob("*.png"))) == 26
-    with app.app_context():
-        row = db.session.get(CatalogueOperation, operation_id)
-        scope = json.loads(row.scope)
-        summary = scope["operation_summary"]
-        logs = scope["live_state"]["logs"]
-        assert summary["copied_images"] == 26
-        assert summary["promotion_strategy"] == "ordinary_same_filesystem_rename"
-        assert any(entry["line"] == "Images copied: 26 / 26" for entry in logs)
-        copy_line = next(index for index, entry in enumerate(logs) if entry["line"] == "Images copied: 26 / 26")
-        verify_line = next(index for index, entry in enumerate(logs) if "Verifying" in entry["line"])
-        assert copy_line < verify_line
 
 
-def test_failed_promotion_records_safe_stage_cleanup_and_retry_succeeds(grouping_app, grouping_client, monkeypatch):
-    import app.intake_grouping as grouping
-
-    app, intake, *_ = grouping_app
-    source = intake / "Retry Fixture"
-    source.mkdir()
-    _image(source / "Card1.png")
-    source_before = _tree(source)
-    preview = grouping_preview(intake, "Retry Fixture")
-    original_specialised = grouping._specialised_promote_noreplace
-    monkeypatch.setattr(grouping, "_specialised_promote_noreplace", lambda *_args: (_ for _ in ()).throw(OSError(errno.EINVAL, "unsupported")))
-    monkeypatch.setattr(grouping.os, "rename", lambda *_args: (_ for _ in ()).throw(OSError(errno.EACCES, "host detail")))
-    first = _confirm(grouping_client, "Retry Fixture", preview)
-    first_id = first.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait_for_operation(app, first_id) == "failed"
-    assert not (intake / "Prepared" / "Retry Fixture").exists()
-    assert not (intake / ".catalogue-intake-staging" / first_id).exists()
-    assert _tree(source) == source_before
-    with app.app_context():
-        failed = db.session.get(CatalogueOperation, first_id)
-        scope = json.loads(failed.scope)
-        assert scope["operation_summary"]["failed_stage"] == "promoting_prepared_result"
-        assert scope["operation_summary"]["staging_cleanup"] == "cleaned"
-        assert str(intake) not in failed.scope
-        assert "host detail" not in failed.scope
-    detail = grouping_client.get(f"/operations/{first_id}").get_data(as_text=True)
-    assert "Catalogue Intake permissions prevented prepared-result promotion" in detail
-    assert "Failed stage" in detail
-    assert "Promoting Prepared Result" in detail
-    assert "Private staging" in detail
-    assert "Cleaned" in detail
-    assert "Review fresh grouping proposal" in detail
-    assert "host detail" not in detail
-
-    monkeypatch.setattr(grouping, "_specialised_promote_noreplace", original_specialised)
-    monkeypatch.undo()
-    retry_preview = grouping_preview(intake, "Retry Fixture")
-    second = _confirm(grouping_client, "Retry Fixture", retry_preview)
-    second_id = second.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait_for_operation(app, second_id) in {"succeeded", "partial"}
-    assert (intake / "Prepared" / "Retry Fixture" / "Card" / "Card1.png").exists()
 
 
-def test_discord_exception_does_not_fail_completed_grouping(grouping_app, grouping_client, monkeypatch):
-    from app.utils import discord
-
-    app, intake, *_ = grouping_app
-    source = intake / "Cards"
-    source.mkdir()
-    _image(source / "Card1.png")
-    preview = grouping_preview(intake, "Cards")
-    monkeypatch.setattr(discord, "notify_intake_grouping_completed", lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("fictional delivery failure")))
-    response = _confirm(grouping_client, "Cards", preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait_for_operation(app, operation_id) in {"succeeded", "partial"}
-    assert (intake / "Prepared" / "Cards" / "Card" / "Card1.png").exists()
-    with app.app_context():
-        row = db.session.get(CatalogueOperation, operation_id)
-        live = json.loads(row.scope)["live_state"]
-        assert live["discord"]["state"] == "failed"
-        assert live["stage"] == "completed_folder_review_required"
-        assert len(live["logs"]) < 50
 
 
-def test_operation_detail_and_prepared_browser_use_provisional_language(grouping_app, grouping_client):
-    app, intake, *_ = grouping_app
-    source = intake / "Cards"
-    source.mkdir()
-    _image(source / "Card1.png")
-    preview = grouping_preview(intake, "Cards")
-    response = _confirm(grouping_client, "Cards", preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait_for_operation(app, operation_id) in {"succeeded", "partial"}
-    html = grouping_client.get(f"/operations/{operation_id}").get_data(as_text=True)
-    assert "Grouping complete — folder review required" in html
-    assert "Review and Rename Folders" in html
-    assert "Open Prepared Result" in html
-    assert "Ready for Catalogue" not in html
-    assert "Rename Images" not in html
-    assert "Create Metadata" not in html
-    assert "Copy to Catalogue" not in html
-    prepared = grouping_client.get("/image-preparation?path=Prepared/Cards")
-    assert prepared.status_code == 200
-    assert "Prepared/Cards" in prepared.get_data(as_text=True)
 
 
-def test_confirmation_dialog_has_accessible_acknowledgement(grouping_app, grouping_client):
-    _app, intake, *_ = grouping_app
-    source = intake / "Cards"
-    source.mkdir()
-    _image(source / "Card1.png")
-    html = grouping_client.get("/image-preparation/group?path=Cards").get_data(as_text=True)
-    assert 'id="confirmGroupingDialog"' in html
-    assert 'aria-labelledby="confirmGroupingDialogTitle"' in html
-    assert 'id="confirmGroupingDialogTitle"' in html
-    assert 'id="confirmGroupingAcknowledge"' in html
-    assert 'for="confirmGroupingAcknowledge"' in html
-    assert "my source files will remain unchanged" in html
-    assert "folder names are provisional" in html
 
 
 def test_discord_grouping_helpers_are_bounded_and_failure_is_nonfatal(monkeypatch):

@@ -359,24 +359,24 @@ def test_routes_render_navigation_visibility_and_preview_only_contract(intake_cl
     assert overview.status_code == 200
     html = overview.get_data(as_text=True)
     assert "Catalogue Intake" in html
-    assert "Group loose images" in html
-    assert "Preview image renaming" in html
+    assert "Group images" in html
+    assert "Rename images" in html
     assert html.count("<h1") == 1
     assert html.count("<main") == 1
 
     grouped = intake_client.get("/image-preparation/group", query_string={"path": "Loose Images"})
     text = grouped.get_data(as_text=True)
     assert grouped.status_code == 200
-    assert "Preview only — no files or folders have been created." in text
-    assert "Prepared/Loose Images/Train/Train1.png" in text
-    assert "Source file" in text and "Proposed destination" in text
+    assert "Preview only" in text
+    assert "Loose Images/Train/Train1.png" in text
+    assert "Current → proposed" in text and "Accept Changes" in text
 
     renamed = intake_client.get("/image-preparation/rename", query_string={"path": "Loose Images", "prefix": "UCCC"})
     text = renamed.get_data(as_text=True)
     assert renamed.status_code == 200
     assert "uccc_loose_images_01.png" not in text  # root-level images are not scanner-owned product folders
-    assert "This filename prefix is independent from scanner-generated product SKUs" in text
-    assert "Preview only — no files or folders have been created." in text
+    assert "Existing lowercase prefix" in text
+    assert "Preview only" in text
     assert "Catalogue Intake" in html
     assert str(intake) not in grouped.get_data(as_text=True)
 

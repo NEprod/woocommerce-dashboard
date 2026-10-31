@@ -122,10 +122,16 @@ def eligible_metadata_results(root):
     return results
 
 
-def _snapshot(root, relative):
-    folder, selected = _resolve_prepared_result(root, relative)
+def _snapshot(root, relative, *, independent=False):
+    if independent:
+        from app.image_preparation import resolve_intake_folder
+        folder, selected = resolve_intake_folder(root, relative)
+        if not selected or any(part.startswith('.') for part in PurePosixPath(selected).parts):
+            raise ValueError("Select an ordinary child Intake folder")
+    else:
+        folder, selected = _resolve_prepared_result(root, relative)
     operation, operation_summary, workflow_state = _eligible_operation(selected)
-    if operation is None:
+    if operation is None and not independent:
         raise ValueError(
             "Only an image-renamed or metadata-complete Prepared result can use the metadata builder."
         )
@@ -162,7 +168,7 @@ def _snapshot(root, relative):
                     "mtime_ns": info.st_mtime_ns,
                     "sha256": _file_hash(entry),
                 }
-            elif parts and entry.name == METADATA_FILENAME:
+            elif (parts and entry.name == METADATA_FILENAME) or (independent and entry.name == 'sku_index.json'):
                 if not stat.S_ISREG(info.st_mode) or info.st_nlink > 1 or info.st_size > MAX_METADATA_BYTES:
                     raise ValueError("A product-level product_info.json is unsafe or too large")
                 auxiliary_json.append(
@@ -198,7 +204,7 @@ def _snapshot(root, relative):
         "metadata": metadata,
         "auxiliary_json": auxiliary_json,
         "identity": identity,
-        "workflow_operation": operation.id,
+        "workflow_operation": operation.id if operation else None,
         "workflow_state": workflow_state,
         "workflow_summary": operation_summary,
     }
@@ -396,9 +402,9 @@ def _validate(document, snapshot):
     return unique, analysis
 
 
-def metadata_preview(root, relative, proposed=None):
+def metadata_preview(root, relative, proposed=None, *, independent=False):
     root = Path(root).resolve(strict=True)
-    snapshot = _snapshot(root, relative)
+    snapshot = _snapshot(root, relative, independent=independent)
     existing, parse_error, exists = _read_existing(snapshot)
     if proposed is None:
         document = existing

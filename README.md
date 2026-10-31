@@ -41,15 +41,15 @@ intent, overrides, source-image coverage, affected products, and recent scoped
 operations. Collection JSON remains authoritative and editing continues through
 the existing Collection Metadata Editor.
 
-Phase 2.5 adds an optional, authenticated Catalogue Intake workspace backed only
-by a dedicated `/intake` mount. Browsing and deterministic grouping/renaming
-previews remain read-only. An explicitly confirmed, server-revalidated grouping
-now copies unchanged source images through private verified staging into a
-duplicate-safe provisional result below `Prepared/`; it does not rename source
-files, access the catalogue, or invoke the scanner. Later gated steps safely
-advance the same Prepared result through folder editing, image renaming, and an
-authoritative shared `product_info.json`. Metadata completion remains
-**validation required** and does not perform catalogue handoff or scanning.
+Catalogue Intake uses the optional dedicated `/intake` mount. Independently
+accessible grouping, folder naming, image naming and canonical JSON stages offer
+reactive read-only previews and one explicit Accept action. Accepted preparation
+changes originals in place, without permanent Prepared/Staging copies. A separate
+explicit final action safely moves the finished folder once into the catalogue
+and registers only that collection through the existing append scanner. Failed
+registration is retryable without reimporting. No Intake action publishes to
+Shopify; existing unfinished legacy folders are preserved. See the
+[workflow, safety and acceptance guide](docs/INTAKE_SIMPLIFICATION.md).
 
 ## Current capabilities
 

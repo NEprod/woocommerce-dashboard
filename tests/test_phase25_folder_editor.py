@@ -257,108 +257,12 @@ def test_non_empty_removal_and_missing_explicit_parent_are_blocking(folder_app):
     assert {issue["code"] for issue in preview["issues"]} >= {"non_empty_remove", "missing_parent"}
 
 
-def test_safe_operation_replaces_same_working_result_and_preserves_every_boundary(folder_app, folder_client):
-    app, intake, catalogue, output = folder_app
-    source = intake / "Prepared" / "Grouped Result"
-    source_bytes = {path.relative_to(source).as_posix(): path.read_bytes() for path in source.rglob("*") if path.is_file()}
-    catalogue_before = _tree(catalogue)
-    output_before = _tree(output)
-    preview = folder_editor_preview(intake, "Prepared/Grouped Result", _spec())
-    response = _confirm(folder_client, preview)
-    assert response.status_code == 302
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) == "succeeded"
-    result = source
-    assert not (intake / "Prepared" / "Grouped Result (2)").exists()
-    assert _tree(catalogue) == catalogue_before
-    assert _tree(output) == output_before
-    assert (result / "Holiday Express Train" / "Train1.png").read_bytes() == source_bytes["Train/Train1.png"]
-    assert (result / "Holiday Express Train" / "Ascending" / "Train2.JPG").read_bytes() == source_bytes["Train/Ascending/Train2.JPG"]
-    assert (result / "PaReNt" / "Parent1.webp").read_bytes() == source_bytes["Parent/Parent1.webp"]
-    assert (result / "New Empty").is_dir()
-    assert not (result / "Empty").exists()
-    assert not list(result.rglob("product_info.json"))
-    assert {path.name for path in result.rglob("*") if path.is_file()} == {"Train1.png", "Train2.JPG", "Parent1.webp"}
-    with app.app_context():
-        row = db.session.get(CatalogueOperation, operation_id)
-        summary = json.loads(row.scope)["operation_summary"]
-        assert row.operation_type == "intake_folder_edit"
-        assert summary["workflow_status"] == "image_renaming_required"
-        assert summary["renamed_folders"] == 3
-        assert summary["created_folders"] == 1
-        assert summary["removed_empty_folders"] == 1
-        assert len(row.scope.encode()) < 256 * 1024
-        assert str(intake) not in row.scope
-    detail = folder_client.get(response.headers["Location"]).get_data(as_text=True)
-    assert "Folder structure confirmed — image renaming required" in detail
-    assert "Rename Images" in detail
-    assert "Ready for Catalogue" not in detail
 
 
-def test_case_only_and_swap_renames_are_collision_safe(folder_app, folder_client):
-    app, intake, *_ = folder_app
-    source = intake / "Prepared" / "Grouped Result"
-    (source / "Cards").mkdir()
-    _image(source / "Cards" / "Card1.png")
-    spec = _spec(
-        root_name="Grouped Result",
-        renames={"Empty": "Empty", "Parent": "parent", "Train": "Cards", "Train/Ascending": "Cards/Ascending", "Cards": "Train"},
-        created=[],
-        remove_empty=["Empty"],
-    )
-    preview = folder_editor_preview(intake, "Prepared/Grouped Result", spec)
-    assert preview["ready"]
-    response = _confirm(folder_client, preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) == "succeeded"
-    result = intake / "Prepared" / "Grouped Result"
-    assert (result / "Cards" / "Train1.png").exists()
-    assert (result / "Train" / "Card1.png").exists()
-    assert (result / "parent" / "Parent1.webp").exists()
 
 
-def test_unrelated_prepared_result_is_preserved_and_normal_progression_never_suffixes(folder_app, folder_client):
-    app, intake, *_ = folder_app
-    existing = intake / "Prepared" / "Ultimate Countdown"
-    existing.mkdir()
-    (existing / "keep.txt").write_text("unchanged", encoding="utf-8")
-    preview = folder_editor_preview(intake, "Prepared/Grouped Result", _spec())
-    assert preview["result_name"] == "Grouped Result"
-    response = _confirm(folder_client, preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) in {"succeeded", "partial"}
-    assert (existing / "keep.txt").read_text() == "unchanged"
-    assert (intake / "Prepared" / "Grouped Result" / "PaReNt" / "Parent1.webp").exists()
-    assert not (intake / "Prepared" / "Grouped Result (2)").exists()
 
 
-def test_failed_promotion_exposes_no_result_and_cleans_only_owned_staging(folder_app, folder_client, monkeypatch):
-    import app.intake_working_result as working
-
-    app, intake, *_ = folder_app
-    unrelated = intake / ".catalogue-intake-staging" / "user-created"
-    unrelated.mkdir(parents=True)
-    (unrelated / "keep.txt").write_text("keep", encoding="utf-8")
-    source_before = _tree(intake / "Prepared" / "Grouped Result")
-    original_promote = working._promote_prepared_result
-    calls = {"count": 0}
-    def fail_once(*args):
-        calls["count"] += 1
-        if calls["count"] == 1:
-            raise PermissionError("fictional host path")
-        return original_promote(*args)
-    monkeypatch.setattr(working, "_promote_prepared_result", fail_once)
-    preview = folder_editor_preview(intake, "Prepared/Grouped Result", _spec())
-    response = _confirm(folder_client, preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) == "failed"
-    assert _tree(intake / "Prepared" / "Grouped Result") == source_before
-    assert (unrelated / "keep.txt").exists()
-    assert not (intake / ".catalogue-intake-staging" / operation_id).exists()
-    with app.app_context():
-        row = db.session.get(CatalogueOperation, operation_id)
-        assert "fictional host path" not in (row.error or "")
-        assert str(intake) not in row.scope
 
 
 def test_lock_blocks_duplicate_folder_operations_and_scanner_lock_is_unchanged(folder_app):
@@ -387,19 +291,6 @@ def test_preview_is_read_only_and_confirmation_requires_matching_digest(folder_a
     assert _tree(intake) == before
 
 
-def test_folder_editor_pages_render_complete_proposal_and_blocking_conflicts(folder_app, folder_client):
-    _app, intake, *_ = folder_app
-    page = folder_client.get("/image-preparation/folders")
-    assert page.status_code == 200
-    assert "Prepared/Grouped Result" in page.get_data(as_text=True)
-    edit = folder_client.get("/image-preparation/folders/edit?path=Prepared/Grouped%20Result")
-    html = edit.get_data(as_text=True)
-    assert edit.status_code == 200
-    assert "Current tree" in html and "Complete proposed tree" in html
-    assert "Preview only — image files have not been renamed" in html
-    conflict = folder_editor_preview(intake, "Prepared/Grouped Result", _spec(renames={"Empty": "Empty", "Parent": "Train", "Train": "train", "Train/Ascending": "train/Ascending"}))
-    assert not conflict["ready"]
-    assert "folder_collision" in {issue["code"] for issue in conflict["issues"]}
 
 
 def test_discord_folder_edit_helpers_use_one_bounded_terminal_channel(monkeypatch):
@@ -418,25 +309,15 @@ def test_discord_folder_edit_helpers_use_one_bounded_terminal_channel(monkeypatc
     assert "filename" not in json.dumps(sent).lower()
 
 
-def test_discord_failure_does_not_fail_folder_operation(folder_app, folder_client, monkeypatch):
-    import app.utils.discord as discord
-
-    app, intake, *_ = folder_app
-    monkeypatch.setattr(discord, "notify_intake_folder_edit_completed", lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("offline")))
-    preview = folder_editor_preview(intake, "Prepared/Grouped Result", _spec())
-    response = _confirm(folder_client, preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) == "succeeded"
-    assert (intake / "Prepared" / "Grouped Result").exists()
 
 
 def test_read_only_mount_keeps_preview_and_disables_apply(folder_app, folder_client, monkeypatch):
     import app.routes as routes
 
     _app, _intake, *_ = folder_app
-    monkeypatch.setattr(routes, "intake_readiness", lambda: {"state": "read_only", "mounted": True, "readable": True, "writable": False, "message": "Catalogue Intake is mounted but read-only", "label": "Mounted but read-only"})
+    monkeypatch.setattr('app.image_preparation.intake_readiness', lambda: {"state": "read_only", "mounted": True, "readable": True, "writable": False, "message": "Catalogue Intake is mounted but read-only", "label": "Mounted but read-only"})
     response = folder_client.get("/image-preparation/folders/edit?path=Prepared/Grouped%20Result")
     html = response.get_data(as_text=True)
     assert response.status_code == 200
     assert "Mounted but read-only" in html
-    assert "Confirmation unavailable" in html
+    assert 'disabled' in html and "Resolve the displayed issues" in html

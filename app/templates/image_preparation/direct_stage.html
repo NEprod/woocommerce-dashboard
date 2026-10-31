@@ -1,0 +1,29 @@
+{% extends 'layouts/base.html' %}
+{% block title %}{{ title }} | Catalogue Intake{% endblock %}
+{% block content %}
+<header class="page-header"><div><p class="eyebrow">Catalogue Intake · {{ source }}</p><h1>{{ title }}</h1><p>Adjust settings → review the live result → Accept Changes. Original files change only on acceptance.</p></div><a class="btn btn-ghost" href="{{ url_for('main.image_preparation', path=source) }}">Intake folder</a></header>
+<nav class="button-row" aria-label="Independent Intake stages">{% for key,definition in stages.items() %}<a class="btn btn-{{ 'primary' if key == stage else 'ghost' }}" href="{{ url_for('main.image_preparation_direct_stage', stage=key, path=source) }}">{{ definition[0] }}</a>{% endfor %}</nav>
+<p class="panel-note">{{ readiness.label }} · Preview only — original files change only on acceptance.</p>
+{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="alert alert-{{ category }}">{{ message }}</div>{% endfor %}{% endwith %}
+<div data-intake-direct data-stage="{{ stage }}" data-preview-url="{{ url_for('main.image_preparation_' ~ stage ~ '_preview', live=1) }}">
+{% if stage == 'metadata' and proposal %}{% with preview=proposal.metadata %}{% include 'image_preparation/_direct_metadata.html' %}{% endwith %}
+{% else %}
+<form class="workspace-panel" data-intake-settings>
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="path" value="{{ source }}">
+{% if stage == 'folders' and proposal %}
+<div class="intake-editor-grid"><label>Containing folder name<input name="root_name" value="{{ proposal.options.root_name }}" required></label><label>Filename / SKU prefix preview<input name="preview_prefix" value="{{ proposal.options.preview_prefix }}"><small>Filename preview only. Authoritative SKU prefix is saved in Product JSON; the existing scanner allocates identities.</small></label><label>Folder name prefix<input name="folder_prefix" value=""></label><label>Folder name suffix<input name="folder_suffix" value=""></label></div>
+{% for item in proposal.folder_inputs %}<div class="intake-direct-folder"><input type="hidden" name="folder_current" value="{{ item.path }}"><strong>{{ item.path }}/</strong><label>Proposed folder path<input name="folder_proposed" value="{{ item.path }}"></label>{% if item.empty %}<label><input type="checkbox" name="remove_empty" value="{{ item.path }}">Remove empty folder</label>{% endif %}</div>{% endfor %}
+<label>Create empty folders (one relative path per line)<textarea name="created_folders" rows="3"></textarea></label>
+{% elif stage == 'rename' %}<label>Filename prefix<input name="prefix" aria-label="Filename prefix" value="{{ proposal.prefix if proposal else '' }}" required><small>Existing lowercase prefix / hierarchy / ordered numbering rule. Repeating the same plan does not add prefixes.</small></label>
+{% elif stage == 'handoff' %}<p>The complete original folder will move from Intake to the catalogue. Existing destinations are never merged or overwritten. Registration uses only the installed collection.</p>
+{% else %}<p>Grouping uses the existing trailing-digit rule. Unrelated folders and files stay in place.</p>{% endif %}
+</form>
+{% endif %}
+<div data-intake-preview aria-live="polite">{% include 'image_preparation/_direct_plan.html' %}</div>
+<form method="post" action="{{ url_for('main.image_preparation_' ~ stage ~ '_confirm') }}" data-intake-accept class="workspace-panel intake-direct-accept">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="path" value="{{ source }}"><input type="hidden" name="digest" value="{{ proposal.digest if proposal else '' }}"><input type="hidden" name="options" value="{{ proposal.options|tojson if proposal else '{}' }}">
+<span data-intake-message>{{ 'Ready for acceptance' if proposal and proposal.ready else 'Resolve the displayed issues' }}</span><button type="submit" class="btn btn-primary" {% if not proposal or not proposal.ready %}disabled{% endif %}>Accept Changes</button>
+</form>
+</div>
+{% endblock %}
+{% block javascripts %}{% if stage == 'metadata' %}{% include 'packaging/_modal.html' %}<script src="{{ url_for('static', filename='assets/js/packaging.js') }}"></script><script src="{{ url_for('static', filename='assets/js/prepared-metadata.js') }}"></script>{% endif %}<script src="{{ url_for('static', filename='assets/js/intake-direct.js') }}"></script>{% endblock %}

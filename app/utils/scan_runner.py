@@ -309,9 +309,9 @@ def build_scan_scope(scan_folder, scan_mode, *, collection_relpath=None):
         )
 
     try:
-        if scan_mode == "shared_collection":
+        if scan_mode == "shared_collection" or (scan_mode == "append" and collection_relpath is not None):
             target = _safe_collection_path(scan_folder, collection_relpath or "")
-            if not target or not os.path.isdir(target):
+            if not target or target == os.path.realpath(scan_folder) or not os.path.isdir(target):
                 return ScanScopePlan(
                     (),
                     frozenset(),
@@ -335,7 +335,7 @@ def build_scan_scope(scan_folder, scan_mode, *, collection_relpath=None):
         )
 
     if not authoritative:
-        return ScanScopePlan(collection_paths, frozenset(), {}, False, True)
+        return ScanScopePlan(collection_paths, frozenset(), {}, False, True, collection_relpath)
     if scan_mode == "full" and not collection_paths:
         return ScanScopePlan(
             (),
@@ -463,6 +463,11 @@ def start_scan(
         operation_scope.setdefault("scope_kind", "collection")
         operation_scope.setdefault("collection_relpath", collection_relpath)
         operation_scope.setdefault("exhaustive", True)
+    elif scan_mode == "append" and collection_relpath is not None:
+        # Intake's new-folder registration: existing append semantics, bounded
+        # by the same validated collection path. Ordinary append is unchanged.
+        operation_scope.setdefault("scope_kind", "collection")
+        operation_scope.setdefault("collection_relpath", collection_relpath)
     if operation_id is None:
         with app.app_context():
             lease = acquire_catalogue_operation(

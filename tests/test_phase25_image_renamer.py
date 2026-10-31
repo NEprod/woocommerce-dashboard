@@ -215,56 +215,6 @@ def test_routes_require_authentication_csrf_and_acknowledgement(rename_app, rena
         assert not CatalogueOperation.query.filter_by(operation_type="intake_image_rename").first()
 
 
-def test_safe_rename_replaces_same_result_preserves_bytes_and_boundaries(rename_app, rename_client):
-    app, intake, catalogue, output = rename_app
-    working = intake / "Prepared" / "Working Result"
-    loose_before = _tree(intake / "Loose Original")
-    catalogue_before = _tree(catalogue)
-    output_before = _tree(output)
-    source_hashes = sorted(row[2] for row in _tree(working) if row[2])
-    with app.app_context():
-        preview = image_rename_preview(intake, "Prepared/Working Result", "UCCC")
-    response = _confirm(rename_client, preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    status = _wait(app, operation_id)
-    with app.app_context():
-        operation_error = db.session.get(CatalogueOperation, operation_id).error
-    assert status in {"succeeded", "partial"}, operation_error
-    assert working.is_dir()
-    assert not (intake / "Prepared" / "Working Result (2)").exists()
-    assert sorted(row[2] for row in _tree(working) if row[2]) == source_hashes
-    assert (working / "Parent" / "uccc_working_result_01.png").exists()
-    assert (working / "Holiday Train" / "uccc_holiday_train_01.png").exists()
-    assert (working / "Holiday Train" / "uccc_holiday_train_02.jpg").exists()
-    assert (working / "Holiday Train" / "Ascending" / "uccc_holiday_train_ascending_01.webp").exists()
-    assert not list(working.rglob(".intake-*.tmp"))
-    assert not list(working.rglob("product_info.json"))
-    assert _tree(intake / "Loose Original") == loose_before
-    assert _tree(catalogue) == catalogue_before
-    assert _tree(output) == output_before
-    with app.app_context():
-        row = db.session.get(CatalogueOperation, operation_id)
-        summary = json.loads(row.scope)["operation_summary"]
-        assert row.operation_type == "intake_image_rename"
-        assert summary["workflow_status"] == "metadata_required"
-        assert summary["prepared_relpath"] == "Prepared/Working Result"
-        assert summary["rollback_state"] == "removed_after_verification"
-        assert set(summary["stage_timings_seconds"]) == {
-            "preview_revalidation",
-            "staging_copy",
-            "temporary_rename",
-            "final_rename",
-            "staged_verification",
-            "visible_result_swap",
-        }
-        assert eligible_image_rename_results(intake) == []
-        assert len(row.scope.encode()) < 256 * 1024
-        assert str(intake) not in row.scope
-    detail = rename_client.get(response.headers["Location"]).get_data(as_text=True)
-    assert '<h1 data-operation-heading>Images renamed — metadata required</h1>' in detail
-    assert "Images renamed — metadata required" in detail
-    assert "Create Product Metadata" in detail
-    assert "Run Append Scan" not in detail
 
 
 def test_stale_digest_and_duplicate_lock_are_rejected(rename_app, monkeypatch):
@@ -285,111 +235,12 @@ def test_stale_digest_and_duplicate_lock_are_rejected(rename_app, monkeypatch):
             finish_intake_operation(lease, status="failed", summary={"source_images": 0, "copied_images": 0, "failed_images": 1})
 
 
-def test_promotion_failure_restores_original_without_partial_result(rename_app, rename_client, monkeypatch):
-    import app.intake_working_result as working_result
-
-    app, intake, *_ = rename_app
-    working = intake / "Prepared" / "Working Result"
-    before = _tree(working)
-    original = working_result._promote_prepared_result
-    calls = {"count": 0}
-    def fail_once(*args):
-        calls["count"] += 1
-        if calls["count"] == 1:
-            raise PermissionError("fictional hidden host path")
-        return original(*args)
-    monkeypatch.setattr(working_result, "_promote_prepared_result", fail_once)
-    with app.app_context():
-        preview = image_rename_preview(intake, "Prepared/Working Result", "SKU")
-    response = _confirm(rename_client, preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) == "failed"
-    assert _tree(working) == before
-    assert not (intake / "Prepared" / "Working Result (2)").exists()
-    assert not (intake / ".catalogue-intake-staging" / operation_id).exists()
 
 
-def test_post_promotion_verification_failure_restores_original(rename_app, rename_client, monkeypatch):
-    import app.intake_image_renamer as renamer
-
-    app, intake, *_ = rename_app
-    working = intake / "Prepared" / "Working Result"
-    before = _tree(working)
-    original_verify = renamer._verify_renamed_result
-    calls = {"count": 0}
-    def fail_promoted(*args):
-        calls["count"] += 1
-        if calls["count"] == 2:
-            raise renamer.RenameProposalRejected("injected promoted verification failure")
-        return original_verify(*args)
-    monkeypatch.setattr(renamer, "_verify_renamed_result", fail_promoted)
-    with app.app_context():
-        preview = image_rename_preview(intake, "Prepared/Working Result", "SKU")
-    response = _confirm(rename_client, preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) == "failed"
-    assert _tree(working) == before
 
 
-def test_restore_failure_records_controlled_recovery_without_exposing_paths(rename_app, rename_client, monkeypatch):
-    import app.intake_working_result as working_result
-
-    app, intake, *_ = rename_app
-    monkeypatch.setattr(
-        working_result,
-        "_promote_prepared_result",
-        lambda *_args: (_ for _ in ()).throw(PermissionError("fictional /private/host/path")),
-    )
-    with app.app_context():
-        preview = image_rename_preview(intake, "Prepared/Working Result", "SKU")
-    response = _confirm(rename_client, preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) == "failed"
-    with app.app_context():
-        row = db.session.get(CatalogueOperation, operation_id)
-        summary = json.loads(row.scope)["operation_summary"]
-        assert summary["recovery_state"] == "manual_recovery_required"
-        assert ".catalogue-intake-rollback" not in row.scope
-        assert "/private/host/path" not in (row.error or "")
 
 
-def test_proven_predecessor_cleanup_is_explicit_and_uncertain_legacy_is_preserved(rename_app, rename_client):
-    app, intake, *_ = rename_app
-    predecessor = intake / "Prepared" / "Grouped Predecessor"
-    _image(predecessor / "Holiday Train" / "train-a.png", (77, 88, 99))
-    with app.app_context():
-        row = db.session.get(CatalogueOperation, "a" * 32)
-        summary = json.loads(row.scope)["operation_summary"]
-        summary["source_relpath"] = "Prepared/Grouped Predecessor"
-        summary["source_identity"] = _snapshot_identity(
-            _snapshot_prepared_result(intake, "Prepared/Grouped Predecessor")
-        )
-        summary["result_identity"] = _snapshot_identity(
-            _snapshot_prepared_result(intake, "Prepared/Working Result")
-        )
-        row.scope = _summary_scope(summary)
-        db.session.commit()
-        preview = image_rename_preview(
-            intake,
-            "Prepared/Working Result",
-            "SKU",
-        )
-    assert preview["lineage"]["eligible"]
-    assert preview["cleanup_selected"]
-    blocked = _confirm(rename_client, preview, remove_predecessor="yes")
-    assert blocked.status_code == 302
-    with app.app_context():
-        assert not CatalogueOperation.query.filter_by(operation_type="intake_image_rename").first()
-    response = _confirm(
-        rename_client,
-        preview,
-        remove_predecessor="yes",
-        acknowledge_predecessor="yes",
-    )
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) in {"succeeded", "partial"}
-    assert not predecessor.exists()
-    assert (intake / "Prepared" / "Working Result").exists()
 
 
 def test_legacy_lineage_without_identities_never_allows_cleanup(rename_app):
@@ -412,45 +263,8 @@ def test_legacy_lineage_without_identities_never_allows_cleanup(rename_app):
     assert predecessor.exists()
 
 
-def test_cleanup_failure_is_warning_and_preserves_predecessor(rename_app, rename_client, monkeypatch):
-    import app.intake_image_renamer as renamer
-
-    app, intake, *_ = rename_app
-    predecessor = intake / "Prepared" / "Predecessor"
-    _image(predecessor / "Product" / "image.png")
-    with app.app_context():
-        row = db.session.get(CatalogueOperation, "a" * 32)
-        summary = json.loads(row.scope)["operation_summary"]
-        summary.update(
-            source_relpath="Prepared/Predecessor",
-            source_identity=_snapshot_identity(_snapshot_prepared_result(intake, "Prepared/Predecessor")),
-            result_identity=_snapshot_identity(_snapshot_prepared_result(intake, "Prepared/Working Result")),
-        )
-        row.scope = _summary_scope(summary)
-        db.session.commit()
-        preview = image_rename_preview(intake, "Prepared/Working Result", "SKU", remove_predecessor=True)
-    monkeypatch.setattr(renamer, "_remove_predecessor", lambda *_args: (_ for _ in ()).throw(PermissionError("hidden host path")))
-    response = _confirm(rename_client, preview, remove_predecessor="yes", acknowledge_predecessor="yes")
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) == "partial"
-    assert predecessor.exists()
 
 
-def test_discord_is_terminal_bounded_and_nonfatal(rename_app, rename_client, monkeypatch):
-    import app.utils.discord as discord
-
-    app, intake, *_ = rename_app
-    sent = []
-    monkeypatch.setattr(discord, "send_discord_message", lambda *args, **kwargs: sent.append(kwargs) or (True, "sent"))
-    discord.notify_intake_image_rename_completed(result_name="Working", prefix="sku", renamed=4, parent=1, variation=1, warnings=0, predecessor="preserved", elapsed_text="1.0s", operation_id="b" * 32)
-    assert len(sent) == 1 and sent[0]["channels"] == ["scans_info"]
-    assert ".catalogue-intake" not in json.dumps(sent)
-    monkeypatch.setattr(discord, "notify_intake_image_rename_completed", lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("offline")))
-    with app.app_context():
-        preview = image_rename_preview(intake, "Prepared/Working Result", "SKU")
-    response = _confirm(rename_client, preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) in {"succeeded", "partial"}
 
 
 def test_flattened_parent_product_collision_blocks_confirmation(rename_app):

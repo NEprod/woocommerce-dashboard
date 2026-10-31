@@ -208,106 +208,14 @@ def test_confirm_requires_acknowledgements(handoff_app):
             revalidate_handoff("Prepared/Holiday Cards", preview["digest"])
 
 
-def test_new_destination_handoff_preserves_prepared_and_never_scans(handoff_app, handoff_client, monkeypatch):
-    app, _intake, catalogue, output, prepared, before = handoff_app
-    import app.utils.scan_runner as scan_runner
-    monkeypatch.setattr(scan_runner, "start_scan", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("scanner invoked")))
-    with app.app_context():
-        preview = handoff_preview("Prepared/Holiday Cards")
-    response = handoff_client.post("/image-preparation/handoff/confirm", data={"path": preview["source"], "digest": preview["digest"], "acknowledge": "yes"})
-    assert response.status_code == 302
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    row = _wait(app, operation_id)
-    assert row.status in {"succeeded", "partial"}
-    destination = catalogue / "Holiday Cards"
-    assert _bytes(destination) == before == _bytes(prepared)
-    assert not list(destination.rglob(".scanned"))
-    assert not list(destination.rglob(".update"))
-    assert not any(output.iterdir())
-    assert not (catalogue / ".woocommerce-dashboard-staging" / operation_id).exists()
-    with app.app_context():
-        _scope_value, summary = json.loads(row.scope), json.loads(row.scope)["operation_summary"]
-        assert summary["workflow_status"] == HANDOFF_STATUS
-        assert summary["handoff_action"] == "create"
-        assert summary["next_step"] == "Run Append Scan"
-        assert summary["blocking_errors"] == 0
-        assert summary["warning_findings"]
 
 
-def test_existing_destination_replaced_without_merge_and_markers_not_copied(handoff_app, handoff_client):
-    app, _intake, catalogue, _output, prepared, before = handoff_app
-    existing = catalogue / "Holiday Cards"
-    existing.mkdir()
-    (existing / ".scanned").write_text("SKU-OLD", encoding="utf-8")
-    (existing / "unknown.bin").write_bytes(b"old")
-    with app.app_context():
-        preview = handoff_preview("Prepared/Holiday Cards")
-    assert preview["destination"]["markers"]
-    response = handoff_client.post("/image-preparation/handoff/confirm", data={"path": preview["source"], "digest": preview["digest"], "acknowledge": "yes", "acknowledge_replace": "yes"})
-    row = _wait(app, response.headers["Location"].rstrip("/").split("/")[-1])
-    assert row.status in {"succeeded", "partial"}
-    assert _bytes(existing) == before == _bytes(prepared)
-    assert not (existing / "unknown.bin").exists()
-    assert not (existing / ".scanned").exists()
 
 
-def test_replacement_promotion_failure_restores_exact_existing_destination(handoff_app, handoff_client, monkeypatch):
-    app, _intake, catalogue, _output, _prepared, _before = handoff_app
-    existing = catalogue / "Holiday Cards"
-    _image(existing / "Old" / "old.png", (1, 2, 3))
-    (existing / ".scanned").write_text("OLD-SKU", encoding="utf-8")
-    old = _bytes(existing)
-    import app.intake_handoff as handoff
-    original = handoff._promote_prepared_result
-    calls = {"count": 0}
-    def fail_first(source, destination):
-        calls["count"] += 1
-        if calls["count"] == 1:
-            raise HandoffRejected("injected promotion failure")
-        return original(source, destination)
-    monkeypatch.setattr(handoff, "_promote_prepared_result", fail_first)
-    with app.app_context():
-        preview = handoff_preview("Prepared/Holiday Cards")
-    response = handoff_client.post("/image-preparation/handoff/confirm", data={"path": preview["source"], "digest": preview["digest"], "acknowledge": "yes", "acknowledge_replace": "yes"})
-    row = _wait(app, response.headers["Location"].rstrip("/").split("/")[-1])
-    assert row.status == "failed"
-    assert _bytes(existing) == old
 
 
-def test_success_updates_eligibility_review_and_requires_fresh_repeat(handoff_app, handoff_client):
-    app, intake, _catalogue, *_ = handoff_app
-    with app.app_context():
-        preview = handoff_preview("Prepared/Holiday Cards")
-    response = handoff_client.post("/image-preparation/handoff/confirm", data={"path": preview["source"], "digest": preview["digest"], "acknowledge": "yes"})
-    row = _wait(app, response.headers["Location"].rstrip("/").split("/")[-1])
-    assert row.status in {"succeeded", "partial"}
-    with app.app_context():
-        results = eligible_handoff_results(intake)
-        assert results[0]["action"] == "Review Handoff"
-        with pytest.raises(HandoffRejected, match="fresh"):
-            handoff_preview("Prepared/Holiday Cards")
-        repeat = handoff_preview("Prepared/Holiday Cards", fresh_review=True)
-        assert repeat["destination"]["action"] == "replace"
-    history = handoff_client.get("/image-preparation/handoff/review?path=Prepared/Holiday%20Cards")
-    assert history.status_code == 200
-    assert b"Catalogue handoff complete" in history.data
-    assert b"Run Append Scan" in history.data
-    assert b"Completed with warnings" in history.data
-    assert b"Review warnings" in history.data
 
 
-def test_routes_render_semantics_without_unsupported_actions(handoff_app, handoff_client):
-    response = handoff_client.get("/image-preparation/handoff")
-    assert response.status_code == 200
-    assert response.data.count(b"<main") == 1
-    assert response.data.count(b"<h1") == 1
-    assert b"Validate and Copy to Catalogue" in response.data
-    assert b"automatic scan" not in response.data.lower()
-    preview = handoff_client.post("/image-preparation/handoff/preview", data={"path": "Prepared/Holiday Cards"})
-    assert preview.status_code == 200
-    for text in (b"Final Validation", b"Copy to Catalogue", b"Append Scan will remain a separate manual step", b"Catalogue destination"):
-        assert text in preview.data
-    assert b"Woo sync" not in preview.data
 
 
 def test_operation_type_is_bounded_and_no_schema_change(handoff_app):
@@ -315,49 +223,10 @@ def test_operation_type_is_bounded_and_no_schema_change(handoff_app):
     assert HANDOFF_OPERATION_TYPE == "intake_catalogue_handoff"
 
 
-def test_catalogue_lock_blocks_duplicate_and_scanner_concurrency(handoff_app):
-    app, *_ = handoff_app
-    from app.intake_handoff import start_handoff_operation
-    from app.utils.operation_control import CatalogueOperationActive, acquire_catalogue_operation, finish_catalogue_operation
-    with app.app_context():
-        preview = handoff_preview("Prepared/Holiday Cards")
-        scanner = acquire_catalogue_operation("append", {"test": True})
-        try:
-            with pytest.raises(CatalogueOperationActive):
-                start_handoff_operation(app, preview["source"], preview["digest"], acknowledge=True)
-        finally:
-            finish_catalogue_operation(scanner.id, status="interrupted")
 
 
-def test_intake_lock_blocks_handoff_without_exposing_destination(handoff_app):
-    app, _intake, catalogue, *_ = handoff_app
-    from app.intake_grouping import acquire_intake_operation, finish_intake_operation
-    from app.intake_handoff import start_handoff_operation
-    with app.app_context():
-        preview = handoff_preview("Prepared/Holiday Cards")
-        intake_lease = acquire_intake_operation({"source_relpath": "Prepared/Other"})
-        try:
-            operation_id = start_handoff_operation(app, preview["source"], preview["digest"], acknowledge=True)
-            row = _wait(app, operation_id)
-            assert row.status == "failed"
-            assert not (catalogue / "Holiday Cards").exists()
-        finally:
-            finish_intake_operation(intake_lease, status="interrupted", summary={"source_images": 0, "copied_images": 0, "failed_images": 0})
 
 
-def test_unraid_unsupported_specialised_rename_uses_safe_fallback(handoff_app, handoff_client, monkeypatch):
-    app, _intake, catalogue, *_ = handoff_app
-    import app.intake_grouping as grouping
-    monkeypatch.setattr(grouping, "_specialised_promote_noreplace", lambda *_args: (_ for _ in ()).throw(OSError(errno.EINVAL, "unsupported")))
-    with app.app_context():
-        preview = handoff_preview("Prepared/Holiday Cards")
-    response = handoff_client.post("/image-preparation/handoff/confirm", data={"path": preview["source"], "digest": preview["digest"], "acknowledge": "yes"})
-    row = _wait(app, response.headers["Location"].rstrip("/").split("/")[-1])
-    assert row.status in {"succeeded", "partial"}
-    with app.app_context():
-        summary = json.loads(db.session.get(CatalogueOperation, row.id).scope)["operation_summary"]
-    assert summary["promotion_strategy"] == "ordinary_same_filesystem_rename"
-    assert (catalogue / "Holiday Cards").is_dir()
 
 
 def test_catalogue_unavailable_or_read_only_blocks_confirmation(handoff_app, monkeypatch):

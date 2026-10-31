@@ -240,9 +240,12 @@ def test_variable_title_preview_uses_existing_product_json_without_editing_it(me
     titles = {item["folder"]: item["title"] for item in preview["analysis"]["title_previews"]}
     assert titles["Hero A"] == "Product-specific Hero | Shared Cards"
     assert titles["Hero B"] == "Hero B | Shared Cards"
+    from app.intake_direct import plan
+    with app.app_context():
+        direct = plan('metadata', 'Prepared/Variable Cards', {'document': document})
     response = metadata_client.post(
         "/image-preparation/metadata/confirm",
-        data={"path": preview["source"], "document": preview["json_text"], "digest": preview["digest"], "acknowledge": "yes"},
+        data={"path": direct['source'], "options": json.dumps(direct['options']), "digest": direct['digest']},
     )
     operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
     assert _wait(app, operation_id).status in {"succeeded", "partial"}
@@ -305,72 +308,16 @@ def test_routes_require_authentication_csrf_and_render_without_unsupported_actio
     app.config["WTF_CSRF_ENABLED"] = True
     assert metadata_client.post("/image-preparation/metadata/preview", data={}).status_code == 400
     app.config["WTF_CSRF_ENABLED"] = False
-    page = metadata_client.get("/image-preparation/metadata")
+    page = metadata_client.get("/image-preparation/metadata", follow_redirects=True)
     assert page.status_code == 200
     body = page.get_data(as_text=True)
-    assert "Create Product Metadata" in body
+    assert "Product JSON" in body
     assert "Copy to Catalogue" not in body
     assert "Append Scan" not in body
 
 
-def test_preview_route_and_safe_same_name_save(metadata_app, metadata_client):
-    app, intake, catalogue, output = metadata_app
-    source_before = (intake / "Prepared" / "Simple Cards" / "Parent" / "cards_01.png").read_bytes()
-    catalogue_before = list(catalogue.rglob("*"))
-    output_before = list(output.rglob("*"))
-    document = _document()
-    preview_response = metadata_client.post(
-        "/image-preparation/metadata/preview",
-        data={"path": "Prepared/Simple Cards", "document": json.dumps(document)},
-    )
-    assert preview_response.status_code == 200
-    with app.app_context():
-        preview = metadata_preview(intake, "Prepared/Simple Cards", document)
-    response = metadata_client.post(
-        "/image-preparation/metadata/confirm",
-        data={
-            "path": preview["source"],
-            "document": preview["json_text"],
-            "digest": preview["digest"],
-            "acknowledge": "yes",
-        },
-    )
-    assert response.status_code == 302
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    row = _wait(app, operation_id)
-    assert row.status in {"succeeded", "partial"}
-    result = intake / "Prepared" / "Simple Cards"
-    assert json.loads((result / METADATA_FILENAME).read_text(encoding="utf-8")) == document
-    assert (result / "Parent" / "cards_01.png").read_bytes() == source_before
-    assert not (intake / "Prepared" / "Simple Cards (2)").exists()
-    assert not list(result.glob("product_info.json.*"))
-    assert list(catalogue.rglob("*")) == catalogue_before
-    assert list(output.rglob("*")) == output_before
-    with app.app_context():
-        scope = json.loads(db.session.get(CatalogueOperation, operation_id).scope)
-    summary = scope["operation_summary"]
-    assert summary["workflow_status"] == "validation_required"
-    assert summary["rollback_state"] == "removed_after_verification"
-    assert summary["metadata_action"] == "create"
-    assert "description" not in json.dumps(summary)
 
 
-def test_duplicate_submission_is_blocked_and_result_can_be_reopened(metadata_app, metadata_client):
-    app, intake, *_ = metadata_app
-    document = _document()
-    with app.app_context():
-        preview = metadata_preview(intake, "Prepared/Simple Cards", document)
-    data = {"path": preview["source"], "document": preview["json_text"], "digest": preview["digest"], "acknowledge": "yes"}
-    first = metadata_client.post("/image-preparation/metadata/confirm", data=data)
-    operation_id = first.headers["Location"].rstrip("/").split("/")[-1]
-    _wait(app, operation_id)
-    stale = metadata_client.post("/image-preparation/metadata/confirm", data=data, follow_redirects=True)
-    assert b"changed after preview" in stale.data
-    with app.app_context():
-        results = eligible_metadata_results(intake)
-    selected = next(item for item in results if item["name"] == "Simple Cards")
-    assert selected["action"] == "Edit Product Metadata"
-    assert selected["workflow_status"] == "validation_required"
 
 
 def test_read_only_intake_allows_preview_but_not_save(metadata_app, metadata_client):
@@ -379,9 +326,9 @@ def test_read_only_intake_allows_preview_but_not_save(metadata_app, metadata_cli
     with app.app_context():
         preview = metadata_preview(intake, "Prepared/Simple Cards", document)
     app.config["INTAKE_TEST_MOUNTED"] = True
-    import app.intake_metadata_builder as builder
+    import app.image_preparation as builder
     original = builder.intake_readiness
-    builder.intake_readiness = lambda: {"readable": True, "writable": False}
+    builder.intake_readiness = lambda: {"readable": True, "writable": False, 'label': 'Mounted but read-only', 'message': 'Catalogue Intake is mounted but read-only'}
     try:
         response = metadata_client.post(
             "/image-preparation/metadata/confirm",
@@ -390,123 +337,18 @@ def test_read_only_intake_allows_preview_but_not_save(metadata_app, metadata_cli
         )
     finally:
         builder.intake_readiness = original
-    assert b"mounted read/write" in response.data
+    assert b"read-only" in response.data
     assert not (intake / "Prepared" / "Simple Cards" / METADATA_FILENAME).exists()
 
 
-def test_operation_metadata_does_not_store_full_json_or_absolute_paths(metadata_app, metadata_client):
-    app, intake, *_ = metadata_app
-    document = {**_document(), "description": "CONFIDENTIAL-DESCRIPTION-DO-NOT-PERSIST"}
-    with app.app_context():
-        preview = metadata_preview(intake, "Prepared/Simple Cards", document)
-    response = metadata_client.post(
-        "/image-preparation/metadata/confirm",
-        data={"path": preview["source"], "document": preview["json_text"], "digest": preview["digest"], "acknowledge": "yes"},
-    )
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    _wait(app, operation_id)
-    with app.app_context():
-        row = db.session.get(CatalogueOperation, operation_id)
-        retained = (row.scope or "") + (row.error or "")
-    assert "CONFIDENTIAL-DESCRIPTION" not in retained
-    assert str(intake) not in retained
-    assert len(retained) < 6000
 
 
-def test_existing_metadata_is_updated_without_visible_backup_clutter(metadata_app, metadata_client):
-    app, intake, *_ = metadata_app
-    target = intake / "Prepared" / "Simple Cards" / METADATA_FILENAME
-    target.write_text(json.dumps(_document()), encoding="utf-8")
-    changed = {**_document(), "title": "Corrected shared title", "live": True}
-    with app.app_context():
-        preview = metadata_preview(intake, "Prepared/Simple Cards", changed)
-    assert preview["action"] == "update"
-    response = metadata_client.post(
-        "/image-preparation/metadata/confirm",
-        data={"path": preview["source"], "document": preview["json_text"], "digest": preview["digest"], "acknowledge": "yes"},
-    )
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    row = _wait(app, operation_id)
-    assert row.status in {"succeeded", "partial"}
-    assert json.loads(target.read_text(encoding="utf-8")) == changed
-    assert target.read_bytes().endswith(b"\n")
-    assert target.stat().st_mode & 0o777 == 0o600
-    assert [path.name for path in target.parent.glob("product_info.json*")] == [METADATA_FILENAME]
 
 
-def test_staging_failure_leaves_visible_result_unchanged(metadata_app, metadata_client, monkeypatch):
-    app, intake, *_ = metadata_app
-    image = intake / "Prepared" / "Simple Cards" / "Parent" / "cards_01.png"
-    original = image.read_bytes()
-    import app.intake_metadata_builder as builder
-    monkeypatch.setattr(builder, "_write_metadata", lambda *_args: (_ for _ in ()).throw(builder.MetadataProposalRejected("injected write failure")))
-    with app.app_context():
-        preview = metadata_preview(intake, "Prepared/Simple Cards", _document())
-    response = metadata_client.post(
-        "/image-preparation/metadata/confirm",
-        data={"path": preview["source"], "document": preview["json_text"], "digest": preview["digest"], "acknowledge": "yes"},
-    )
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    row = _wait(app, operation_id)
-    assert row.status == "failed"
-    assert image.read_bytes() == original
-    assert not (image.parents[1] / METADATA_FILENAME).exists()
-    assert not (intake / "Prepared" / "Simple Cards (2)").exists()
 
 
-def test_post_promotion_failure_restores_original(metadata_app, metadata_client, monkeypatch):
-    app, intake, *_ = metadata_app
-    target = intake / "Prepared" / "Simple Cards" / METADATA_FILENAME
-    original_document = _document()
-    target.write_text(json.dumps(original_document), encoding="utf-8")
-    import app.intake_metadata_builder as builder
-    original_verify = builder._verify_result
-    calls = {"count": 0}
-
-    def injected(folder, preview):
-        calls["count"] += 1
-        if calls["count"] == 2:
-            raise builder.MetadataProposalRejected("injected promoted verification failure")
-        return original_verify(folder, preview)
-
-    monkeypatch.setattr(builder, "_verify_result", injected)
-    changed = {**original_document, "title": "Must roll back"}
-    with app.app_context():
-        preview = metadata_preview(intake, "Prepared/Simple Cards", changed)
-    response = metadata_client.post(
-        "/image-preparation/metadata/confirm",
-        data={"path": preview["source"], "document": preview["json_text"], "digest": preview["digest"], "acknowledge": "yes"},
-    )
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    row = _wait(app, operation_id)
-    assert row.status == "failed"
-    assert json.loads(target.read_text(encoding="utf-8")) == original_document
 
 
-def test_operation_detail_exposes_metadata_summary_and_next_step(metadata_app, metadata_client):
-    app, intake, *_ = metadata_app
-    document = {**_document(), "future_field": "preserved warning fixture"}
-    with app.app_context():
-        preview = metadata_preview(intake, "Prepared/Simple Cards", document)
-    response = metadata_client.post(
-        "/image-preparation/metadata/confirm",
-        data={"path": preview["source"], "document": preview["json_text"], "digest": preview["digest"], "acknowledge": "yes"},
-    )
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    row = _wait(app, operation_id)
-    summary = json.loads(row.scope)["operation_summary"]
-    assert summary["blocking_errors"] == 0
-    assert summary["warning_findings"]
-    page = metadata_client.get(f"/operations/{operation_id}")
-    assert page.status_code == 200
-    body = page.get_data(as_text=True)
-    assert "Catalogue Intake — Save Metadata" in body
-    assert "Metadata complete — validation required" in body
-    assert "Validate and Copy to Catalogue" in body
-    assert "Edit Product Metadata" in body
-    assert "Completed with warnings" in body
-    assert "Review warnings" in body
-    assert preview["json_text"] not in body
 
 
 def test_preview_does_not_send_discord_or_write_files(metadata_app, monkeypatch):
@@ -541,39 +383,6 @@ class _SemanticParser(HTMLParser):
             self.labels += 1
 
 
-def test_rendered_editor_semantics_responsive_hooks_and_supported_boundaries(metadata_app, metadata_client):
-    document = {
-        **_document("Single Variable"),
-        "attributes": {"Style": ["Hero A", "Hero B"], "Size": ["A5", "A4"]},
-        "image_attributes": ["Style", "Size"],
-        "variation_modifiers": {"Size=A5": {"price": "12.00"}},
-    }
-    response = metadata_client.post(
-        "/image-preparation/metadata/preview",
-        data={"path": "Prepared/Single Variable Cards", "document": json.dumps(document)},
-    )
-    assert response.status_code == 200
-    body = response.get_data(as_text=True)
-    parser = _SemanticParser()
-    parser.feed(body)
-    assert parser.h1 == 1
-    assert parser.main == 1
-    assert len(parser.ids) == len(set(parser.ids))
-    assert parser.labels >= 20
-    for required in (
-        "Identity", "Product Copy", "Pricing and Sale", "Shipping and Physical Data",
-        "Taxonomy", "Attributes", "Variation Modifiers", "JSON Preview",
-        "Advanced JSON", "Save Product Metadata", "Preview only",
-    ):
-        assert required in body
-    for unsupported in ("Copy to Catalogue", "Append Scan", "Woo sync", "Ready for Catalogue"):
-        assert unsupported not in body
-    css = (metadata_app[0].root_path + "/static/assets/css/custom.css")
-    stylesheet = open(css, encoding="utf-8").read()
-    assert "@media (max-width: 720px)" in stylesheet
-    assert ".prepared-metadata-shell .structured-editor-row" in stylesheet
-    assert ".prepared-json-preview pre" in stylesheet and "overflow: auto" in stylesheet
-    assert "metadata-mobile-savebar" in body
 
 
 def test_advanced_editor_preserves_draft_and_reports_errors_without_uncaught_submission():

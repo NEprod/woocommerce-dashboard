@@ -1,5 +1,19 @@
 # Catalogue Intake
 
+## Current workflow
+
+See [Intake simplification — workflow, safety, validation and deployment](INTAKE_SIMPLIFICATION.md).
+Current Intake prepares original files in place, keeps all five stages independent,
+and explicitly moves a finished collection once before collection-scoped append
+registration. It does not publish to Shopify. Existing unfinished Prepared/private
+work is preserved, not migrated or deleted.
+
+The remainder of this document describes the **historical copy-based implementation**
+for interpreting old operation receipts. Its Prepared-copy and replacement controls
+are no longer the active browser workflow.
+
+## Historical reference
+
 Catalogue Intake is an authenticated workspace for inspecting and safely
 preparing image folders before they enter the catalogue. It is deliberately separate from the
 scanner, `/catalogue`, generated `/output`, and `/app/instance` state.

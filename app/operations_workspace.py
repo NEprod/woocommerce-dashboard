@@ -489,6 +489,8 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
                 "state_label": state_label,
             }
         intake = {
+            "direct_result_url": url_for('main.image_preparation_direct_result', operation_id=row.id)
+                if 'intake_file_transaction' in view['scope'] else None,
             "is_grouping": row.operation_type == "intake_group",
             "is_folder_edit": row.operation_type == "intake_folder_edit",
             "is_image_rename": row.operation_type == "intake_image_rename",

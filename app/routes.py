@@ -143,11 +143,7 @@ from app.woo_controlled_publish import (
     start_publish_operation,
 )
 from app.image_preparation import (
-    browse_intake,
     configured_intake_root,
-    grouping_confirmation_blockers,
-    grouping_preview,
-    intake_readiness,
     resolve_intake_image_token,
 )
 
@@ -189,698 +185,94 @@ def _catalogue_summary_counts():
     }
 
 
-def _intake_page_context(relative=""):
-    readiness = intake_readiness()
-    browser = None
-    error = None
-    if readiness["readable"]:
-        try:
-            browser = browse_intake(configured_intake_root(), relative)
-        except ValueError:
-            error = "The selected intake folder is invalid, unavailable, or unsafe."
-    return readiness, browser, error
+# ---------- Catalogue Intake: preview, explicit preparation and registration ----------
 
 
-# ---------- Catalogue Intake read-only previews ----------
+# Intake remains at its existing entry point; each preparation stage is optional.
+from app import intake_direct_ui
 
 
 @main.route("/image-preparation")
 @login_required
 def image_preparation():
-    relative = request.args.get("path", "")[:1024]
-    readiness, browser, error = _intake_page_context(relative)
-    selected_prepared = None
-    prepared_results = {}
-    if browser and not error:
-        from app.intake_navigation import (
-            prepared_result_navigation,
-            prepared_result_navigations,
-        )
+    return intake_direct_ui.index()
 
-        try:
-            if browser["path"] == "Prepared":
-                prepared_results = {
-                    item["path"]: item
-                    for item in prepared_result_navigations(configured_intake_root())
-                }
-            elif browser["path"].startswith("Prepared/") and len(browser["path"].split("/")) == 2:
-                selected_prepared = prepared_result_navigation(
-                    configured_intake_root(), browser["path"]
-                )
-        except (OSError, ValueError):
-            selected_prepared = None
-    return render_template(
-        "image_preparation/index.html",
-        readiness=readiness,
-        browser=browser,
-        selected_prepared=selected_prepared,
-        prepared_results=prepared_results,
-        intake_error=error,
-    ), (400 if error else 200)
+
+@main.route("/image-preparation/stage/<stage>")
+@login_required
+def image_preparation_direct_stage(stage):
+    if stage not in intake_direct_ui.service.STAGES: abort(404)
+    return intake_direct_ui.page(stage)
+
+
+@main.route("/image-preparation/result/<operation_id>")
+@login_required
+def image_preparation_direct_result(operation_id):
+    return intake_direct_ui.result(operation_id)
+
+
+@main.route("/image-preparation/result/<operation_id>/continue", methods=["POST"])
+@login_required
+def image_preparation_direct_continue(operation_id):
+    return intake_direct_ui.recover(operation_id)
+
+
+def _intake_stage(stage):
+    @login_required
+    def page():
+        return intake_direct_ui.page(stage)
+    @login_required
+    def confirm():
+        return intake_direct_ui.confirm(stage)
+    return page, confirm
+
+
+# Bookmarked URLs and historical links now use the same direct-file plan.
+for _stage, _names in {
+    "group": ("image_preparation_group",),
+    "folders": ("image_preparation_folders", "image_preparation_folders_edit"),
+    "rename": ("image_preparation_rename",),
+    "metadata": ("image_preparation_metadata", "image_preparation_metadata_edit"),
+    "handoff": ("image_preparation_handoff", "image_preparation_handoff_review"),
+}.items():
+    _page, _confirm = _intake_stage(_stage)
+    for _name in _names:
+        _suffix = _name.removeprefix("image_preparation_").replace("_edit", "/edit").replace("_review", "/review")
+        main.add_url_rule("/image-preparation/" + _suffix, endpoint=_name, view_func=_page)
+    main.add_url_rule("/image-preparation/" + _stage + "/preview",
+        endpoint="image_preparation_" + _stage + "_preview", view_func=_page, methods=["POST"])
+    main.add_url_rule("/image-preparation/" + _stage + "/confirm",
+        endpoint="image_preparation_" + _stage + "_confirm", view_func=_confirm, methods=["POST"])
+
+
+@main.route("/image-preparation/import-structured", methods=["GET", "POST"])
+@main.route("/image-preparation/import-structured/preview", methods=["POST"])
+@main.route("/image-preparation/import-structured/confirm", methods=["POST"])
+@login_required
+def image_preparation_import_structured():
+    return redirect(url_for("main.image_preparation_folders_edit", path=request.values.get("path", "")))
 
 
 @main.route("/image-preparation/next/<token>")
 @login_required
 def image_preparation_next(token):
-    """Revalidate one signed Prepared identity and navigate without mutation."""
-
-    from app.intake_navigation import (
-        decode_navigation_token,
-        navigation_destination,
-        prepared_result_navigation,
-    )
-
-    decoded = decode_navigation_token(token)
-    if decoded is None:
-        flash("That Catalogue Intake next-step link is invalid or no longer available.", "warning")
-        return redirect(url_for("main.image_preparation"))
-    try:
-        navigation = prepared_result_navigation(
-            configured_intake_root(), decoded["result"]
-        )
-    except (OSError, ValueError):
-        navigation = None
-    destination = navigation_destination(navigation)
-    if destination is None:
-        message = (navigation or {}).get("explanation") or "The Prepared result is unavailable or no longer eligible."
-        flash(message, "warning")
-        return redirect(url_for("main.image_preparation"))
-    if decoded["expected_state"] != navigation["workflow_state"]:
-        flash(
-            "The Prepared result workflow state changed. The currently valid next step has been selected.",
-            "warning",
-        )
-    return redirect(destination)
-
-
-@main.route("/image-preparation/group")
-@login_required
-def image_preparation_group():
-    relative = request.args.get("path", "")[:1024]
-    readiness, browser, error = _intake_page_context(relative)
-    preview = None
-    confirmation_blockers = []
-    if browser and not error:
+    # Historical operation links stay read-only and are revalidated; the new
+    # independently accessible stages do not depend on this legacy guidance.
+    from app.intake_navigation import decode_navigation_token, navigation_destination, prepared_result_navigation
+    value = decode_navigation_token(token)
+    navigation = None
+    if value:
         try:
-            preview = grouping_preview(configured_intake_root(), relative)
-            confirmation_blockers = grouping_confirmation_blockers(preview)
-        except ValueError:
-            error = "The grouping preview could not safely inspect this intake folder."
-    return render_template(
-        "image_preparation/group.html",
-        readiness=readiness,
-        browser=browser,
-        preview=preview,
-        confirmation_blockers=confirmation_blockers,
-        can_confirm=bool(preview and not confirmation_blockers and readiness["writable"]),
-        intake_error=error,
-    ), (400 if error else 200)
-
-
-@main.route("/image-preparation/group/confirm", methods=["POST"])
-@login_required
-def image_preparation_group_confirm():
-    from app.intake_grouping import (
-        GroupingRejected,
-        IntakeOperationActive,
-        start_grouping_operation,
-    )
-
-    relative = request.form.get("path", "")[:1024]
-    digest = request.form.get("digest", "")[:128]
-    if request.form.get("acknowledge") != "yes":
-        flash("Confirm that the source will remain unchanged before starting grouping.", "danger")
-        return redirect(url_for("main.image_preparation_group", path=relative))
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
-        flash("The grouping proposal is invalid. Generate a fresh preview.", "danger")
-        return redirect(url_for("main.image_preparation_group", path=relative))
-    try:
-        operation_id = start_grouping_operation(
-            current_app._get_current_object(), relative, digest
-        )
-    except GroupingRejected as error:
-        flash(str(error), "danger")
-        return redirect(url_for("main.image_preparation_group", path=relative))
-    except IntakeOperationActive as error:
-        operation_id = str((error.active or {}).get("id") or "")
-        flash("A Catalogue Intake preparation operation is already running.", "warning")
-        if re.fullmatch(r"[0-9a-f]{32}", operation_id):
-            return redirect(url_for("main.operation_detail", operation_id=operation_id))
-        return redirect(url_for("main.image_preparation_group", path=relative))
-    return redirect(url_for("main.operation_detail", operation_id=operation_id))
-
-
-@main.route("/image-preparation/import-structured")
-@login_required
-def image_preparation_import_structured():
-    relative = request.args.get("path", "")[:1024]
-    mode = request.args.get("mode", "review")[:32]
-    readiness, browser, error = _intake_page_context(relative)
-    return render_template(
-        "image_preparation/import_structured.html",
-        readiness=readiness,
-        browser=browser,
-        preview=None,
-        selected_mode=mode if mode in {"review", "final"} else "review",
-        can_confirm=False,
-        intake_error=error,
-    ), (400 if error else 200)
-
-
-@main.route("/image-preparation/import-structured/preview", methods=["POST"])
-@login_required
-def image_preparation_import_structured_preview():
-    from app.intake_structured_import import structured_import_preview
-
-    relative = request.form.get("path", "")[:1024]
-    mode = request.form.get("mode", "review")[:32]
-    readiness, browser, error = _intake_page_context(relative)
-    preview = None
-    if browser and not error:
-        try:
-            preview = structured_import_preview(configured_intake_root(), relative, mode)
-        except ValueError as preview_error:
-            error = str(preview_error)
-    return render_template(
-        "image_preparation/import_structured.html",
-        readiness=readiness,
-        browser=browser,
-        preview=preview,
-        selected_mode=mode,
-        can_confirm=bool(preview and preview["ready"] and readiness["writable"]),
-        intake_error=error,
-    ), (400 if error else 200)
-
-
-@main.route("/image-preparation/import-structured/confirm", methods=["POST"])
-@login_required
-def image_preparation_import_structured_confirm():
-    from app.intake_grouping import IntakeOperationActive
-    from app.intake_structured_import import (
-        IMPORT_FINAL,
-        StructuredImportRejected,
-        start_structured_import,
-    )
-
-    relative = request.form.get("path", "")[:1024]
-    mode = request.form.get("mode", "review")[:32]
-    digest = request.form.get("digest", "")[:128]
-    if request.form.get("acknowledge") != "yes":
-        flash("Confirm that a new Prepared result will be created while the source remains unchanged.", "danger")
-        return redirect(url_for("main.image_preparation_import_structured", path=relative, mode=mode))
-    if mode == IMPORT_FINAL and request.form.get("acknowledge_final") != "yes":
-        flash("Confirm that the current folder names and hierarchy are final.", "danger")
-        return redirect(url_for("main.image_preparation_import_structured", path=relative, mode=mode))
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
-        flash("The structured-folder proposal is invalid. Generate a fresh preview.", "danger")
-        return redirect(url_for("main.image_preparation_import_structured", path=relative, mode=mode))
-    try:
-        operation_id = start_structured_import(
-            current_app._get_current_object(), relative, mode, digest
-        )
-    except (ValueError, StructuredImportRejected) as error:
-        flash(str(error), "danger")
-        return redirect(url_for("main.image_preparation_import_structured", path=relative, mode=mode))
-    except IntakeOperationActive as error:
-        operation_id = str((error.active or {}).get("id") or "")
-        flash("A Catalogue Intake preparation operation is already running.", "warning")
-        if re.fullmatch(r"[0-9a-f]{32}", operation_id):
-            return redirect(url_for("main.operation_detail", operation_id=operation_id))
-        return redirect(url_for("main.image_preparation_import_structured", path=relative, mode=mode))
-    return redirect(url_for("main.operation_detail", operation_id=operation_id))
-
-
-def _folder_editor_spec_from_form():
-    current_paths = request.form.getlist("folder_current")[:5000]
-    proposed_paths = request.form.getlist("folder_proposed")[:5000]
-    renames = {
-        current: proposed
-        for current, proposed in zip(current_paths, proposed_paths)
-        if current
-    }
-    created = [
-        value
-        for value in request.form.get("created_folders", "")[:20000].splitlines()
-        if value.strip()
-    ][:200]
-    return {
-        "root_name": request.form.get("root_name", "")[:255],
-        "renames": renames,
-        "created": created,
-        "remove_empty": request.form.getlist("remove_empty")[:5000],
-        "preview_prefix": request.form.get("preview_prefix", "preview")[:128],
-    }
-
-
-@main.route("/image-preparation/folders")
-@login_required
-def image_preparation_folders():
-    from app.intake_navigation import prepared_result_navigations
-
-    readiness = intake_readiness()
-    prepared = None
-    prepared_results = []
-    error = None
-    try:
-        prepared = browse_intake(configured_intake_root(), "Prepared")
-        prepared_results = prepared_result_navigations(configured_intake_root())
-    except ValueError:
-        error = "No safe prepared results are available for folder review."
-    return render_template(
-        "image_preparation/folders.html",
-        readiness=readiness,
-        prepared=prepared,
-        prepared_results=prepared_results,
-        intake_error=error,
-    ), (400 if error else 200)
-
-
-@main.route("/image-preparation/folders/edit")
-@login_required
-def image_preparation_folders_edit():
-    from app.intake_folder_editor import folder_editor_preview
-    from app.intake_navigation import prepared_result_navigation
-
-    relative = request.args.get("path", "")[:1024]
-    readiness = intake_readiness()
-    preview = None
-    error = None
-    try:
-        navigation = prepared_result_navigation(configured_intake_root(), relative)
-        if navigation["workflow_state"] != "folder_review_required" or not navigation["primary_action"]:
-            raise ValueError(
-                "This Prepared result is not currently eligible for folder review. Open its current next action instead."
-            )
-        preview = folder_editor_preview(configured_intake_root(), relative)
-    except ValueError as preview_error:
-        error = str(preview_error)
-    return render_template(
-        "image_preparation/folders_edit.html",
-        readiness=readiness,
-        preview=preview,
-        intake_error=error,
-    ), (400 if error else 200)
-
-
-@main.route("/image-preparation/folders/preview", methods=["POST"])
-@login_required
-def image_preparation_folders_preview():
-    from app.intake_folder_editor import folder_editor_preview
-
-    relative = request.form.get("path", "")[:1024]
-    readiness = intake_readiness()
-    preview = None
-    error = None
-    try:
-        preview = folder_editor_preview(
-            configured_intake_root(), relative, _folder_editor_spec_from_form()
-        )
-    except ValueError as preview_error:
-        error = str(preview_error)
-    return render_template(
-        "image_preparation/folders_edit.html",
-        readiness=readiness,
-        preview=preview,
-        intake_error=error,
-    ), (400 if error else 200)
-
-
-@main.route("/image-preparation/folders/confirm", methods=["POST"])
-@login_required
-def image_preparation_folders_confirm():
-    from app.intake_folder_editor import (
-        FolderProposalRejected,
-        parse_folder_spec,
-        start_folder_edit_operation,
-    )
-    from app.intake_grouping import IntakeOperationActive
-
-    relative = request.form.get("path", "")[:1024]
-    digest = request.form.get("digest", "")[:128]
-    if request.form.get("acknowledge") != "yes":
-        flash("Confirm that hidden staging and rollback will safely update this working result.", "danger")
-        return redirect(url_for("main.image_preparation_folders_edit", path=relative))
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
-        flash("The folder proposal is invalid. Generate a fresh preview.", "danger")
-        return redirect(url_for("main.image_preparation_folders_edit", path=relative))
-    try:
-        spec = parse_folder_spec(request.form.get("proposal_spec", ""))
-        operation_id = start_folder_edit_operation(
-            current_app._get_current_object(), relative, spec, digest
-        )
-    except (ValueError, FolderProposalRejected) as error:
-        flash(str(error), "danger")
-        return redirect(url_for("main.image_preparation_folders_edit", path=relative))
-    except IntakeOperationActive as error:
-        operation_id = str((error.active or {}).get("id") or "")
-        flash("A Catalogue Intake preparation operation is already running.", "warning")
-        if re.fullmatch(r"[0-9a-f]{32}", operation_id):
-            return redirect(url_for("main.operation_detail", operation_id=operation_id))
-        return redirect(url_for("main.image_preparation_folders_edit", path=relative))
-    return redirect(url_for("main.operation_detail", operation_id=operation_id))
-
-
-@main.route("/image-preparation/rename")
-@login_required
-def image_preparation_rename():
-    from app.intake_image_renamer import (
-        eligible_image_rename_results,
-        image_rename_preview,
-    )
-
-    relative = request.args.get("path", "")[:1024]
-    entered_prefix = request.args.get("prefix", "")[:128]
-    readiness = intake_readiness()
-    browser = None
-    error = None
-    eligible_results = []
-    if relative:
-        readiness, browser, error = _intake_page_context(relative)
-        if browser and relative.startswith("Prepared/"):
-            from app.intake_navigation import prepared_result_navigation
-
-            try:
-                navigation = prepared_result_navigation(
-                    configured_intake_root(), relative
-                )
-                if (
-                    navigation["workflow_state"] != "image_renaming_required"
-                    or not navigation["primary_action"]
-                ):
-                    error = "This Prepared result is not currently eligible for image renaming. Open its current next action instead."
-                    browser = None
-            except (OSError, ValueError):
-                error = "The selected Prepared result is invalid, unavailable, or ineligible for image renaming."
-                browser = None
-    else:
-        try:
-            eligible_results = eligible_image_rename_results(configured_intake_root())
+            navigation = prepared_result_navigation(configured_intake_root(), value['result'])
         except (OSError, ValueError):
-            error = "No safe folder-confirmed Prepared results are available."
-    preview = None
-    prefix_error = None
-    if browser and entered_prefix and not error:
-        try:
-            preview = image_rename_preview(
-                configured_intake_root(), relative, entered_prefix
-            )
-        except ValueError as preview_error:
-            prefix_error = str(preview_error)
-    return render_template(
-        "image_preparation/rename.html",
-        readiness=readiness,
-        browser=browser,
-        preview=preview,
-        entered_prefix=entered_prefix,
-        prefix_error=prefix_error,
-        intake_error=error,
-        eligible_results=eligible_results,
-    ), (400 if error else 200)
-
-
-@main.route("/image-preparation/rename/preview", methods=["POST"])
-@login_required
-def image_preparation_rename_preview():
-    from app.intake_image_renamer import image_rename_preview
-
-    relative = request.form.get("path", "")[:1024]
-    entered_prefix = request.form.get("prefix", "")[:128]
-    remove_predecessor = request.form.get("remove_predecessor") == "yes"
-    readiness, browser, error = _intake_page_context(relative)
-    preview = None
-    prefix_error = None
-    if browser and not error:
-        try:
-            preview = image_rename_preview(
-                configured_intake_root(),
-                relative,
-                entered_prefix,
-                remove_predecessor=remove_predecessor,
-            )
-        except ValueError as preview_error:
-            prefix_error = str(preview_error)
-    return render_template(
-        "image_preparation/rename.html",
-        readiness=readiness,
-        browser=browser,
-        preview=preview,
-        entered_prefix=entered_prefix,
-        prefix_error=prefix_error,
-        intake_error=error,
-        eligible_results=[],
-    ), (400 if error else 200)
-
-
-@main.route("/image-preparation/rename/confirm", methods=["POST"])
-@login_required
-def image_preparation_rename_confirm():
-    from app.intake_grouping import IntakeOperationActive
-    from app.intake_image_renamer import (
-        RenameProposalRejected,
-        start_image_rename_operation,
-    )
-
-    relative = request.form.get("path", "")[:1024]
-    prefix = request.form.get("prefix", "")[:128]
-    digest = request.form.get("digest", "")[:128]
-    remove_predecessor = request.form.get("remove_predecessor") == "yes"
-    if request.form.get("acknowledge") != "yes":
-        flash(
-            "Confirm that hidden staging and rollback will safely update this working result.",
-            "danger",
-        )
-        return redirect(url_for("main.image_preparation_rename", path=relative, prefix=prefix))
-    if remove_predecessor and request.form.get("acknowledge_predecessor") != "yes":
-        flash(
-            "Confirm the exact proven predecessor cleanup before continuing.",
-            "danger",
-        )
-        return redirect(url_for("main.image_preparation_rename", path=relative, prefix=prefix))
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
-        flash("The rename proposal is invalid. Generate a fresh preview.", "danger")
-        return redirect(url_for("main.image_preparation_rename", path=relative, prefix=prefix))
-    try:
-        operation_id = start_image_rename_operation(
-            current_app._get_current_object(),
-            relative,
-            prefix,
-            digest,
-            remove_predecessor=remove_predecessor,
-        )
-    except (ValueError, RenameProposalRejected) as error:
-        flash(str(error), "danger")
-        return redirect(url_for("main.image_preparation_rename", path=relative, prefix=prefix))
-    except IntakeOperationActive as error:
-        operation_id = str((error.active or {}).get("id") or "")
-        flash("A Catalogue Intake preparation operation is already running.", "warning")
-        if re.fullmatch(r"[0-9a-f]{32}", operation_id):
-            return redirect(url_for("main.operation_detail", operation_id=operation_id))
-        return redirect(url_for("main.image_preparation_rename", path=relative, prefix=prefix))
-    return redirect(url_for("main.operation_detail", operation_id=operation_id))
-
-
-@main.route("/image-preparation/metadata")
-@login_required
-def image_preparation_metadata():
-    from app.intake_metadata_builder import eligible_metadata_results
-    from app.intake_navigation import prepared_result_navigation
-
-    readiness = intake_readiness()
-    error = None
-    try:
-        results = eligible_metadata_results(configured_intake_root()) if readiness["readable"] else []
-        for result in results:
-            result["navigation"] = prepared_result_navigation(
-                configured_intake_root(), result["path"]
-            )
-    except (OSError, ValueError):
-        results = []
-        error = "No safe image-renamed Prepared results are available."
-    return render_template(
-        "image_preparation/metadata.html",
-        readiness=readiness,
-        eligible_results=results,
-        intake_error=error,
-    ), (400 if error else 200)
-
-
-@main.route("/image-preparation/metadata/edit")
-@login_required
-def image_preparation_metadata_edit():
-    from app.intake_metadata_builder import metadata_preview
-
-    relative = request.args.get("path", "")[:1024]
-    readiness = intake_readiness()
-    preview = None
-    error = None
-    try:
-        preview = metadata_preview(configured_intake_root(), relative)
-    except ValueError as preview_error:
-        error = str(preview_error)
-    return render_template(
-        "image_preparation/metadata_edit.html",
-        readiness=readiness,
-        preview=preview,
-        intake_error=error,
-    ), (400 if error else 200)
-
-
-@main.route("/image-preparation/metadata/preview", methods=["POST"])
-@login_required
-def image_preparation_metadata_preview():
-    from app.intake_metadata_builder import metadata_preview
-
-    relative = request.form.get("path", "")[:1024]
-    document = request.form.get("document", "")
-    readiness = intake_readiness()
-    preview = None
-    error = None
-    try:
-        preview = metadata_preview(configured_intake_root(), relative, document)
-    except ValueError as preview_error:
-        error = str(preview_error)
-    return render_template(
-        "image_preparation/metadata_edit.html",
-        readiness=readiness,
-        preview=preview,
-        intake_error=error,
-        submitted_document=document,
-    ), (400 if error else 200)
-
-
-@main.route("/image-preparation/metadata/confirm", methods=["POST"])
-@login_required
-def image_preparation_metadata_confirm():
-    from app.intake_grouping import IntakeOperationActive
-    from app.intake_metadata_builder import MetadataProposalRejected, start_metadata_operation
-
-    relative = request.form.get("path", "")[:1024]
-    digest = request.form.get("digest", "")[:128]
-    document = request.form.get("document", "")
-    if request.form.get("acknowledge") != "yes":
-        flash("Confirm that product_info.json will be safely saved inside this Prepared result.", "danger")
-        return redirect(url_for("main.image_preparation_metadata_edit", path=relative))
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
-        flash("The metadata proposal is invalid. Generate a fresh preview.", "danger")
-        return redirect(url_for("main.image_preparation_metadata_edit", path=relative))
-    try:
-        operation_id = start_metadata_operation(
-            current_app._get_current_object(), relative, document, digest
-        )
-    except (ValueError, MetadataProposalRejected) as error:
-        flash(str(error), "danger")
-        return redirect(url_for("main.image_preparation_metadata_edit", path=relative))
-    except IntakeOperationActive as error:
-        operation_id = str((error.active or {}).get("id") or "")
-        flash("A Catalogue Intake preparation operation is already running.", "warning")
-        if re.fullmatch(r"[0-9a-f]{32}", operation_id):
-            return redirect(url_for("main.operation_detail", operation_id=operation_id))
-        return redirect(url_for("main.image_preparation_metadata_edit", path=relative))
-    return redirect(url_for("main.operation_detail", operation_id=operation_id))
-
-
-@main.route("/image-preparation/handoff")
-@login_required
-def image_preparation_handoff():
-    from app.intake_handoff import eligible_handoff_results
-    from app.intake_navigation import prepared_result_navigation
-
-    readiness = intake_readiness()
-    error = None
-    try:
-        results = eligible_handoff_results(configured_intake_root()) if readiness["readable"] else []
-        for result in results:
-            result["navigation"] = prepared_result_navigation(
-                configured_intake_root(), result["path"]
-            )
-    except (OSError, ValueError):
-        results = []
-        error = "No safe metadata-complete Prepared results are available."
-    return render_template(
-        "image_preparation/handoff.html",
-        readiness=readiness,
-        eligible_results=results,
-        intake_error=error,
-    ), (400 if error else 200)
-
-
-@main.route("/image-preparation/handoff/review")
-@login_required
-def image_preparation_handoff_review():
-    from app.intake_handoff import HandoffRejected, handoff_preview, handoff_review
-
-    relative = request.args.get("path", "")[:1024]
-    fresh = request.args.get("fresh") == "1"
-    try:
-        if fresh:
-            return render_template("image_preparation/handoff_review.html", preview=handoff_preview(relative, fresh_review=True), intake_error=None)
-        return render_template("image_preparation/handoff_history.html", review=handoff_review(relative), intake_error=None)
-    except (OSError, ValueError, HandoffRejected) as error:
-        return render_template("image_preparation/handoff_review.html", preview=None, intake_error=str(error)), 400
+            pass
+    return redirect(navigation_destination(navigation) or url_for('main.image_preparation'))
 
 
 @main.route("/image-preparation/handoff/catalogue")
 @login_required
 def image_preparation_handoff_catalogue():
-    """Open only a destination proven by completed handoff history."""
-
-    from app.intake_handoff import HandoffRejected, handoff_review
-
-    relative = request.args.get("path", "")[:1024]
-    try:
-        review = handoff_review(relative)
-        if not review["destination_exists"]:
-            raise HandoffRejected("The recorded catalogue destination is not currently available")
-        return render_template("image_preparation/handoff_history.html", review=review, intake_error=None, catalogue_open=True)
-    except (OSError, ValueError, HandoffRejected) as error:
-        return render_template("image_preparation/handoff_history.html", review=None, intake_error=str(error), catalogue_open=True), 404
-
-
-@main.route("/image-preparation/handoff/preview", methods=["POST"])
-@login_required
-def image_preparation_handoff_preview():
-    from app.intake_handoff import HandoffRejected, handoff_preview
-
-    relative = request.form.get("path", "")[:1024]
-    fresh = request.form.get("fresh_review") == "yes"
-    try:
-        preview = handoff_preview(relative, fresh_review=fresh)
-        return render_template("image_preparation/handoff_review.html", preview=preview, intake_error=None)
-    except (OSError, ValueError, HandoffRejected) as error:
-        return render_template("image_preparation/handoff_review.html", preview=None, intake_error=str(error)), 400
-
-
-@main.route("/image-preparation/handoff/confirm", methods=["POST"])
-@login_required
-def image_preparation_handoff_confirm():
-    from app.intake_handoff import HandoffRejected, start_handoff_operation
-    from app.intake_grouping import IntakeOperationActive
-    from app.utils.operation_control import CatalogueOperationActive
-
-    relative = request.form.get("path", "")[:1024]
-    digest = request.form.get("digest", "")[:128]
-    fresh = request.form.get("fresh_review") == "yes"
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
-        flash("The handoff proposal is invalid. Generate a fresh review.", "danger")
-        return redirect(url_for("main.image_preparation_handoff"))
-    try:
-        operation_id = start_handoff_operation(
-            current_app._get_current_object(), relative, digest,
-            fresh_review=fresh,
-            acknowledge=request.form.get("acknowledge") == "yes",
-            acknowledge_replace=request.form.get("acknowledge_replace") == "yes",
-        )
-    except (ValueError, HandoffRejected) as error:
-        flash(str(error), "danger")
-        return redirect(url_for("main.image_preparation_handoff_review", path=relative, fresh="1" if fresh else None))
-    except (CatalogueOperationActive, IntakeOperationActive) as error:
-        active = getattr(error, "active", {}) or {}
-        operation_id = str(active.get("id") or "")
-        flash("A catalogue or Catalogue Intake operation is already running.", "warning")
-        if re.fullmatch(r"[0-9a-f]{32}", operation_id):
-            return redirect(url_for("main.operation_detail", operation_id=operation_id))
-        return redirect(url_for("main.image_preparation_handoff"))
-    return redirect(url_for("main.operation_detail", operation_id=operation_id))
+    return redirect(url_for("main.products"))
 
 
 @main.route("/intake-images/<token>")

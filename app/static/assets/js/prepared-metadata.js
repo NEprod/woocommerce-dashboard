@@ -169,7 +169,7 @@
   }
 
   function guidedDocument() {
-    const result = {};
+    const result = root.hasAttribute('data-intake-direct-editor') ? structuredClone(authored) : {};
     Object.entries(authored).forEach(([key, value]) => { if (!known.has(key)) result[key] = value; });
     if(packagingDesigner){const value=packagingDesigner.get();if(value)result.packaging=value;else delete result.packaging;}
     if(finishedDesigner){const value=finishedDesigner.get();if(value)result.finished_dimensions=value;else delete result.finished_dimensions;}
@@ -187,7 +187,16 @@
     const dimensions = {};
     guided.querySelectorAll("[data-dimension]").forEach((control) => { if (control.value.trim()) dimensions[control.dataset.dimension] = control.value.trim(); });
     result.dimensions = dimensions;
-    return prune(result);
+    const clean = prune(result);
+    if (root.hasAttribute('data-intake-direct-editor')) {
+      const represented = new Set([...guided.querySelectorAll('[data-field]')].map(control => control.dataset.field));
+      ['dimensions','categories','tags','image_attributes','attributes','variation_modifiers'].forEach(key => represented.add(key));
+      if (packagingDesigner) represented.add('packaging');
+      if (finishedDesigner) represented.add('finished_dimensions');
+      Object.entries(authored).forEach(([key,value]) => { if (!represented.has(key)) clean[key] = structuredClone(value); });
+      Object.entries(clean).forEach(([key,value]) => { if (!(key in authored) && Array.isArray(value) && !value.length) delete clean[key]; });
+    }
+    return clean;
   }
 
   function updateLines() {
@@ -293,4 +302,7 @@
   });
   window.addEventListener("beforeunload", (event) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } });
   populate(authored);
+  // Intake live preview reads the existing editor, not a second JSON model.
+  root.intakeDocument = () => advanced.hidden ? guidedDocument() : JSON.parse(editor.value);
+  root.intakeAccepted = () => { dirty = false; };
 })();

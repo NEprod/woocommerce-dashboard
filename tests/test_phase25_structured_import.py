@@ -160,12 +160,12 @@ def test_preview_is_complete_deterministic_and_read_only(structured_app, structu
     }
     assert {item["kind"] for item in preview["excluded"]} == {"hidden", "unsupported", "corrupt"}
     assert preview["workflow_status"] == "folder_review_required"
-    body = structured_client.post(
+    response = structured_client.post(
         "/image-preparation/import-structured/preview",
         data={"path": "Hero Cards", "mode": "review"},
-    ).get_data(as_text=True)
-    assert "Preview only" in body and "The complete source directory remains unchanged" in body
-    assert "Parent/" in body and "image-02.JPEG" in body and preview["digest"] in body
+    )
+    assert response.status_code == 302
+    assert '/image-preparation/folders/edit' in response.location
     assert _tree(source) == before
     assert _tree(catalogue) == [] and _tree(output) == []
 
@@ -245,61 +245,8 @@ def test_final_mode_applies_strict_hierarchy_and_collision_validation(structured
     )
 
 
-@pytest.mark.parametrize(
-    ("mode", "expected_state", "expected_action"),
-    [(IMPORT_REVIEW, "folder_review_required", "Review and Rename Folders"), (IMPORT_FINAL, "image_renaming_required", "Rename Images")],
-)
-def test_copy_first_import_preserves_source_and_creates_actionable_lineage(
-    structured_app, structured_client, mode, expected_state, expected_action
-):
-    app, intake, catalogue, output = structured_app
-    source = _fixture(intake, f"Hero {mode}")
-    (source / ".hidden").write_text("excluded", encoding="utf-8")
-    before = _tree(source)
-    metadata_bytes = (source / "product_info.json").read_bytes()
-    preview = structured_import_preview(intake, f"Hero {mode}", mode)
-    response = _confirm(structured_client, f"Hero {mode}", preview)
-    assert response.status_code == 302
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) in {"succeeded", "partial"}
-
-    result = intake / preview["proposed_result"]
-    assert _tree(source) == before
-    assert (result / "product_info.json").read_bytes() == metadata_bytes
-    assert (result / "Parent" / "01 Hero.PNG").read_bytes() == (source / "Parent" / "01 Hero.PNG").read_bytes()
-    assert not (result / ".hidden").exists()
-    assert not list(result.rglob(".scanned")) and not list(result.rglob(".update"))
-    assert _tree(catalogue) == [] and _tree(output) == []
-    assert not (intake / ".catalogue-intake-staging" / operation_id).exists()
-
-    with app.app_context():
-        row = db.session.get(CatalogueOperation, operation_id)
-        scope = json.loads(row.scope)
-        summary = scope["operation_summary"]
-        assert row.operation_type == "intake_structured_import"
-        assert summary["workflow_status"] == expected_state
-        assert summary["import_mode"] == mode and summary["source_preserved"] is True
-        assert len(row.scope.encode("utf-8")) < 256 * 1024
-        assert str(intake) not in row.scope
-    detail = structured_client.get(response.headers["Location"]).get_data(as_text=True)
-    assert "Catalogue Intake — Import Structured Folder" in detail
-    assert expected_action in detail
-    assert "Imported structured source" in detail
 
 
-def test_existing_result_is_suffixed_without_overwrite_or_merge(structured_app, structured_client):
-    app, intake, *_ = structured_app
-    _fixture(intake)
-    existing = intake / "Prepared" / "Hero Cards"
-    existing.mkdir(parents=True)
-    (existing / "owner.txt").write_text("unrelated", encoding="utf-8")
-    preview = structured_import_preview(intake, "Hero Cards")
-    assert preview["proposed_result"] == "Prepared/Hero Cards (2)"
-    response = _confirm(structured_client, "Hero Cards", preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) in {"succeeded", "partial"}
-    assert (existing / "owner.txt").read_text(encoding="utf-8") == "unrelated"
-    assert (intake / "Prepared" / "Hero Cards (2)" / "Parent" / "01 Hero.PNG").exists()
 
 
 @pytest.mark.parametrize("change", ["file", "added", "removed", "destination"])
@@ -317,44 +264,13 @@ def test_stale_proposal_is_rejected_without_partial_result(structured_app, struc
         (intake / preview["proposed_result"]).mkdir(parents=True)
     response = _confirm(structured_client, "Hero Cards", preview)
     assert response.status_code == 302
-    assert "/image-preparation/import-structured" in response.headers["Location"]
+    assert "/image-preparation/folders/edit" in response.headers["Location"]
     assert not (intake / preview["proposed_result"]).exists() or change == "destination"
     assert not list((intake / ".catalogue-intake-staging").glob("*")) if (intake / ".catalogue-intake-staging").exists() else True
 
 
-def test_copy_failure_cleans_only_owned_staging_and_exposes_no_result(structured_app, structured_client, monkeypatch):
-    import app.intake_structured_import as structured
-
-    app, intake, *_ = structured_app
-    _fixture(intake)
-    unrelated = intake / ".catalogue-intake-staging" / ("f" * 32)
-    unrelated.mkdir(parents=True)
-    (unrelated / ".operation-owner").write_text("f" * 32, encoding="utf-8")
-    preview = structured_import_preview(intake, "Hero Cards")
-    monkeypatch.setattr(structured, "_copy_file", lambda *_args, **_kwargs: (_ for _ in ()).throw(StructuredImportRejected("fictional copy failure")))
-    response = _confirm(structured_client, "Hero Cards", preview)
-    operation_id = response.headers["Location"].rstrip("/").split("/")[-1]
-    assert _wait(app, operation_id) == "failed"
-    assert not (intake / preview["proposed_result"]).exists()
-    assert unrelated.exists()
-    assert not (intake / ".catalogue-intake-staging" / operation_id).exists()
 
 
-def test_overview_import_page_and_responsive_semantics(structured_app, structured_client):
-    _app, intake, *_ = structured_app
-    _fixture(intake)
-    overview = structured_client.get("/image-preparation").get_data(as_text=True)
-    assert "Start with loose images" not in overview  # copy is concise, actions remain explicit
-    assert "Group loose images" in overview and "Import structured folder" in overview
-    page = structured_client.get("/image-preparation/import-structured?path=Hero%20Cards").get_data(as_text=True)
-    assert page.count("<h1") == 1
-    assert page.count("<main") == 1
-    assert 'name="mode" value="review"' in page and 'name="mode" value="final"' in page
-    assert "intake-import-mode-form" in page and "intake-choice-card" in page
-    assert 'for="structuredImportAcknowledge"' not in page  # confirmation appears only after preview
-    css = (Path(__file__).resolve().parents[1] / "app/static/assets/css/custom.css").read_text(encoding="utf-8")
-    assert "@media (max-width: 720px)" in css
-    assert ".intake-import-mode-form fieldset { grid-template-columns: 1fr; }" in css
 
 
 def test_bounded_500_image_preview_and_no_scanner_invocation(structured_app, monkeypatch):

@@ -1,0 +1,18 @@
+{% extends 'layouts/base.html' %}
+{% from 'image_preparation/_browser.html' import intake_browser %}
+{% from 'image_preparation/_shared.html' import readiness_panel %}
+{% block title %}Catalogue Intake{% endblock %}
+{% block content %}
+<header class="page-header"><div><p class="eyebrow">Direct file preparation</p><h1>Catalogue Intake</h1><p>Prepare files in their original Intake folder, then explicitly move and register them. No Shopify publishing occurs here.</p></div></header>
+{{ readiness_panel(readiness) }}
+<p class="panel-note">Preview only until Accept Changes. Each stage is independently accessible.</p>
+{% if intake_error %}<div class="alert alert-danger">{{ intake_error }}</div>{% endif %}
+{% for item in pending %}<section class="workspace-panel"><h2>{{ 'Registration' if item.installed else 'Interrupted preparation' }} needs attention</h2><p>{{ item.source }} · {{ item.transaction_phase|replace('_',' ') }}</p><a class="btn btn-primary" href="{{ url_for('main.image_preparation_direct_result', operation_id=item.id) }}">Inspect / continue</a></section>{% endfor %}
+{% if readiness.readable %}
+<section class="intake-task-grid" aria-label="Independent preparation stages">
+{% for stage,definition in stages.items() %}<article class="intake-task-card"><p class="eyebrow">{{ loop.index }} · optional stage</p><h2>{{ definition[0] }}</h2><p>{{ {'group':'Move related loose images into product subfolders.', 'folders':'Rename folders, add a prefix/suffix and preview SKU-related filenames.', 'rename':'Rename original images using the established convention.', 'metadata':'Create or edit canonical shared JSON, preserving product overrides.', 'handoff':'Move the finished folder once, then register only that collection.'}[stage] }}</p><a class="btn btn-primary" href="{{ url_for('main.image_preparation_direct_stage', stage=stage, path=browser.path if browser else '') }}">{{ 'Open stage' if browser and browser.path else 'Choose a folder below' }}</a></article>{% endfor %}
+</section>
+{% if browser %}{{ intake_browser(browser, 'main.image_preparation') }}{% endif %}
+<p>Existing Prepared folders are not deleted or migrated. Open a child inside Prepared to continue preparing it directly. Private legacy staging remains protected for manual inspection.</p>
+{% endif %}
+{% endblock %}

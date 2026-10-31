@@ -1477,3 +1477,9 @@ a.metric-card:hover, a.products-stat-card:hover, a.dashboard-stat-card:hover { b
 .operation-history-card p, .operation-history-card dd { overflow-wrap: anywhere; }
 .shopify-publish-dialog .shopify-status-secondary { display: flex; flex-wrap: wrap; gap: var(--space-3); }
 @media (max-width: 767px) { .shopify-publish-dialog { margin-bottom: calc(90px + env(safe-area-inset-bottom)); } .shopify-status-actions > .btn-primary { width: 100%; } }
+.intake-direct-mappings article { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto; gap:var(--space-3); padding:var(--space-3) 0; border-bottom:var(--border-default); }
+.intake-direct-mappings code, .intake-direct-folder strong { overflow-wrap:anywhere; white-space:normal; }
+.intake-direct-folder { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:var(--space-4); margin-bottom:var(--space-4); }
+.intake-direct-json { white-space:pre-wrap; overflow-wrap:anywhere; }
+.intake-direct-accept { position:sticky; bottom:var(--space-4); display:flex; justify-content:space-between; align-items:center; gap:var(--space-3); z-index:10; }
+@media(max-width:767px) { .intake-direct-mappings article, .intake-direct-folder { grid-template-columns:minmax(0,1fr); } .intake-direct-accept { bottom:80px; flex-wrap:wrap; } }
