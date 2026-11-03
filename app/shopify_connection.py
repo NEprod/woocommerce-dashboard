@@ -66,7 +66,7 @@ SIMPLE_QUERY = """query SimpleRead($id: ID!, $namespace: String!) {
  width: metafield(namespace: $namespace, key: "product_width") { id type value }
  height: metafield(namespace: $namespace, key: "product_height") { id type value }
  simpleVariants: variants(first: 2) { nodes { id sku price compareAtPrice inventoryPolicy
- inventoryItem { id sku requiresShipping countryCodeOfOrigin tracked
+ inventoryItem { id sku requiresShipping countryCodeOfOrigin harmonizedSystemCode tracked
  measurement { weight { value unit } } } } pageInfo { hasNextPage endCursor } }
  } }"""
 COUNTRIES_QUERY = 'query SupportedCountries { __type(name: "CountryCode") { enumValues { name } } }'

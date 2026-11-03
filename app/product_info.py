@@ -148,7 +148,8 @@ def _schema_errors(data, kind):
             ValidationIssue(
                 _path(path),
                 "schema_error",
-                error.message,
+                "HS Code must contain 6–13 digits, or be blank to leave Shopify unmanaged."
+                if path == ['harmonized_system_code'] else error.message,
             )
         )
     return issues

@@ -9,7 +9,7 @@ from app.utils.operation_control import acquire_catalogue_operation, finish_cata
 def restrict(plan):
     plan["scope"] = "inventory"
     for field in plan["fields"]:
-        field["deferred"] = field["field"].split(".")[-1] not in {"tracked", "inventoryPolicy", "weight", "requiresShipping", "countryCodeOfOrigin"}
+        field["deferred"] = field["field"].split(".")[-1] not in {"tracked", "inventoryPolicy", "weight", "requiresShipping", "countryCodeOfOrigin", "harmonizedSystemCode"}
     plan["blockers"] = [b for b in plan["blockers"] if not b.startswith("Live intent:")]
     plan["warnings"].append("Inventory-only correction: metadata, informational attributes, collections, media and publication are deferred. This does not establish full synchronisation.")
     plan["classification"] = "update" if any(f["changed"] and not f["deferred"] for f in plan["fields"]) else "no_change"
@@ -46,7 +46,7 @@ def confirm(reviewed, adapter=None):
                 value["inventoryPolicy"] = variant["managed"]["inventoryPolicy"]
             if prefix + "tracked" in changes:
                 value["inventoryItem"] = {"tracked":variant["managed"]["inventoryItem"]["tracked"]}
-            for key in ('requiresShipping','countryCodeOfOrigin','measurement'):
+            for key in ('requiresShipping','countryCodeOfOrigin','harmonizedSystemCode','measurement'):
                 if prefix + ('weight' if key == 'measurement' else key) in changes:
                     value.setdefault('inventoryItem',{})[key] = variant['managed']['inventoryItem'][key]
             if len(value) > 1:

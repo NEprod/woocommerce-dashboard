@@ -70,6 +70,26 @@ test('post-save scan failure is not labelled unsaved and offers explicit retry o
 });
 
 const guidedCode = source.slice(source.indexOf('  function guidedDocument('), source.indexOf('  function documentPatch('));
+const valuesCode = source.slice(source.indexOf('  function guidedValues('), source.indexOf('  function guidedDocument('));
+function customsEditor(value, enabled=true) {
+  const control={dataset:{field:'harmonized_system_code'},value};
+  const context=vm.createContext({structuredClone,window:{},isShared:false,
+    authored:{harmonized_system_code:'001234',future:{keep:true}},initialValues:{harmonized_system_code:'001234',future:{keep:true}},
+    knownFields:new Set(['harmonized_system_code']),customisationDesigner:null,packagingDesigner:null,finishedDesigner:null,
+    guided:{querySelectorAll:selector=>selector==='[data-field]'?[control]:[]},
+    overrideEnabled:field=>enabled&&field==='harmonized_system_code',attributeValues:()=>({}),
+    modifierValues:()=>({}),explicitVariation:false});
+  vm.runInContext(valuesCode+guidedCode,context);
+  return JSON.parse(vm.runInContext('JSON.stringify(guidedDocument())',context));
+}
+test('HS Code remains text with leading zeros and changes only its authored scalar',()=>{
+  assert.ok(source.includes('"harmonized_system_code"'));
+  assert.deepEqual(customsEditor('0012345678901'),{harmonized_system_code:'0012345678901',future:{keep:true}});
+});
+test('blank or disabled HS override restores inheritance rather than inventing remote clearing',()=>{
+  assert.deepEqual(customsEditor(''),{future:{keep:true}});
+  assert.deepEqual(customsEditor('001234',false),{future:{keep:true}});
+});
 test('unchanged legacy live and explicit false survive guided roundtrip without authorisation', () => {
   const authored = {live: false, requires_shipping: false, future: {private: true}};
   const context=vm.createContext({structuredClone,authored,initialValues: {shopify_status:'DRAFT',requires_shipping:false},

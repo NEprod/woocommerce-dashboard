@@ -22,7 +22,7 @@
     "image_attributes", "variation_attributes", "variation_modifiers", "shipping_class", "grouped_ids",
     "grouped_products", "upsell_ids", "cross_sell_ids", "upsells", "crosssells",
     "meta_title", "meta_description", "vendor", "handle", "shopify_product_type", "shopify_product_type_key",
-    "country_of_origin", "requires_shipping", "manage_stock", "backorders", "primary_category", "shopify_status", "shopify_channels", "packaging", "finished_dimensions"
+    "country_of_origin", "harmonized_system_code", "requires_shipping", "manage_stock", "backorders", "primary_category", "shopify_status", "shopify_channels", "packaging", "finished_dimensions"
   ]);
   let authored = structuredClone(boot.authored || {});
   let originalDocument = structuredClone(boot.authored || {});

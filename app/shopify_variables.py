@@ -122,11 +122,6 @@ def projection(product):
         payload = managed["variant"]
         if managed["product"].get("metafields"):
             payload["metafields"] = managed["product"]["metafields"]
-        hs = authored.get("harmonized_system_code")
-        if hs is not None:
-            if not isinstance(hs,str) or not hs.isdigit() or not 6 <= len(hs) <= 13:
-                raise ShopifyError("Explicit HS code must contain 6–13 digits.")
-            payload["inventoryItem"]["harmonizedSystemCode"] = hs
         images = variation_image_diagnostics(v, include_parent_fallback=False)
         source = images[0]["source_reference"] if images else None
         if images and any(not i["source_exists"] for i in images):

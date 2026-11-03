@@ -195,7 +195,8 @@ def record(product, plan, identity=None, *, post_write=False):
         equality_remote_updated_at=plan.get("remote_updated_at") if equality else prior.get("equality_remote_updated_at"),
         equality_mappings=summary["mappings"] if equality else prior.get("equality_mappings"))
     from app.shopify_simple_fields import review_rows
-    summary["display_changes"] = [r["label"] + ": " + r["after"][:120]
+    summary["display_changes"] = [r["label"] + ": " +
+        (r['before'][:60] + ' → ' if r['label'].endswith('HS Code') else '') + r["after"][:120]
         for r in review_rows(plan) if r["action"] not in {"Already matching","Deferred (inventory-only scope)"}][:10]
     summary["display_changes"] += ["Collection: " + r["name"] for r in plan.get("collections", []) if r["action"] == "Join"]
     summary["metadata_display"] = summary["display_changes"][:len(summary["display_changes"]) - sum(r["action"] == "Join" for r in plan.get("collections", []))]

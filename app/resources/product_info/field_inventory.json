@@ -54,6 +54,15 @@
     "example": "GB", "warning_error": "Invalid country-code format blocks editing/scanning."
   },
   {
+    "key": "harmonized_system_code", "aliases": [], "type": "string of 6–13 ASCII digits or blank", "units": null,
+    "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
+    "inheritance": "Scalar override; missing inherits. Blank resolved value is unmanaged, never remote erasure.", "merge": "Replacement.",
+    "parent_effect": "Shopify customs classification.", "variation_effect": "Resolved product code applies to each existing variant InventoryItem.",
+    "woo_field": null, "sqlite_destination": "Resolved authored metadata; no new column.",
+    "classification": "canonical and active", "implementation_status": "Existing scoped scan, comparison, signed/manual and automatic Shopify publishing; complete readback required.",
+    "example": "490900", "warning_error": "Non-string, non-digit or out-of-range codes block saving/scanning. No remote-clearing action is supported."
+  },
+  {
     "key": "requires_shipping", "aliases": [], "type": "boolean", "units": null,
     "required_collection": false, "required_override": false, "collection_allowed": true, "override_allowed": true,
     "inheritance": "Scalar override; missing inherits, no implicit physical default.", "merge": "Replacement.",

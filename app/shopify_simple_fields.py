@@ -99,6 +99,11 @@ def contract(snapshot, base):
             warnings.append(f"{local} is unspecified; remote value is not managed.")
     if shipping["origin_source"] == "deployment_default":
         warnings.append("Country of origin uses the reviewed deployment default; confirm manufacturing origin is accurate.")
+    hs = authored.get("harmonized_system_code")
+    if hs not in (None, ""):
+        if not isinstance(hs, str) or not re.fullmatch(r"[0-9]{6,13}", hs):
+            raise ShopifyError("HS Code must contain 6–13 digits.")
+        variant["inventoryItem"]["harmonizedSystemCode"] = hs
     for local, remote, maximum in (("vendor", "vendor", 255), ("handle", "handle", 255)):
         if authored.get(local) not in (None, ""):
             value = authored[local]
@@ -169,7 +174,7 @@ def review_rows(plan):
         "handle": "URL handle", "tags": "Tags", "seo.title": "SEO title",
         "seo.description": "SEO description", "price": "Customer price",
         "compareAtPrice": "Compare-at price", "variant.sku": "SKU", "sku": "SKU",
-        "requiresShipping": "Requires shipping", "countryCodeOfOrigin": "Country of origin",
+        "requiresShipping": "Requires shipping", "countryCodeOfOrigin": "Country of origin", "harmonizedSystemCode": "HS Code",
         "weight": "Weight", "tracked": "Track finished-product inventory", "inventoryPolicy": "Out-of-stock policy", "native.packed_dimensions": "Native packed dimensions", "media.order": "Gallery order", "category": "Standard Shopify category", "productType": "Shopify product type"}
     def value(item):
         if item is None or item == "":
@@ -309,5 +314,7 @@ def field_rows(managed, remote):
         else:
             if key not in inventory:
                 raise ShopifyError(f"Remote inventory {key} evidence is incomplete.")
+            if key == 'harmonizedSystemCode' and inventory[key] is not None and not isinstance(inventory[key], str):
+                raise ShopifyError("Remote HS Code evidence is invalid.")
             add(key, inventory[key], value)
     return rows

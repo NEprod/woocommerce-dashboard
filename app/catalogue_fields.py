@@ -8,6 +8,10 @@ from app.customisations import SCHEMA as CUSTOMISATION_SCHEMA, validate, merge
 
 def validate_extensions(data, *, partial=False):
     """Validate only new keys; do not tighten historic scanner metadata rules."""
+    if "harmonized_system_code" in data and not (
+            isinstance(data["harmonized_system_code"], str)
+            and re.fullmatch(r"(?:[0-9]{6,13})?", data["harmonized_system_code"])):
+        raise ValueError("HS Code must contain 6–13 digits, or be blank to leave Shopify unmanaged.")
     if "country_of_origin" in data and not (
             isinstance(data["country_of_origin"], str)
             and re.fullmatch(r"[A-Z]{2}", data["country_of_origin"])):
@@ -38,5 +42,6 @@ def shipping_details(authored, product):
         "dimensions_mm": finished_mm(authored) or authored.get("dimensions", {
             "length": product.length, "width": product.width, "height": product.height}),
         "country_of_origin": defaults['country_of_origin'],
+        "harmonized_system_code": authored.get('harmonized_system_code') or None,
         "origin_source": sources['country_of_origin'],
         "requires_shipping": defaults['requires_shipping']}

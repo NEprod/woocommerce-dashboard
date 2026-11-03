@@ -3,6 +3,7 @@
   "manage_stock": false,
   "backorders": "no",
   "country_of_origin": "GB",
+  "harmonized_system_code": "",
   "requires_shipping": true,
   "customisation": {"proof_policy": "optional", "fields": {"name": {"type": "text", "label": "Customer name", "required": true}}},
   "collection_type": "Variable Collection",

@@ -84,7 +84,7 @@ class FakeDraftAdapter:
         self.remote["simpleVariants"] = copy.deepcopy(self.remote["variants"])
         self.remote["simpleVariants"]["nodes"][0].update(compareAtPrice=None, inventoryItem={
             "id": "gid://shopify/InventoryItem/250", "sku": "", "requiresShipping": True,
-            "countryCodeOfOrigin": None, "tracked": False, "measurement": {"weight": {"value": 0, "unit": "GRAMS"}}})
+            "countryCodeOfOrigin": None, "harmonizedSystemCode": None, "tracked": False, "measurement": {"weight": {"value": 0, "unit": "GRAMS"}}})
         self.remote["simpleVariants"]["nodes"][0]["inventoryPolicy"]="DENY"
         if self.failure == "create": raise ShopifyError("Creation outcome uncertain")
         return {"productCreate": {"product": copy.deepcopy(self.remote), "userErrors": []}}

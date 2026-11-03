@@ -3,10 +3,10 @@
 {% set product = workspace.product %}
 {% set is_shared = workspace.kind == 'shared' %}
 {% block title %}{{ 'Edit Collection Metadata' if is_shared else 'Edit Product Override' }}{% endblock %}
-{% macro extra_field(key, label, helper, choices=None) %}
+{% macro extra_field(key, label, helper, choices=None, inputmode=None, pattern=None, maxlength=None) %}
 <div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}>
   <div class="guided-field-label"><label for="metadata-{{ key }}">{{ label }}</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override this value</span></label>{% endif %}</div>
-  {% if choices %}<select id="metadata-{{ key }}" data-field="{{ key }}"><option value="">Not set</option>{% for value, text in choices %}<option value="{{ value }}">{{ text }}</option>{% endfor %}</select>{% else %}<input id="metadata-{{ key }}" data-field="{{ key }}">{% endif %}
+  {% if choices %}<select id="metadata-{{ key }}" data-field="{{ key }}"><option value="">Not set</option>{% for value, text in choices %}<option value="{{ value }}">{{ text }}</option>{% endfor %}</select>{% else %}<input type="text" id="metadata-{{ key }}" data-field="{{ key }}"{% if inputmode %} inputmode="{{ inputmode }}"{% endif %}{% if pattern %} pattern="{{ pattern }}"{% endif %}{% if maxlength %} maxlength="{{ maxlength }}"{% endif %}>{% endif %}
   <p class="field-helper">{{ helper }} <span data-inherited-value="{{ key }}"></span>{% if key in workspace.defaults %}<br>Effective: {{ workspace.defaults[key].value if workspace.defaults[key].value is not none else 'Unknown / unmanaged' }} · Source: {{ workspace.defaults[key].source }}. Remove the authored key / disable override to use inherited/default value.{% endif %}</p><p class="field-error" data-field-error="{{ key }}" hidden></p>
 </div>
 {% endmacro %}
@@ -194,10 +194,11 @@
 
       <section class="editor-workspace-section"><div class="editor-field-grid">
         {{ extra_field('country_of_origin','Country of origin','Uppercase ISO code, only when accurate. No automatic GB assignment.') }}
+        {{ extra_field('harmonized_system_code','HS Code','Harmonised System customs classification code used for international shipping. Enter 6–13 digits.', inputmode='numeric', pattern='[0-9]{6,13}', maxlength=13) }}
         {{ extra_field('requires_shipping','Requires shipping','Missing remains unspecified.', [('true','Yes'),('false','No')]) }}
         {{ extra_field('manage_stock','Track finished-product inventory','No quantity or location changes.', [('true','Tracked'),('false','Untracked')]) }}
         {{ extra_field('backorders','Out-of-stock selling policy','Existing reviewed Shopify policy; notify does not send customer alerts.', [('no','Do not allow'),('yes','Allow'),('notify','Allow (legacy notify policy)')]) }}
-      </div><p>Finished product millimetres never substitute for packed shipping dimensions. Native packed publishing remains separately opt-in.</p></section>
+      </div><p>Blank or unspecified HS Code leaves existing Shopify codes unmanaged; it does not erase them. Disable a product override to inherit the collection code.</p><p>Finished product millimetres never substitute for packed shipping dimensions. Native packed publishing remains separately opt-in.</p></section>
       {% include 'packaging/_product.html' %}
       {% include 'includes/_customisation_designer.html' %}
       <section class="editor-workspace-section advanced-fields-section" aria-labelledby="advanced-fields-title">
