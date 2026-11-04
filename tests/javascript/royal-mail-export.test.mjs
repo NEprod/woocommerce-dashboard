@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 const script=fs.readFileSync(new URL('../../app/static/assets/js/royal-mail-export.js',import.meta.url),'utf8');
-function fixture({ok=true,network=false,invalid=false}={}) {
+function fixture({ok=true,network=false,invalid=false,message='Duplicate sellable SKU: TEST-1'}={}) {
   let run;const downloaded=[];const timers=[];
   const button={dataset:{royalMailExport:'/packaging/royal-mail.csv'},disabled:false,addEventListener:(e,f)=>run=f};
   const feedback={hidden:true,textContent:''};
@@ -13,7 +13,7 @@ function fixture({ok=true,network=false,invalid=false}={}) {
     createElement:()=>({click(){downloaded.push(this.download);},remove(){}}),body:{appendChild(){}}},
     fetch:async(url,options)=>{assert.equal(options.credentials,'same-origin');assert.equal(options.cache,'no-store');
       if(network)throw new Error('Network interrupted');return {ok,headers:{get:k=>invalid?null:values[k]},
-        blob:async()=>({}),json:async()=>({error:'Duplicate sellable SKU: TEST-1'})};},
+        blob:async()=>({}),json:async()=>({error:message})};},
     URL:{createObjectURL:()=> 'blob:fixture',revokeObjectURL(){}},setTimeout:f=>timers.push(f)});
   vm.runInContext(script,context);
   return {button,feedback,downloaded,timers,run};
@@ -22,6 +22,11 @@ test('successful download uses server filename/count and existing alert notifica
   const f=fixture();await f.run();assert.deepEqual(f.downloaded,['tlc-royal-mail-products-2026-11-04.csv']);
   assert.match(f.feedback.textContent,/53 product rows exported/);assert.match(f.feedback.textContent,/Missing HS Code: 2/);
   assert.equal(f.feedback.className,'alert alert-success');assert.equal(f.button.disabled,false);assert.equal(f.timers.length,1);
+});
+test('no eligible Live products shows the server explanation without a download or false success',async()=>{
+  const f=fixture({ok:false,message:'No locally Live products are available for export. Draft products are excluded.'});
+  await f.run();assert.equal(f.downloaded.length,0);assert.match(f.feedback.textContent,/No locally Live products/);
+  assert.equal(f.feedback.className,'alert alert-danger');assert.equal(f.button.disabled,false);
 });
 for(const scenario of [{ok:false},{network:true},{invalid:true}])test(`failed export cannot claim success ${JSON.stringify(scenario)}`,async()=>{
   const f=fixture(scenario);await f.run();assert.equal(f.downloaded.length,0);assert.equal(f.feedback.className,'alert alert-danger');

@@ -26,6 +26,7 @@ try {
     const content=await fs.readFile(await file.path(),'utf8');
     assert.ok(content.startsWith('SKU,Product Name,Price (GBP),Weight (KG),Customs Description,HS Code,Non-standardised Manufacturer ID,Country of Origin\r\n'));
     assert.ok(content.includes('Wooden ornament,001234'));
+    assert.ok(!content.includes('NBNOC-0001'));
     await page.locator('[data-export-feedback]').getByText(/exported successfully/).waitFor();
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
     await page.screenshot({path:`/tmp/tlc-royal-mail-export-${layout}.png`});
@@ -38,7 +39,7 @@ try {
     await page.locator('[data-acknowledge-shared]').check();
     await page.locator('[data-save-metadata]:visible').last().click();
     await page.getByText('Local scan completed',{exact:true}).waitFor({timeout:20000});
-    results.push({layout,saveScopedScanReload:true,download:true,successAndFailureFeedback:true,noOverflow:true,consoleErrors:errors});
+    results.push({layout,saveScopedScanReload:true,download:true,draftExcluded:true,successAndFailureFeedback:true,noOverflow:true,consoleErrors:errors});
     await context.close();
   }
   console.log(JSON.stringify(results));

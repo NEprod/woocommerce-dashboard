@@ -44,6 +44,23 @@ with app.app_context():
  db.session.expire_all();product=Product.query.filter_by(sku=sku).one()
  assert local_revision(product)==revision_before
  assert product_document(product)['customs_description']=='Greeting card'
+
+# Separate real scanned Live source for export. The inherited shipping fixture
+# remains Draft so its existing Draft/publisher persistence assertions stay intact.
+from app.utils.operation_control import acquire_catalogue_operation
+live_collection=Path('/catalogue/Royal Mail Export Fixture');live_child=live_collection/'Live Card'
+live_child.mkdir(parents=True,exist_ok=True)
+(live_collection/'product_info.json').write_text(json.dumps({'collection_type':'Simple','sku_prefix':'RM-LIVE-',
+ 'live':True,'price':'3.50','weight':50,'customs_description':'Greeting card','harmonized_system_code':'0012345678901','country_of_origin':'GB'}))
+Image.new('RGB',(3,4),'green').save(live_child/'card.png')
+with app.app_context():
+ op=acquire_catalogue_operation('shared_collection_update',{'collection_relpath':live_collection.name})
+ rows=scan_collection(live_collection,'https://invalid.example/','/output',operation_id=op.id,defer_markers=True,log=lambda *a,**k:None)
+ assert ingest_rows_to_db(rows,operation_id=op.id,log=lambda *a,**k:None)['products_failed']==0
+ finish_catalogue_operation(op.id,status='succeeded')
+ db.session.add(Product(sku='NBNOC-0001',title='Fictional excluded Draft',product_type='simple',
+  source_relpath='Draft Collection/Ornament',published=False,status='draft'))
+ db.session.commit()
 '''
 smoke.CHECK+='''
 import csv,io
@@ -58,6 +75,7 @@ with sqlite3.connect('/app/instance/site.db') as connection:
  rows=list(csv.DictReader(io.StringIO(response.read().decode('utf-8'))))
  assert response.headers['X-Export-Row-Count']==str(len(rows))
  assert len(rows)==1 and rows[0]['Customs Description']=='Greeting card'
+ assert rows[0]['SKU']=='RM-LIVE-0001' and all(r['SKU'] not in {'NBNOC-0001','SMOKE-SHIP-0001'} for r in rows)
  assert rows[0]['HS Code']=='0012345678901' and rows[0]['Weight (KG)']=='0.05' and rows[0]['Price (GBP)']=='3.50'
  assert rows[0]['Non-standardised Manufacturer ID']==rows[0]['SKU']
  assert connection.total_changes==before_changes

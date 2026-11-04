@@ -23,6 +23,12 @@ fixture=core.__wrapped__(directory,patch)
 values=next(fixture)
 export_world.__wrapped__(values,patch)
 app=values[0]
+from app import db
+from app.models import Product
+with app.app_context():
+    db.session.add(Product(sku='NBNOC-0001',title='Fictional excluded Draft',
+        product_type='simple',published=False,status='draft',source_relpath='Draft Collection/Ornament'))
+    db.session.commit()  # Isolated fixture only: deliberately no saved export evidence.
 patch.setattr('app.routes.start_scan',start_scan)
 patch.setattr('app.scheduled_tasks.queue_projected',lambda op:None)
 

@@ -37,7 +37,7 @@ def export_world(core, monkeypatch):
         for name in ('Simple Collection', 'Variable Collection', 'Single Variable'):
             path = root/name/'product_info.json'
             document = json.loads(path.read_text())
-            document.update(live=False, customs_description='Greeting card', harmonized_system_code='001234', country_of_origin='GB')
+            document.update(live=True, customs_description='Greeting card', harmonized_system_code='001234', country_of_origin='GB')
             path.write_text(json.dumps(document))
             op = acquire_catalogue_operation('shared_collection_update', {'collection_relpath':name})
             rows = scan_collection(root/name, 'https://invalid.example/', output,
@@ -48,7 +48,7 @@ def export_world(core, monkeypatch):
     return core
 
 
-def test_csv_simple_and_each_variable_variant_no_parent_drafts_included(export_world):
+def test_csv_live_simple_and_each_variable_variant_no_parent(export_world):
     app, client, *_ = export_world
     response = client.get('/packaging/royal-mail.csv')
     assert response.status_code == 200, response.json
@@ -76,6 +76,115 @@ def test_csv_simple_and_each_variable_variant_no_parent_drafts_included(export_w
                 row = next(r for r in rows if r['SKU'] == variant.sku)
                 assert row['Price (GBP)'] == format(variant.regular_price, '.2f')
                 assert Decimal(row['Weight (KG)']) == variant.weight/1000
+
+
+@pytest.mark.parametrize('broken_view',[False,True])
+def test_reported_nbnoc_draft_missing_evidence_does_not_block_live_rows(export_world,broken_view):
+    app,client,*_=export_world
+    with app.app_context():
+        draft=Product(sku='NBNOC-0001',title='Fictional local Draft',product_type='simple',
+            source_relpath='Draft Collection/Naughty Ornament',published=False,status='draft')
+        db.session.add(draft);db.session.flush()
+        if broken_view:
+            db.session.add(ShopifyPublishJob(product_id=draft.id,source_identity=draft.source_relpath,
+                requested_revision='unscanned',state='attention',view_pending=True,view_json='not JSON',
+                next_attempt=drafts.now(),updated_at=drafts.now()))
+        db.session.commit()
+    response=client.get('/packaging/royal-mail.csv')
+    assert response.status_code==200,response.json
+    rows=read_csv(response)
+    assert rows and not any(r['SKU']=='NBNOC-0001' for r in rows)
+    assert 'NBNOC-0001' not in response.headers['X-Export-Warnings']
+
+
+@pytest.mark.parametrize('intent',[None,False,'true'])
+def test_unknown_or_saved_draft_intent_never_defaults_live(export_world,intent):
+    app,client,*_=export_world
+    with app.app_context():
+        product=Product.query.filter_by(product_type='simple').first();sku=product.sku
+        job=db.session.get(ShopifyPublishJob,product.id);saved=json.loads(job.view_json)
+        saved['authored'].pop('live',None)
+        if intent is not None:saved['authored']['live']=intent
+        job.view_json=json.dumps(saved);db.session.commit()
+    response=client.get('/packaging/royal-mail.csv')
+    assert response.status_code==200 and not any(r['SKU']==sku for r in read_csv(response))
+
+
+def test_inactive_variants_are_excluded_before_price_validation(export_world):
+    app,client,*_=export_world
+    with app.app_context():
+        product=Product.query.filter_by(product_type='variable').first()
+        hidden,missing,*_=product.variations
+        excluded={hidden.sku,missing.sku,product.sku}
+        hidden.visible=False;hidden.regular_price=Decimal('-10')
+        missing.catalogue_status='missing';missing.sale_price=Decimal('-10')
+        db.session.commit()
+    response=client.get('/packaging/royal-mail.csv')
+    assert response.status_code==200
+    assert not excluded & {r['SKU'] for r in read_csv(response)}
+    assert 'Invalid selling price' not in response.headers['X-Export-Warnings']
+
+
+def test_all_optional_customs_price_and_weight_missing_still_exports(export_world):
+    app,client,*_=export_world
+    with app.app_context():
+        product=Product.query.filter_by(product_type='simple').first();sku=product.sku
+        product.regular_price=None;product.weight=None
+        job=db.session.get(ShopifyPublishJob,product.id);saved=json.loads(job.view_json)
+        for key in ('price','sale_price','customs_description','harmonized_system_code','country_of_origin'):
+            saved['authored'].pop(key,None)
+        job.view_json=json.dumps(saved);db.session.commit()
+    response=client.get('/packaging/royal-mail.csv')
+    assert response.status_code==200
+    row=next(r for r in read_csv(response) if r['SKU']==sku)
+    assert all(row[k]=='' for k in ('Price (GBP)','Weight (KG)','Customs Description','HS Code','Country of Origin'))
+
+
+def test_cross_parent_variant_duplicate_excludes_both_rows(export_world):
+    app,client,*_=export_world
+    with app.app_context():
+        simple=Product.query.filter_by(product_type='simple').first();sku=simple.sku
+        variant=Product.query.filter_by(product_type='variable').first().variations[0]
+        variant.sku=sku;db.session.commit()
+    response=client.get('/packaging/royal-mail.csv')
+    assert response.status_code==200
+    assert not any(r['SKU'].casefold()==sku.casefold() for r in read_csv(response))
+    assert json.loads(response.headers['X-Export-Warnings'])['Skipped products/rows']==2
+
+
+def test_unrelated_draft_collection_refresh_does_not_block_live_export(export_world):
+    app,client,*_=export_world
+    with app.app_context():
+        db.session.add(CatalogueOperation(id='b'*32,operation_type='shared_collection_update',status='running',
+            scope=json.dumps({'collection_relpath':'Draft Collection'})))
+        db.session.commit()
+    response=client.get('/packaging/royal-mail.csv')
+    assert response.status_code==200 and read_csv(response)
+
+
+def test_live_collection_child_draft_save_is_excluded_after_existing_scoped_scan(export_world,monkeypatch):
+    from app.utils import scan_runner
+    app,client,_,_,ids,*_=export_world
+    product_id=ids['Simple Collection/Blue Token']
+    monkeypatch.setattr('app.routes.start_scan',scan_runner.start_scan)
+    monkeypatch.setattr('app.scheduled_tasks.queue_projected',lambda op:None)
+    response=save(export_world,data={'live':False})
+    assert response.status_code==200,response.json
+    deadline=time.monotonic()+15
+    while time.monotonic()<deadline:
+        with app.app_context():progress=scan_runner.get_progress(response.json['run_id'])
+        if progress['status'] in {'done','error'}:break
+        time.sleep(.03)
+    assert progress['status']=='done',progress
+    with app.app_context():
+        product=db.session.get(Product,product_id);sku=product.sku
+        assert product.published is False and product_document(product)['live'] is False
+        # Model the reported missing/refreshing Draft view without changing its
+        # now-authoritative scanned Draft flag. Export must not need that view.
+        job=db.session.get(ShopifyPublishJob,product_id);job.view_json=None;job.scan_operation_id=None
+        db.session.commit()
+    response=client.get('/packaging/royal-mail.csv')
+    assert response.status_code==200 and not any(r['SKU']==sku for r in read_csv(response))
 
 
 @pytest.mark.parametrize('name,kind', [('Simple Collection/Blue Token','shared'),
@@ -185,10 +294,11 @@ def test_csv_escaping_utf8_formula_protection_missing_values_and_no_listing_fall
 
 
 @pytest.mark.parametrize('problem',['revision','scan','missing_view','duplicate','missing_sku','unsafe_sku','invalid_weight'])
-def test_invalid_or_stale_evidence_and_identities_fail_without_partial_download(export_world,problem):
+def test_invalid_live_rows_reported_without_blocking_independent_rows(export_world,problem):
     app,client,*_=export_world
     with app.app_context():
         products=Product.query.filter_by(product_type='simple').all();product=products[0]
+        original_sku=product.sku
         job=db.session.get(ShopifyPublishJob,product.id)
         if problem=='revision':job.view_revision='stale'
         if problem=='scan':job.scan_operation_id=None
@@ -199,8 +309,17 @@ def test_invalid_or_stale_evidence_and_identities_fail_without_partial_download(
         if problem=='invalid_weight':product.weight=Decimal(-1)
         db.session.commit()
     response=client.get('/packaging/royal-mail.csv')
-    assert response.status_code==409 and response.json['error']
-    assert 'Content-Disposition' not in response.headers
+    assert response.status_code==200,response.json
+    rows=read_csv(response);warnings=json.loads(response.headers['X-Export-Warnings'])
+    assert rows and warnings
+    if problem=='invalid_weight':
+        assert next(r for r in rows if r['SKU']==original_sku)['Weight (KG)']==''
+        assert warnings['Invalid product weight (left blank)']==1
+    else:
+        assert not any(r['SKU'].casefold()==original_sku.casefold() for r in rows)
+        assert warnings['Skipped products/rows']>=1
+        if problem=='duplicate':assert warnings['Skipped products/rows']==2
+    assert any('Details' in key for key in warnings)
 
 
 def test_shopify_status_invalidation_does_not_invalidate_scan_bound_local_export(export_world):
@@ -221,13 +340,18 @@ def test_shopify_status_invalidation_does_not_invalidate_scan_bound_local_export
         assert job.state=='recovery_required' and job.view_pending and job.error
 
 
-def test_filename_date_empty_export_authentication_and_package_page(core):
-    app,client,*_=core
+def test_filename_date_no_live_export_authentication_and_package_page(export_world):
+    app,client,*_=export_world
     with app.app_context():
-        Product.query.update({'catalogue_status':'missing'});db.session.commit()
         data,name,count,warnings=generate(at=datetime(2026,7,1,23,30,tzinfo=UTC))
-        assert name=='tlc-royal-mail-products-2026-07-02.csv' and count==0
+        assert name=='tlc-royal-mail-products-2026-07-02.csv' and count>0
         assert next(csv.reader(io.StringIO(data.decode())))==list(COLUMNS)
+        Product.query.update({'published':False});db.session.commit()
+        with pytest.raises(ValueError,match='No locally Live products'):
+            generate()
+    response=client.get('/packaging/royal-mail.csv')
+    assert response.status_code==409 and 'No locally Live products' in response.json['error']
+    assert 'Content-Disposition' not in response.headers
     page=client.get('/packaging/')
     assert page.status_code==200 and b'Export Royal Mail CSV' in page.data
     assert b'data-export-feedback' in page.data and b'royal-mail-export.js' in page.data

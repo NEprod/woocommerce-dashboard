@@ -1,5 +1,35 @@
 # Royal Mail Click & Drop product catalogue export
 
+## Live-only acceptance correction
+
+Fix baseline: `e308592a7f4076a17337fa207b901a6deba650bb`, `develop`.
+The reported NBNOC-0001 Draft/missing-view case was reproduced before the fix:
+the previous exporter selected catalogue availability (`catalogue_status=active`),
+not local Live intent, then raised on missing evidence for that Draft.
+
+Current export first selects the scanner's persisted local `Product.published=True`
+flag, then requires explicit resolved local Live intent in the saved authored view.
+The second check prevents older scanner defaults from interpreting unknown intent
+as Live. A known Draft is excluded before its export evidence/variants are loaded.
+No source files or Shopify observations are used to determine eligibility.
+An unrelated Draft collection refresh does not block independently current Live
+collections; a refresh affecting an eligible collection still protects its rows.
+
+NBNOC-0001 fixtures cover both absent and malformed/refreshing Draft views alongside
+valid Live simple and variable products. Real editor-save/scoped-ingestion tests
+also cover a child Draft override of a Live collection. No real Unraid scan/save
+or export repair was performed during development. Deployed revision must be
+independently checked when Safari access is available; it is not inferred from HEAD.
+
+Live-only correction validation: 166 selected Python tests and 20 JavaScript checks
+passed, including an exact pre-fix reproduction of the NBNOC-0001 error. Desktop
+and mobile isolated Chrome downloads excluded that Draft, with no overflow or JS
+errors. Offline two-/four-worker Docker upgrade/restart checks passed using real
+scanned Live fixtures and a separate deliberately unresolved Draft. No remaining
+failures in the selected suites; the full repository suite was not run. These are
+isolated results, not a live Unraid/Royal Mail acceptance claim. Safari control
+reported locked during this task, so the deployed revision could not be rechecked.
+
 ## Scope and baseline
 
 Starting local and read-only verified Unraid revision:
@@ -79,9 +109,12 @@ are reused read-only; variant prices and weights are already scanner-resolved.
 No package tare, parcel measurements or shipping charge is included. Gram units
 are explicit in the current scanner/SQLite contract, not inferred from size.
 
-Active local Drafts are included. Variable parents are not included: each active,
+Only explicitly locally Live products are included; Draft and unknown-intent
+products are excluded before export validation. No Shopify identity, publication
+or Up to Date status is required. Variable parents are not included: each active,
 visible/sellable variant gets its own row and actual SKU. Missing/hidden catalogue
-records are not exported. Unsupported product types are reported, not guessed.
+records are not exported. No independent variant Draft/Live model is introduced.
+Unsupported types and genuinely unavailable Live source data are reported/skipped.
 
 Missing optional prices, weights, descriptions, HS codes and countries stay blank
 with warnings. Unknown country codes stay blank with a warning, never default GB.
@@ -91,8 +124,10 @@ invented. No deployment/environment country fallback is silently substituted for
 an absent locally authored country.
 
 Duplicate (case-insensitive), missing, whitespace-padded or formula-leading SKUs
-block the whole download with a precise identity error; rows are not silently
-merged, dropped or renamed. Invalid known weights/codes also block. Names over
+are reported and skipped; all conflicting duplicate rows are excluded rather than
+choosing one. Independently valid rows still export. No identity is invented,
+merged or renamed. Invalid optional weights/prices/codes are left blank with a
+warning and bounded affected-product details. Names over
 Royal Mail's documented 100-character editor limit are warned about, not silently
 truncated. These names should be checked in the import preview.
 
@@ -104,13 +139,15 @@ preserved literally in the file; do not open/resave them as numeric cells in Exc
 Import the original download, or explicitly select Text in a spreadsheet importer.
 
 The published Products importer limits (20,000 rows / 20 MB) are enforced without
-truncation. Empty catalogues produce a header-only CSV and zero-row notification.
+truncation. If no eligible Live products (or no valid Live rows) remain, the existing
+error notification explains why and no misleading header-only download is produced.
 
 ## Source freshness and read-only boundary
 
 Export requires a complete saved authored projection, matching saved/requested
-revision and succeeded retained scan operation. Unavailable/source-stale projections
-or an active source refresh block export with the product/action explained.
+revision and succeeded retained scan operation. Unavailable/source-stale Live
+projections or an affected source refresh skip those products with the product/action
+explained; other independent Live products still export. Draft evidence is not checked.
 It does not attempt to repair evidence or run a scan. Review the product's
 existing source/scan status and use its ordinary scoped action if genuinely needed.
 
@@ -118,8 +155,9 @@ This is an export of **saved** local evidence, not a fresh filesystem verificati
 Unobserved external edits cannot be discovered without reading files; this route
 deliberately does not do so. External file changes must go through the existing
 normal refresh workflow before relying on the export. Normal editor saves already
-perform that refresh. Shopify comparison health, package recovery and Draft/Live
-publishing approval do not grant or deny local export authority. In particular,
+perform that refresh. Shopify comparison health, package recovery and remote
+publishing approval do not grant or deny local export authority. Only local Live
+intent controls inclusion. In particular,
 `view_pending` alone is a Shopify status-refresh flag, not proof of stale local
 data: a retained, current scan-bound local snapshot remains exportable while
 Shopify comparison/status refresh is pending. Recovery state and receipts are
@@ -221,11 +259,13 @@ customs save or production Shopify acceptance during development.
    by that field alone. Other genuinely outstanding changes stay outstanding.
 6. Shipping Packages → Export Royal Mail CSV. Check filename, row count and warnings.
 7. Compare a Simple row and two differently priced/weighted variants against TLC.
-   Check Draft inclusion, no variable parent row, leading-zero code, country name.
+   Check Draft exclusion (including NBNOC-0001), no variable parent row, leading-zero
+   code, country name, and any reported skipped Live rows.
 8. If rollback is necessary, reinstall
-   `neprod/woocommerce-dashboard:hs-code-0df66f051d3b` with the same mounts.
+   `neprod/woocommerce-dashboard:royal-mail-e308592a7f40` with the same mounts.
    Preserve all new authored JSON and receipts. Do not reset the database. The
-   previous version preserves unknown local JSON keys; the export UI is absent.
+   previous version preserves the same JSON/schema; its Draft-inclusion export
+   bug will return. No database reset or catalogue rewrite is needed.
 
 Deployment is merchant-controlled. No Unraid restart/update, automation setting
 change or production catalogue write is part of this development release.
