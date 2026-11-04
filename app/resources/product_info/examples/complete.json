@@ -4,6 +4,7 @@
   "backorders": "no",
   "country_of_origin": "GB",
   "harmonized_system_code": "",
+  "customs_description": "",
   "requires_shipping": true,
   "customisation": {"proof_policy": "optional", "fields": {"name": {"type": "text", "label": "Customer name", "required": true}}},
   "collection_type": "Variable Collection",

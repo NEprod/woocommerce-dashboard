@@ -45,6 +45,8 @@ def catalogue_snapshot(product):
     from app import db
     with db.session.no_autoflush:
         authored = product_document(product)
+        # Royal Mail reference only; excluded from signed platform snapshots.
+        authored.pop('customs_description', None)
         from app.catalogue_fields import shipping_details
         from app.taxonomy_assignments import resolve
         data = {

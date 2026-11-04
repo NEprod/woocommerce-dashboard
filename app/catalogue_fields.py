@@ -8,6 +8,11 @@ from app.customisations import SCHEMA as CUSTOMISATION_SCHEMA, validate, merge
 
 def validate_extensions(data, *, partial=False):
     """Validate only new keys; do not tighten historic scanner metadata rules."""
+    if 'customs_description' in data and not (
+            isinstance(data['customs_description'], str)
+            and len(data['customs_description']) <= 50
+            and not any(ord(c) < 32 or ord(c) == 127 for c in data['customs_description'])):
+        raise ValueError('Customs Description must be a single line of up to 50 characters, or blank.')
     if "harmonized_system_code" in data and not (
             isinstance(data["harmonized_system_code"], str)
             and re.fullmatch(r"(?:[0-9]{6,13})?", data["harmonized_system_code"])):

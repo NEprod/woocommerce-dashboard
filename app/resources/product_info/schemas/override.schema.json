@@ -13,6 +13,7 @@
     "sale_end_date": {"type": "string", "format": "date"},
     "weight": {"$ref": "#/$defs/numberLike"},
     "country_of_origin": {"type": "string", "pattern": "^[A-Z]{2}$"},
+    "customs_description": {"type": "string", "maxLength": 50, "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}},
     "harmonized_system_code": {"type": "string", "pattern": "^(?:[0-9]{6,13})?$", "not": {"pattern": "[^0-9]"}},
     "requires_shipping": {"type": "boolean"},
     "customisation": {"type": "object"},

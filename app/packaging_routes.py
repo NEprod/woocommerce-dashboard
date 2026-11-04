@@ -1,5 +1,5 @@
 """Private optional solo-packaging tools; no shipping profile or order mutations."""
-from flask import Blueprint, abort, jsonify, render_template, request, redirect, url_for, flash
+from flask import Blueprint, abort, jsonify, render_template, request, redirect, url_for, flash, Response
 from flask_login import login_required, current_user
 from flask_wtf import FlaskForm
 from app import db
@@ -67,6 +67,21 @@ def index():
     if request.args.get('sort')=='weight': rows.sort(key=lambda p:(p['tare_g'] is None,float(p['tare_g'] or 0),p['name']))
     for row in rows:row['package_link']=package_links.current(row['id'])
     return render_template('packaging/index.html',packages=rows,form=FlaskForm())
+
+
+@packaging.get('/royal-mail.csv')
+def royal_mail_csv():
+    from app.royal_mail_export import generate
+    import json
+    try:
+        data, filename, count, warnings = generate()
+    except ValueError as error:
+        return jsonify(error=str(error)), 409
+    response = Response(data, content_type='text/csv; charset=utf-8')
+    response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response.headers['X-Export-Row-Count'] = str(count)
+    response.headers['X-Export-Warnings'] = json.dumps(warnings, ensure_ascii=True)
+    return response
 
 
 @packaging.get('/choices')

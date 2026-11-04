@@ -71,13 +71,13 @@ test('post-save scan failure is not labelled unsaved and offers explicit retry o
 
 const guidedCode = source.slice(source.indexOf('  function guidedDocument('), source.indexOf('  function documentPatch('));
 const valuesCode = source.slice(source.indexOf('  function guidedValues('), source.indexOf('  function guidedDocument('));
-function customsEditor(value, enabled=true) {
-  const control={dataset:{field:'harmonized_system_code'},value};
+function customsEditor(value, enabled=true, field='harmonized_system_code') {
+  const control={dataset:{field},value};
   const context=vm.createContext({structuredClone,window:{},isShared:false,
-    authored:{harmonized_system_code:'001234',future:{keep:true}},initialValues:{harmonized_system_code:'001234',future:{keep:true}},
-    knownFields:new Set(['harmonized_system_code']),customisationDesigner:null,packagingDesigner:null,finishedDesigner:null,
+    authored:{[field]:'001234',future:{keep:true}},initialValues:{[field]:'001234',future:{keep:true}},
+    knownFields:new Set([field]),customisationDesigner:null,packagingDesigner:null,finishedDesigner:null,
     guided:{querySelectorAll:selector=>selector==='[data-field]'?[control]:[]},
-    overrideEnabled:field=>enabled&&field==='harmonized_system_code',attributeValues:()=>({}),
+    overrideEnabled:key=>enabled&&key===field,attributeValues:()=>({}),
     modifierValues:()=>({}),explicitVariation:false});
   vm.runInContext(valuesCode+guidedCode,context);
   return JSON.parse(vm.runInContext('JSON.stringify(guidedDocument())',context));
@@ -89,6 +89,11 @@ test('HS Code remains text with leading zeros and changes only its authored scal
 test('blank or disabled HS override restores inheritance rather than inventing remote clearing',()=>{
   assert.deepEqual(customsEditor(''),{future:{keep:true}});
   assert.deepEqual(customsEditor('001234',false),{future:{keep:true}});
+});
+test('Customs Description can be saved, explicitly cleared or reset to inheritance',()=>{
+  assert.deepEqual(customsEditor('Greeting card',true,'customs_description'),{customs_description:'Greeting card',future:{keep:true}});
+  assert.deepEqual(customsEditor('',true,'customs_description'),{customs_description:'',future:{keep:true}});
+  assert.deepEqual(customsEditor('',false,'customs_description'),{future:{keep:true}});
 });
 test('unchanged legacy live and explicit false survive guided roundtrip without authorisation', () => {
   const authored = {live: false, requires_shipping: false, future: {private: true}};

@@ -1,7 +1,9 @@
 {% extends 'layouts/base.html' %}
 {% block title %}Shipping Packages{% endblock %}
 {% block content %}
-<header class="page-header"><div><p class="eyebrow">Settings · Shipping Packages</p><h1>Shipping Packages</h1><p>Local package catalogue. Shopify controls checkout and postage; the store default is unchanged.</p></div><a class="btn btn-primary" href="{{ url_for('packaging.new') }}">Add Package</a></header>
+<header class="page-header"><div><p class="eyebrow">Settings · Shipping Packages</p><h1>Shipping Packages</h1><p>Local package catalogue. Shopify controls checkout and postage; the store default is unchanged.</p></div><div class="page-actions"><button type="button" class="btn btn-outline-primary" data-royal-mail-export="{{ url_for('packaging.royal_mail_csv') }}">Export Royal Mail CSV</button><a class="btn btn-primary" href="{{ url_for('packaging.new') }}">Add Package</a></div></header>
+<p data-export-feedback role="status" aria-live="polite" hidden></p>
+<p class="field-helper">Royal Mail Products import: leave Non-standardised Manufacturer ID unmapped (not in the published product-import mapping); enter the exported SKU in that product field separately. Export reads saved local catalogue data only. Pending or unavailable local projections must finish their existing refresh first.</p>
 <p>Enter real Shopify Package IDs copied from your own Shopify Admin. A manually entered ID is not remotely verified. Product assignments require normal signed Product Review &amp; Sync.</p>
 {% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<p class="alert alert-{{ category }}">{{ message }}</p>{% endfor %}{% endwith %}
 <form class="page-actions" method="get"><label>Search packages<input class="form-control" name="q" value="{{ request.args.get('q','') }}"></label><button class="btn btn-outline-primary">Search</button></form>
@@ -15,3 +17,4 @@
 <td data-label="Actions"><a class="btn btn-sm btn-primary" href="{{ url_for('packaging.edit',package_id=p.id) }}">Edit / Set ID</a><a href="{{ url_for('packaging.usage',package_id=p.id) }}">Usage</a></td>
 </tr>{% endfor %}</tbody></table>
 {% endblock %}
+{% block javascripts %}<script src="{{ url_for('static',filename='assets/js/royal-mail-export.js') }}"></script>{% endblock %}
