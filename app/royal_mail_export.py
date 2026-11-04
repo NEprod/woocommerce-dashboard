@@ -81,7 +81,11 @@ def generate(*, at=None):
             except (TypeError, ValueError):
                 saved = {}
             authored = saved.get('authored')
-            if (not job or job.view_pending or job.view_revision != job.requested_revision
+            # view_pending is a Shopify *status* refresh flag, also set by
+            # readback/recovery events. It does not invalidate an otherwise
+            # complete, scan-bound local export snapshot. Actual local refresh
+            # ownership/revision/checkpoint checks remain mandatory below.
+            if (not job or job.view_revision != job.requested_revision
                     or scans.get(job.scan_operation_id) != 'succeeded'
                     or not isinstance(authored, dict) or not authored.get('collection_type')
                     or not product.resolved_row_json):

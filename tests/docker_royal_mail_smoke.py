@@ -14,6 +14,16 @@ smoke=previous.smoke
 archival="sku='SMOKE-PACKAGE-1',product_type='simple',source_relpath='Fictional/Smoke'"
 assert smoke.IMPORT.count(archival)==1
 smoke.IMPORT=smoke.IMPORT.replace(archival,archival+",catalogue_status='missing'",1)
+# Inherited PTY smoke can observe EOF just before the child is reapable. Keep
+# its original deadline and every password assertion; wait within that deadline
+# instead of treating this tiny process-exit window as a recovery timeout.
+reap="  waited,status=os.waitpid(pid,os.WNOHANG)\n  if not waited:\n   os.kill(pid,9)"
+assert smoke.CHECK.count(reap)==1
+smoke.CHECK=smoke.CHECK.replace(reap,
+    "  waited,status=os.waitpid(pid,os.WNOHANG)\n"
+    "  while not waited and time.monotonic()<deadline:\n"
+    "   time.sleep(.02);waited,status=os.waitpid(pid,os.WNOHANG)\n"
+    "  if not waited:\n   os.kill(pid,9)",1)
 smoke.CHECK=smoke.CHECK.replace("'hs_code_persistence':True", "'royal_mail_export_persistence':True,'hs_code_persistence':True")
 smoke.IMPORT+='''
 with app.app_context():
@@ -42,7 +52,9 @@ with sqlite3.connect('/app/instance/site.db') as connection:
  before_changes=connection.total_changes
  assert json.loads(connection.execute('select view_json from shopify_publish_job where product_id=?',(hs_product_id,)).fetchone()[0])['authored']['customs_description']=='Greeting card'
  try:response=opener.open('http://127.0.0.1:7485/packaging/royal-mail.csv',timeout=5)
- except urllib.error.HTTPError as error:raise AssertionError(error.read().decode()) from None
+ except urllib.error.HTTPError as error:
+  diagnostic=connection.execute('select requested_revision,view_revision,view_pending,scan_operation_id,view_json from shopify_publish_job where product_id=?',(hs_product_id,)).fetchone()
+  raise AssertionError(error.read().decode()+' fixture evidence: '+repr(diagnostic)) from None
  rows=list(csv.DictReader(io.StringIO(response.read().decode('utf-8'))))
  assert response.headers['X-Export-Row-Count']==str(len(rows))
  assert len(rows)==1 and rows[0]['Customs Description']=='Greeting card'

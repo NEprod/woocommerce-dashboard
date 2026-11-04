@@ -184,13 +184,12 @@ def test_csv_escaping_utf8_formula_protection_missing_values_and_no_listing_fall
     assert row['Product Name'].startswith("'=HYPERLINK")
 
 
-@pytest.mark.parametrize('problem',['pending','revision','scan','missing_view','duplicate','missing_sku','unsafe_sku','invalid_weight'])
+@pytest.mark.parametrize('problem',['revision','scan','missing_view','duplicate','missing_sku','unsafe_sku','invalid_weight'])
 def test_invalid_or_stale_evidence_and_identities_fail_without_partial_download(export_world,problem):
     app,client,*_=export_world
     with app.app_context():
         products=Product.query.filter_by(product_type='simple').all();product=products[0]
         job=db.session.get(ShopifyPublishJob,product.id)
-        if problem=='pending':job.view_pending=True
         if problem=='revision':job.view_revision='stale'
         if problem=='scan':job.scan_operation_id=None
         if problem=='missing_view':job.view_json='{}'
@@ -202,6 +201,24 @@ def test_invalid_or_stale_evidence_and_identities_fail_without_partial_download(
     response=client.get('/packaging/royal-mail.csv')
     assert response.status_code==409 and response.json['error']
     assert 'Content-Disposition' not in response.headers
+
+
+def test_shopify_status_invalidation_does_not_invalidate_scan_bound_local_export(export_world):
+    from app.catalogue_views import invalidate
+    app,client,*_=export_world
+    before=client.get('/packaging/royal-mail.csv')
+    with app.app_context():
+        product_id=Product.query.filter_by(product_type='simple').first().id
+        invalidate(product_id=product_id)
+        job=db.session.get(ShopifyPublishJob,product_id)
+        job.state='recovery_required';job.error='Uncertain package stage remains protected'
+        db.session.commit()
+        assert job.view_pending
+    after=client.get('/packaging/royal-mail.csv')
+    assert after.status_code==200 and after.data==before.data
+    with app.app_context():
+        job=db.session.get(ShopifyPublishJob,product_id)
+        assert job.state=='recovery_required' and job.view_pending and job.error
 
 
 def test_filename_date_empty_export_authentication_and_package_page(core):

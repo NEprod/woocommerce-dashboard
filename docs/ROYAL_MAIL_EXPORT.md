@@ -109,7 +109,7 @@ truncation. Empty catalogues produce a header-only CSV and zero-row notification
 ## Source freshness and read-only boundary
 
 Export requires a complete saved authored projection, matching saved/requested
-revision and succeeded retained scan operation. Pending/unavailable projections
+revision and succeeded retained scan operation. Unavailable/source-stale projections
 or an active source refresh block export with the product/action explained.
 It does not attempt to repair evidence or run a scan. Review the product's
 existing source/scan status and use its ordinary scoped action if genuinely needed.
@@ -119,7 +119,11 @@ Unobserved external edits cannot be discovered without reading files; this route
 deliberately does not do so. External file changes must go through the existing
 normal refresh workflow before relying on the export. Normal editor saves already
 perform that refresh. Shopify comparison health, package recovery and Draft/Live
-publishing approval do not grant or deny local export authority.
+publishing approval do not grant or deny local export authority. In particular,
+`view_pending` alone is a Shopify status-refresh flag, not proof of stale local
+data: a retained, current scan-bound local snapshot remains exportable while
+Shopify comparison/status refresh is pending. Recovery state and receipts are
+not changed by the export.
 
 Tests deny source-document reads, gallery inspection and external requests, and
 observe SQL to ensure the download performs no INSERT/UPDATE/DELETE/schema writes.
@@ -181,15 +185,25 @@ records. Only the two ornament variants appear, not a parent row.
   save and CSV checks, 2 and 4 workers, disposable `/app/instance`/catalogue/output,
   `--network none`; automatic publishing remains disabled in those fixtures.
 
-Results: 349 bounded Python tests passed. The final focused export/schema run
-passed 47 tests (overlaps that regression run; do not add the counts together).
-31 JavaScript checks and both browser layouts passed. Two- and four-worker
+Results: 350 bounded Python tests passed, including the focused export/schema
+tests. 31 JavaScript checks and both browser layouts passed. Two- and four-worker
 Docker checks passed. No remaining failures in these selected suites; the entire
 repository test suite was not run. Initial new test defects were fixed without
 production workarounds: a detached ORM test object, an unrelated fixture product
 being restored by a shared scan, and an old identity-only package-history record
 incorrectly labelled as a sellable source product. The latter correctly blocked
 export until the fixture was marked archival; no scan evidence was fabricated.
+
+An intermediate four-worker run rejected a refreshing projection; two repetitions
+passed unchanged. The complete failed predicate was not retained in that first
+run, so its historical cause is not asserted. Inspection separately identified
+an incorrect dependency on Shopify's `view_pending` flag; the local-only export
+contract was corrected and tested through a real status invalidation while
+Recovery Required remains intact. All source revision/scan guards remain.
+An inherited password CLI smoke also exposed a PTY EOF/process-reaping timing
+window. Only this probe's collector now waits within the original deadline for
+child exit; all original authentication assertions still run, and no production
+authentication code changed. Final bounded regressions and Docker checks passed.
 
 No claim is made of a real Click & Drop import, iPhone Safari download, live
 customs save or production Shopify acceptance during development.
