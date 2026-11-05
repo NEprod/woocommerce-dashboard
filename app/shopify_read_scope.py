@@ -10,7 +10,7 @@ import json
 
 _scope = ContextVar('shopify_inspection_scope', default=None)
 _request = ContextVar('shopify_inspection_request', default=None)
-REFERENCE_NAMES = frozenset({'Connection', 'SupportedCountries', 'TLCChannels',
+REFERENCE_NAMES = frozenset({'Connection', 'SupportedCountries', 'TLCChannels', 'TLCMarkets',
     'FinishedDimensionDefinitions', 'AttributeSchema', 'AttributeDefinition',
     'AttributeTerm', 'AttributeField', 'StandardCategory', 'CollectionCandidates', 'PackedCapability'})
 
@@ -20,7 +20,7 @@ def phase(name):
     if 'Definition' in name or name in {'AttributeSchema', 'AttributeField', 'PackedCapability', 'SupportedCountries'}: return 'shared_definitions'
     if name in {'AttributeTerm', 'AttributeEntries', 'AttributeValues'}: return 'taxonomy_metafields'
     if 'Collection' in name or name == 'StandardCategory': return 'collections_taxonomy'
-    if 'Channel' in name or 'Publication' in name: return 'publication'
+    if 'Channel' in name or 'Publication' in name or name == 'TLCMarkets': return 'publication'
     if 'Customer' in name: return 'customisations'
     if 'Packed' in name or 'Inventory' in name: return 'inventory'
     if 'Variant' in name: return 'variants'

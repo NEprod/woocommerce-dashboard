@@ -549,6 +549,22 @@ def discover_publications():
     except (ShopifyError,config.CommerceConfigError) as exc: return jsonify(error=str(exc)),400
 
 
+@commerce.route('/shopify/markets/discover', methods=['POST'])
+@login_required
+def discover_markets():
+    if not current_user.is_admin:
+        abort(403)
+    from app import shopify_drafts as drafts
+    from app.shopify_connection import ShopifyAdapter
+    from app.shopify_markets import discover
+    try:
+        connection, adapter = drafts.configuration(), ShopifyAdapter()
+        _, markets = discover(adapter, connection, adapter.test_connection(connection))
+        return jsonify(markets=markets)
+    except (ShopifyError, config.CommerceConfigError) as exc:
+        return jsonify(error=str(exc)), 400
+
+
 @commerce.route('/products/<int:product_id>/shopify/publication',methods=['GET','POST'])
 @login_required
 def publication_review(product_id):

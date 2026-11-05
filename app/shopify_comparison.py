@@ -28,6 +28,8 @@ def missing_evidence(plan):
         add('publication', publication.get('reason') or 'Status/channel membership readback is incomplete.')
         if publication.get('configuration_error') == 'publication_configuration':
             result[-1]['kind'] = 'authored_configuration'
+        elif publication.get('configuration_error') == 'market_configuration':
+            result[-1]['kind'] = 'market_configuration'
     if plan.get('scope') != 'inventory':
         for diagnostic in plan.get('attribute_diagnostics', []):
             add('informational_attributes', diagnostic.get('action') or 'Required attribute readback is incomplete.')
@@ -186,6 +188,8 @@ def record(product, plan, identity=None, *, post_write=False):
     if read_failed:
         reason = '; '.join(r['component'] + ': ' + r['reason'] for r in failures)
         kind = 'authored_configuration' if all(r.get('kind') == 'authored_configuration' for r in failures) else 'incomplete_evidence'
+        if all(r.get('kind') == 'market_configuration' for r in failures):
+            kind = 'market_configuration'
         summary["refresh_failure"] = {"at": stamp, "kind": kind,
             "message": ('Required managed evidence is incomplete: ' + reason)[:500], "components": failures}
         summary["retry_after"] = (now() + timedelta(seconds=30)).isoformat()

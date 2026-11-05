@@ -138,6 +138,8 @@ def merge_product_json(shared, override, path=None, *, collection_path=None, lay
         elif key == "variation_modifiers" and isinstance(value, dict):
             from app.packaging_contract import modifier_layers
             result[key] = modifier_layers(shared.get(key, {}), value)
+        elif key == "shopify_market_ids":
+            continue  # collection authority only; not a product override
         elif key == "customisation":
             continue  # resolve the two authored layers once, below
         elif key in {"variation_attributes", "storefront_collections"}:

@@ -1022,9 +1022,8 @@ def confirm_update(reviewed, adapter=None):
             attempted = True
         apply_dimensions(row, data, config, adapter)
         from app.shopify_publication import apply_reviewed
-        if (plan.get('publication') or {}).get('pending') and (plan.get('publication') or {}).get('read_complete') and not (plan.get('publication') or {}).get('blockers'):
+        if apply_reviewed(row,data,config,adapter):
             attempted=True
-        apply_reviewed(row,data,config,adapter)
         apply_simple_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]), adapter)
         from app.shopify_native_dimensions import after_publish
         finalisation_stage = 'native_dimensions'
@@ -1048,7 +1047,9 @@ def confirm_update(reviewed, adapter=None):
             raise
         message = str(exc) if isinstance(exc, ShopifyError) else "Update failed with uncertain evidence. Reconcile before another write."
         from app.shopify_package_assignments import attempted as package_attempted
-        attempted=attempted or package_attempted(evidence(row),lease.id)
+        retained = evidence(row)
+        attempted = attempted or package_attempted(retained,lease.id) or (
+            row.operation_id == lease.id and retained.get('update_attempted') is True)
         diagnostic = failure_diagnostic(exc, locals().get('finalisation_stage') or evidence(row).get('stage'), lease.id)
         if attempted:
             row = db.session.get(ShopifyProductIdentity, row.id)

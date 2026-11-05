@@ -58,9 +58,16 @@ def discovered(adapter,config,shop):
 
 
 def read(row,data,adapter,config):
-    remote = adapter.publication_state(config,row.shopify_product_id)
+    return read_memberships(row, data, adapter.publication_state(config, row.shopify_product_id))
+
+
+def require_identity(row, data, remote):
     if not isinstance(remote,dict) or remote.get('id') != row.shopify_product_id or remote.get('status') not in STATUSES or (remote.get('metafield') or {}).get('value') != data['plan']['nonce']:
         raise ShopifyError('Product/store/correlation identity is untrusted; no publication write is allowed.')
+
+
+def read_memberships(row, data, remote):
+    require_identity(row, data, remote)
     connection = remote.get('resourcePublicationsV2')
     if not isinstance(connection,dict) or connection.get('pageInfo',{}).get('hasNextPage') is not False or not isinstance(connection.get('nodes'),list):
         raise ShopifyError('Channel membership readback is incomplete, not unpublished.')
@@ -113,7 +120,10 @@ def preview(product,adapter=None, *, status_only=False):
     if not row or not complete(row, drafts.evidence(row)):
         raise ShopifyError('Publication requires a fully verified retained product. Create/verify its draft first or reconcile outstanding recovery.')
     data = drafts.evidence(row)
-    wanted = immediate_intent(product_document(product))
+    authored = product_document(product)
+    wanted = immediate_intent(authored)
+    if wanted['status'] == 'ACTIVE' and 'shopify_market_ids' in authored:
+        raise ShopifyError('Use the main Review & Sync for a product with managed Markets.')
     if status_only:
         if wanted['status'] != 'DRAFT':
             raise ShopifyError('The priority status-only path can only make an existing product Draft.')
@@ -214,6 +224,17 @@ def verify(row,data,adapter):
     remote=read(row,data,adapter,config)
     if remote['status']!=plan['intent']['status'] or any(remote['memberships'].get(a['id'],False)!=a['after'] for a in plan['actions']):
         raise ShopifyError('Publication readback differs or is partial. Keep recovery; no automatic retry.')
+    if plan.get('markets'):
+        from app.shopify_markets import check_reviewed
+        before = plan['observed']['memberships']
+        after = remote['memberships']
+        unmanaged = (set(before) | set(after)) - {action['id'] for action in plan['actions']}
+        if any(before.get(pid, False) != after.get(pid, False) for pid in unmanaged):
+            raise ShopifyError('An unmanaged sales-channel membership changed during Markets publication. Inspect retained evidence.')
+        market = check_reviewed(row, data, plan, adapter, config, shop, discovered(adapter, config, shop), verify=True)
+        if market['status'] != remote['status']:
+            raise ShopifyError('Shopify status changed during Markets readback; no verification recorded.')
+        proof['market_observed'] = market
     proof.update(state='verified',observed=remote,checked_at=drafts.now().isoformat())
     data['observed_status']=remote['status'];data['stage']='verified';data.pop('error',None)
     if proof.get('unified'):
@@ -230,7 +251,12 @@ def verify(row,data,adapter):
 def proof_matches(product,data):
     try:
         proof=data.get('publication_update',{})
-        return proof.get('state')=='verified' and proof['plan']['intent']==immediate_intent(product_document(product))
+        authored = product_document(product)
+        wanted = immediate_intent(authored)
+        if wanted['status'] == 'ACTIVE' and 'shopify_market_ids' in authored:
+            from app.shopify_markets import KEY, selected
+            wanted[KEY] = selected(authored)
+        return proof.get('state')=='verified' and proof['plan']['intent']==wanted
     except (ShopifyError,KeyError,TypeError): return False
 
 
@@ -241,7 +267,8 @@ def annotate(product,plan,row,config,shop,adapter):
     can still be reviewed, with the deferred scope retained in the comparison.
     """
     from app import shopify_drafts as drafts
-    wanted=immediate_intent(product_document(product))
+    authored = product_document(product)
+    wanted=immediate_intent(authored)
     if wanted['status']=='DRAFT' and (not row or plan.get('actual_status', 'DRAFT')=='DRAFT') and not wanted['channels'] and not (row and drafts.evidence(row).get('publication_update')):
         return
     result={'intent':wanted,'read_complete':False,'pending':True}
@@ -307,6 +334,8 @@ def annotate(product,plan,row,config,shop,adapter):
         except ShopifyReadinessFinding as exc:
             result.update(reason=str(exc), configuration_error=exc.code)
         except ShopifyError as exc: result['reason']=str(exc)
+    if wanted['status'] == 'ACTIVE' and 'shopify_market_ids' in authored:
+        _annotate_markets(authored, plan, result, row, config, shop, adapter)
     plan['publication']=result
     if result['pending']:
         if result.get('read_complete') and not result.get('blockers'):
@@ -315,6 +344,52 @@ def annotate(product,plan,row,config,shop,adapter):
             plan['warnings'].append('Publication is deferred: '+(result.get('reason') or '; '.join(result.get('blockers',[]))))
     plan['taxonomy_review_digest']=drafts.digest({'previous':plan['taxonomy_review_digest'],
         'publication':review_binding(result)})
+
+
+def _annotate_markets(authored, plan, result, row, config, shop, adapter):
+    from app.shopify_drafts import evidence
+    from app.shopify_markets import KEY, comparison, selected
+    # Retain a distinct marker even when channel/scope discovery failed.
+    result['markets'] = {'fields': []}
+    try:
+        result['intent'][KEY] = selected(authored)
+        if not result['read_complete']:
+            raise ShopifyError(result.get('reason') or 'Complete Shopify publication discovery first.')
+        market = comparison(result['intent'][KEY], row if row and row.shopify_product_id else None,
+                            evidence(row) if row else None, adapter, config, shop, result['channels'])
+        result['markets'] = market
+        if market['observed'] and market['observed']['status'] != result['observed']['status']:
+            raise ShopifyError('Shopify status changed during market comparison; review again.')
+        changed = sum(a['changed'] for a in market['actions'])
+        if changed and 'write_publications' not in shop['scopes']:
+            result['blockers'].append('Missing write_publications for reviewed Markets changes.')
+        if changed + sum(a['changed'] for a in result['actions']) > 5:
+            result['blockers'].append('Review at most five combined channel and market changes per product.')
+        if result.get('new_product') and result['blockers']:
+            plan['blockers'] += result['blockers']
+        plan['fields'] += market['fields']
+        if changed:
+            result['pending'] = True
+            if row and row.shopify_product_id:
+                plan['classification'] = 'update'
+    except ShopifyError as exc:
+        result.update(read_complete=False, pending=True)
+        result['markets']['reason'] = str(exc)
+        result['reason'] = str(exc)
+        if isinstance(exc, ShopifyReadinessFinding):
+            result['configuration_error'] = 'market_configuration'
+        if not row or not row.shopify_product_id:
+            plan['blockers'].append(str(exc))
+
+
+def requires_manual_markets(plan):
+    publication = plan.get('publication') or {}
+    market = publication.get('markets')
+    return bool(market is not None and (
+        not publication.get('read_complete')
+        or publication['observed']['status'] != publication['intent']['status']
+        or any(action['changed'] for action in market['actions'])
+    ))
 
 
 def review_binding(result):
@@ -332,6 +407,16 @@ def apply_reviewed(row,data,config,adapter):
     plan=data['plan'].get('publication') or {}
     if not plan.get('pending') or not plan.get('read_complete') or plan.get('blockers'):
         return False
+    market = plan.get('markets')
+    if market:
+        from app.shopify_capacity import background
+        from app.shopify_markets import check_reviewed
+        if (background() or {}).get('publishing_context') and requires_manual_markets(data['plan']):
+            raise ShopifyError('Market availability needs explicit Review & Sync approval.')
+        shop = adapter.test_connection(config)
+        if shop['shop_id'] != row.store_id or config.fingerprint() != plan['config']:
+            raise ShopifyError('Shopify store/configuration changed before Markets publication.')
+        check_reviewed(row, data, plan, adapter, config, shop, discovered(adapter, config, shop))
     if plan.get('new_product'):
         if row.state!='verified' or row.verification_state!='verified': return False
         actual=read(row,data,adapter,config)
@@ -344,6 +429,8 @@ def apply_reviewed(row,data,config,adapter):
     # Unknown/dropped channels never turn into unpublish requests. Unpublish
     # before lowering status; activate before explicitly publishing a channel.
     actions=[('publication.'+a['id'],a) for a in plan['actions'] if a['changed'] and not a['after']]
+    if market:
+        actions += [('publication.'+a['id'],a) for a in sorted(market['actions'], key=lambda a: a['after']) if a['changed']]
     if plan['observed']['status']!=plan['intent']['status']:
         actions.append(('publication.status',{'after':plan['intent']['status']}))
     actions += [('publication.'+a['id'],a) for a in plan['actions'] if a['changed'] and a['after']]
@@ -353,6 +440,12 @@ def apply_reviewed(row,data,config,adapter):
         product=db.session.get(Product,row.product_id)
         if monotonic()>deadline or drafts.local_plan(product)['digest']!=data['plan']['digest'] or config.fingerprint()!=drafts.configuration().fingerprint():
             raise ShopifyError('Publication source/configuration or deadline changed; reconcile retained stages before another write.')
+        if field == 'publication.status' and market:
+            # Prove catalogue restrictions before exposing a new/returning
+            # Live product; verify actual buyer contexts after activation.
+            actual = check_reviewed(row, data, plan, adapter, config, shop, discovered(adapter, config, shop), verify=True)
+            if actual['status'] != plan['observed']['status']:
+                raise ShopifyError('Shopify product status changed before reviewed Markets activation.')
         data['stage']='publication_update'
         data['publication_update']['attempted']=field
         data['update_attempted']=True
@@ -382,6 +475,7 @@ def complete(data):
     proof=data.get('publication_update') or {}
     return not planned.get('pending') or bool(proof.get('state')=='verified' and
         proof.get('plan',{}).get('intent')==planned.get('intent') and
+        (not planned.get('markets') or bool(proof.get('market_observed'))) and
         proof.get('operation_id')==data.get('publication_review_operation_id') and proof.get('operation_id'))
 
 

@@ -165,7 +165,7 @@ def _refresh(products, *, force=False, adapter=None, full_limit=FULL_PER_STEP, s
                             'message': 'Product review is required; inspection completed. No write occurred.'})
                     if checked_data.get("refresh_failure"):
                         failure = checked_data['refresh_failure']
-                        if failure.get('kind') == 'authored_configuration':
+                        if failure.get('kind') in {'authored_configuration', 'market_configuration'}:
                             findings.append({'product_id': product.id, 'code': 'publication_configuration',
                                 'severity': 'Action Required', 'message': failure['message'],
                                 'action': 'Review product publishing settings in Product Editor.'})

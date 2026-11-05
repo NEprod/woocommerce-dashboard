@@ -67,6 +67,13 @@ def load_schema(name):
     schema['properties']['shopify_status'] = {'enum':['DRAFT','ACTIVE','ARCHIVED']}
     schema['properties']['shopify_channels'] = {'type':'object','maxProperties':20,
         'propertyNames':{'pattern':r'^[a-z0-9][a-z0-9_-]{0,95}$'},'additionalProperties':{'type':'boolean'}}
+    if name == 'collection':
+        schema['properties']['shopify_market_ids'] = {
+            'type': 'array', 'minItems': 1, 'maxItems': 20, 'uniqueItems': True,
+            'items': {'type': 'string', 'pattern': r'^gid://shopify/Market/[0-9]{1,30}$'},
+        }
+    else:
+        schema['properties']['shopify_market_ids'] = False
     return schema
 
 

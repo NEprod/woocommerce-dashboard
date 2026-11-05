@@ -344,7 +344,18 @@ def observe_comparison(product, plan, *, expected_revision, complete):
         db.session.flush()  # Include the just-recorded comparison in the same transaction.
         settle_obsolete_attention(product)
         return
-    from app.shopify_publication import intent
+    from app.shopify_publication import intent, requires_manual_markets
+    if (requires_manual_markets(plan) and job.scan_operation_id and job.source_identity == product.source_relpath
+            and job.state in {'pending', 'retry', 'verified', 'paused'}):
+        from app.shopify_markets import MANUAL_REQUIRED
+        from app.shopify_capacity import fence_owner
+        fence_owner()
+        db.session.execute(update(ShopifyPublishJob).where(
+            ShopifyPublishJob.product_id == product.id, ShopifyPublishJob.owner.is_(None),
+            ShopifyPublishJob.requested_revision == expected_revision,
+            ShopifyPublishJob.state.in_({'pending', 'retry', 'verified', 'paused'})
+        ).values(state='paused', error=MANUAL_REQUIRED, view_pending=True))
+        return
     if (plan.get('classification') == 'no_change' and not plan.get('blockers')
             and not plan.get('local_package_changes')):
         # This exact scanned revision has now been compared/verified elsewhere
@@ -713,6 +724,11 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
                 plan, _unused_manual_token = drafts.preview(product, adapter)
                 if plan['blockers']:
                     raise ShopifyError('; '.join(plan['blockers']))
+                from app.shopify_publication import requires_manual_markets
+                if requires_manual_markets(plan):
+                    from app.shopify_markets import MANUAL_REQUIRED
+                    _settle_job(job, owner=owner, revision=revision, state='paused', error=MANUAL_REQUIRED, fence=fence)
+                    return 'paused'
                 if initial_authority.get('store_id') and plan['store_id'] != initial_authority['store_id']:
                     raise ShopifyError('Connected Shopify store differs from the durable automatic authority.')
                 if plan['classification'] == 'no_change':

@@ -71,14 +71,14 @@ test('post-save scan failure is not labelled unsaved and offers explicit retry o
 
 const guidedCode = source.slice(source.indexOf('  function guidedDocument('), source.indexOf('  function documentPatch('));
 const valuesCode = source.slice(source.indexOf('  function guidedValues('), source.indexOf('  function guidedDocument('));
-function customsEditor(value, enabled=true, field='harmonized_system_code') {
+function customsEditor(value, enabled=true, field='harmonized_system_code', marketFixture={}) {
   const control={dataset:{field},value};
   const context=vm.createContext({structuredClone,window:{},isShared:false,
     authored:{[field]:'001234',future:{keep:true}},initialValues:{[field]:'001234',future:{keep:true}},
     knownFields:new Set([field]),customisationDesigner:null,packagingDesigner:null,finishedDesigner:null,
     guided:{querySelectorAll:selector=>selector==='[data-field]'?[control]:[]},
     overrideEnabled:key=>enabled&&key===field,attributeValues:()=>({}),
-    modifierValues:()=>({}),explicitVariation:false});
+    modifierValues:()=>({}),explicitVariation:false,manageMarkets:null,...marketFixture});
   vm.runInContext(valuesCode+guidedCode,context);
   return JSON.parse(vm.runInContext('JSON.stringify(guidedDocument())',context));
 }
@@ -94,6 +94,18 @@ test('Customs Description can be saved, explicitly cleared or reset to inheritan
   assert.deepEqual(customsEditor('Greeting card',true,'customs_description'),{customs_description:'Greeting card',future:{keep:true}});
   assert.deepEqual(customsEditor('',true,'customs_description'),{customs_description:'',future:{keep:true}});
   assert.deepEqual(customsEditor('',false,'customs_description'),{future:{keep:true}});
+});
+test('Markets is absent for unmanaged collections and preserves unrelated fields', () => {
+  const ids = ['gid://shopify/Market/1', 'gid://shopify/Market/2'];
+  const knownFields = new Set(['harmonized_system_code', 'shopify_market_ids']);
+  assert.deepEqual(customsEditor('001234', true, 'harmonized_system_code', {
+    isShared:true, knownFields, manageMarkets:{checked:true}, marketValues:()=>ids
+  }), {harmonized_system_code:'001234',future:{keep:true},shopify_market_ids:ids});
+  assert.deepEqual(customsEditor('001234', true, 'harmonized_system_code', {
+    isShared:true, knownFields, manageMarkets:{checked:false},
+    authored:{harmonized_system_code:'001234',shopify_market_ids:ids},
+    initialValues:{harmonized_system_code:'001234',shopify_market_ids:ids}
+  }), {harmonized_system_code:'001234'});
 });
 test('unchanged legacy live and explicit false survive guided roundtrip without authorisation', () => {
   const authored = {live: false, requires_shipping: false, future: {private: true}};

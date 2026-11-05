@@ -80,6 +80,7 @@ def _pause(row,data,reason,*,count=True):
 def publication_acknowledged(data):
     p=data.get('publication_update') or {};plan=p.get('plan') or {}
     required={'publication.'+a['id'] for a in plan.get('actions',[]) if a['changed']}
+    required.update('publication.'+a['id'] for a in (plan.get('markets') or {}).get('actions', []) if a['changed'])
     if (plan.get('observed') or {}).get('status')!=(plan.get('intent') or {}).get('status'):required.add('publication.status')
     return bool(p.get('unified') and p.get('operation_id')==data.get('publication_review_operation_id')
         and required.issubset(set(p.get('completed',[]))))

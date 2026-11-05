@@ -263,7 +263,7 @@ def saved_states(products, *, url_builder=None):
                     'Local source changed after its completed scan.') else 'Needs Attention', message=job.error or state['message'])
             elif job.owner:
                 state.update(state='processing', label='Processing', execution_pending=True)
-            elif job.state == 'paused' and not identities and state['state'] in {'unknown', 'create', 'draft'}:
+            elif job.state == 'paused' and not identities and state['intent_value'] is not True and state['state'] in {'unknown', 'create', 'draft'}:
                 state.update(state='draft', label='Local Draft', message='Draft remains local; no automatic creation is requested.')
             elif (job.verified_revision != job.requested_revision and job.requested_revision != 'unscanned'
                     and not compared_matching and not (view_current and state['state'] == 'update')

@@ -96,6 +96,9 @@ def source_fingerprint(product, images):
     if 'storefront_enabled' in customisation:
         data['storefront_configuration'] = public_configuration(customisation)
     data['publication_intent'] = intent(authored, required=False)
+    if data['publication_intent']['status'] == 'ACTIVE' and 'shopify_market_ids' in authored:
+        from app.shopify_markets import selected
+        data['publication_intent']['shopify_market_ids'] = selected(authored)
     from app.shopify_native_dimensions import desired
     native_policy = desired(product)
     if native_policy["enabled"] or native_policy.get('desired'):
@@ -248,6 +251,8 @@ def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=N
                         kind=data["refresh_failure"].get("kind")
                         if kind == 'readiness':
                             state.update(state='attention', label='Publishing prerequisite needed')
+                        if kind == 'market_configuration':
+                            state.update(state='attention', label='Needs Attention')
                         if kind in {"identity_conflict","variant_missing"}:
                             state.update(state="recovery_required" if kind=="identity_conflict" else "attention",label="Recovery Required" if kind=="identity_conflict" else "Needs Attention",message=data["refresh_failure"]["message"])
                     if data.get("conflicting_changes"):
@@ -288,6 +293,8 @@ def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=N
                         kind=failed["refresh_failure"].get("kind")
                         if kind == 'readiness':
                             state.update(state='attention', label='Publishing prerequisite needed')
+                        if kind == 'market_configuration':
+                            state.update(state='attention', label='Needs Attention')
                         if kind in {"identity_conflict","variant_missing"}:
                             state.update(state="recovery_required" if kind=="identity_conflict" else "attention",label="Recovery Required" if kind=="identity_conflict" else "Needs Attention")
                         break

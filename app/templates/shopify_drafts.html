@@ -14,6 +14,19 @@
 {% if plan %}<section class="workspace-panel"><div class="panel-heading"><h2>{{ plan.title }}</h2><span class="catalogue-pill">{{ 'No Shopify changes' if plan.classification == 'no_change' and plan.local_package_changes else plan.classification|replace('_', ' ')|title }} · {{ plan.intent }} intended</span></div>
 {% if plan.customisations %}{% include 'includes/_customisation_review.html' %}{% endif %}
 <p>SKU {{ plan.sku }} · Intended {{ plan.intent }} · Actual {{ plan.actual_status or 'Not yet created' }}</p>{% if plan.publication %}<details open><summary>Status &amp; sales channels</summary><p>{{ plan.publication.reason or 'Only the displayed managed changes are authorised; unmanaged channel memberships are retained.' }}</p>{% for c in plan.publication.channels %}<p>{{ c.name }} · {{ 'Awaiting Draft readback' if plan.publication.new_product else 'Assigned' if plan.publication.observed.memberships.get(c.id, false) else 'Not assigned' }} · {{ 'Publish' if plan.publication.intent.channels.get(c.key) is sameas true else 'Unpublish' if plan.publication.intent.channels.get(c.key) is sameas false else 'Unmanaged — retain' }}{% if c.auto_publish %} · Automatic availability enabled by Shopify{% endif %}</p>{% endfor %}{% for b in plan.publication.blockers %}<p class="alert alert-warning">{{ b }} — availability deferred, not authorised by metadata confirmation.</p>{% endfor %}</details>{% endif %}{% if plan.kind == 'variable' %}<p>Variant customer prices {{ plan.price_summary.minimum }}{% if plan.price_summary.maximum != plan.price_summary.minimum %}–{{ plan.price_summary.maximum }}{% endif %}. Per-SKU compare-at pricing is shown below.</p>{% else %}<p>Customer price {{ plan.price }}. Compare-at {{ plan.managed.variant.compareAtPrice or 'None' }}.</p>{% endif %}{% if plan.remote_id %}<p>Retained identity — no duplicate will be created.</p>{% endif %}
+{% if plan.publication and plan.publication.markets %}
+<details open data-market-review><summary>Markets</summary>
+  {% set markets = plan.publication.markets %}
+  {% if markets.reason %}<p class="alert alert-warning">{{ markets.reason }}</p>{% else %}
+  <ul>{% for market in markets.fields %}
+    <li>{{ market.label|replace('Market: ', '', 1) }} — {{ 'Add' if market.changed and market.after else 'Remove' if market.changed else 'Already matching' }}
+      · Shopify: {{ 'Not yet created' if plan.publication.new_product else 'Available' if market.before else 'Not available' }}
+      · TLC: {{ 'Available' if market.after else 'Not available' }}</li>
+  {% endfor %}</ul>
+  {% endif %}
+  <p>Market catalogue changes require this product's Review &amp; Sync approval and verified Shopify readback. They do not change sales-channel selections.</p>
+</details>
+{% endif %}
 {% set changes = review_rows|rejectattr('action','equalto','Already matching')|rejectattr('action','equalto','Deferred (inventory-only scope)')|list %}
 <p><strong>{{ changes|length }} field changes</strong> · {{ plan.collections|selectattr('action', 'equalto', 'Join')|list|length }} collection memberships pending.</p>
 {% for blocker in plan.blockers %}<p class="alert alert-danger">{{ blocker }}</p>{% endfor %}

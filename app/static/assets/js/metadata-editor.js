@@ -24,6 +24,7 @@
     "meta_title", "meta_description", "vendor", "handle", "shopify_product_type", "shopify_product_type_key",
     "country_of_origin", "harmonized_system_code", "customs_description", "requires_shipping", "manage_stock", "backorders", "primary_category", "shopify_status", "shopify_channels", "packaging", "finished_dimensions"
   ]);
+  if (isShared) knownFields.add("shopify_market_ids");
   let authored = structuredClone(boot.authored || {});
   let originalDocument = structuredClone(boot.authored || {});
   let initialValues = {};
@@ -38,6 +39,11 @@
   let attributeReplacementDraft = null;
   let channels = boot.channels || [];
   let channelDraft = {};
+  const marketEditor = guided.querySelector("[data-market-editor]");
+  const manageMarkets = marketEditor?.querySelector("[data-manage-markets]");
+  let markets = [];
+  let marketsLoaded = false;
+  let marketsLoading = false;
   let customisationDesigner = null;
   let packagingDesigner = null;
   let finishedDesigner = null;
@@ -68,6 +74,53 @@
     });
     if (!channels.length) target.textContent = "No discovered channel choices. Discover explicitly; no Shopify request was made to render this page.";
     setControlState("shopify_channels");
+  }
+
+  function marketValues() {
+    return [...marketEditor.querySelectorAll("[data-market-id]:checked")].map(input => input.value).sort();
+  }
+
+  function renderMarkets(values) {
+    if (!marketEditor) return;
+    const target = marketEditor.querySelector("[data-market-choices]");
+    const wanted = new Set(Array.isArray(values) ? values : []);
+    const choices = [...markets, ...[...wanted].filter(id => !markets.some(m => m.id === id))
+      .map(id => ({id, name: "Saved market — " + id, active: !marketsLoaded}))];
+    target.replaceChildren();
+    for (const market of choices) {
+      const label = document.createElement("label");
+      label.className = "check-row";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.marketId = "";
+      input.value = market.id;
+      input.checked = wanted.has(market.id);
+      input.disabled = !manageMarkets.checked || (!market.active && !input.checked);
+      label.append(input, document.createTextNode(market.name + (market.active ? "" : " (unavailable)")));
+      target.appendChild(label);
+    }
+  }
+
+  async function discoverMarkets() {
+    if (marketsLoading) return;
+    const status = marketEditor.querySelector("[data-market-feedback]");
+    marketsLoading = true;
+    status.textContent = "Reading Shopify markets…";
+    try {
+      const response = await fetch(boot.discover_markets_url, {method: "POST",
+        headers: {"X-CSRFToken": document.querySelector('meta[name="csrf-token"]')?.content || ""}});
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Shopify Markets unavailable.");
+      const values = marketValues();
+      markets = payload.markets;
+      marketsLoaded = true;
+      renderMarkets(values);
+      status.textContent = markets.length ? "Shopify markets loaded. No availability changed." : "No Shopify markets were returned.";
+    } catch (error) {
+      status.textContent = error.message + " Saved selections are unchanged.";
+    } finally {
+      marketsLoading = false;
+    }
   }
 
   function registryChoices() {
@@ -639,6 +692,10 @@
     });
     const dimensions = valueFor("dimensions");
     renderChannels(valueFor("shopify_channels"));
+    if (marketEditor) {
+      manageMarkets.checked = Object.hasOwn(authored, "shopify_market_ids");
+      renderMarkets(authored.shopify_market_ids);
+    }
     guided.querySelectorAll("[data-dimension]").forEach((control) => { control.value = dimensions && dimensions[control.dataset.dimension] != null ? dimensions[control.dataset.dimension] : ""; });
     ["categories", "tags", "storefront_collections", "image_attributes"].forEach((field) => renderList(field, valueFor(field)));
     renderOrganisation();
@@ -724,6 +781,7 @@
       delete result.sku_prefix;
     }
     if (overrideEnabled("shopify_channels") && (Object.keys(channelValues()).length || Object.hasOwn(authored,"shopify_channels"))) result.shopify_channels = channelValues();
+    if (manageMarkets?.checked) result.shopify_market_ids = marketValues();
     Object.keys(result).forEach((key) => {
       if (result[key] === "" && !["description", "short_description", "meta_title", "meta_description", "customs_description"].includes(key)) delete result[key];
     });
@@ -1061,6 +1119,12 @@
       showFeedback("success","Available Shopify channels discovered","Read-only discovery only. Review actual remote status/publication separately before confirming. No product visibility changed.");
     } catch (error) { showFeedback("error","Channel discovery unavailable",error.message); }
   });
+  marketEditor?.addEventListener("toggle", () => {
+    if (marketEditor.open && !marketsLoaded) discoverMarkets();
+  });
+  marketEditor?.querySelector("[data-discover-markets]").addEventListener("click", discoverMarkets);
+  manageMarkets?.addEventListener("change", () => renderMarkets(marketValues()));
+  marketEditor?.querySelector("[data-market-choices]").addEventListener("change", () => renderMarkets(marketValues()));
   const loadTemplateButton = document.getElementById("loadTemplateBtn");
   if (loadTemplateButton) loadTemplateButton.addEventListener("click", async () => {
     const select = document.getElementById("templateSelect");

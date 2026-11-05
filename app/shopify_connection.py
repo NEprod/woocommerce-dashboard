@@ -92,6 +92,33 @@ PUBLICATION_PUBLISH = '''mutation TLCChannelPublish($id: ID!, $input: [Publicati
 PUBLICATION_UNPUBLISH = '''mutation TLCChannelUnpublish($id: ID!, $input: [PublicationInput!]!) {
  publishableUnpublish(id: $id, input: $input) { publishable { __typename } userErrors { field message } } }'''
 READ_QUERIES |= frozenset((PUBLICATIONS_QUERY, PUBLICATION_STATE))
+MARKETS_QUERY = """query TLCMarkets($after: String) {
+ markets(first: 5, after: $after) { nodes { id name status type
+   parentMarkets(first: 1) { nodes { id } pageInfo { hasNextPage } }
+   conditions { regionsCondition { regions(first: 60) {
+     nodes { ... on MarketRegionCountry { code } } pageInfo { hasNextPage }
+   } } }
+   catalogs(first: 5) { nodes { id status publication { id autoPublish
+     catalog { id } } } pageInfo { hasNextPage } }
+ } pageInfo { hasNextPage endCursor } }
+}"""
+MARKET_PUBLICATION_STATE = """query TLCMarketPublicationState($id: ID!) {
+ product(id: $id) { id status metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
+ resourcePublicationsV2(first: 40, onlyPublished: false, catalogType: MARKET) {
+   nodes { isPublished publishDate publication { id } } pageInfo { hasNextPage }
+ } } }"""
+# Fixed documents keep the adapter's query allowlist intact. Use variables, not
+# interpolated Shopify or authored values, for bounded country-context reads.
+MARKET_CONTEXT_SIZE = 20
+MARKET_CONTEXT_QUERY = (
+    'query TLCMarketPublicationContext($id: ID!, '
+    + ', '.join(f'$c{i}: CountryCode, $include{i}: Boolean!' for i in range(MARKET_CONTEXT_SIZE))
+    + ') { product(id: $id) { id status metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value } '
+    + ' '.join(f'c{i}: publishedInContext(context: {{country: $c{i}}}) @include(if: $include{i})'
+               for i in range(MARKET_CONTEXT_SIZE))
+    + ' } }'
+)
+READ_QUERIES |= frozenset((MARKETS_QUERY, MARKET_PUBLICATION_STATE, MARKET_CONTEXT_QUERY))
 WRITE_QUERIES |= frozenset((PUBLICATION_PUBLISH, PUBLICATION_UNPUBLISH))
 COLLECTION_LOOKUP = '''query CollectionCandidates($query: String!) { collections(first: 20, query: $query) { nodes { id title handle ruleSet { appliedDisjunctively } metafield(namespace: "tlc_dashboard", key: "collection_attempt") { value } } pageInfo { hasNextPage endCursor } } }'''
 COLLECTION_STATE = '''query CollectionState($id: ID!, $product: ID!, $check: Boolean!) { collection(id: $id) { id title handle ruleSet { appliedDisjunctively } sources { __typename ... on CollectionConditionsSource { targetType shareable inclusion { conditions { __typename } } exclusion { conditions { __typename } selections(first: 1) { nodes { product { id } } } } } } hasProduct(id: $product) @include(if: $check) metafield(namespace: "tlc_dashboard", key: "collection_attempt") { value } } }'''
@@ -922,6 +949,34 @@ class ShopifyAdapter:
 
     def publication_state(self, config, product_id):
         return self._read(config, PUBLICATION_STATE, {'id':_gid(product_id,'Product')}).get('product')
+
+    def markets(self, config):
+        after, seen, rows = None, set(), []
+        for _ in range(4):
+            page = _connection(self._read(config, MARKETS_QUERY, {'after': after}).get('markets'), after)
+            rows.extend(page['nodes'])
+            if len(rows) > 20:
+                break
+            if not page['pageInfo']['hasNextPage']:
+                return rows
+            after = page['pageInfo']['endCursor']
+            if after in seen:
+                break
+            seen.add(after)
+        raise ShopifyError('Shopify market discovery exceeds its complete 20-market bound.')
+
+    def market_publication_state(self, config, product_id):
+        return self._read(config, MARKET_PUBLICATION_STATE, {'id': _gid(product_id, 'Product')}).get('product')
+
+    def market_context(self, config, product_id, countries):
+        if not 1 <= len(countries) <= MARKET_CONTEXT_SIZE or any(
+                not isinstance(code, str) or not re.fullmatch(r'[A-Z]{2}', code) for code in countries):
+            raise ShopifyError('Invalid Shopify country context.')
+        variables = {'id': _gid(product_id, 'Product')}
+        for i in range(MARKET_CONTEXT_SIZE):
+            variables[f'include{i}'] = i < len(countries)
+            variables[f'c{i}'] = countries[i] if i < len(countries) else None
+        return self._read(config, MARKET_CONTEXT_QUERY, variables).get('product')
 
     def set_publication(self, config, product_id, publication_id, published):
         return self._write(config, PUBLICATION_PUBLISH if published else PUBLICATION_UNPUBLISH,
