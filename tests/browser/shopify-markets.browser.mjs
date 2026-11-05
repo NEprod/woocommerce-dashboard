@@ -36,6 +36,7 @@ try {
     await managed.check();
     for (const row of rows.slice(0, 2)) await section.getByLabel(row.name).check();
     assert.equal(await section.locator('[data-market-id]:checked').count(), 2);
+    assert.ok((await section.locator('[data-market-id]').first().boundingBox()).width <= 20);
     assert.equal(await page.locator('[data-discover-channels]').count(), 1);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.screenshot({path: `/tmp/tlc-markets-${layout}.png`});
