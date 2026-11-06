@@ -248,21 +248,134 @@ def test_new_unselected_market_requires_review_and_never_changes_on_discovery(wo
     assert drafts.evidence(row)['publication_update']['market_observed']['availability'][market(4)] is False
 
 
+@pytest.mark.parametrize('lagging_layer', ['buyer_context', 'catalogue'])
+def test_acknowledged_market_add_waits_for_complete_readback(world, retained, monkeypatch, lagging_layer):
+    product, row, adapter = retained
+    change(world, shopify_market_ids=[market(2), market(3)])
+    _, token = drafts.preview(product, adapter)
+    assert token
+    checked = []
+    if lagging_layer == 'buyer_context':
+        original = adapter.market_context
+
+        def stale_once(config, product_id, countries):
+            result = original(config, product_id, countries)
+            if adapter.market_writes and 'DE' in countries:
+                checked.append('DE')
+                if len(checked) == 1:
+                    result[f'c{countries.index("DE")}'] = False
+            return result
+
+        monkeypatch.setattr(adapter, 'market_context', stale_once)
+    else:
+        original = adapter.market_publication_state
+
+        def stale_once(config, product_id):
+            result = original(config, product_id)
+            if adapter.market_writes:
+                checked.append('catalogue')
+                if len(checked) == 1:
+                    result['resourcePublicationsV2']['nodes'] = [
+                        node for node in result['resourcePublicationsV2']['nodes']
+                        if node['publication']['id'] != publication(2)]
+            return result
+
+        monkeypatch.setattr(adapter, 'market_publication_state', stale_once)
+        # The stale membership and first buyer read can also agree with each
+        # other, while still differing from the approved target.
+        context = adapter.market_context
+
+        def stale_context(config, product_id, countries):
+            result = context(config, product_id, countries)
+            if len(checked) == 1:
+                for code in ('DE', 'FR'):
+                    result[f'c{countries.index(code)}'] = False
+            return result
+
+        monkeypatch.setattr(adapter, 'market_context', stale_context)
+    waits = []
+    monkeypatch.setattr('app.shopify_publication.sleep', waits.append)
+
+    row = drafts.confirm(token, True, adapter)
+    assert row.state == 'verified' and saved_state(product) == 'no_change'
+    assert adapter.market_writes == [(row.shopify_product_id, publication(2), True)]
+    assert waits == [2]
+    assert adapter.memberships == {'gid://shopify/Publication/1'}
+    proof = drafts.evidence(row)['publication_update']
+    assert proof['state'] == 'verified' and len(checked) >= 2
+    assert proof['market_observed']['availability'] == {market(1): True, market(2): True, market(3): True}
+
+
 def test_international_removal_needs_buyer_context_readback(world, retained, monkeypatch):
     product, row, adapter = retained
     _, token = drafts.preview(product, adapter)
     assert token
     original = adapter.market_context
+    checks = []
     def still_visible(config, product_id, countries):
         result = original(config, product_id, countries)
         if adapter.market_writes and 'US' in countries:
+            checks.append('US')
             result[f'c{countries.index("US")}'] = True
         return result
     monkeypatch.setattr(adapter, 'market_context', still_visible)
+    waits = []
+    monkeypatch.setattr('app.shopify_publication.sleep', waits.append)
     row = drafts.confirm(token, True, adapter)
     assert row.state == 'uncertain' and publication(3) not in adapter.market_memberships
     assert saved_state(product) == 'recovery_required'
+    assert len(adapter.market_writes) == 1 and len(checks) == 3
+    assert waits == [2, 4]
+    with pytest.raises(ShopifyError, match='buyer availability for US'):
+        drafts.reconcile(row, adapter=adapter)
+    assert saved_state(product) == 'recovery_required'
+    monkeypatch.setattr(adapter, 'market_context', original)
+    for _ in range(2):
+        drafts.reconcile(row, adapter=adapter)
+        assert row.state == 'verified' and saved_state(product) == 'no_change'
     assert len(adapter.market_writes) == 1
+
+
+@pytest.mark.parametrize('problem,reason,expected_waits', [
+    ('missing_context', 'country-context readback is incomplete', []),
+    ('wrong_membership', 'membership is False, expected True', [2, 4]),
+])
+def test_incomplete_or_wrong_market_evidence_cannot_clear_recovery(
+        world, retained, monkeypatch, problem, reason, expected_waits):
+    product, row, adapter = retained
+    change(world, shopify_market_ids=[market(2), market(3)])
+    _, token = drafts.preview(product, adapter)
+    assert token
+    waits = []
+    monkeypatch.setattr('app.shopify_publication.sleep', waits.append)
+    if problem == 'missing_context':
+        context = adapter.market_context
+
+        def incomplete(*args):
+            result = context(*args)
+            if adapter.market_writes:
+                result.pop('c0')
+            return result
+
+        monkeypatch.setattr(adapter, 'market_context', incomplete)
+    else:
+        write = adapter.set_publication
+
+        def not_applied(*args):
+            result = write(*args)
+            adapter.market_memberships.discard(publication(2))
+            return result
+
+        monkeypatch.setattr(adapter, 'set_publication', not_applied)
+    row = drafts.confirm(token, True, adapter)
+    data = drafts.evidence(row)
+    assert reason in data['error']
+    assert data['publication_update']['state'] == 'pending'
+    assert row.state == 'uncertain' and saved_state(product) == 'recovery_required'
+    with pytest.raises(ShopifyError, match=reason):
+        drafts.reconcile(row, adapter=adapter)
+    assert saved_state(product) == 'recovery_required'
+    assert waits == expected_waits and len(adapter.market_writes) == 1
 
 
 @pytest.mark.parametrize('problem,reason', [
@@ -338,6 +451,7 @@ def test_partial_market_write_retains_uncertainty_without_replay(world, retained
     assert len(adapter.market_writes) == 2
     drafts.reconcile(row, adapter=adapter)
     assert row.state == 'verified'
+    assert saved_state(product) == 'no_change'
     assert len(adapter.market_writes) == 2
 
 

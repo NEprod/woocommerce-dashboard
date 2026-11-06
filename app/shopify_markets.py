@@ -8,6 +8,10 @@ MANUAL_REQUIRED = 'Market availability requires explicit Review & Sync approval.
 ONLINE_STORE = 'online-store'
 
 
+class MarketReadbackMismatch(ShopifyError):
+    """Complete market reads disagree, possibly while a write propagates."""
+
+
 def selected(authored):
     values = authored.get(KEY, [])
     if not isinstance(values, list) or len(values) > 20:
@@ -151,7 +155,7 @@ def read(row, data, adapter, config, topology, *, online_before, context=True, v
                 actual[code] = proof[f'c{i}']
                 if actual[code] != targets[code]:
                     if verifying:
-                        raise ShopifyError(f'Publication readback differs or is partial: Shopify buyer availability for {code} does not match its catalogue. No automatic write retry.')
+                        raise MarketReadbackMismatch(f'Publication readback differs or is partial: Shopify buyer availability for {code} is {actual[code]}, expected {targets[code]} from its catalogue. No automatic write retry.')
                     _unsupported(f'{code}: market catalogue membership and Shopify buyer availability differ. Check existing channels and market/catalogue setup.')
         availability = {market['id']: all(actual[code] for code in market['countries']) for market in topology}
     return {'status': observed['status'], 'memberships': memberships, 'availability': availability}
@@ -192,8 +196,11 @@ def check_reviewed(row, data, plan, adapter, config, shop, channels, *, verify=F
                     context=verify and online_after, verifying=verify)
     if not verify and market['observed'] and any(observed[key] != market['observed'][key] for key in ('status', 'memberships')):
         raise ShopifyError('Shopify market membership changed since review. Rebuild Review; no market mutation attempted.')
-    if any(observed['memberships'][action['id']] != action['after' if verify else 'before'] for action in market['actions']):
-        raise ShopifyError('Publication readback differs or is partial: Market memberships differ from the reviewed availability. No automatic write retry.')
+    for action in market['actions']:
+        actual = observed['memberships'][action['id']]
+        expected = action['after' if verify else 'before']
+        if actual != expected:
+            raise MarketReadbackMismatch(f'Publication readback differs or is partial: Market publication {action["id"]} membership is {actual}, expected {expected}. No automatic write retry.')
     if verify and online_after and any(observed['availability'].get(item['field'].removeprefix('markets.')) is not item['after']
                                       for item in market['fields']):
         raise ShopifyError('Publication readback differs or is partial: Shopify buyer availability does not match the reviewed market selections.')

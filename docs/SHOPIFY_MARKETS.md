@@ -68,6 +68,21 @@ its reviewed catalogue membership is read back. Ambiguous/partial writes
 retain recovery evidence; do not retry by publishing again. Existing channel
 actions are still controlled by their own authored settings.
 
+An acknowledged publication can appear in the catalogue before every buyer
+context agrees. After all reviewed publication writes acknowledge, a
+contradictory market read gets up to two additional read-only checks, after
+2 and 4 seconds. Each check revalidates channels, market topology, catalogue
+memberships and buyer contexts. Incomplete evidence, identity/configuration
+errors, or a persistent difference still require recovery. There is no write
+retry.
+
+For an existing uncertain product, use **Products → Resolve Issue**, open
+the retained identity, then select **Reconcile using Shopify reads only**
+instead of submitting a new approval.
+The original operation stays in history. Recovery requires both matching
+publication evidence and the normal product readback before the current
+comparison can show **Up to Date**.
+
 References: [Market API](https://shopify.dev/docs/api/admin-graphql/2026-10/objects/Market),
 [catalogues in Markets](https://shopify.dev/docs/apps/build/markets/catalogs),
 [product context reads](https://shopify.dev/docs/api/admin-graphql/latest/objects/Product),
@@ -123,6 +138,6 @@ See Shopify's [catalogue setup and inheritance guide](https://help.shopify.com/e
    tag if needed; do not restore unrelated data or assume an image rollback
    undoes an explicitly approved Shopify mutation.
 
-No live catalogues, permissions or products were changed. International
-exclusions on this store remain blocked until catalogue setup and a controlled
-buyer-context check have been approved and performed.
+These checks do not change live catalogues, permissions or products.
+International exclusions require dedicated catalogue control and a matching
+buyer-context read; membership alone is not proof.

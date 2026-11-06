@@ -4,6 +4,7 @@ import json
 import re
 from collections.abc import Mapping
 from datetime import datetime, UTC
+from time import sleep
 
 from app import db
 from app.models import Product, ShopifyProductIdentity, CatalogueOperation
@@ -233,12 +234,9 @@ def confirm(reviewed,adapter=None, *, status_only=False):
         return row
 
 
-def verify(row,data,adapter):
-    from app import shopify_drafts as drafts
-    proof=data['publication_update']; plan=proof['plan']; config=drafts.configuration()
-    shop=adapter.test_connection(config)
-    if shop['shop_id']!=row.store_id or config.fingerprint()!=plan['config']: raise ShopifyError('Restore reviewed store/configuration before publication recovery.')
+def _read_reviewed_publication(row, data, adapter, config, shop, plan):
     remote=read(row,data,adapter,config)
+    market = None
     if remote['status']!=plan['intent']['status'] or any(remote['memberships'].get(a['id'],False)!=a['after'] for a in plan['actions']):
         raise ShopifyError('Publication readback differs or is partial. Keep recovery; no automatic retry.')
     if plan.get('markets'):
@@ -255,6 +253,28 @@ def verify(row,data,adapter):
         market = check_reviewed(row, data, plan, adapter, config, shop, channels, verify=True, online_after=True)
         if market['status'] != remote['status']:
             raise ShopifyError('Shopify status changed during Markets readback; no verification recorded.')
+    return remote, market
+
+
+def verify(row,data,adapter,*,settle_markets=False):
+    from app import shopify_drafts as drafts
+    from app.shopify_markets import MarketReadbackMismatch
+    proof=data['publication_update']; plan=proof['plan']; config=drafts.configuration()
+    shop=adapter.test_connection(config)
+    if shop['shop_id']!=row.store_id or config.fingerprint()!=plan['config']: raise ShopifyError('Restore reviewed store/configuration before publication recovery.')
+    # Only the execution path that just durably acknowledged all its writes
+    # requests this short settling window. Recovery still reads, never replays.
+    delays = iter((2, 4) if settle_markets else ())
+    while True:
+        try:
+            remote, market = _read_reviewed_publication(row, data, adapter, config, shop, plan)
+            break
+        except MarketReadbackMismatch:
+            delay = next(delays, None)
+            if delay is None:
+                raise
+            sleep(delay)
+    if market is not None:
         proof['market_observed'] = market
     proof.update(state='verified',observed=remote,checked_at=drafts.now().isoformat())
     data['observed_status']=remote['status'];data['stage']='verified';data.pop('error',None)
@@ -491,7 +511,7 @@ def apply_reviewed(row,data,config,adapter):
             drafts.payload_result(result,'publishablePublish' if action['after'] else 'publishableUnpublish')
         data['publication_update']['completed'].append(field)
         drafts.completed_step(row,data,field)
-    verify(row,data,adapter)
+    verify(row,data,adapter,settle_markets=bool(market and actions))
     return True
 
 
