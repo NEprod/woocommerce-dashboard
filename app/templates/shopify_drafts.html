@@ -17,10 +17,11 @@
 {% if plan.publication and plan.publication.markets %}
 <details open data-market-review><summary>Markets</summary>
   {% set markets = plan.publication.markets %}
-  {% if markets.reason %}<p class="alert alert-warning">{{ markets.reason }}</p>{% else %}
+  {% if markets.reason %}<p class="alert alert-warning">{{ markets.reason }}</p>{% endif %}
+  {% if markets.fields %}
   <ul>{% for market in markets.fields %}
-    <li>{{ market.label|replace('Market: ', '', 1) }} — {{ 'Add' if market.changed and market.after else 'Remove' if market.changed else 'Already matching' }}
-      · Shopify: {{ 'Not yet created' if plan.publication.new_product else 'Available' if market.before else 'Not available' }}
+    <li>{{ market.label|replace('Market: ', '', 1) }} — {{ 'Included by default' if market.home else 'Add' if market.changed and market.after else 'Remove' if market.changed else 'Already matching' }}{{ ' (catalogue setup required)' if market.blocked else '' }}
+      · Shopify: {{ 'Not yet created' if plan.publication.new_product else 'Not verified' if market.before is none else 'Available' if market.before else 'Not available' }}
       · TLC: {{ 'Available' if market.after else 'Not available' }}</li>
   {% endfor %}</ul>
   {% endif %}

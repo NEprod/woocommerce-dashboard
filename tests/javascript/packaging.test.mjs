@@ -171,7 +171,7 @@ test('actual Product Override serializer marks package choice dirty and reversio
   const extract=(fn,end)=>source.slice(source.indexOf('  function '+fn+'('),source.indexOf('  function '+end+'('));
   const original={title:'Anniversary Level Complete',future:{keep:true}};
   const context=vm.createContext({authored:original,originalDocument:structuredClone(original),structuredClone,
-    initialValues:{},window:{},knownFields:new Set(['packaging']),customisationDesigner:null,packagingDesigner:editor,finishedDesigner:null,
+    initialValues:{},window:{},knownFields:new Set(['packaging']),customisationDesigner:null,packagingDesigner:editor,finishedDesigner:null,marketEditor:null,
     guided:{querySelectorAll:()=>[]},overrideEnabled:()=>false,isShared:false,explicitVariation:false,
     attributeValues:()=>({}),modifierValues:()=>({}),listValues:()=>[],channelValues:()=>({}),activeMode:'guided',saveStates:[]});
   vm.runInContext(extract('guidedValues','guidedDocument')+extract('guidedDocument','documentPatch')+extract('documentPatch','clearErrors')+extract('setDirty','setBusy'),context);

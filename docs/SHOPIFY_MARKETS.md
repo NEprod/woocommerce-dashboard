@@ -1,8 +1,9 @@
 # Collection Markets
 
 Collection Editor → Publishing destinations → **Markets** loads the connected
-store's real choices on demand, read-only. Select **Manage Markets for this
-collection**, tick the markets you want, and use **Save Metadata**. Save and
+store's real choices on demand, read-only. UK is included by default for locally
+Live products intended for Online Store. Tick only the additional markets you
+want, then use **Save Metadata**. Save and
 the existing containing-collection scan are local only. The Products status
 follows the existing read-only comparison: checking first, then Update
 Available for a confirmed difference or Up to Date for a verified match.
@@ -10,21 +11,25 @@ Available for a confirmed difference or Up to Date for a verified match.
 ## Authority and approvals
 
 - `shopify_market_ids` is an optional array of Shopify Market GIDs in the shared
-  `product_info.json`. Products inherit from their owning source collection.
-  Storefront browsing groups are not additional source collections and do
-  not add market preferences. No product override or new database table.
+  `product_info.json`. Products inherit all checked international choices from
+  their owning source collection. The local model has one source collection per
+  product. Storefront browsing groups and Shopify collection memberships have
+  no authoritative local market preferences to union. No new ownership link,
+  product override, or database table was added.
 - The resolved authored document is saved in the existing catalogue view
   (`shopify_publish_job.view_json`). Current market intent participates in
   the Live product fingerprint. Publication evidence is retained in the
   normal comparison and identity receipt.
-- Unticking **Manage Markets** removes the JSON key and preserves Shopify
-  availability. An explicit empty selection is not supported. Unselected
-  active region markets are reviewed for removal only when management is on.
+- Both missing and empty selections mean UK only. Previously saved UK IDs
+  are harmless; UK cannot be switched off via the Markets editor. Unselected
+  international markets, including newly discovered ones, are reviewed for
+  exclusion. Deployment and local metadata save do not adopt the restrictions
+  on Shopify: every membership change requires signed Review & Sync.
 - Drafts retain preferences without publishing them. Changes to Markets
   require explicit signed Review & Sync. Hourly publishing and Sync Now
   do not authorise a market change or the associated activation. An existing
   authorised release can still make local intent Live for review.
-- Example Review: **United Kingdom — Already matching**, **Europe — Add**,
+- Example Review: **United Kingdom — Included by default**, **EU DDP — Add**,
   **United States — Remove**. Names and relationships come from Shopify.
 
 ## Shopify prerequisites and safeguards
@@ -39,10 +44,15 @@ but not `read_markets`; no app permission was changed by this release. Verify
 actual installed scopes separately. An approved app permission change may
 be required before market discovery works.
 
-The supported topology is active, non-overlapping country-based markets with
-one dedicated active product-publication catalogue each, with automatic
-product inclusion off. Shared, inherited, ambiguous, unsupported or
-incomplete mappings fail closed. Current application bounds are 20 markets,
+The supported topology is active, non-overlapping country-based markets.
+UK can inherit Online Store normally. A selected international market that
+inherits Online Store can match only when buyer-context verification shows it
+is available. An unselected market cannot be made exclusive while it inherits
+Online Store; configure a dedicated active product-publication catalogue with
+automatic product inclusion off. An explicit dedicated catalogue is supported
+for UK too, but is not required. Shared or multiple active publications,
+non-region or overlapping regions and custom parent hierarchies fail closed.
+Current application bounds are 20 markets,
 120 explicit countries and five changed market/channel publication
 memberships per signed operation. These are TLC safety bounds, not Shopify
 platform limits. Do not change store-wide catalogue settings just to pass
@@ -62,6 +72,29 @@ References: [Market API](https://shopify.dev/docs/api/admin-graphql/2026-10/obje
 [catalogues in Markets](https://shopify.dev/docs/apps/build/markets/catalogs),
 [product context reads](https://shopify.dev/docs/api/admin-graphql/latest/objects/Product),
 and [publication mutation](https://shopify.dev/docs/api/admin-graphql/latest/mutations/publishablePublish).
+
+## Observed store and one-time setup
+
+Read-only inspection of Unraid and Shopify Admin on 6 November 2026 confirmed
+`afa7ccdb0373` running, UK and EU DDP active, both inheriting All products and
+Online Store from Store default, no configured catalogues, and USA only
+suggested. The affected 16-Bit collection already selected UK and EU DDP.
+Live market discovery succeeded; write permission was not exercised. The old
+code required a dedicated publication even for the inherited UK market.
+
+To enable exclusions, first use a test store. In Shopify Admin → **Markets →
+Catalogs → Create catalog**, create a draft product catalogue for EU DDP only
+and disable automatic inclusion of new products. Set no pricing overrides or
+adjustments and verify other settings are unchanged. Seed and verify the
+intended product list before assigning/activating it under **EU DDP → Catalogs**:
+assigning an empty catalogue can immediately remove current products. For a
+no-visibility-change cutover, first mirror today's permitted EU assortment;
+then apply removals product by product through Review & Sync. Check the buyer
+context, since another inherited catalogue can keep a product available.
+Repeat for USA only if you separately create/activate that market. Leave UK,
+DDP, duties, tax, currency and shipping settings alone.
+
+See Shopify's [catalogue setup and inheritance guide](https://help.shopify.com/en/manual/markets/customizations/catalogs).
 
 ## Isolated acceptance and manual rollout
 
@@ -84,9 +117,12 @@ and [publication mutation](https://shopify.dev/docs/api/admin-graphql/latest/mut
    TLCDashboard shows verified matching evidence. Reopen Review: no write
    should be needed.
 5. Leave a Draft unchanged and verify its status is still Draft. Verify a
-   legacy unmanaged collection gets no market actions. Roll back the Docker
+   legacy collection previews UK-only intent and does not mutate until approval.
+   Use Shopify Admin **Products → View as** for UK and each active international
+   market, and check the staged storefront in those buyer contexts. Roll back the Docker
    tag if needed; do not restore unrelated data or assume an image rollback
    undoes an explicitly approved Shopify mutation.
 
-The live store and deployed revision were deliberately not inspected. The
-actual installed scopes and catalogue topology require merchant acceptance.
+No live catalogues, permissions or products were changed. International
+exclusions on this store remain blocked until catalogue setup and a controlled
+buyer-context check have been approved and performed.

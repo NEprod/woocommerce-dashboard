@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const browser = await chromium.launch({headless: true, executablePath: process.env.CHROME_BINARY});
 const rows = [
-  {id: 'gid://shopify/Market/1', name: 'Fictional United Kingdom', active: true},
+  {id: 'gid://shopify/Market/1', name: 'Fictional United Kingdom', active: true, home: true},
   {id: 'gid://shopify/Market/2', name: 'Fictional Europe', active: true},
   {id: 'gid://shopify/Market/3', name: 'Fictional United States', active: true},
 ];
@@ -32,9 +32,11 @@ try {
       await page.getByText('Local scan completed', {exact: true}).waitFor({timeout: 20000});
     };
     await expand();
-    const managed = section.getByLabel('Manage Markets for this collection');
-    await managed.check();
-    for (const row of rows.slice(0, 2)) await section.getByLabel(row.name).check();
+    const home = section.getByLabel(/included by default/);
+    await home.waitFor();
+    assert.equal(await home.isChecked(), true);
+    assert.equal(await home.isDisabled(), true);
+    for (const row of rows.slice(1)) await section.getByLabel(row.name).check();
     assert.equal(await section.locator('[data-market-id]:checked').count(), 2);
     assert.ok((await section.locator('[data-market-id]').first().boundingBox()).width <= 20);
     assert.equal(await page.locator('[data-discover-channels]').count(), 1);
@@ -45,14 +47,15 @@ try {
     await expand();
     await section.getByLabel(rows[0].name).waitFor();
     assert.equal(await section.locator('[data-market-id]:checked').count(), 2);
-    await managed.uncheck();
+    for (const row of rows.slice(1)) await section.getByLabel(row.name).uncheck();
     await persist();
     await page.reload();
     await expand();
-    assert.equal(await managed.isChecked(), false);
+    await home.waitFor();
+    assert.equal(await home.isChecked(), true);
     assert.equal(await section.locator('[data-market-id]:checked').count(), 0);
     assert.deepEqual(errors, []);
-    console.log(`${layout}: multi-select, scoped save, reload, unmanaged and no overflow passed`);
+    console.log(`${layout}: UK default, multi-select, scoped save, reload and no overflow passed`);
     await context.close();
   }
 } finally {

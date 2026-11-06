@@ -47,8 +47,9 @@ class MarketMixin:
     def __init__(self):
         super().__init__()
         self.market_rows = [market_record(1, 'United Kingdom', ['GB']),
-                            market_record(2, 'Europe', ['FR', 'DE']),
+                            market_record(2, 'EU DDP', ['FR', 'DE']),
                             market_record(3, 'United States', ['US'])]
+        self.market_rows[0]['catalogs'] = connection([])
         self.market_memberships = set()
         self.memberships = {'gid://shopify/Publication/1'}
         self.market_writes = []
@@ -79,14 +80,24 @@ class MarketMixin:
     def market_context(self, config, product_id, countries):
         assert product_id == self.remote['id']
         self.calls.append('market_context')
-        membership = {'GB': publication(1), 'FR': publication(2), 'DE': publication(2), 'US': publication(3)}
+        available = {}
+        for market_row in self.market_rows:
+            catalogs = market_row['catalogs']['nodes']
+            publications = [c['publication']['id'] for c in catalogs if c.get('publication')]
+            for region in market_row['conditions']['regionsCondition']['regions']['nodes']:
+                available[region['code']] = (self.remote['status'] == 'ACTIVE' and
+                    'gid://shopify/Publication/1' in self.memberships and
+                    (not publications or bool(set(publications) & self.market_memberships)))
         result = {key: self.remote[key] for key in ('id', 'status', 'metafield')}
-        result.update({f'c{i}': (membership[code] in self.market_memberships) != self.context_mismatch
+        result.update({f'c{i}': available[code] != self.context_mismatch
                        for i, code in enumerate(countries)})
         return result
 
     def set_publication(self, config, product_id, pid, publish):
-        assert product_id == self.remote['id'] and pid in {publication(1), publication(2), publication(3)}
+        if pid == 'gid://shopify/Publication/1':
+            return super().set_publication(config, product_id, pid, publish)
+        assert product_id == self.remote['id'] and pid in {
+            c['publication']['id'] for m in self.market_rows for c in m['catalogs']['nodes'] if c.get('publication')}
         self.durable('publication_update')
         self.market_writes.append((product_id, pid, publish))
         (self.market_memberships.add if publish else self.market_memberships.discard)(pid)
@@ -112,12 +123,14 @@ def retained(world, monkeypatch):
     row = drafts.confirm(token, True, adapter)
     assert row.state == 'verified'
     assert not any('market' in call for call in adapter.calls)
+    adapter.market_scope = False  # Simulate products already published before Markets adoption.
     change(world, live=True)
     _, token = drafts.preview(product, adapter)
     row = drafts.confirm(token, True, adapter)
     assert row.state == 'verified' and adapter.remote['status'] == 'ACTIVE'
+    adapter.market_scope = True
     adapter.calls.clear()
-    adapter.market_memberships = {publication(1), publication(3)}
+    adapter.market_memberships = {publication(3)}
     return product, row, adapter
 
 
@@ -138,7 +151,7 @@ def test_signed_market_only_update_and_readback(world, retained):
     assert adapter.remote == remote
     assert adapter.memberships == {'gid://shopify/Publication/1'}
     assert drafts.evidence(row)['publication_update']['market_observed']['memberships'] == {
-        publication(1): True, publication(2): True, publication(3): False}
+        publication(2): True, publication(3): False}
     current = json.loads(ShopifyProductComparison.query.one().summary_json)
     assert current['classification'] == 'no_change' and current['read_complete']
     assert saved_state(product) == 'no_change'
@@ -157,20 +170,99 @@ def test_discovery_and_review_http_are_read_only(preview_app, world, retained, m
     discover = client.post('/shopify/markets/discover')
     assert discover.status_code == 200
     assert discover.json['markets'] == [
-        {'id': market(1), 'name': 'United Kingdom', 'active': True},
-        {'id': market(2), 'name': 'Europe', 'active': True},
-        {'id': market(3), 'name': 'United States', 'active': True},
+        {'id': market(1), 'name': 'United Kingdom', 'active': True, 'home': True},
+        {'id': market(2), 'name': 'EU DDP', 'active': True, 'home': False},
+        {'id': market(3), 'name': 'United States', 'active': True, 'home': False},
     ]
     change(world, shopify_market_ids=[market(1), market(2)])
     response = client.post(f'/products/{product.id}/shopify/review', data={'action': 'preview'})
     assert response.status_code == 200
-    for text in (b'data-market-review', b'United Kingdom \xe2\x80\x94 Already matching',
-                 b'Europe \xe2\x80\x94 Add', b'United States \xe2\x80\x94 Remove'):
+    for text in (b'data-market-review', b'United Kingdom \xe2\x80\x94 Included by default',
+                 b'EU DDP \xe2\x80\x94 Add', b'United States \xe2\x80\x94 Remove'):
         assert text in response.data
     adapter.market_scope = False
     failure = client.post('/shopify/markets/discover')
     assert failure.status_code == 400 and 'read_markets' in failure.json['error']
     assert not adapter.market_writes
+
+
+def test_deployed_uk_and_eu_ddp_both_inherit_online_store(world, retained):
+    product, _, adapter = retained
+    adapter.market_rows = adapter.market_rows[:2]
+    adapter.market_rows[1]['catalogs'] = connection([])
+    adapter.market_memberships.clear()
+    # Matches the actual store: UK and EU DDP both selected in the affected
+    # collection, neither with a separate catalogue. Old preview failed on UK.
+    change(world, shopify_market_ids=[market(1), market(2)])
+    plan, token = drafts.preview(product, adapter)
+    assert token is None and plan['classification'] == 'no_change'
+    assert saved_state(product) == 'no_change'
+    assert plan['publication']['markets']['observed']['availability'] == {market(1): True, market(2): True}
+    change(world, shopify_market_ids=[])
+    plan, token = drafts.preview(product, adapter)
+    markets = plan['publication']['markets']
+    assert token is None and saved_state(product) == 'attention'
+    assert 'EU DDP: inherits Online Store' in markets['reason']
+    assert 'United Kingdom:' not in markets['reason']
+    assert markets['fields'][1]['before'] is True and markets['fields'][1]['after'] is False
+    assert not markets['actions'] and not adapter.market_writes
+
+
+@pytest.mark.parametrize('additional, expected', [
+    (None, set()), ([], set()), ([market(1)], set()), ([market(2)], {publication(2)}),
+    ([market(3)], {publication(3)}), ([market(2), market(3)], {publication(2), publication(3)}),
+])
+def test_default_and_international_opt_ins_are_verified_after_signed_review(world, retained, additional, expected):
+    product, row, adapter = retained
+    adapter.market_memberships = {publication(2)}  # Existing buyer visibility, not local intent.
+    if additional is not None:
+        change(world, shopify_market_ids=additional)
+    plan, token = drafts.preview(product, adapter)
+    market_plan = plan['publication']['markets']
+    assert market_plan['fields'][0]['home'] and market_plan['fields'][0]['after']
+    assert adapter.market_memberships == {publication(2)} and not adapter.market_writes
+    if token:
+        row = drafts.confirm(token, True, adapter)
+        assert row.state == 'verified'
+    assert adapter.market_memberships == expected
+    verified, token = drafts.preview(product, adapter)
+    assert token is None and verified['classification'] == 'no_change'
+    assert verified['publication']['markets']['observed']['availability'] == {
+        market(1): True, market(2): publication(2) in expected, market(3): publication(3) in expected}
+
+
+def test_new_unselected_market_requires_review_and_never_changes_on_discovery(world, retained):
+    product, row, adapter = retained
+    change(world, shopify_market_ids=[market(3)])
+    matched, token = drafts.preview(product, adapter)
+    assert token is None and matched['classification'] == 'no_change'
+    adapter.market_rows.append(market_record(4, 'New market', ['AU']))
+    adapter.market_memberships.add(publication(4))
+    plan, token = drafts.preview(product, adapter)
+    assert token and plan['classification'] == 'update'
+    new = plan['publication']['markets']['fields'][-1]
+    assert new['before'] and not new['after']
+    assert publication(4) in adapter.market_memberships and not adapter.market_writes
+    row = drafts.confirm(token, True, adapter)
+    assert row.state == 'verified'
+    assert drafts.evidence(row)['publication_update']['market_observed']['availability'][market(4)] is False
+
+
+def test_international_removal_needs_buyer_context_readback(world, retained, monkeypatch):
+    product, row, adapter = retained
+    _, token = drafts.preview(product, adapter)
+    assert token
+    original = adapter.market_context
+    def still_visible(config, product_id, countries):
+        result = original(config, product_id, countries)
+        if adapter.market_writes and 'US' in countries:
+            result[f'c{countries.index("US")}'] = True
+        return result
+    monkeypatch.setattr(adapter, 'market_context', still_visible)
+    row = drafts.confirm(token, True, adapter)
+    assert row.state == 'uncertain' and publication(3) not in adapter.market_memberships
+    assert saved_state(product) == 'recovery_required'
+    assert len(adapter.market_writes) == 1
 
 
 @pytest.mark.parametrize('problem,reason', [
@@ -185,13 +277,14 @@ def test_uncertain_or_unsafe_topology_never_authorises_market_writes(world, reta
     if problem == 'missing_scope':
         adapter.market_scope = False
     elif problem == 'shared':
-        catalog['publication']['id'] = publication(1)
+        catalog['publication']['id'] = publication(3)
     elif problem == 'inheritance':
         adapter.market_rows[1]['parentMarkets'] = connection([{'id': market(1)}])
     elif problem == 'auto':
         catalog['publication']['autoPublish'] = True
     elif problem == 'missing_publication':
         catalog['publication'] = None
+        selected = [market(3)]
     elif problem == 'unknown':
         selected = [market(99)]
     else:
@@ -213,6 +306,7 @@ def test_write_scope_required_only_for_changes(world, retained):
     plan, token = drafts.preview(product, adapter)
     assert token is None and plan['publication']['read_complete']
     assert any('write_publications' in b for b in plan['publication']['blockers'])
+    assert saved_state(product) == 'attention'
     change(world, shopify_market_ids=[market(1), market(3)])
     plan, token = drafts.preview(product, adapter)
     assert token is None and plan['classification'] == 'no_change'
@@ -247,13 +341,15 @@ def test_partial_market_write_retains_uncertainty_without_replay(world, retained
     assert len(adapter.market_writes) == 2
 
 
-def test_hourly_publisher_cannot_approve_markets(world, retained):
+@pytest.mark.parametrize('additional', [None, [market(2)]])
+def test_hourly_publisher_cannot_approve_markets(world, retained, additional):
     from app import automatic_publishing as publisher, scheduled_tasks as tasks
     from app.models import ScheduledTaskRun
     from test_automatic_publishing import authorise, queued
     product, row, adapter = retained
     before = row.operation_id
-    change(world, shopify_market_ids=[market(1), market(2)])
+    if additional is not None:
+        change(world, shopify_market_ids=additional)
     authorise(adapter)
     queued(product)
     run = tasks.enqueue(publisher.KEY)
@@ -287,7 +383,7 @@ def test_draft_parks_markets_until_same_identity_activates(world, monkeypatch):
     row = drafts.confirm(token, True, adapter)
     assert row.state == 'verified' and row.shopify_product_id == remote_id
     assert adapter.remote['status'] == 'ACTIVE' and 'product_create' not in adapter.calls
-    assert adapter.market_writes == [(remote_id, publication(1), True)]
+    assert not adapter.market_writes
 
 
 def test_variable_market_create_then_update_keeps_variants(variable_world, monkeypatch):
@@ -296,14 +392,16 @@ def test_variable_market_create_then_update_keeps_variants(variable_world, monke
     adapter = VariableMarketAdapter()
     adapter.memberships.clear()  # No unreviewed channels are assigned on new drafts.
     source = json.loads(path.read_text())
-    path.write_text(json.dumps({**source, 'live': True, 'shopify_market_ids': [market(1)]}))
+    path.write_text(json.dumps({**source, 'live': True, 'shopify_market_ids': [market(1)],
+                                'shopify_channels': {'online-store': True}}))
     plan, token = drafts.preview(product, adapter)
     assert token and plan['classification'] == 'create'
     row = drafts.confirm(token, True, adapter)
     assert row.state == 'verified' and adapter.remote['status'] == 'ACTIVE'
     remote_id = row.shopify_product_id
     variants = copy.deepcopy(adapter.remote['variants'])
-    path.write_text(json.dumps({**source, 'live': True, 'shopify_market_ids': [market(2)]}))
+    path.write_text(json.dumps({**source, 'live': True, 'shopify_market_ids': [market(2)],
+                                'shopify_channels': {'online-store': True}}))
     _, token = drafts.preview(product, adapter)
     row = drafts.confirm(token, True, adapter)
     assert row.state == 'verified' and row.shopify_product_id == remote_id
@@ -356,12 +454,13 @@ def test_collection_editor_save_reuses_scoped_scan_and_inherits(core, monkeypatc
     assert response.status_code == 200 and b'data-market-editor' not in response.data
 
 
-def test_schema_keeps_unspecified_distinct_and_rejects_empty_or_overrides():
+def test_schema_accepts_uk_only_and_rejects_product_overrides():
     from app.product_info import validate_product_info
     from app.utils.json_utils import merge_product_json
     source = {'collection_type': 'Simple', 'sku_prefix': 'TLC', 'title': 'Card'}
     assert validate_product_info(source, 'collection').valid
-    for value in ([], None, ['United Kingdom'], [market(1), market(1)]):
+    assert validate_product_info({**source, 'shopify_market_ids': []}, 'collection').valid
+    for value in (None, ['United Kingdom'], [market(1), market(1)]):
         assert not validate_product_info({**source, 'shopify_market_ids': value}, 'collection').valid
     assert not validate_product_info({'shopify_market_ids': [market(1)]}, 'override').valid
     assert merge_product_json({'shopify_market_ids': [market(1)]}, {'shopify_market_ids': [market(2)]})['shopify_market_ids'] == [market(1)]

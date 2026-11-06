@@ -40,7 +40,6 @@
   let channels = boot.channels || [];
   let channelDraft = {};
   const marketEditor = guided.querySelector("[data-market-editor]");
-  const manageMarkets = marketEditor?.querySelector("[data-manage-markets]");
   let markets = [];
   let marketsLoaded = false;
   let marketsLoading = false;
@@ -92,11 +91,13 @@
       label.className = "check-row";
       const input = document.createElement("input");
       input.type = "checkbox";
-      input.dataset.marketId = "";
+      // A previously saved UK ID is retained on unrelated edits, but never
+      // newly authored by the default checkbox.
+      if (!market.home || wanted.has(market.id)) input.dataset.marketId = "";
       input.value = market.id;
-      input.checked = wanted.has(market.id);
-      input.disabled = !manageMarkets.checked || (!market.active && !input.checked);
-      label.append(input, document.createTextNode(market.name + (market.active ? "" : " (unavailable)")));
+      input.checked = market.home || wanted.has(market.id);
+      input.disabled = market.home || (!market.active && !input.checked);
+      label.append(input, document.createTextNode(market.name + (market.home ? " — included by default" : market.active ? "" : " (unavailable)")));
       target.appendChild(label);
     }
   }
@@ -693,7 +694,6 @@
     const dimensions = valueFor("dimensions");
     renderChannels(valueFor("shopify_channels"));
     if (marketEditor) {
-      manageMarkets.checked = Object.hasOwn(authored, "shopify_market_ids");
       renderMarkets(authored.shopify_market_ids);
     }
     guided.querySelectorAll("[data-dimension]").forEach((control) => { control.value = dimensions && dimensions[control.dataset.dimension] != null ? dimensions[control.dataset.dimension] : ""; });
@@ -781,7 +781,7 @@
       delete result.sku_prefix;
     }
     if (overrideEnabled("shopify_channels") && (Object.keys(channelValues()).length || Object.hasOwn(authored,"shopify_channels"))) result.shopify_channels = channelValues();
-    if (manageMarkets?.checked) result.shopify_market_ids = marketValues();
+    if (marketEditor) result.shopify_market_ids = marketValues();
     Object.keys(result).forEach((key) => {
       if (result[key] === "" && !["description", "short_description", "meta_title", "meta_description", "customs_description"].includes(key)) delete result[key];
     });
@@ -1123,7 +1123,6 @@
     if (marketEditor.open && !marketsLoaded) discoverMarkets();
   });
   marketEditor?.querySelector("[data-discover-markets]").addEventListener("click", discoverMarkets);
-  manageMarkets?.addEventListener("change", () => renderMarkets(marketValues()));
   marketEditor?.querySelector("[data-market-choices]").addEventListener("change", () => renderMarkets(marketValues()));
   const loadTemplateButton = document.getElementById("loadTemplateBtn");
   if (loadTemplateButton) loadTemplateButton.addEventListener("click", async () => {

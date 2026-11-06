@@ -87,12 +87,11 @@
         {% if is_shared %}
         <details class="guided-field" data-market-editor>
           <summary>Markets</summary>
-          <p class="field-helper">Manage product availability in Shopify market catalogues separately from sales channels. Products inherit their source collection's selection. Save changes locally; apply them only through Review &amp; Sync.</p>
-          <label class="check-row"><input type="checkbox" data-manage-markets> Manage Markets for this collection</label>
+          <p class="field-helper">United Kingdom is included by default for Live Online Store products. Select additional markets for this collection. Save changes locally; apply availability changes only through Review &amp; Sync.</p>
           <div data-market-choices></div>
           <p class="field-helper" data-market-feedback role="status"></p>
           <button type="button" class="btn btn-outline-primary" data-discover-markets>Load Shopify markets (read-only)</button>
-          <p class="field-helper">Select at least one market. Unchecking “Manage Markets” preserves Shopify availability; it does not remove it.</p>
+          <p class="field-helper">No additional selections means UK only. International restrictions require a Shopify catalogue for each market that needs product exclusions.</p>
         </details>
         {% endif %}
         <p class="field-helper">New Drafts remain local. Linked Draft metadata pauses until Live; changing a linked Live product to Draft queues a priority status-only transition. Review &amp; Sync and acknowledged Sync Now remain available.</p>

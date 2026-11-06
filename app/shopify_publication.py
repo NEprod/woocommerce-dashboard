@@ -35,6 +35,22 @@ def immediate_intent(authored):
     return {**wanted, 'channels': {}} if wanted['status'] == 'DRAFT' else wanted
 
 
+def online_store_channel(channels):
+    from app.shopify_markets import ONLINE_STORE
+    exact = [c for c in channels if c['key'] == ONLINE_STORE or c['name'] == 'Online Store']
+    if len(exact) > 1:
+        raise ShopifyError('Ambiguous Shopify Online Store publication.')
+    return exact[0] if exact else None
+
+
+def online_store_target(wanted, channels, observed):
+    """Use the discovered channel and its reviewed intent, not a market name or ID."""
+    channel = online_store_channel(channels)
+    before = bool(channel and observed['memberships'].get(channel['id']))
+    after = bool(channel and wanted['channels'].get(channel['key'], before))
+    return before, after
+
+
 def discovered(adapter,config,shop):
     if not {'read_publications','write_publications'}.intersection(shop['scopes']):
         raise ShopifyError('Missing read_publications for channel discovery/readback. Saved evidence remains historical, not unpublished.')
@@ -122,8 +138,6 @@ def preview(product,adapter=None, *, status_only=False):
     data = drafts.evidence(row)
     authored = product_document(product)
     wanted = immediate_intent(authored)
-    if wanted['status'] == 'ACTIVE' and 'shopify_market_ids' in authored:
-        raise ShopifyError('Use the main Review & Sync for a product with managed Markets.')
     if status_only:
         if wanted['status'] != 'DRAFT':
             raise ShopifyError('The priority status-only path can only make an existing product Draft.')
@@ -132,6 +146,9 @@ def preview(product,adapter=None, *, status_only=False):
         wanted = {'status': 'DRAFT', 'channels': {}}
     channels = discovered(adapter,config,shop)
     observed = read(row,data,adapter,config)
+    if (wanted['status'] == 'ACTIVE' and online_store_target(wanted, channels, observed)[1]
+            and ('read_markets' in shop['scopes'] or 'shopify_market_ids' in authored)):
+        raise ShopifyError('Use the main Review & Sync for UK default and international availability.')
     for channel in channels:
         channel['current']=observed['memberships'].get(channel['id'],False)
         channel['managed']=channel['key'] in wanted['channels']
@@ -231,7 +248,11 @@ def verify(row,data,adapter):
         unmanaged = (set(before) | set(after)) - {action['id'] for action in plan['actions']}
         if any(before.get(pid, False) != after.get(pid, False) for pid in unmanaged):
             raise ShopifyError('An unmanaged sales-channel membership changed during Markets publication. Inspect retained evidence.')
-        market = check_reviewed(row, data, plan, adapter, config, shop, discovered(adapter, config, shop), verify=True)
+        channels = discovered(adapter, config, shop)
+        online, _ = online_store_target({'channels': {}}, channels, remote)
+        if not online:
+            raise ShopifyError('Online Store publication is not verified; UK availability cannot be confirmed.')
+        market = check_reviewed(row, data, plan, adapter, config, shop, channels, verify=True, online_after=True)
         if market['status'] != remote['status']:
             raise ShopifyError('Shopify status changed during Markets readback; no verification recorded.')
         proof['market_observed'] = market
@@ -253,7 +274,7 @@ def proof_matches(product,data):
         proof=data.get('publication_update',{})
         authored = product_document(product)
         wanted = immediate_intent(authored)
-        if wanted['status'] == 'ACTIVE' and 'shopify_market_ids' in authored:
+        if wanted['status'] == 'ACTIVE' and 'shopify_market_ids' in proof.get('plan', {}).get('intent', {}):
             from app.shopify_markets import KEY, selected
             wanted[KEY] = selected(authored)
         return proof.get('state')=='verified' and proof['plan']['intent']==wanted
@@ -334,8 +355,17 @@ def annotate(product,plan,row,config,shop,adapter):
         except ShopifyReadinessFinding as exc:
             result.update(reason=str(exc), configuration_error=exc.code)
         except ShopifyError as exc: result['reason']=str(exc)
-    if wanted['status'] == 'ACTIVE' and 'shopify_market_ids' in authored:
-        _annotate_markets(authored, plan, result, row, config, shop, adapter)
+    from app.shopify_markets import KEY, ONLINE_STORE
+    if wanted['status'] == 'ACTIVE' and ('read_markets' in shop['scopes'] or KEY in authored):
+        if result['read_complete']:
+            try:
+                online_before, online_after = online_store_target(wanted, result['channels'], result['observed'])
+                if online_after:
+                    _annotate_markets(authored, plan, result, row, config, shop, adapter, online_before)
+            except ShopifyError as exc:
+                result.update(read_complete=False, pending=True, reason=str(exc))
+        elif wanted['channels'].get(ONLINE_STORE) is True:
+            _annotate_markets(authored, plan, result, row, config, shop, adapter, False)
     plan['publication']=result
     if result['pending']:
         if result.get('read_complete') and not result.get('blockers'):
@@ -346,7 +376,7 @@ def annotate(product,plan,row,config,shop,adapter):
         'publication':review_binding(result)})
 
 
-def _annotate_markets(authored, plan, result, row, config, shop, adapter):
+def _annotate_markets(authored, plan, result, row, config, shop, adapter, online_before):
     from app.shopify_drafts import evidence
     from app.shopify_markets import KEY, comparison, selected
     # Retain a distinct marker even when channel/scope discovery failed.
@@ -356,10 +386,13 @@ def _annotate_markets(authored, plan, result, row, config, shop, adapter):
         if not result['read_complete']:
             raise ShopifyError(result.get('reason') or 'Complete Shopify publication discovery first.')
         market = comparison(result['intent'][KEY], row if row and row.shopify_product_id else None,
-                            evidence(row) if row else None, adapter, config, shop, result['channels'])
+                            evidence(row) if row else None, adapter, config, shop, result['channels'], online_before)
+        market['online_publication'] = online_store_channel(result['channels'])['id']
         result['markets'] = market
         if market['observed'] and market['observed']['status'] != result['observed']['status']:
             raise ShopifyError('Shopify status changed during market comparison; review again.')
+        if market['blockers']:
+            raise ShopifyReadinessFinding('; '.join(market['blockers']), code='market_configuration')
         changed = sum(a['changed'] for a in market['actions'])
         if changed and 'write_publications' not in shop['scopes']:
             result['blockers'].append('Missing write_publications for reviewed Markets changes.')

@@ -78,7 +78,7 @@ function customsEditor(value, enabled=true, field='harmonized_system_code', mark
     knownFields:new Set([field]),customisationDesigner:null,packagingDesigner:null,finishedDesigner:null,
     guided:{querySelectorAll:selector=>selector==='[data-field]'?[control]:[]},
     overrideEnabled:key=>enabled&&key===field,attributeValues:()=>({}),
-    modifierValues:()=>({}),explicitVariation:false,manageMarkets:null,...marketFixture});
+    modifierValues:()=>({}),explicitVariation:false,marketEditor:null,...marketFixture});
   vm.runInContext(valuesCode+guidedCode,context);
   return JSON.parse(vm.runInContext('JSON.stringify(guidedDocument())',context));
 }
@@ -95,16 +95,21 @@ test('Customs Description can be saved, explicitly cleared or reset to inheritan
   assert.deepEqual(customsEditor('',true,'customs_description'),{customs_description:'',future:{keep:true}});
   assert.deepEqual(customsEditor('',false,'customs_description'),{future:{keep:true}});
 });
-test('Markets is absent for unmanaged collections and preserves unrelated fields', () => {
+test('Markets changes persist additional IDs, with empty and absent both UK-only', () => {
   const ids = ['gid://shopify/Market/1', 'gid://shopify/Market/2'];
   const knownFields = new Set(['harmonized_system_code', 'shopify_market_ids']);
   assert.deepEqual(customsEditor('001234', true, 'harmonized_system_code', {
-    isShared:true, knownFields, manageMarkets:{checked:true}, marketValues:()=>ids
+    isShared:true, knownFields, marketEditor:{}, marketValues:()=>ids
   }), {harmonized_system_code:'001234',future:{keep:true},shopify_market_ids:ids});
   assert.deepEqual(customsEditor('001234', true, 'harmonized_system_code', {
-    isShared:true, knownFields, manageMarkets:{checked:false},
+    isShared:true, knownFields, marketEditor:{}, marketValues:()=>[],
     authored:{harmonized_system_code:'001234',shopify_market_ids:ids},
     initialValues:{harmonized_system_code:'001234',shopify_market_ids:ids}
+  }), {harmonized_system_code:'001234',shopify_market_ids:[]});
+  assert.deepEqual(customsEditor('001234', true, 'harmonized_system_code', {
+    isShared:true, knownFields, marketEditor:{}, marketValues:()=>[],
+    authored:{harmonized_system_code:'001234'},
+    initialValues:{harmonized_system_code:'001234',shopify_market_ids:[]}
   }), {harmonized_system_code:'001234'});
 });
 test('unchanged legacy live and explicit false survive guided roundtrip without authorisation', () => {

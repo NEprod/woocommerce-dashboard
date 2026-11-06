@@ -241,6 +241,9 @@ def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=N
                             message="Verification is due. Saved comparison only; the background Scheduled Task refreshes it independently. Manual Refresh remains available.")
                     if classification == "no_change" and (data["blockers"] or (data.get('publication') or {}).get('pending') or publication_pending and not data.get('publication')):
                         state.update(state="attention", label="Needs Attention", message="Metadata matches, but publication or taxonomy blockers remain.")
+                    publication = data.get('publication') or {}
+                    if publication.get('markets') and publication.get('blockers'):
+                        state.update(state="attention", label="Needs Attention", message='; '.join(publication['blockers']))
                     if data.get('package_assignments_unverified'):
                         state['package_assignment_notice'] = 'Optional package: ID/acceptance or manual action may be needed; accepted assignments are not independently verified. Inspect Optional Package in Review & Sync.'
                         state['message'] += ' ' + state['package_assignment_notice']
