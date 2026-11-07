@@ -95,6 +95,25 @@ test('Customs Description can be saved, explicitly cleared or reset to inheritan
   assert.deepEqual(customsEditor('',true,'customs_description'),{customs_description:'',future:{keep:true}});
   assert.deepEqual(customsEditor('',false,'customs_description'),{future:{keep:true}});
 });
+test('EU identifier checkbox distinguishes explicit false from unspecified and inheritance', () => {
+  const field = 'no_eu_standardized_identifier';
+  const control = {dataset:{field}, checked:false, indeterminate:true};
+  const setup = {authored:{}, initialValues:{}, knownFields:new Set([field]),
+    guided:{querySelectorAll:selector=>selector==='[data-field]'?[control]:[]}};
+  const values = () => customsEditor('', true, field, setup);
+  assert.deepEqual(values(), {});
+  control.indeterminate = false;
+  control.checked = true;
+  assert.deepEqual(values(), {[field]:true});
+  control.checked = false;
+  assert.deepEqual(values(), {[field]:false});
+  setup.authored = setup.initialValues = {[field]:true};
+  control.indeterminate = true;
+  assert.deepEqual(values(), {});
+  control.indeterminate = false;
+  control.checked = true;
+  assert.deepEqual(customsEditor('', false, field, setup), {});
+});
 test('Markets changes persist additional IDs, with empty and absent both UK-only', () => {
   const ids = ['gid://shopify/Market/1', 'gid://shopify/Market/2'];
   const knownFields = new Set(['harmonized_system_code', 'shopify_market_ids']);

@@ -92,6 +92,8 @@ def source_fingerprint(product, images):
             for key in ('price','sale','dates'): child.pop(key,None)
     from app.shopify_publication import intent
     from app.storefront_customisations import public_configuration
+    if 'no_eu_standardized_identifier' in authored:
+        data['no_eu_standardized_identifier'] = authored['no_eu_standardized_identifier']
     customisation = authored.get('customisation') or {}
     if 'storefront_enabled' in customisation:
         data['storefront_configuration'] = public_configuration(customisation)

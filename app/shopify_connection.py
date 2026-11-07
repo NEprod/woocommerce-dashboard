@@ -183,7 +183,22 @@ VARIANTS_UPDATE = '''mutation VariantsUpdate($id: ID!, $variants: [ProductVarian
 } }'''
 READ_QUERIES |= frozenset((VARIABLE_READ, VARIABLE_NATIVE_READ, NATIVE_INVENTORY_READ))
 WRITE_QUERIES |= frozenset((VARIABLE_CREATE, VARIANTS_CREATE, VARIANTS_UPDATE))
+EU_IDENTIFIER_READ = '''query TLCVariantEUIdentifier($ids: [ID!]!, $hasVariants: Boolean!, $probe: Boolean!) {
+ nodes(ids: $ids) @include(if: $hasVariants) { ... on ProductVariant { id product { id
+ metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value } }
+ compliance { key value } } }
+ bulk: __type(name: "ProductVariantsBulkInput") @include(if: $probe) { inputFields { name } }
+ declaration: __type(name: "ProductVariantComplianceInput") @include(if: $probe) { inputFields { name } }
+ keys: __type(name: "ProductVariantComplianceKeyInput") @include(if: $probe) { enumValues { name } }
+}'''
+EU_IDENTIFIER_WRITE = '''mutation TLCUpdateVariantEUIdentifier($id: ID!, $variants: [ProductVariantsBulkInput!]!) {
+ productVariantsBulkUpdate(productId: $id, variants: $variants, allowPartialUpdates: false) {
+ productVariants { id } userErrors { field message }
+} }'''
+READ_QUERIES |= {EU_IDENTIFIER_READ}
+WRITE_QUERIES |= {EU_IDENTIFIER_WRITE}
 NATIVE_QUERIES |= frozenset((VARIABLE_NATIVE_READ, NATIVE_INVENTORY_READ))
+VERSIONED_QUERIES = NATIVE_QUERIES | {EU_IDENTIFIER_READ, EU_IDENTIFIER_WRITE}
 
 LIFECYCLE_READ = '''query Lifecycle($id: ID!) { product(id: $id) { id title status updatedAt
  metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value }
@@ -558,8 +573,8 @@ class ShopifyAdapter:
         config = configuration.validated()
         from app.shopify_capacity import before
         before(config, writing=writing, query=query)
-        if api_version is not None and (api_version != "2027-01" or query not in NATIVE_QUERIES):
-            raise ShopifyError("Only packed-dimension operations may use the release-candidate API.")
+        if api_version is not None and (api_version != "2027-01" or query not in VERSIONED_QUERIES):
+            raise ShopifyError("Only packed-dimension and EU identifier operations may use the release-candidate API.")
         version = api_version or config.api_version
         token = _access_token(config)
         own = session is None
@@ -917,6 +932,20 @@ class ShopifyAdapter:
     def write_packed(self, config, inventory_id, dimensions):
         return self._transport(config, NATIVE_WRITE, {"id": _gid(inventory_id, "InventoryItem"),
             "input": {"measurement": {"packedDimensions": dimensions}}}, api_version="2027-01")
+
+    def read_eu_identifier(self, config, variant_ids, *, probe=False):
+        return self._transport(config, EU_IDENTIFIER_READ, {
+            "ids": [_gid(value, "ProductVariant") for value in variant_ids],
+            "hasVariants": bool(variant_ids), "probe": probe}, api_version="2027-01")
+
+    def write_eu_identifier(self, config, product_id, variant_ids, desired):
+        if type(desired) is not bool or not variant_ids:
+            raise ShopifyError("Explicit Y081 intent and retained variant IDs are required.")
+        return self._transport(config, EU_IDENTIFIER_WRITE, {
+            "id": _gid(product_id, "Product"),
+            "variants": [{"id": _gid(value, "ProductVariant"), "compliance": [
+                {"key": "Y081", "value": "true" if desired else "false"}]} for value in variant_ids]},
+            api_version="2027-01")
 
     def assign_package(self,config,inventory_id,package_id):
         from app.package_links import validate

@@ -16,6 +16,7 @@
     "customs_description": {"type": "string", "maxLength": 50, "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}},
     "harmonized_system_code": {"type": "string", "pattern": "^(?:[0-9]{6,13})?$", "not": {"pattern": "[^0-9]"}},
     "requires_shipping": {"type": "boolean"},
+    "no_eu_standardized_identifier": {"type": "boolean"},
     "customisation": {"type": "object"},
     "dimensions": {"$ref": "#/$defs/dimensions"},
     "categories": {"$ref": "#/$defs/stringArray"},

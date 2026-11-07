@@ -461,6 +461,8 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
         attach_customisations(product,plan,config,shop,adapter,remote_id)
         from app.shopify_dimension_metadata import attach as attach_dimensions
         attach_dimensions(plan, config, shop, adapter)
+        from app.shopify_eu_identifier import attach as attach_eu_identifier
+        attach_eu_identifier(product, plan, config, shop, adapter)
         from app.shopify_optional_packages import attach as attach_packages
         attach_packages(product, plan, row if remote_id else None, config, shop)
         native_review(plan,row if remote_id else None,data,config,shop,adapter)
@@ -488,6 +490,7 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
     plan["taxonomy_review_digest"] = drafts.digest({"collections":plan["collections"],"standard":standard,"attributes":plan["attribute_review_digest"],
         "customisations":plan.get('customisations'),
         "finished_dimensions":plan.get('dimension_metadata'),
+        **({'eu_identifier': plan['eu_identifier']} if 'eu_identifier' in plan else {}),
         "package_assignments":package_binding(plan),
         "native":{k:v for k,v in plan["native"].items() if k!="checked_at"},
         "publication":review_binding(plan.get('publication') or {})})
@@ -689,6 +692,8 @@ def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attri
     verify_customisations(row, data, config, adapter)
     from app.shopify_dimension_metadata import verify as verify_dimensions
     verify_dimensions(row, data, config, adapter)
+    from app.shopify_eu_identifier import verify as verify_eu_identifier
+    fields_found.extend(verify_eu_identifier(row, data, config, adapter))
     data["verification"]["memberships"] = "verified"
     expected = [m.get("id") for m in data.get("created_media",[])]
     observed = remote["media"]["nodes"]
@@ -921,6 +926,8 @@ def confirm(reviewed, adapter=None):
         if any(s['changed'] for s in (plan.get('dimension_metadata') or {}).get('definitions', [])):
             attempted=True
         apply_dimensions(row,data,config,adapter)
+        from app.shopify_eu_identifier import apply as apply_eu_identifier
+        apply_eu_identifier(row,data,config,adapter)
         from app.shopify_variable_readback import begin,complete
         begin(row,data,'base')
         return complete(row,adapter,allow_writes=True)
@@ -947,6 +954,7 @@ def confirm(reviewed, adapter=None):
                 # must never be replaced by confirm's earlier in-memory snapshot.
                 data=retained
             if package_attempted(retained,lease.id):attempted=True
+            if retained.get('eu_identifier_attempt', {}).get('operation_id') == lease.id:attempted=True
             if not attempted and creating is False and previous:
                 row.operation_id,row.reviewed_digest,row.verification_state=previous["operation_id"],previous["reviewed_digest"],previous['verification_state']
                 drafts.save(row,previous["data"],previous['state'])

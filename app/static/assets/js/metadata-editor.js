@@ -22,7 +22,7 @@
     "image_attributes", "variation_attributes", "variation_modifiers", "shipping_class", "grouped_ids",
     "grouped_products", "upsell_ids", "cross_sell_ids", "upsells", "crosssells",
     "meta_title", "meta_description", "vendor", "handle", "shopify_product_type", "shopify_product_type_key",
-    "country_of_origin", "harmonized_system_code", "customs_description", "requires_shipping", "manage_stock", "backorders", "primary_category", "shopify_status", "shopify_channels", "packaging", "finished_dimensions"
+    "country_of_origin", "harmonized_system_code", "customs_description", "no_eu_standardized_identifier", "requires_shipping", "manage_stock", "backorders", "primary_category", "shopify_status", "shopify_channels", "packaging", "finished_dimensions"
   ]);
   if (isShared) knownFields.add("shopify_market_ids");
   let authored = structuredClone(boot.authored || {});
@@ -310,6 +310,14 @@
     if (['categories','tags','storefront_collections'].includes(field)) return Object.hasOwn(authored,field);
     const toggle = guided.querySelector(`[data-override-toggle="${CSS.escape(field)}"]`);
     return !!(toggle && toggle.checked);
+  }
+
+  function euIdentifierState() {
+    const control = guided.querySelector('[data-field="no_eu_standardized_identifier"]');
+    if (!control) return;
+    const value = control.indeterminate ? 'Unspecified' : control.checked ? 'Enabled' : 'Disabled';
+    guided.querySelector('[data-eu-identifier-state]').textContent =
+      (!overrideEnabled(control.dataset.field) ? 'Inherited: ' : '') + value;
   }
 
   function setControlState(field) {
@@ -687,6 +695,11 @@
     guided.querySelectorAll("[data-field]").forEach((control) => {
       const field = control.dataset.field;
       let value = valueFor(field);
+      if (field === "no_eu_standardized_identifier") {
+        control.checked = value === true;
+        control.indeterminate = typeof value !== "boolean";
+        return;
+      }
       if (["live", "requires_shipping", "manage_stock"].includes(field)) value = value === true ? "true" : value === false ? "false" : "";
       if (control.dataset.arrayField === "true") value = Array.isArray(value) ? value.join(", ") : "";
       control.value = value == null ? "" : String(value);
@@ -705,6 +718,7 @@
     renderAttributes(valueFor("attributes"));
     renderModifiers(isShared?valueFor('variation_modifiers'):window.TLCPackaging.sourceDocument(boot.collection,authored).variation_modifiers);
     guided.querySelectorAll("[data-override-toggle]").forEach((toggle) => setControlState(toggle.dataset.overrideToggle));
+    euIdentifierState();
     guided.querySelectorAll("[data-inherited-value]").forEach((node) => {
       const key = node.dataset.inheritedValue;
       const value = boot.collection?.[key];
@@ -753,6 +767,10 @@
     guided.querySelectorAll("[data-field]").forEach((control) => {
       const field = control.dataset.field;
       if (!overrideEnabled(field)) return;
+      if (field === "no_eu_standardized_identifier") {
+        if (!control.indeterminate) result[field] = control.checked;
+        return;
+      }
       let value = control.value.trim();
       if (field === "shopify_release_at" && value === "") value = null;
       if (["live", "requires_shipping", "manage_stock"].includes(field)) value = value === "true" ? true : value === "false" ? false : "";
@@ -1052,6 +1070,13 @@
   guided.addEventListener("change", async (event) => {
     if (event.target.matches('[data-override-toggle="attributes"]')) await changeAttributeReplacement(event.target);
     if (event.target.matches("[data-override-toggle]")) setControlState(event.target.dataset.overrideToggle);
+    if (event.target.dataset.overrideToggle === "no_eu_standardized_identifier" && !event.target.checked) {
+      const control = guided.querySelector('[data-field="no_eu_standardized_identifier"]');
+      const inherited = boot.collection?.no_eu_standardized_identifier;
+      control.checked = inherited === true;
+      control.indeterminate = typeof inherited !== "boolean";
+    }
+    euIdentifierState();
     if (['categories','tags','storefront_collections'].includes(event.target.dataset.overrideToggle)) renderOrganisation();
     if (event.target.matches('[data-override-toggle="title"]')) queueTitlePreview();
     if (event.target.matches('[data-field="collection_type"]')) renderVariationState();
@@ -1059,6 +1084,14 @@
     updateFinishedPreview();
   });
   guided.addEventListener("click", (event) => {
+    if (event.target.closest('[data-clear-eu-identifier]')) {
+      const control = guided.querySelector('[data-field="no_eu_standardized_identifier"]');
+      control.checked = false;
+      control.indeterminate = true;
+      euIdentifierState();
+      setDirty(true);
+      return;
+    }
     if (event.target.closest('[data-open-attribute-picker]')) {
       const select=guided.querySelector('[data-registry-attribute]');
       select.closest('details').open=true;select.focus();select.scrollIntoView({block:'center'});return;

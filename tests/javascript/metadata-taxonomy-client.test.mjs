@@ -71,7 +71,7 @@ test("returning from Advanced JSON updates sparse override toggles from the actu
     guided: {querySelector:()=>null,querySelectorAll: (selector) => selector === "[data-override-toggle]" ? toggles : []},
     renderProductType:()=>{},renderOrganisation:()=>{},valueFor: () => [],renderChannels:()=>{}, renderList: () => {}, renderAttributes: () => {}, renderModifiers: () => {}, setControlState: () => {}, updateCharacterCounts: () => {},
   });
-  vm.runInContext(extract("populate", "prune"), context);
+  vm.runInContext(extract("euIdentifierState", "setControlState") + extract("populate", "prune"), context);
   vm.runInContext('populate({attributes: {Unknown: ["Original"]}, variation_attributes: []})', context);
   assert.equal(toggles[0].checked, false); // shared owner has no product variation override
   assert.equal(toggles[1].checked, false);

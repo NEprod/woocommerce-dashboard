@@ -482,3 +482,25 @@ Milestone 9 documents but does not correct these scanner contracts:
 4. Unknown collection types produce no rows.
 5. Editor legacy names differ from the row builder’s upsell/cross-sell names.
 6. Woo-style rows support only five attributes.
+## EU customs identifier declaration
+
+In the existing Collection Editor, **No EU standardized identifier** is beside
+HS Code and Customs Description. Checking it saves
+`"no_eu_standardized_identifier": true`; unchecking an authored value saves
+`false`. **Leave unspecified** removes the collection key. A product override
+replaces the collection's value; turning the override off restores inheritance.
+The existing scoped refresh stores the resolved value in
+`ShopifyPublishJob.view_json` under `authored`. Saving does not write to Shopify.
+
+The signed Shopify Review & Sync compares the current declaration for each
+locally managed variant and, after approval, submits only changed values with
+Shopify's [variant compliance input](https://shopify.dev/docs/api/admin-graphql/2027-01/input-objects/ProductVariantComplianceInput).
+It writes Y081 as the string `"true"` or `"false"` (remove), using the existing
+versioned `2027-01` request transport. The global API version and existing
+`read_products`/`write_products` scopes are unchanged. Unspecified values do
+not request a Shopify compliance read or write. A standardised identifier is
+never removed to enable Y081. Remote-only variants are not touched.
+
+The normal post-write readback checks the actual declaration and retained
+product/variant IDs. Unsupported API evidence blocks the review; unresolved
+writes use the existing read-only recovery, never automatic replay.

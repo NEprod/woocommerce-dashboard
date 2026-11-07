@@ -307,6 +307,8 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
             attach_review(product, result, row, config, shop, adapter)
             from app.shopify_dimension_metadata import attach as attach_dimensions
             attach_dimensions(result, config, shop, adapter)
+            from app.shopify_eu_identifier import attach as attach_eu_identifier
+            attach_eu_identifier(product, result, config, shop, adapter)
             if any(f['changed'] for f in result['fields']):
                 result['classification'] = 'update'
             from app.shopify_optional_packages import attach as attach_packages
@@ -345,6 +347,8 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
     attach(product, plan, config, shop, adapter)
     from app.shopify_dimension_metadata import attach as attach_dimensions
     attach_dimensions(plan, config, shop, adapter)
+    from app.shopify_eu_identifier import attach as attach_eu_identifier
+    attach_eu_identifier(product, plan, config, shop, adapter)
     from app.shopify_optional_packages import attach as attach_packages
     attach_packages(product, plan, None, config, shop)
     from app.shopify_native_dimensions import attach_review
@@ -576,6 +580,10 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
         raise ShopifyError("Required attribute/intent prerequisites are unresolved; rebuild Review.")
     from app.shopify_dimension_metadata import attach as attach_dimensions
     attach_dimensions(plan, config, shop, adapter)
+    from app.shopify_eu_identifier import attach as attach_eu_identifier
+    attach_eu_identifier(product, plan, config, shop, adapter)
+    if plan.get('eu_identifier') and plan['blockers']:
+        raise ShopifyError('; '.join(plan['blockers']))
     from app.shopify_optional_packages import attach as attach_packages
     attach_packages(product, plan, None, config, shop)
     from app.shopify_native_dimensions import attach_review
@@ -668,6 +676,8 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
         apply_customisations(row, data, config, adapter)
         from app.shopify_dimension_metadata import apply as apply_dimensions
         apply_dimensions(row, data, config, adapter)
+        from app.shopify_eu_identifier import apply as apply_eu_identifier
+        apply_eu_identifier(row, data, config, adapter)
         apply_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]), adapter)
         from app.shopify_publication import apply_reviewed, complete as publication_complete
         if apply_reviewed(row,data,config,adapter):
@@ -1021,6 +1031,8 @@ def confirm_update(reviewed, adapter=None):
         if any(s['changed'] for s in (plan.get('dimension_metadata') or {}).get('definitions', [])):
             attempted = True
         apply_dimensions(row, data, config, adapter)
+        from app.shopify_eu_identifier import apply as apply_eu_identifier
+        apply_eu_identifier(row, data, config, adapter)
         from app.shopify_publication import apply_reviewed
         if apply_reviewed(row,data,config,adapter):
             attempted=True
@@ -1049,7 +1061,8 @@ def confirm_update(reviewed, adapter=None):
         from app.shopify_package_assignments import attempted as package_attempted
         retained = evidence(row)
         attempted = attempted or package_attempted(retained,lease.id) or (
-            row.operation_id == lease.id and retained.get('update_attempted') is True)
+            row.operation_id == lease.id and (retained.get('update_attempted') is True
+                or retained.get('eu_identifier_attempt', {}).get('operation_id') == lease.id))
         diagnostic = failure_diagnostic(exc, locals().get('finalisation_stage') or evidence(row).get('stage'), lease.id)
         if attempted:
             row = db.session.get(ShopifyProductIdentity, row.id)
@@ -1123,6 +1136,9 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
     verify_customisations(row, data, configuration(), adapter or ShopifyAdapter())
     from app.shopify_dimension_metadata import verify as verify_dimensions
     verify_dimensions(row, data, configuration(), adapter or ShopifyAdapter())
+    from app.shopify_eu_identifier import verify as verify_eu_identifier
+    if plan.get('eu_identifier'):
+        rows.extend(verify_eu_identifier(row, data, configuration(), adapter or ShopifyAdapter()))
     data["verification"]["memberships"] = "verified"
     data["stage"] = "media_verification"
     save(row, data)
