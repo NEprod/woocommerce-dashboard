@@ -129,7 +129,7 @@ def test_signed_enable_late_readback_reconciles_without_replay(world, preview_ap
     row = drafts.confirm(token, True, adapter)
     assert row.state == 'verified' and not adapter.requests
     change(world, **{KEY: True})
-    with background_work(lambda: None, publishing_context={'owner': 'automatic'}):
+    with background_work(lambda: None, publishing_context={'authority': {'kind': 'manual_sync_now'}}):
         plan, token = drafts.preview(product, adapter)
         assert token is None and any('explicit Review & Sync' in b for b in plan['blockers'])
     plan, token = drafts.preview(product, adapter)

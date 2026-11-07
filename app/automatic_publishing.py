@@ -6,7 +6,7 @@ jobs are coalesced desired work, not a replacement product configuration.
 import json
 from datetime import timedelta
 
-from sqlalchemy import update, case
+from sqlalchemy import update, case, or_
 from sqlalchemy.dialects.sqlite import insert
 
 from app import db, shopify_drafts as drafts
@@ -344,18 +344,7 @@ def observe_comparison(product, plan, *, expected_revision, complete):
         db.session.flush()  # Include the just-recorded comparison in the same transaction.
         settle_obsolete_attention(product)
         return
-    from app.shopify_publication import intent, requires_manual_markets
-    if (requires_manual_markets(plan) and job.scan_operation_id and job.source_identity == product.source_relpath
-            and job.state in {'pending', 'retry', 'verified', 'paused'}):
-        from app.shopify_markets import MANUAL_REQUIRED
-        from app.shopify_capacity import fence_owner
-        fence_owner()
-        db.session.execute(update(ShopifyPublishJob).where(
-            ShopifyPublishJob.product_id == product.id, ShopifyPublishJob.owner.is_(None),
-            ShopifyPublishJob.requested_revision == expected_revision,
-            ShopifyPublishJob.state.in_({'pending', 'retry', 'verified', 'paused'})
-        ).values(state='paused', error=MANUAL_REQUIRED, view_pending=True))
-        return
+    from app.shopify_publication import intent, requires_manual_markets, unadopted_market_removal
     if (plan.get('classification') == 'no_change' and not plan.get('blockers')
             and not plan.get('local_package_changes')):
         # This exact scanned revision has now been compared/verified elsewhere
@@ -376,6 +365,11 @@ def observe_comparison(product, plan, *, expected_revision, complete):
         if (identity.product_id != product.id or identity.source_identity != product.source_relpath
                 or identity.store_id != plan.get('store_id') or identity.shopify_product_id != plan.get('remote_id')
                 or not identity_complete(identity, drafts.evidence(identity))):
+            return
+        from app.shopify_markets import MANUAL_REQUIRED, REMOVAL_REVIEW
+        if job.manual_actor_id and job.error == MANUAL_REQUIRED and requires_manual_markets(plan):
+            return
+        if job.error == REMOVAL_REVIEW and unadopted_market_removal(product, plan, drafts.evidence(identity)):
             return
         from app.shopify_capacity import fence_owner
         fence_owner()
@@ -418,6 +412,7 @@ def current_draft_comparison(product, identity):
 def eligibility_summary(product_ids=None):
     """Saved-only cycle inventory. No JSON, image walks, remote reads or writes."""
     from collections import Counter
+    from app.shopify_markets import REMOVAL_REVIEW
     from app.shopify_publication import intent
     counts = Counter()
     query = ShopifyPublishJob.query.join(Product).filter(Product.catalogue_status == 'active')
@@ -434,6 +429,7 @@ def eligibility_summary(product_ids=None):
         elif job.state == 'recovery_required' or state == 'recovery_required': bucket = 'recovery_identity_conflict'
         elif job.state == 'verified' and state == 'no_change': bucket = 'already_matched'
         elif job.state in {'pending', 'retry'}: bucket = 'pending'
+        elif job.state == 'paused' and job.error == REMOVAL_REVIEW: bucket = 'market_review_required'
         elif draft or state == 'draft' or job.state == 'paused': bucket = 'draft_paused'
         elif job.requested_revision == 'unscanned': bucket = 'missing_checkpoint'
         elif job.state == 'attention': bucket = 'other_attention'
@@ -538,7 +534,16 @@ def _needs_attention(job, product, error, *, fence=lambda: None, selection=None)
     return 'attention'
 
 
-def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
+def _legacy_field_review_holds():
+    from app.shopify_markets import MANUAL_REQUIRED
+    from app.shopify_eu_identifier import MANUAL
+    job = ShopifyPublishJob
+    return (job.owner.is_(None) & job.scan_operation_id.isnot(None)
+            & or_((job.state == 'paused') & (job.error == MANUAL_REQUIRED),
+                  (job.state == 'attention') & (job.error == MANUAL)))
+
+
+def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None, scheduled=False):
     adapter = adapter or ShopifyAdapter()
     guard()
     if job.owner:
@@ -548,6 +553,23 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
         job.state, job.error = 'attention', 'Product source/identity is absent or changed; inspect the catalogue.'
         fence(); db.session.commit()
         return 'attention'
+    legacy_reason = None
+    if scheduled and policy().enabled and job.state in {'paused', 'attention'}:
+        # Reopen only the retired policy holds, not unrelated validation or
+        # recovery. A scheduled run uses its own authority, not a held Sync Now
+        # grant. Fresh scan, authority and remote checks still follow.
+        reason = job.error
+        fence()
+        reopened = db.session.execute(update(ShopifyPublishJob).where(
+            ShopifyPublishJob.product_id == job.product_id,
+            ShopifyPublishJob.requested_revision == job.requested_revision,
+            _legacy_field_review_holds()).values(
+                state='pending', error=None, verified_revision=None, view_pending=True,
+                manual_actor_id=None, manual_revision=None, manual_config=None)).rowcount
+        db.session.commit()
+        db.session.refresh(job)
+        if reopened:
+            legacy_reason = reason
     config = drafts.configuration()
     selection = {'reason': 'due_' + job.state, 'trigger': event_trigger(job),
                  'requested_revision': job.requested_revision,
@@ -586,7 +608,8 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
             return 'deferred'
         job.state, job.error = 'recovery_required', saved.get('message') or 'Retained remote evidence requires safe recovery.'
         fence(); db.session.commit(); return 'recovery_required'
-    if saved['state'] in {'attention', 'unavailable'} and not continuing:
+    if (saved['state'] in {'attention', 'unavailable'} and not continuing
+            and not (legacy_reason and saved.get('message') == legacy_reason)):
         selection.update(outcome='blocked', write_attempted=False)
         job.state, job.error = 'attention', saved.get('message') or 'Resolve the saved catalogue finding before publication.'
         fence(); db.session.commit(); return 'attention'
@@ -724,11 +747,21 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None):
                 plan, _unused_manual_token = drafts.preview(product, adapter)
                 if plan['blockers']:
                     raise ShopifyError('; '.join(plan['blockers']))
-                from app.shopify_publication import requires_manual_markets
-                if requires_manual_markets(plan):
-                    from app.shopify_markets import MANUAL_REQUIRED
-                    _settle_job(job, owner=owner, revision=revision, state='paused', error=MANUAL_REQUIRED, fence=fence)
-                    return 'paused'
+                from app.shopify_publication import requires_manual_markets, unadopted_market_removal
+                from app.shopify_markets import MANUAL_REQUIRED, REMOVAL_REVIEW
+                if initial_authority['kind'] == 'manual_sync_now':
+                    if requires_manual_markets(plan):
+                        _settle_job(job, owner=owner, revision=revision, state='paused', error=MANUAL_REQUIRED, fence=fence)
+                        return 'paused'
+                else:
+                    publication = plan.get('publication') or {}
+                    if publication.get('markets') is not None:
+                        if not publication.get('read_complete') or publication.get('blockers'):
+                            raise ShopifyError('; '.join(publication.get('blockers') or [])
+                                               or publication.get('reason') or 'Shopify Markets evidence is incomplete.')
+                        if unadopted_market_removal(product, plan, drafts.evidence(row) if row else {}):
+                            _settle_job(job, owner=owner, revision=revision, state='paused', error=REMOVAL_REVIEW, fence=fence)
+                            return 'paused'
                 if initial_authority.get('store_id') and plan['store_id'] != initial_authority['store_id']:
                     raise ShopifyError('Connected Shopify store differs from the durable automatic authority.')
                 if plan['classification'] == 'no_change':
@@ -842,9 +875,11 @@ def recover_jobs(owner, *, guard=lambda: None, fence=lambda: None):
 
 
 def run_slice(run_id, owner, *, adapter=None):
+    from app.shopify_markets import REMOVAL_REVIEW
     from app import scheduled_tasks as tasks
     task = db.session.get(ScheduledTask, KEY)
     run = db.session.get(ScheduledTaskRun, run_id)
+    scheduled = run.trigger == 'scheduled'
     data = json.loads(run.data_json)
     guard = lambda: tasks.renew(KEY, run_id, owner)
     fence = lambda: tasks.fence(KEY, run_id, owner)
@@ -871,7 +906,10 @@ def run_slice(run_id, owner, *, adapter=None):
         if 'eligibility' not in data:
             data['eligibility'] = eligibility_summary(data.get('scope'))
             data['eligibility_at'] = drafts.now().isoformat()
-        jobs = ShopifyPublishJob.query.filter(ShopifyPublishJob.state.in_({'pending', 'retry'})).order_by(
+        eligible = ShopifyPublishJob.state.in_({'pending', 'retry'})
+        if scheduled and policy().enabled:
+            eligible = or_(eligible, _legacy_field_review_holds())
+        jobs = ShopifyPublishJob.query.filter(eligible).order_by(
             ShopifyPublishJob.priority.desc(), ShopifyPublishJob.product_id)
         if data.get('scope') is not None:
             jobs = jobs.filter(ShopifyPublishJob.product_id.in_(data['scope']))
@@ -894,7 +932,7 @@ def run_slice(run_id, owner, *, adapter=None):
                     publishing_context={'product_id': job.product_id, 'revision': job.requested_revision,
                                         'trigger': event_trigger(job), 'owner': run_id + ':' + owner}):
                 result = publish_one(job, owner=run_id + ':' + owner, guard=guard, fence=fence,
-                                     adapter=adapter, metrics=metrics)
+                                     adapter=adapter, metrics=metrics, scheduled=scheduled)
             data['counts']['api_requests'] += metrics.get('api_requests', 0)
             data['counts']['throttled'] += metrics.get('throttled', 0)
             selection = metrics.get('selection') or {}
@@ -908,10 +946,11 @@ def run_slice(run_id, owner, *, adapter=None):
                 'updated_verified' if result == 'verified' else
                 'verification_incomplete' if result in {'retry', 'deferred'} else
                 'recovery_required' if result == 'recovery_required' else
-                'draft_paused' if result == 'paused' else
+                ('market_review_required' if job.error == REMOVAL_REVIEW else 'draft_paused') if result == 'paused' else
                 'failed_before_write' if mode == 'automatic_preflight' else 'failed_or_blocked')
             codes = {'created_verified': 'c', 'updated_verified': 'u', 'already_matched': 'm',
                 'verification_incomplete': 'i', 'recovery_required': 'r', 'draft_paused': 'd',
+                'market_review_required': 's',
                 'failed_before_write': 'f', 'failed_or_blocked': 'a', 'previous_verified_or_matching': 'v',
                 'previous_deferred': 'p'}
             outcomes[str(job.product_id)] = codes[result_kind]
@@ -920,7 +959,7 @@ def run_slice(run_id, owner, *, adapter=None):
             data['counts']['attempts'] = data['counts'].get('attempts', 0) + 1
             data['counts'].update(considered=len(outcomes), checked=len(outcomes),
                 up_to_date=sum(value in {'v','c','u','m'} for value in outcomes.values()),
-                deferred=sum(value in {'p','i','d'} for value in outcomes.values()),
+                deferred=sum(value in {'p','i','d','s'} for value in outcomes.values()),
                 attention=sum(value in {'a','r','f'} for value in outcomes.values()))
             data['items'] = (data.get('items', []) + [{'id': job.product_id, 'state': result,
                 'operation_id': job.operation_id, 'reason': (job.error or '')[:180],

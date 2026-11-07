@@ -501,6 +501,11 @@ versioned `2027-01` request transport. The global API version and existing
 not request a Shopify compliance read or write. A standardised identifier is
 never removed to enable Y081. Remote-only variants are not touched.
 
+The enabled scheduled publisher uses the same comparison, changed-only
+mutation and verification for eligible Live products. Saving a collection or
+product does not publish it, and Sync Now still requires Review & Sync for a
+Y081 change.
+
 The normal post-write readback checks the actual declaration and retained
 product/variant IDs. Unsupported API evidence blocks the review; unresolved
 writes use the existing read-only recovery, never automatic replay.

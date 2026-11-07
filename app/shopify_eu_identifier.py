@@ -9,6 +9,11 @@ KEY = 'no_eu_standardized_identifier'
 MANUAL = 'No EU standardized identifier changes require explicit Review & Sync approval.'
 
 
+def _manual_sync_requires_review():
+    context = (background() or {}).get('publishing_context') or {}
+    return bool(context and context.get('authority', {}).get('kind') != 'automatic')
+
+
 def _read(adapter, config, product_id, nonce, ids, *, probe=False):
     if len(ids) > 32 or len(set(ids)) != len(ids):
         raise ShopifyError('Y081 needs distinct retained variant identities within the review bound.')
@@ -88,7 +93,7 @@ def attach(product, plan, config, shop, adapter):
     if any(v['before'] is not desired for v in targets):
         if 'write_products' not in shop['scopes']:
             plan['blockers'].append('Missing write_products; the reviewed Y081 declaration cannot be changed.')
-        if (background() or {}).get('publishing_context'):
+        if _manual_sync_requires_review():
             plan['blockers'].append(MANUAL)
     plan['taxonomy_review_digest'] = drafts.digest({
         'previous': plan['taxonomy_review_digest'], 'eu_identifier': contract})
@@ -111,7 +116,7 @@ def apply(row, data, config, adapter):
     contract = plan.get('eu_identifier')
     if not contract or all(v['before'] is contract['desired'] for v in contract['targets']):
         return
-    if (background() or {}).get('publishing_context'):
+    if _manual_sync_requires_review():
         raise ShopifyError(MANUAL)
     product = db.session.get(Product, row.product_id)
     if (not product or drafts.local_plan(product)['digest'] != plan['digest']

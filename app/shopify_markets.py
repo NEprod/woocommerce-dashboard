@@ -5,6 +5,7 @@ from app.shopify_connection import MARKET_CONTEXT_SIZE, ShopifyError, ShopifyRea
 
 KEY = 'shopify_market_ids'
 MANUAL_REQUIRED = 'Market availability requires explicit Review & Sync approval. No Shopify write attempted.'
+REMOVAL_REVIEW = 'Market removal needs Review & Sync until the local selection and the same catalogue have been verified for this product. No Shopify write attempted.'
 ONLINE_STORE = 'online-store'
 
 

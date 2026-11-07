@@ -456,7 +456,7 @@ def test_partial_market_write_retains_uncertainty_without_replay(world, retained
 
 
 @pytest.mark.parametrize('additional', [None, [market(2)]])
-def test_hourly_publisher_cannot_approve_markets(world, retained, additional):
+def test_hourly_publisher_does_not_adopt_legacy_market_removal(world, retained, additional):
     from app import automatic_publishing as publisher, scheduled_tasks as tasks
     from app.models import ScheduledTaskRun
     from test_automatic_publishing import authorise, queued
@@ -470,8 +470,10 @@ def test_hourly_publisher_cannot_approve_markets(world, retained, additional):
     assert tasks.claim('markets-fixture') == (publisher.KEY, run)
     tasks.run_slice(publisher.KEY, run, 'markets-fixture', adapter=adapter)
     job = db.session.get(ShopifyPublishJob, product.id)
-    assert db.session.get(ScheduledTaskRun, run).state == 'completed'
-    assert job.state == 'paused' and 'explicit Review & Sync' in job.error
+    scheduled = db.session.get(ScheduledTaskRun, run)
+    assert scheduled.state == 'completed'
+    assert json.loads(scheduled.data_json)['publication_counts'] == {'market_review_required': 1}
+    assert job.state == 'paused' and 'Market removal needs Review & Sync' in job.error
     assert row.operation_id == before and not adapter.market_writes
     assert saved_state(product) == 'update'
     _, token = drafts.preview(product, adapter)

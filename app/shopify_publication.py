@@ -436,6 +436,7 @@ def _annotate_markets(authored, plan, result, row, config, shop, adapter, online
 
 
 def requires_manual_markets(plan):
+    """Keep the existing Sync Now boundary; scheduled authority is separate."""
     publication = plan.get('publication') or {}
     market = publication.get('markets')
     return bool(market is not None and (
@@ -443,6 +444,32 @@ def requires_manual_markets(plan):
         or publication['observed']['status'] != publication['intent']['status']
         or any(action['changed'] for action in market['actions'])
     ))
+
+
+def unadopted_market_removal(product, plan, data):
+    """Do not turn a default, legacy assortment or remapped catalogue into removal authority."""
+    from app.shopify_markets import KEY
+    publication = plan.get('publication') or {}
+    market = publication.get('markets') or {}
+    removals = {a['id'] for a in market.get('actions', []) if a['changed'] and not a['after']}
+    if not removals:
+        return False
+    if not product or KEY not in product_document(product):
+        return True
+    proof = data.get('publication_update') or {}
+    previous = proof.get('plan') or {}
+    observed = proof.get('market_observed') or {}
+    if (proof.get('state') != 'verified' or not proof.get('operation_id')
+            or previous.get('store_id') != publication.get('store_id')
+            or previous.get('config') != publication.get('config')):
+        return True
+    def identity(entry):
+        return (entry['id'], entry['catalog'], entry['publication'], tuple(entry['countries']))
+    adopted = {identity(entry) for entry in (previous.get('markets') or {}).get('topology', [])
+               if type(observed.get('memberships', {}).get(entry['publication'])) is bool
+               and type(observed.get('availability', {}).get(entry['id'])) is bool}
+    eligible = {entry['publication'] for entry in market['topology'] if identity(entry) in adopted}
+    return not removals <= eligible
 
 
 def review_binding(result):
@@ -463,9 +490,13 @@ def apply_reviewed(row,data,config,adapter):
     market = plan.get('markets')
     if market:
         from app.shopify_capacity import background
-        from app.shopify_markets import check_reviewed
-        if (background() or {}).get('publishing_context') and requires_manual_markets(data['plan']):
-            raise ShopifyError('Market availability needs explicit Review & Sync approval.')
+        from app.shopify_markets import MANUAL_REQUIRED, REMOVAL_REVIEW, check_reviewed
+        context = (background() or {}).get('publishing_context') or {}
+        if context:
+            if context.get('authority', {}).get('kind') != 'automatic' and requires_manual_markets(data['plan']):
+                raise ShopifyError(MANUAL_REQUIRED)
+            if unadopted_market_removal(db.session.get(Product, row.product_id), data['plan'], data):
+                raise ShopifyError(REMOVAL_REVIEW)
         shop = adapter.test_connection(config)
         if shop['shop_id'] != row.store_id or config.fingerprint() != plan['config']:
             raise ShopifyError('Shopify store/configuration changed before Markets publication.')

@@ -23,12 +23,14 @@ Available for a confirmed difference or Up to Date for a verified match.
 - Both missing and empty selections mean UK only. Previously saved UK IDs
   are harmless; UK cannot be switched off via the Markets editor. Unselected
   international markets, including newly discovered ones, are reviewed for
-  exclusion. Deployment and local metadata save do not adopt the restrictions
-  on Shopify: every membership change requires signed Review & Sync.
-- Drafts retain preferences without publishing them. Changes to Markets
-  require explicit signed Review & Sync. Hourly publishing and Sync Now
-  do not authorise a market change or the associated activation. An existing
-  authorised release can still make local intent Live for review.
+  exclusion. Neither deployment nor a local save publishes anything directly.
+- The enabled hourly publisher may apply verified additions and, with an
+  explicit local selection, removals for catalogues already covered by a
+  verified publication receipt for that product and store. Implicit UK-only
+  defaults, unmanaged catalogues and changed catalogue mappings still require
+  signed Review & Sync before a removal. Sync Now does not approve market changes.
+- Drafts retain preferences without publishing them. An existing authorised
+  release can still make local intent Live.
 - Example Review: **United Kingdom — Included by default**, **EU DDP — Add**,
   **United States — Remove**. Names and relationships come from Shopify.
 
