@@ -46,6 +46,38 @@ def test_all_types_and_legacy_aliases(field):
     before=copy.deepcopy(definition);validate(definition);assert definition==before
 
 
+def test_image_upload_draft_saves_inherits_and_stays_out_of_shopify(core, monkeypatch):
+    from app.storefront_customisations import public_configuration
+    from app.taxonomy_assignments import product_document
+
+    monkeypatch.setattr('app.shopify_connection.ShopifyAdapter._transport',
+                        lambda *a, **kw: pytest.fail('Local authoring called Shopify'))
+    app, client, root, _, ids, starts, _ = core
+    blue, green = 'Simple Collection/Blue Token', 'Simple Collection/Green Token'
+    baseline = {'storefront_enabled': True, 'fields': {'name': {'type': 'text', 'label': 'Name'}}}
+    upload = {'type': 'photo', 'label': 'Reference photo', 'help_text': 'Use a clear image.',
+              'enabled': False, 'required': True, 'max_files': 1, 'max_file_size_bytes': 10_000_000,
+              'allowed_media_categories': ['image'], 'allowed_extensions': ['.jpg', '.jpeg', '.png', '.webp']}
+    shared = copy.deepcopy(baseline)
+    shared['fields']['reference_photo'] = upload
+    assert save(core, blue, kind='shared', data={'customisation': shared}).status_code == 200
+    local = {**upload, 'label': 'Optional second image', 'required': False}
+    assert save(core, blue, data={'customisation': {'fields': {'second_image': local}}}).status_code == 200
+    assert len(starts) == 2
+    assert json.loads((root/'Simple Collection/product_info.json').read_text())['customisation'] == shared
+    assert json.loads((root/blue/'product_info.json').read_text())['customisation']['fields'] == {'second_image': local}
+    assert 'reference_photo' in client.get(f'/edit_products/{ids[blue]}/edit/shared').text
+    with app.app_context():
+        for name in (blue, green):
+            effective = product_document(db.session.get(Product, ids[name]))['customisation']
+            assert effective['fields']['reference_photo']['required']
+            assert ('second_image' in effective['fields']) == (name == blue)
+            assert public_configuration(effective) == public_configuration(baseline)
+            effective['fields']['reference_photo']['enabled'] = True
+            with pytest.raises(ValueError, match='secure upload'):
+                public_configuration(effective)
+
+
 @pytest.mark.parametrize('patch', [
     {'type':'text','min_length':40,'max_length':30}, {'type':'text','max_length':0},
     {'type':'text','max_length':'30'}, {'type':'number','minimum':10,'maximum':1},

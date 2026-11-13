@@ -1,7 +1,7 @@
 """Session/admin protected local reads; the only POST queues read-only import."""
 import json
 import re
-from flask import Blueprint, abort, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, Response, abort, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
 from flask_wtf import FlaskForm
 from app import db
@@ -59,6 +59,26 @@ def sync_now():
     enqueue(ORDERS_KEY,manual=True,orders_rescan=request.form.get('rescan')=='recent')
     flash('Read-only Orders sync queued. Import continues even if this page closes.','info')
     return redirect(url_for('orders.index'))
+
+
+@orders.get('/<int:order_id>/lines/<int:line_id>/photo/<field>')
+def customer_photo(order_id, line_id, field):
+    from app import customer_photos as photos
+    from app.models import ShopifyOrderLine
+    line=db.session.get(ShopifyOrderLine,line_id)
+    if not photos.ID.fullmatch(field) or not line or line.order_id!=order_id or line.order.redacted_at:
+        abort(404)
+    personal=json.loads(line.personalisation_json)
+    ref=photos.references(personal).get(field,'')
+    if not photos.REF.fullmatch(ref) or ref not in personal.get('photo_verified',[]):
+        abort(404)
+    try: stored=photos.download(line.order,line,ref)
+    except photos.Unavailable: abort(503,'Private photo storage is unavailable.')
+    if stored is None: abort(404)
+    data,mime=stored
+    return Response(data,mimetype=mime,headers={
+        'Content-Disposition':'attachment; filename="customer-photo.'+photos.MIMES[mime]+'"',
+        'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'})
 
 
 @orders.get('/status')

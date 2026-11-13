@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {webcrypto,createHash} from 'node:crypto';
 
 const path = '../../shopify/src/tlc-customer-fields.js';
 const source = fs.readFileSync(new URL(path,import.meta.url),'utf8');
 const runtime = fs.readFileSync(new URL('../../shopify/extensions/tlc-customisations/assets/tlc-customer-fields.js',import.meta.url),'utf8');
-const context = vm.createContext({console,URL});vm.runInContext(runtime,context);
+const context = vm.createContext({console,URL,crypto:webcrypto,TextEncoder});vm.runInContext(runtime,context);
 const api = context.TLCStorefrontCustomisations;
 const plain = value => JSON.parse(JSON.stringify(value));
 test('theme extension contains only Shopify-supported deployable directories',()=>{
@@ -144,6 +145,101 @@ test('disabled definitions add no properties; unsupported required files fail cl
   assert.throws(()=>api.properties(configuration([{id:'photo',label:'Photo',type:'file_upload',required:true}]),100,{}),/unsupported/);
   assert.throws(()=>api.properties(configuration([name,name]),100,{}),/unsupported/);
 });
+
+const photo={id:'photo',label:'Photo',type:'file_upload',required:true,max_bytes:10_000_000,
+  image_types:['image/jpeg','image/png','image/webp']};
+const photos=field=>({...configuration([name,field]),photo_upload:{origin:'https://photos.example.test',path:'/apps/tlc-customer-uploads'}});
+const ref=n=>'tlcp1_'+n.repeat(64);
+
+test('required photo blocks without a confirmed reference; optional is empty; same variant lines differ privately',()=>{
+  assert.throws(()=>api.properties(photos(photo),100,{name:'Pip'}),/complete/);
+  assert.throws(()=>api.properties(photos(photo),100,{name:'Pip',photo:'pending'}),/finish/);
+  assert.ok(!('Photo' in api.properties(photos({...photo,required:false}),100,{name:'Pip'})));
+  const a=api.properties(photos(photo),100,{name:'Pip',photo:ref('b')});
+  const b=api.properties(photos(photo),100,{name:'Pip',photo:ref('c')});
+  assert.equal(a.Photo,'Reference photo supplied');assert.equal(a.Name,'Pip');assert.equal(a.Photo,b.Photo);
+  assert.equal(JSON.parse(a._tlc_personalisation).fields[1].value,ref('b'));
+  assert.notEqual(a._tlc_personalisation,b._tlc_personalisation);
+  assert.ok(Object.entries(a).every(([k,v])=>k.startsWith('_')||!v.includes(ref('b'))));
+  assert.match(api.photoSelection(photo,{type:'image/svg+xml',size:40}),/valid JPEG/);
+  assert.match(api.photoSelection(photo,{type:'image/png',size:10_000_001}),/exceeds/);
+  assert.equal(api.photoSelection(photo,{type:'image/webp',size:1}), '');
+});
+
+test('guest cart bootstrap and signed intent never send raw cart token or file to the proxy',async()=>{
+  const calls=[], token='fictional-cart-33?key=private';
+  const ticket='e30=.'+'a'.repeat(64), file={type:'image/png',size:1};
+  const fake=(status,payload)=>({status,ok:status<300,json:async()=>payload});
+  const send=async (url,init)=>{
+    calls.push([url,init]);
+    if(url.endsWith('cart.js'))return fake(200,{token:null});
+    if(url.endsWith('update.js'))return fake(200,{token});
+    if(url.startsWith('/apps/'))return fake(200,{ticket});
+    return fake(201,{ref:ref('b')});
+  };
+  const signal=new AbortController().signal;
+  assert.equal(await api.uploadPhoto(photos(photo),photo,'100','200',file,signal,send),ref('b'));
+  assert.equal(calls[1][1].body,'{}');
+  const [url,grant]=calls[2];
+  assert.ok(url.endsWith(createHash('sha256').update(grant.body).digest('hex')));
+  assert.ok(!grant.body.includes('fictional-cart')&&!grant.body.includes('private'));
+  const {cart,product,variant,field}=JSON.parse(grant.body);
+  assert.deepEqual({cart,product,variant,field},{
+    cart:createHash('sha256').update('fictional-cart-33').digest('hex'),product:'100',variant:'200',field:'photo'});
+  assert.equal(calls[3][1].body,file);assert.equal(calls[3][1].credentials,'omit');
+  for(const failure of [503,409,200]){
+    await assert.rejects(api.uploadPhoto(photos(photo),photo,'100','200',file,signal,
+      (u,i)=>u.endsWith('/upload')?fake(failure,{ref:ref('b')}):send(u,i)));
+  }
+});
+
+test('photo controls preview, block pending and failed uploads, and discard replaced selections',async()=>{
+  let Component, issued, revoked=[];
+  class Node {
+    constructor(tag){this.tagName=tag.toUpperCase();this.events={};this.attrs={};this.validity={};this.classList={add(){}};}
+    setAttribute(k,v){this.attrs[k]=v;}
+    getAttribute(k){return this.attrs[k];}
+    removeAttribute(k){delete this[k];}
+    addEventListener(k,fn){this.events[k]=fn;}
+    append(...children){this.children=children;}
+    setCustomValidity(message){this.message=message;}
+    focus(){}
+  }
+  const fake=(status,payload)=>({status,ok:status<300,json:async()=>payload});
+  const local=vm.createContext({crypto:webcrypto,TextEncoder,AbortController,setTimeout,clearTimeout,
+    HTMLElement:class {},customElements:{get(){},define(_,cls){Component=cls;}},
+    document:{createElement:tag=>new Node(tag)},Image:class {async decode(){}},
+    URL:{createObjectURL:file=>'blob:'+file.name,revokeObjectURL:url=>revoked.push(url)},
+    fetch:(url,init)=>{
+      if(url.endsWith('cart.js'))return fake(200,{token:'fictional-cart-33?key=secret'});
+      if(url.startsWith('/apps/'))return fake(200,{ticket:'e30=.'+'a'.repeat(64)});
+      return new Promise(resolve=>{issued={resolve,signal:init.signal};});
+    }});
+  vm.runInContext(runtime,local);
+  const element=new Component(), wrap=new Node('div');
+  Object.assign(element,{config:{...photos(photo),fields:[photo]},dataset:{productId:'100'},
+    answers:{},controls:new Map(),variant:()=> '200',sync(){this.valid=this.validate(false);},status:{}});
+  const picker=element.photoControl(photo,wrap,'photo',new Node('label'));
+  element.controls.set(photo.id,[picker]);element.sync();assert.equal(element.valid,false);
+  const [,preview,remove]=wrap.children;
+  picker.files=[{name:'one',type:'image/png',size:12}];
+  const first=picker.events.change();
+  assert.equal(preview.src,'blob:one');
+  assert.equal(element.valid,false);
+  while(!issued)await new Promise(resolve=>setTimeout(resolve,1));
+  const old=issued;issued=null;
+  picker.files=[{name:'two',type:'image/png',size:12}];
+  const second=picker.events.change();
+  assert.equal(preview.src,'blob:two');assert.equal(old.signal.aborted,true);
+  old.resolve(fake(201,{ref:ref('b')}));await first;
+  while(!issued)await new Promise(resolve=>setTimeout(resolve,1));
+  issued.resolve(fake(503,{}));await second;
+  assert.equal(element.valid,false);assert.match(picker.message,/failed/);
+  assert.equal(element.answers.photo,undefined);
+  remove.events.click();assert.equal(preview.hidden,true);assert.deepEqual(revoked,['blob:one','blob:two']);
+  element.config={...photos({...photo,required:false}),fields:[{...photo,required:false}]};
+  element.sync();assert.equal(element.valid,true);
+});
 test('readable duplicate labels preserve every answer and private stable identity',()=>{
   const fields=[name,{id:'other_name',type:'text',label:'Name'},{id:'third',type:'text',label:'Name (2)'},
     {id:'private_label',type:'text',label:'_tlc_configuration'}];
@@ -152,12 +248,13 @@ test('readable duplicate labels preserve every answer and private stable identit
   assert.equal(result['Answer _tlc_configuration'],'Visible');assert.equal(result._tlc_configuration,'a'.repeat(64));
   assert.deepEqual(JSON.parse(result._tlc_personalisation).fields.map(f=>f.id),fields.map(f=>f.id));
 });
-test('renderer preserves native theme variant/cart and supports formdata lifecycle without a proxy',()=>{
+test('renderer preserves native variant selection, Add to Cart and the FormData lifecycle',()=>{
   assert.match(source,/guardTarget\.addEventListener\('submit',this.submit,true\)/);
   assert.match(source,/event\.target !== this\.form/);
   assert.match(source,/guardTarget\?\.removeEventListener\('submit',this.submit,true\)/);
   assert.match(source,/formdata/);assert.match(source,/setAttribute\('form',this.form.getAttribute\('id'\)\)/);
   assert.doesNotMatch(source,/\bform\.id\b[^\n]*\)/);
   assert.match(source,/disconnectedCallback\(\)/);assert.match(source,/MutationObserver/);
-  assert.doesNotMatch(source,/fetch\(|XMLHttpRequest|\/cart\/change|\.value\s*=.*variant|type=['"]file/);
+  assert.doesNotMatch(source,/XMLHttpRequest|\/cart\/(add|change)\.js|\.value\s*=.*variant/);
+  assert.match(source,/if\(f.type==='file_upload'\)inputs.push\(this.photoControl/);
 });

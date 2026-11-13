@@ -22,4 +22,5 @@ DETAIL = '''query TLCOrderRead($id: ID!, $after: String) { order(id: $id) {
  ''' + '\n'.join(k+' { '+MONEY+' }' for k in LINE_MONEY) + '''
  } pageInfo { hasNextPage endCursor } }
 } }'''
-READ_QUERIES = frozenset((INDEX, DETAIL, REVISION))
+DETAIL_WITH_CART = DETAIL.replace('updatedAt test','updatedAt cartToken test')
+READ_QUERIES = frozenset((INDEX, DETAIL, DETAIL_WITH_CART, REVISION))

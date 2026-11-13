@@ -410,6 +410,12 @@ per-line choices; see [PROOF_CUSTOMISATIONS.md](PROOF_CUSTOMISATIONS.md). Proof
 delivery, approval links/emails and production automation remain unimplemented.
 No theme/menu/collection/variant creation is performed by the scoped config action.
 
+### Reference photographs
+
+The optional [private Cloudflare R2 photo integration](CUSTOMER_PHOTOS.md) is
+separately configured and tested before any customer-facing activation. It does
+not use Shopify Files or native CDN uploads.
+
 ## Disable and rollback
 
 On the draft theme remove/disable the app block (or revert the saved draft template).

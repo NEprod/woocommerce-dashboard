@@ -24,3 +24,7 @@ class Config:
     SHOPIFY_ORDERS_WEBHOOK_SECRET = os.getenv('SHOPIFY_ORDERS_WEBHOOK_SECRET','')
     SHOPIFY_ORDERS_WEBHOOK_DOMAIN = os.getenv('SHOPIFY_ORDERS_WEBHOOK_DOMAIN','')
     SHOPIFY_ORDERS_WEBHOOK_STORE_ID = os.getenv('SHOPIFY_ORDERS_WEBHOOK_STORE_ID','')
+    # Optional private photo Worker. Absence is the default, not a public fallback.
+    TLC_PHOTO_WORKER_URL = os.getenv('TLC_PHOTO_WORKER_URL','')
+    TLC_PHOTO_WORKER_TOKEN = os.getenv('TLC_PHOTO_WORKER_TOKEN','')
+    TLC_PHOTO_PROXY_PATH = os.getenv('TLC_PHOTO_PROXY_PATH','')

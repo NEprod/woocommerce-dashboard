@@ -88,8 +88,9 @@ def line_view(line):
     properties=json.loads(line.properties_json)
     parsed=(parse(properties, line.product_id) if any(p['key']=='Production time' for p in properties)
             else json.loads(line.personalisation_json))
+    photo_verified=set(json.loads(line.personalisation_json).get('photo_verified',[]))
     return {'row':line,'personalisation':parsed,'money':json.loads(line.money_json),
-            'properties':properties}
+            'properties':properties,'photo_verified':photo_verified}
 
 
 def overview(*, include_test=False, as_of=None):

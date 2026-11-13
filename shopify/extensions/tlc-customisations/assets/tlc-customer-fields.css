@@ -12,3 +12,6 @@ tlc-customer-fields small { font-size:.875em; }
 tlc-customer-fields [data-tlc-status]:empty { display:none; }
 tlc-customer-fields .tlc-production-time { display:flex; align-items:center; gap:.5rem; margin-block:.75rem 0; overflow-wrap:anywhere; }
 tlc-customer-fields .tlc-production-time svg { flex:none; }
+tlc-customer-fields .tlc-photo input, tlc-customer-fields .tlc-photo button { min-height:44px; }
+tlc-customer-fields .tlc-photo img { max-width:min(100%, 10rem); max-height:10rem; object-fit:contain; }
+tlc-customer-fields .tlc-photo button { justify-self:start; }

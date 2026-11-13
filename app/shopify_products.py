@@ -96,7 +96,8 @@ def source_fingerprint(product, images):
         data['no_eu_standardized_identifier'] = authored['no_eu_standardized_identifier']
     customisation = authored.get('customisation') or {}
     if 'storefront_enabled' in customisation:
-        data['storefront_configuration'] = public_configuration(customisation)
+        from app.customer_photos import settings as photo_settings
+        data['storefront_configuration'] = public_configuration(customisation, photo_upload=photo_settings()[0])
     data['publication_intent'] = intent(authored, required=False)
     if data['publication_intent']['status'] == 'ACTIVE' and 'shopify_market_ids' in authored:
         from app.shopify_markets import selected

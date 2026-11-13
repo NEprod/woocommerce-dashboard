@@ -34,6 +34,34 @@ test('existing modal loads identity, label, type, both booleans, help, constrain
   assert.equal(d.inputs.help_text.value,'Check spelling');assert.equal(d.inputs.max_length.value,30);assert.equal(d.defaultState.value,'Example');
   assert.equal(d.inputs.required.className,'customisation-boolean');assert.notEqual(d.inputs.required.className,'form-control');
 });
+for (const required of [true, false]) test(`Image Upload drafts use the existing editor and preserve required=${required}`,()=>{
+  const {designer:d}=fixture();
+  d.edit();
+  assert.ok(d.inputs.type.options.some(({label,value})=>value==='photo'&&label==='Image Upload'));
+  d.inputs.type.value='photo';d.inputs.type.emit('change');
+  d.inputs.id.value='reference_photo';d.inputs.label.value='Reference photo';
+  d.inputs.help_text.value='Choose a clear photo.';d.inputs.required.checked=required;
+  d.applyField();
+  assert.deepEqual(plain(d.get().fields.reference_photo),{
+    type:'photo',label:'Reference photo',help_text:'Choose a clear photo.',order:1,
+    enabled:false,...(required?{required:true}:{}),allowed_media_categories:['image'],
+    allowed_extensions:['.jpg','.jpeg','.png','.webp'],max_file_size_bytes:10_000_000,max_files:1
+  });
+  d.edit('reference_photo');
+  assert.equal(d.inputs.required.checked,required);
+  assert.equal(d.inputs.enabled.checked,false);
+  assert.equal(d.inputs.max_file_size_bytes.value,10_000_000);
+  assert.equal(d.inputs.help_text.value,'Choose a clear photo.');
+});
+
+test('opening legacy document upload definitions does not convert them to images',()=>{
+  const field={type:'file_upload',label:'Old definition',allowed_media_categories:['document'],allowed_extensions:['.pdf'],max_files:2};
+  const {designer:d,changes}=fixture({field});
+  d.applyField();
+  assert.equal(changes(),0);
+  assert.deepEqual(plain(d.get().fields.name_on_card),field);
+});
+
 for(const [enabled,required]of [[true,true],[true,false],[false,false],[false,true]])test(`independent booleans round-trip enabled=${enabled}, required=${required}`,()=>{
   const {designer:d}=fixture();d.inputs.enabled.checked=enabled;d.inputs.required.checked=required;d.applyField();
   const result=d.effective().fields.name_on_card;assert.equal(result.enabled,enabled);assert.equal(result.required,required);assert.equal(result.label,'Name');

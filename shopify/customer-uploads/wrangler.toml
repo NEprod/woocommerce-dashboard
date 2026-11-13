@@ -1,0 +1,28 @@
+name = "tlc-customer-uploads"
+main = "worker.mjs"
+compatibility_date = "2026-07-01"
+preview_urls = false
+
+[observability]
+enabled = false
+
+[[r2_buckets]]
+binding = "TLC_UPLOADS"
+bucket_name = "tlc-customer-uploads"
+
+[[ratelimits]]
+name = "UPLOAD_RATE"
+namespace_id = "48291"
+simple = {limit = 12, period = 60}
+
+[vars]
+SHOP_DOMAIN = ""
+SHOP_ID = ""
+SHOPIFY_CLIENT_ID = ""
+STOREFRONT_ORIGIN = ""
+PROXY_PATH = "/apps/tlc-customer-uploads"
+ABANDONED_DAYS = "30"
+ORDER_PHOTO_DAYS = "90"
+
+[triggers]
+crons = ["17 * * * *"]

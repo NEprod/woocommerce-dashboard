@@ -78,7 +78,7 @@ def adapt(raw,topic):
     status=raw['fulfillment_status']
     mapping={None:'UNFULFILLED','fulfilled':'FULFILLED','partial':'PARTIALLY_FULFILLED','restocked':'RESTOCKED'}
     if status not in mapping:raise ShopifyError('Webhook fulfilment status is unsupported.')
-    result={'id':identity(raw,'Order'),'name':raw['name'],'createdAt':raw['created_at'],'updatedAt':raw['updated_at'],
+    result={'id':identity(raw,'Order'),'name':raw['name'],'createdAt':raw['created_at'],'updatedAt':raw['updated_at'],'cartToken':raw.get('cart_token'),
         'test':raw['test'],'currencyCode':raw['currency'],'displayFinancialStatus':raw['financial_status'].upper(),
         'displayFulfillmentStatus':mapping[status],'cancelledAt':raw['cancelled_at'],
         'cancelReason':raw['cancel_reason'].upper() if raw['cancel_reason'] else None,

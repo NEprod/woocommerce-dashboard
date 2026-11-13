@@ -15,7 +15,7 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False)
 
 
-def public_configuration(definition):
+def public_configuration(definition, *, photo_upload=None):
     """Resolved template/inheritance input only. Unknown and operational keys never cross."""
     definition = definition or {}
     validate(definition, resolved=True)
@@ -31,9 +31,21 @@ def public_configuration(definition):
                 continue
             kind = TYPES[field['type']]
             if kind == 'file_upload':
-                raise CustomisationDefinitionError('Customer file/photo uploads require a verified secure upload service. Disable the upload field at its owner before reviewing storefront publication.')
+                if not photo_upload:
+                    raise CustomisationDefinitionError('Customer file/photo uploads require a configured secure upload service. Disable the upload field at its owner or configure private photo storage.')
+                if field.get('enabled') is not True:
+                    raise CustomisationDefinitionError('Explicitly enable this existing photo definition at its owner before publishing it.')
+                if (field.get('allowed_media_categories',['image']) != ['image']
+                        or not set(field.get('allowed_extensions',['.jpg','.jpeg','.png','.webp'])) <= {'.jpg','.jpeg','.png','.webp'}
+                        or field.get('max_files',1) != 1 or field.get('max_file_size_bytes',10_000_000)>10_000_000):
+                    raise CustomisationDefinitionError('Private photo uploads accept one JPEG, PNG or WebP up to 10 MB. Correct this field at its owner.')
+                result['photo_upload'] = photo_upload
             public = {k: deepcopy(v) for k, v in field.items() if k in FIELD_KEYS}
             public.update(id=key, type=kind)
+            if kind == 'file_upload':
+                mimes = {'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp'}
+                public.update(max_bytes=field.get('max_file_size_bytes',10_000_000),
+                              image_types=sorted({mimes[x] for x in field.get('allowed_extensions',mimes)}))
             if 'choices' in field:
                 public['choices'] = [({'id': c, 'label': c, **({'value': c} if kind == 'colour' else {})}
                     if isinstance(c, str) else {k: c[k] for k in ('id', 'label', 'value') if k in c})

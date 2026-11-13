@@ -82,11 +82,15 @@ def process(event_id,config,*,owner):
         if existing and existing.updated_at>=order['updated_at']:
             # Same revision can carry different completeness across topics. Never
             # let arrival order choose between conflicting snapshots.
-            same=all(getattr(existing,k)==v for k,v in order.items() if k!='api_version')
+            from app.customer_photos import comparable
+            same=all(getattr(existing,k)==v for k,v in order.items() if k not in {'api_version','_photo_cart'})
             previous=[l for l in existing.lines if l.is_current]
             same=same and len(previous)==len(lines) and all(
-                all(getattr(a,k)==v for k,v in b.items()) for a,b in zip(previous,lines))
+                all((comparable(getattr(a,k))==comparable(v) if k=='personalisation_json'
+                     else getattr(a,k)==v) for k,v in b.items()) for a,b in zip(previous,lines))
             event.state='stale' if existing.updated_at>order['updated_at'] else 'applied' if same else 'incomplete'
+            if same and event.state=='applied' and order.get('_photo_cart') and not existing.redacted_at:
+                persist(event.store_id,order,lines,fence=lambda:fence(owner))
             if event.state=='incomplete':event.error='Conflicting same-revision event; use Sync Now. Saved snapshot preserved.'
         else:
             persist(event.store_id,order,lines,fence=lambda:fence(owner));event.state='applied'

@@ -1,7 +1,13 @@
-/* Shopify-hosted. No Dashboard requests, file uploads, secrets, pricing or cart replacement. */
+/* Shopify-hosted. Only the optional private photo Worker receives file bytes. */
 (() => {
   'use strict';
-  const kinds = new Set(['text','textarea','number','dropdown','radio','checkbox','checkbox_group','date','colour']);
+  const kinds = new Set(['text','textarea','number','dropdown','radio','checkbox','checkbox_group','date','colour','file_upload']);
+  const photoRef = /^tlcp1_[a-f0-9]{64}$/;
+  const photoMimes = ['image/jpeg','image/png','image/webp'];
+  const hex = bytes => Array.from(new Uint8Array(bytes), b=>b.toString(16).padStart(2,'0')).join('');
+  const sha = async value => hex(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)));
+  const photoConfig = p => p && /^https:\/\/[a-z0-9][a-z0-9.-]*$/.test(p.origin)
+    && /^\/(apps|a|community|tools)\/[a-z0-9-]+$/.test(p.path);
   const idPattern = /^[a-z][a-z0-9_]{0,63}$/;
   const proofText = {yes:'Yes, send me a proof for approval.',no:'No, proceed without a proof.',required:'Proof Required'};
   const proofMode = config => config?.enabled ? config.proof_policy ?? 'none' : 'none';
@@ -14,6 +20,9 @@
       if (!idPattern.test(f.id) || seen.has(f.id) || !kinds.has(f.type) || typeof f.label !== 'string' || !f.label.trim()) throw Error('Invalid or unsupported customer field. Please contact us before ordering.');
       seen.add(f.id);
       if (['dropdown','radio','checkbox_group'].includes(f.type) && !f.choices?.length) throw Error('Customer choices are unavailable.');
+      if (f.type==='file_upload' && (!photoConfig(value.photo_upload) || !Number.isInteger(f.max_bytes)
+          || f.max_bytes<1 || f.max_bytes>10_000_000 || !Array.isArray(f.image_types) || !f.image_types.length
+          || f.image_types.some(t=>!photoMimes.includes(t)))) throw Error('Invalid or unsupported photo upload settings. Contact us before ordering.');
     }
     if (!['none','optional','required'].includes(value.proof_policy ?? 'none')) throw Error('Digital proof settings are unavailable.');
     if (value.enabled && !value.fields.length && proofMode(value)==='none') throw Error('Customer fields are unavailable.');
@@ -21,7 +30,9 @@
   }
   function error(f, value) {
     if (empty(value)) return f.required ? 'Please complete this field.' : null;
-    if (['text','textarea'].includes(f.type)) {
+    if (f.type==='file_upload') {
+      if(typeof value!=='string' || !photoRef.test(value))return 'Wait for the photo upload to finish.';
+    } else if (['text','textarea'].includes(f.type)) {
       if (typeof value !== 'string') return 'Enter text.';
       if ([...value].length < (f.min_length ?? 0) || [...value].length > (f.max_length ?? Infinity)) return 'Please check the text length.';
     } else if (f.type === 'number') {
@@ -51,7 +62,8 @@
       if (problem) throw Error(`${field.label}: ${problem}`);
       if (empty(value)) continue;
       const label = v => field.choices?.find(c => c.id === v || c.value === v)?.label ?? v;
-      const readable = Array.isArray(value) ? value.map(label).join(', ') : value === true ? 'Yes' : label(value);
+      const readable = field.type==='file_upload' ? 'Reference photo supplied'
+        : Array.isArray(value) ? value.map(label).join(', ') : value === true ? 'Yes' : label(value);
       // Visible values are entity-encoded: Horizon's current cart renders them
       // without explicit Liquid escaping. Raw typed answers stay in private data.
       const labelText = htmlText(field.label).replace(/[\[\]]/g,' ').trim() || 'Customisation';
@@ -77,7 +89,48 @@
       visible_encoding:'html_entities',fields:snapshot,...(proof?{proof}:{})});
     return result;
   }
-  const api = {configuration,error,properties};
+  function photoSelection(f,file) {
+    if (!f.image_types.includes(file.type) || !file.size) return 'Choose a valid JPEG, PNG or WebP image.';
+    if (file.size>f.max_bytes) return `This photo exceeds the file limit (${f.max_bytes/1_000_000} MB).`;
+    return '';
+  }
+  function decodePreview(url) {
+    const image=new Image();
+    image.src=url;
+    return image.decode();
+  }
+  async function uploadPhoto(config, field, product, variant, file, signal, send=fetch) {
+    const root=globalThis.Shopify?.routes?.root || '/';
+    const response=await send(root+'cart.js',
+      {credentials:'same-origin',signal,cache:'no-store',redirect:'error'});
+    if(!response.ok)throw Error();
+    let {token}=await response.json();
+    // An empty guest may not have a persisted Shopify cart. Initialise it
+    // without adding a dummy item or changing cart properties or quantities.
+    if(typeof token!=='string'||!token.includes('?key=')){
+      const init=await send(root+'cart/update.js',{method:'POST',credentials:'same-origin',signal,
+        headers:{'Content-Type':'application/json'},body:'{}',redirect:'error'});
+      if(!init.ok)throw Error();
+      ({token}=await init.json());
+    }
+    const cart=typeof token==='string'&&token.includes('?key=')?token.split('?key=',1)[0]:'';
+    if(!/^[!-~]{16,512}$/.test(cart)||cart.includes('?'))throw Error();
+    const body=JSON.stringify({product,variant,field:field.id,revision:config.revision,cart:await sha(cart),
+      nonce:hex(crypto.getRandomValues(new Uint8Array(16)))});
+    const grant=await send(config.photo_upload.path+'?intent='+await sha(body),{
+      method:'POST',credentials:'same-origin',cache:'no-store',redirect:'error',signal,body,
+      headers:{'Content-Type':'application/json'}});
+    if(!grant.ok)throw Error();
+    const {ticket}=await grant.json();
+    if(typeof ticket!=='string'||!/^[a-zA-Z0-9+/=]{1,1500}\.[a-f0-9]{64}$/.test(ticket))throw Error();
+    const stored=await send(config.photo_upload.origin+'/upload',{method:'POST',mode:'cors',credentials:'omit',
+      cache:'no-store',redirect:'error',signal,body:file,headers:{Authorization:'Bearer '+ticket,'Content-Type':file.type}});
+    if(stored.status!==201)throw Error();
+    const {ref}=await stored.json();
+    if(!photoRef.test(ref))throw Error();
+    return ref;
+  }
+  const api = {configuration,error,properties,photoSelection,uploadPhoto};
   globalThis.TLCStorefrontCustomisations = api;
   if (!globalThis.customElements || customElements.get('tlc-customer-fields')) return;
   const owners = new WeakMap();
@@ -99,7 +152,7 @@
         this.observer.observe(section,{childList:true,subtree:true});
       } catch (exc) {this.status.textContent=exc.message;this.blockReason=exc.message;this.bind();}
     }
-    disconnectedCallback() {this.observer?.disconnect();this.unbind();this.connected=false;}
+    disconnectedCallback() {this.observer?.disconnect();this.clearPhotos();this.unbind();this.connected=false;}
     bind() {
       if (this.form) return;
       const form = document.getElementById(this.dataset.formId);
@@ -128,7 +181,7 @@
         for (const input of this.propertyInputs) event.formData.delete(input.name);
         if (this.validate(false)) for (const [key,value] of Object.entries(this.values())) event.formData.set(`properties[${key}]`,value);
       };
-      this.reset = event => queueMicrotask(()=>{if(event.defaultPrevented || !this.isConnected)return;this.answers=Object.create(null);this.proofChoice='';if(this.config?.enabled)this.render();this.associate();this.sync();});
+      this.reset = event => queueMicrotask(()=>{if(event.defaultPrevented || !this.isConnected)return;this.clearPhotos();this.answers=Object.create(null);this.proofChoice='';if(this.config?.enabled)this.render();if(this.form)this.associate();this.sync();});
       this.guardTarget = this.ownerDocument.defaultView;
       this.guardTarget.addEventListener('submit',this.submit,true);
       form.addEventListener('formdata',this.formdata);form.addEventListener('reset',this.reset);
@@ -168,8 +221,10 @@
       let first;
       for (const f of this.config?.enabled ? this.config.fields : []) {
         const inputs=this.controls.get(f.id) || [], input=inputs[0];
-        if (input) this.answers[f.id]=f.type==='radio'?inputs.find(i=>i.checked)?.value || '':f.type==='checkbox_group'?inputs.filter(i=>i.checked).map(i=>i.value):f.type==='checkbox'?input.checked:f.type==='number'?(input.value===''?'':Number(input.value)):input.value;
-        const message=error(f,this.answers[f.id]) || (input?.validity.badInput ? 'Please enter a valid value.' : null);
+        if (input && f.type!=='file_upload') this.answers[f.id]=f.type==='radio'?inputs.find(i=>i.checked)?.value || '':f.type==='checkbox_group'?inputs.filter(i=>i.checked).map(i=>i.value):f.type==='checkbox'?input.checked:f.type==='number'?(input.value===''?'':Number(input.value)):input.value;
+        const photo=this.photos?.get(f.id);
+        const message=(photo && (photo.message || photo.variant && photo.variant!==this.variant() && 'Variant changed. Re-select your photo.'))
+          || error(f,this.answers[f.id]) || (input?.validity.badInput ? 'Please enter a valid value.' : null);
         input?.setCustomValidity(message || '');
         if (input) input.setAttribute('aria-invalid',message?'true':'false');
         if (message && !first) first={input,message:`${f.label}: ${message}`};
@@ -185,6 +240,68 @@
       if(first && report){first.input?.reportValidity();first.input?.focus();}
       return !first;
     }
+    variant() {
+      const selected=this.form?.querySelector('[name="id"]')?.value;
+      return /^[1-9][0-9]{0,19}$/.test(selected||'') ? selected : '';
+    }
+    clearPhotos() {
+      for(const [id,p] of this.photos || []) {
+        p.controller.abort();
+        if(p.url)URL.revokeObjectURL(p.url);
+        delete this.answers[id];
+      }
+      this.photos=new Map();
+    }
+    photoControl(f,wrap,key,label) {
+      this.photos ||= new Map();
+      const input=document.createElement('input');input.type='file';input.id=key;
+      input.accept=f.image_types.join(',');label.htmlFor=key;
+      const preview=document.createElement('img');preview.alt='Preview of your reference photo';preview.hidden=true;
+      const notice=document.createElement('small');notice.id=key+'-photo-status';notice.setAttribute('role','status');
+      const remove=document.createElement('button');remove.type='button';remove.textContent='Remove photo';remove.hidden=true;
+      const clear=()=>{
+        const previous=this.photos.get(f.id);previous?.controller.abort();
+        if(previous?.url)URL.revokeObjectURL(previous.url);
+        this.photos.delete(f.id);delete this.answers[f.id];preview.removeAttribute('src');
+        preview.hidden=true;remove.hidden=true;notice.textContent='';
+      };
+      remove.addEventListener('click',()=>{clear();input.value='';this.sync();input.focus();});
+      input.addEventListener('change',async()=>{
+        const file=input.files?.[0];
+        if(!file)return; // A cancelled picker does not remove the previous photo.
+        clear();input.value='';remove.hidden=false;
+        const state={controller:new AbortController(),variant:this.variant(),message:photoSelection(f,file)};
+        this.photos.set(f.id,state);
+        if(!state.message && !state.variant)state.message='Choose a product variant first.';
+        if(state.message){notice.textContent=state.message;this.sync();return;}
+        state.url=URL.createObjectURL(file);preview.src=state.url;preview.hidden=false;
+        state.message='Uploading your photo…';notice.textContent=state.message;this.sync();
+        let timedOut=false;
+        const timer=setTimeout(()=>{timedOut=true;state.controller.abort();},35_000);
+        try {
+          try {await decodePreview(state.url);}
+          catch {
+            if(this.photos.get(f.id)!==state)return;
+            state.message='This image could not be opened. Choose a valid JPEG, PNG or WebP.';
+            notice.textContent=state.message;preview.hidden=true;
+            return;
+          }
+          if(this.photos.get(f.id)!==state)return;
+          const ref=await uploadPhoto(this.config,f,this.dataset.productId,state.variant,file,state.controller.signal);
+          if(this.photos.get(f.id)!==state)return;
+          this.answers[f.id]=ref;state.message='';notice.textContent='Photo uploaded. Choose another file to replace it.';
+        } catch {
+          if(this.photos.get(f.id)!==state)return;
+          state.message=timedOut?'Photo upload timed out. Select the photo to try again.':'Photo upload failed. Select the photo to try again.';
+          notice.textContent=state.message;
+        } finally {
+          clearTimeout(timer);if(this.photos.get(f.id)===state)this.sync();
+        }
+      });
+      input.setAttribute('aria-describedby',notice.id);
+      wrap.classList.add('tlc-photo');wrap.append(input,preview,remove,notice);
+      return input;
+    }
     render() {
       this.container.replaceChildren();
       for (const f of this.config.fields) {
@@ -196,7 +313,8 @@
         const value = this.answers[f.id] ?? f.default ?? (f.type==='checkbox'?false:f.type==='checkbox_group'?[]:'');
         this.answers[f.id]=value;
         const update=()=>this.sync();
-        if (group) for (const [index,c] of f.choices.entries()) {
+        if(f.type==='file_upload')inputs.push(this.photoControl(f,wrap,key,label));
+        else if (group) for (const [index,c] of f.choices.entries()) {
           const row=document.createElement('label'),input=document.createElement('input');
           input.type=f.type==='radio'?'radio':'checkbox';input.id=`${key}-${index}`;input.name=`tlc-ui-${key}`;input.value=c.id;
           input.checked=f.type==='radio'?value===c.id:Array.isArray(value)&&value.includes(c.id);
@@ -216,7 +334,7 @@
           if(f.required)input.required=true;
           wrap.append(input);inputs.push(input);
         }
-        if(f.help_text){const help=document.createElement('small');help.id=`${key}-help`;help.textContent=f.help_text;wrap.append(help);inputs.forEach(i=>i.setAttribute('aria-describedby',help.id));}
+        if(f.help_text){const help=document.createElement('small');help.id=`${key}-help`;help.textContent=f.help_text;wrap.append(help);inputs.forEach(i=>i.setAttribute('aria-describedby',[i.getAttribute('aria-describedby'),help.id].filter(Boolean).join(' ')));}
         inputs.forEach(i=>i.addEventListener('input',update));inputs.forEach(i=>i.addEventListener('change',update));
         this.controls.set(f.id,inputs);this.container.append(wrap);
       }

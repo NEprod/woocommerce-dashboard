@@ -2,7 +2,7 @@
 (function (global) {
   "use strict";
   const aliases = {text:"text",multiline:"textarea",textarea:"textarea",number:"number",choice:"dropdown",dropdown:"dropdown",radio:"radio",checkbox:"checkbox",checkbox_group:"checkbox_group",date:"date",colour:"colour",photo:"file_upload",file_upload:"file_upload"};
-  const types = {text:"Single-line text",multiline:"Multiline message",number:"Number",choice:"Dropdown",radio:"Radio selection",checkbox:"Checkbox",checkbox_group:"Checkbox group",date:"Date",colour:"Colour",photo:"File upload definition"};
+  const types = {text:"Single-line text",multiline:"Multiline message",number:"Number",choice:"Dropdown",radio:"Radio selection",checkbox:"Checkbox",checkbox_group:"Checkbox group",date:"Date",colour:"Colour",photo:"Image Upload"};
   const clone = value => value === undefined ? undefined : structuredClone(value);
   const order = definition => Object.entries(definition?.fields || {}).sort(([a,x],[b,y]) => (x.order || 0)-(y.order || 0) || a.localeCompare(b));
   function appendFields(inherited, local) {
@@ -221,7 +221,7 @@
         this.mediaInputs=[];for(const category of ['image','document']){
           const node=input(validation,'media_'+category,category==='image'?'Allow images':'Allow documents','checkbox',(field.allowed_media_categories||[]).includes(category));this.mediaInputs.push([category,node]);delete this.inputs['media_'+category];
         }
-        validation.append(element('p','File requirements only. No customer file can be selected or uploaded.','field-helper'));
+        validation.append(element('p','Customer uploads require the configured private photo service. Keep this field disabled until it is ready. No photo is selected or uploaded in the editor.','field-helper'));
       }
       this.optionValues=clone(field.choices||[]);this.newOptions=new WeakSet();this.defaultState={present:Object.hasOwn(field,'default'),value:clone(field.default)};
       if(['dropdown','radio','checkbox_group','colour'].includes(type)){
@@ -230,6 +230,9 @@
       if(type!=='file_upload'){this.defaultBox=group('Default');this.renderDefault();}
       select.addEventListener('change',()=>{
         const next=this.readInputs();next.type=select.value;for(const key of constraints)delete next[key];
+        if(next.type==='photo'){
+          Object.assign(next,{enabled:false,allowed_media_categories:['image'],allowed_extensions:['.jpg','.jpeg','.png','.webp'],max_file_size_bytes:10_000_000,max_files:1});
+        }
         this.buildInputs(next);this.root.querySelector('[data-custom-dialog-error]').textContent='Input type changed. Review its options, default and validation before applying.';
       });
       this.root.querySelector('[data-custom-field-source]').textContent=(this.editID?`Field ${this.editID}. `:'Choose a unique field ID. ')+ 'Field IDs identify customer answers and remain stable after creation. You are editing only this layer’s local field; inherited fields remain unchanged.';

@@ -16,6 +16,7 @@ from app.models import ShopifyOrder, ShopifyOrderLine, ShopifyOrderSync, Schedul
 from app.shopify_connection import ShopifyAdapter, ShopifyError, _gid, _cursor
 from app import order_queries as queries
 from app.order_personalisation import parse
+from app import customer_photos
 
 KEY = 'shopify_orders'
 DEFINITION = {'name':'Shopify Orders Reconciliation',
@@ -155,15 +156,18 @@ def normalise(raw, *, api_version):
         'currency':currency,'total':Decimal(money['currentTotalPriceSet']['shopMoney']['amount']),
         'money_json':dumps(money),'shipping_json':dumps(shipping),
         'quantity':sum(l['current_quantity'] for l in rows),'outstanding_quantity':sum(l['unfulfilled_quantity'] for l in rows),
-        'personalised':any(l['personalised'] for l in rows)},rows
+        'personalised':any(l['personalised'] for l in rows),
+        **({'_photo_cart':customer_photos.cart_digest(raw.get('cartToken'))} if any(
+            customer_photos.references(json.loads(l['personalisation_json'])) for l in rows) else {})},rows
 
 
 def read_order(adapter, config, remote_id):
     """Authorised startup/manual read only; webhook processing never calls this."""
     _gid(remote_id,'Order')
     after, version, raw, lines = None,None,None,[]
+    query = queries.DETAIL_WITH_CART if config.api_version >= '2026-07' and customer_photos.settings()[0] else queries.DETAIL
     for _ in range(40):
-        page = adapter._read(config,queries.DETAIL,{'id':remote_id,'after':after}).get('order')
+        page = adapter._read(config,query,{'id':remote_id,'after':after}).get('order')
         if not isinstance(page,dict) or page.get('id')!=remote_id:
             raise ShopifyError('Order is missing or inaccessible. Retained data is unchanged; absence is not deletion.')
         if version is not None and page.get('updatedAt')!=version:
@@ -188,7 +192,7 @@ def persist(store_id, order, lines, *, fence=lambda:None, observed_before=None, 
     fence()
     # A conditional UPSERT also fences independent targeted imports. Never let an
     # older in-flight response replace newer commerce or customer snapshot data.
-    values = {**order,'store_id':store_id,'synced_at':now()}
+    values = {**{k:v for k,v in order.items() if k!='_photo_cart'},'store_id':store_id,'synced_at':now()}
     table = ShopifyOrder.__table__
     existing = db.session.execute(select(table).where(
         table.c.store_id==store_id,table.c.remote_id==order['remote_id'])).first()
@@ -196,9 +200,17 @@ def persist(store_id, order, lines, *, fence=lambda:None, observed_before=None, 
                      existing.synced_at>observed_before and existing.updated_at>=order['updated_at']):
         if outcome is not None: outcome['result']='stale'
         return False
+    if '_photo_cart' in order and not (existing and existing.redacted_at):
+        from sqlalchemy import or_
+        ids=[line['remote_id'] for line in lines]
+        previous=ShopifyOrderLine.query.filter(or_(ShopifyOrderLine.remote_id.in_(ids),
+            ShopifyOrderLine.order_id==existing.id if existing else db.false())).all()
+        if any(line.remote_id in ids and (not existing or line.order_id!=existing.id) for line in previous):
+            raise ShopifyError('Line identity already belongs to another order; import rejected.')
+        lines = customer_photos.bind_order(store_id,order,lines,previous)
     if outcome is not None:
         outcome['result']='created' if existing is None else 'updated' if any(
-            getattr(existing,k)!=v for k,v in order.items()) else 'unchanged'
+            getattr(existing,k)!=v for k,v in order.items() if k!='_photo_cart') else 'unchanged'
         if existing and outcome['result']=='unchanged':
             previous=ShopifyOrderLine.query.filter_by(order_id=existing.id,is_current=True).order_by(ShopifyOrderLine.position).all()
             if len(previous)!=len(lines) or any(any(getattr(a,k)!=v for k,v in b.items()) for a,b in zip(previous,lines)):

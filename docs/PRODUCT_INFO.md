@@ -52,8 +52,8 @@ omitted from public projection. No second authored definition file is introduced
 Only supported, enabled public fields/choices/constraints/defaults are exported.
 Unknown keys, proof policy, template IDs/revisions, private notes and source paths
 are excluded. Customer help/labels are intentionally public: never enter secrets there.
-Enabled photo/file fields block storefront configuration publication until a complete
-secure upload flow exists, including optional uploads; exclude or disable them for
+Enabled photo/file fields block storefront configuration publication until the
+private photo service is configured and healthy; exclude or disable them for
 the pilot. Disabling storefront intent publishes a reviewed disabled configuration,
 not a deletion. Saving JSON neither publishes nor changes Shopify/theme activation.
 Regular product publishing without opt-in retains existing local-only behaviour.
@@ -150,7 +150,11 @@ match options and satisfy constraints. File defaults are forbidden.
 
 File definitions accept `allowed_media_categories` (`image`/`document`), dot-prefixed
 lowercase `allowed_extensions`, positive `max_file_size_bytes` and `max_files`.
-These are intended future requirements, not an operational upload security system.
+Selecting **Image Upload** presets `photo` to one JPG/JPEG,
+PNG or WebP, up to 10,000,000 bytes (10 MB), with `enabled: false`. Existing
+file definitions are preserved. The preset saves and inherits like other local
+definitions; the editor itself does not collect files. Existing upload definitions
+must be explicitly enabled at their owner to publish. See [customer photo setup](CUSTOMER_PHOTOS.md).
 No arbitrary field-count limit is imposed; the existing 1 MiB JSON definition/source
 bound controls resource use. Unknown keys round-trip as opaque metadata in Advanced
 JSON; they are not executable validation, paid rules or public output.

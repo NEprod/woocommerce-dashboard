@@ -3,8 +3,9 @@ import html
 import json
 import math
 import re
+from app.customer_photos import REF
 
-TYPES = {'text','textarea','number','dropdown','radio','checkbox','checkbox_group','date','colour'}
+TYPES = {'text','textarea','number','dropdown','radio','checkbox','checkbox_group','date','colour','file_upload'}
 IDENTIFIER = re.compile(r'[a-z][a-z0-9_]{0,63}')
 REVISION = re.compile(r'[a-f0-9]{64}')
 
@@ -88,6 +89,9 @@ def parse(properties, product_id=None):
             # Legacy authored choices use their string as stable identity; they
             # need not match the stricter *field* ID convention.
             valid = valid and isinstance(choices,list) and all(isinstance(c,str) and 0<len(c)<=256 for c in choices)
+            if kind=='file_upload':
+                valid = (valid and REF.fullmatch(value) and not choices and isinstance(f.get('property_key'),str)
+                         and f.get('display')=='Reference photo supplied')
             if not valid:
                 warnings.append('A field has inconsistent identity/type data; original customer answers remain available.'); continue
             seen.add(ident)

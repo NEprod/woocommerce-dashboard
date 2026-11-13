@@ -17,14 +17,25 @@ KEY = 'configuration'
 
 
 def desired(product):
+    from app.customer_photos import settings as photo_settings
     from app.taxonomy_assignments import product_document
     try:
-        return public_configuration(product_document(product).get('customisation'))
+        return public_configuration(product_document(product).get('customisation'), photo_upload=photo_settings()[0])
     except CustomisationDefinitionError as exc:
         from app.shopify_connection import ShopifyReadinessFinding
         raise ShopifyReadinessFinding(str(exc), code='customisation_configuration') from None
     except (ValueError, KeyError, TypeError):
-        raise ShopifyError('Storefront customisation definition is invalid, empty or contains an enabled file/photo field. Secure uploads are not implemented; correct the definition at its owning collection/template before publication.') from None
+        raise ShopifyError('Storefront customisation definition is invalid or empty. Correct the definition at its owner before publication.') from None
+
+
+def check_photo_service(definition, domain, store, api_version='2026-10'):
+    if definition.get('photo_upload'):
+        if api_version<'2026-07':
+            raise ShopifyError('Private photos need Shopify Admin API 2026-07 or later to verify the order cart identity.')
+        from app import customer_photos
+        try: customer_photos.ready(domain, store)
+        except customer_photos.Unavailable:
+            raise ShopifyError('Private customer photo service is not ready for this store. Check the Worker and signed app proxy configuration; no photo configuration is published.') from None
 
 
 def _definition(adapter, config):
@@ -81,6 +92,8 @@ def attach(product, plan, config, shop, adapter, product_id=None, *, force=False
     settings_changed = manage_value and (not field or field['access'] != access)
     previous = json.loads(before['value']['value']) if before['value'] else None
     value_changed = manage_value and previous != definition
+    if value_changed:
+        check_photo_service(definition, config.domain, shop['shop_id'], config.api_version)
     # An explicit disabled configuration revokes the renderer; no remote deletion.
     spec = {'version':1, 'desired':definition, 'before':before,
         'access':access, 'definition_changed':settings_changed, 'value_changed':value_changed,
@@ -92,7 +105,7 @@ def attach(product, plan, config, shop, adapter, product_id=None, *, force=False
         'after':access, 'changed':settings_changed})
     if spec['changed'] and 'write_products' not in shop['scopes']:
         plan['blockers'].append('Missing write_products for reviewed customer configuration/definition changes.')
-    plan['warnings'].append('Public field definitions only. Theme app block installation/activation and real cart/order acceptance remain separate; file uploads, proof delivery and server-side checkout enforcement are not implemented.')
+    plan['warnings'].append('Public field definitions only. Theme app block installation/activation and real cart/order acceptance remain separate. This block does not enforce required fields on direct cart API requests or alternative purchase flows.')
     if settings_changed:
         plan['warnings'].append('Definition access is shared by this app-owned configuration field across products. Only the displayed product value is changed; no other product is enabled.')
     plan['taxonomy_review_digest'] = drafts.digest({'previous':plan.get('taxonomy_review_digest'), 'customisations':spec})
@@ -115,6 +128,8 @@ def apply(row, data, config, adapter):
     from app import shopify_drafts as drafts
     spec = data['plan'].get('customisations')
     if not spec or not spec['changed']: return
+    if spec['value_changed']:
+        check_photo_service(spec['desired'], config.domain, row.store_id, config.api_version)
     current = snapshot(adapter, config, row.shopify_product_id)
     if current != spec['before']:
         raise ShopifyError('Customer configuration/definition changed after Review; no unreviewed overwrite is allowed.')

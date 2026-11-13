@@ -1,7 +1,7 @@
 <section class="editor-workspace-section customisation-designer" data-customisation-designer aria-label="Customer Customisations">
   <header><div><h2 id="customisations-title">Customer Customisations</h2><p>Save locally, then review public configuration from Products → Review &amp; Sync. Saving does not publish. Names and messages are not variants.</p></div></header>
   <label>Storefront configuration intent <select class="form-select" data-custom-storefront><option value="">Inherited / default: disabled</option><option value="true">Enable supported fields after reviewed publication</option><option value="false">Disable after reviewed publication</option></select></label>
-  <p class="field-helper">A Shopify-hosted app block must be separately installed and activated on the product template. Secure photo/file uploads and customer proof delivery are not available. Enabling an upload field blocks storefront publication.</p>
+  <p class="field-helper">A Shopify-hosted app block must be separately installed and activated on the product template. Image Upload starts disabled and requires the private photo service. Customer proof delivery is separate.</p>
   {% if workspace is defined and workspace.storefront %}<p class="field-helper">Shopify configuration: {{ workspace.storefront.state }}{% if workspace.storefront.checked_at %} · Last checked {{ workspace.storefront.checked_at }} UTC{% endif %}. Theme activation is not verified by this evidence.</p>{% endif %}
   {% if workspace is not defined or workspace.kind != 'override' %}
   <div class="customisation-template-controls" data-custom-template-controls>
