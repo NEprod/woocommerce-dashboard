@@ -68,7 +68,7 @@ let adminSession;
 async function admin(env,query,variables={}) {
   const now=Date.now(), host='https://'+env.SHOP_DOMAIN;
   if (adminSession?.env!==env || now>=adminSession.until) {
-    const r=await fetch(host+'/admin/oauth/access_token',{method:'POST',redirect:'error',
+    const r=await fetch(host+'/admin/oauth/access_token',{method:'POST',redirect:'manual',
       signal:AbortSignal.timeout(4500),body:new URLSearchParams({grant_type:'client_credentials',
         client_id:env.SHOPIFY_CLIENT_ID,client_secret:env.SHOPIFY_CLIENT_SECRET})});
     demand(r.ok,503);
@@ -76,7 +76,7 @@ async function admin(env,query,variables={}) {
     demand(typeof value.access_token==='string' && Number.isFinite(value.expires_in),503);
     adminSession={env,token:value.access_token,until:now+Math.max(0,value.expires_in-60)*1000};
   }
-  const r=await fetch(host+'/admin/api/2026-10/graphql.json',{method:'POST',redirect:'error',signal:AbortSignal.timeout(4500),
+  const r=await fetch(host+'/admin/api/2026-10/graphql.json',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(4500),
     headers:{'Content-Type':'application/json','X-Shopify-Access-Token':adminSession.token},body:JSON.stringify({query,variables})});
   demand(r.ok,503);
   const value=await r.json();

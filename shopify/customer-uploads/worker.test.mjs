@@ -33,13 +33,15 @@ class Bucket {
     return {objects:objects.slice(0,limit),truncated:objects.length>limit};
   }
 }
-function environment(t){
+function environment(t,{redirectAt}={}){
   const env={TLC_UPLOADS:new Bucket(),UPLOAD_RATE:{limit:async()=>({success:true})},SHOP_DOMAIN:shop,SHOP_ID:store,
     STOREFRONT_ORIGIN:origin,PROXY_PATH:path,SHOPIFY_CLIENT_ID:'fictional-client-id',
     SHOPIFY_CLIENT_SECRET:secret,UPLOAD_SIGNING_KEY:'fictional-separate-upload-signing-key',DASHBOARD_UPLOAD_TOKEN:token,
     ABANDONED_DAYS:'30',ORDER_PHOTO_DAYS:'90'};
   t.mock.method(globalThis,'fetch',async (target,init)=>{
     assert.ok(target.startsWith('https://'+shop+'/admin/'));
+    assert.equal(init.redirect,'manual');
+    if(redirectAt && target.endsWith(redirectAt))return Response.redirect('https://unexpected.example.test/',307);
     if(target.endsWith('/access_token'))return Response.json({access_token:'fake',expires_in:3600});
     const {variables}=JSON.parse(init.body);
     if(!variables.variant)return Response.json({data:{shop:{id:store},currentAppInstallation:{accessScopes:[{handle:'read_products'},{handle:'write_app_proxy'}]}}});
@@ -179,6 +181,19 @@ test('disabled/failed configuration and rate gate fail closed',async t=>{
   assert.equal(await cleanup({...env,SHOP_ID:''}),undefined);
   assert.equal(env.TLC_UPLOADS.data.size,1);
 });
+
+for(const endpoint of ['/access_token','/graphql.json']) {
+  test('Shopify credentials are not forwarded through a redirect at '+endpoint,async t=>{
+    const env=environment(t,{redirectAt:endpoint});
+    const response=await issue(env);
+    assert.equal(response.status,503);
+    assert.equal((await response.json()).ticket,undefined);
+    const destinations=globalThis.fetch.mock.calls.map(({arguments:[url]})=>new URL(url).pathname);
+    assert.deepEqual(destinations,endpoint==='/access_token'
+      ? ['/admin/oauth/access_token']
+      : ['/admin/oauth/access_token','/admin/api/2026-10/graphql.json']);
+  });
+}
 
 test('container checks accept only the three bounded raster types',()=>{
   assert.equal(imageType(png),'image/png');
