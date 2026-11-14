@@ -3,18 +3,18 @@
 {% set groups = [
  ('Catalogue', [('Products','main.products','box',['main.products','main.edit_products','main.product_edit','main.product_detail','commerce.drafts','commerce.draft_identity']),('Collections','main.collections','collection',['main.collections','main.collection_detail','main.collection_metadata_edit']),('Relationships','main.relationships','link',['main.relationships']),('Catalogue Intake','main.image_preparation','folder',['main.image_preparation'])]),
  ('Shopify', [('Orders','orders.index','file',['orders.index','orders.detail']),('Connection','commerce.settings','plug',['commerce.settings']),('Discovery','commerce.discovery','search',['commerce.discovery']),('Local Taxonomy','taxonomy.index','book',['taxonomy.'])]),
- ('Operations', [('Shipping Packages','packaging.index','box',['packaging.index','packaging.edit','packaging.new','packaging.usage','packaging.reconcile','packaging.sync_all']),('Scanner','main.scanner','scanner',['main.scanner','main.initial_scan_page']),('Publishing Queue','publishing.queue','box',['publishing.queue']),('Event History','publishing.events','history',['publishing.events','publishing.event_detail']),('Operations','main.operations','history',['main.operations','main.operation_detail'])]),
+ ('Operations', [('Production & Operations','inventory.home','box',['inventory.']),('Shipping Packages','packaging.index','box',['packaging.index','packaging.edit','packaging.new','packaging.usage','packaging.reconcile','packaging.sync_all']),('Scanner','main.scanner','scanner',['main.scanner','main.initial_scan_page']),('Publishing Queue','publishing.queue','box',['publishing.queue']),('Event History','publishing.events','history',['publishing.events','publishing.event_detail']),('Operations','main.operations','history',['main.operations','main.operation_detail'])]),
  ('System', [('Metadata Reference','main.metadata_reference','book',['main.metadata_reference']),('Settings','main.settings','settings',['main.settings']),('Scheduled Tasks','tasks.index','history',['tasks.index','tasks.history','tasks.run_detail'])])
 ] %}
 {% macro destination(item) %}
-{% set active = namespace(value=false) %}{% for prefix in item[3] %}{% if request.endpoint == prefix or (prefix in ['taxonomy.','main.relationships','main.image_preparation','main.woocommerce_preview','main.woocommerce_link_candidate','main.woocommerce_unlink','main.woocommerce_publish'] and (request.endpoint or '').startswith(prefix)) %}{% set active.value = true %}{% endif %}{% endfor %}
+{% set active = namespace(value=false) %}{% for prefix in item[3] %}{% if request.endpoint == prefix or (prefix in ['inventory.','taxonomy.','main.relationships','main.image_preparation','main.woocommerce_preview','main.woocommerce_link_candidate','main.woocommerce_unlink','main.woocommerce_publish'] and (request.endpoint or '').startswith(prefix)) %}{% set active.value = true %}{% endif %}{% endfor %}
 <a class="sidebar-link sidebar-child {{ 'is-active' if active.value }}" href="{{ url_for(item[1]) }}"{% if active.value %} aria-current="page"{% endif %} title="{{ item[0] }}">{{ icon(item[2]) }}<span class="sidebar-label">{{ item[0] }}</span></a>
 {% endmacro %}
 {% macro navigation() %}
 <a class="sidebar-link {{ 'is-active' if request.endpoint == 'main.dashboard' }}" href="{{ url_for('main.dashboard') }}"{% if request.endpoint == 'main.dashboard' %} aria-current="page"{% endif %} title="Dashboard">{{ icon('dashboard') }}<span class="sidebar-label">Dashboard</span></a>
 {% for label, items in groups %}<details class="sidebar-group" open data-navigation-group="{{ label }}">
 <summary class="sidebar-group-label" aria-label="{{ label }} navigation"><span class="sidebar-label">{{ label }}</span></summary>
-{% for item in items %}{{ destination(item) }}{% endfor %}</details>{% endfor %}
+{% for item in items %}{% if item[1] != 'inventory.home' or current_user.is_admin %}{{ destination(item) }}{% endif %}{% endfor %}</details>{% endfor %}
 {% endmacro %}
 <aside class="app-sidebar" aria-label="Primary navigation">
  <a class="sidebar-brand" href="{{ url_for('main.dashboard') }}">{{ brand(responsive=true) }}</a>

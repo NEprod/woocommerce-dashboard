@@ -1,0 +1,23 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading,csrf %}
+{% set title = 'Review ' + steps[change.kind]|lower %}
+{% block workshop %}
+{{ heading(title,change.item + ' · No stock has changed yet.') }}
+{% if change.kind == 'count' %}<section class="workshop-panel"><h2>Count at {{ change.details.location }}</h2>
+  <dl class="workshop-facts"><dt>Expected</dt><dd>{{ qty(change.details.expected) }} {{ change.unit }}</dd><dt>Counted</dt><dd>{{ qty(change.details.physical) }} {{ change.unit }}</dd><dt>Difference</dt><dd>{{ qty(change.details.difference) }} {{ change.unit }}</dd></dl>
+  {% if not change.moves %}<p>This count matches the ledger. Confirmation records that you counted it, without adding a movement.</p>{% endif %}
+</section>{% endif %}
+{% if change.moves %}<div class="workshop-list">
+{% for m in change.moves %}<article class="workshop-list-row workshop-list-three">
+  <div><h2>{{ m.item }}</h2><small>{{ move_names[m.kind] }} · {{ m.location }}</small></div>
+  <div><strong>{{ '+' if m.qty > 0 }}{{ qty(m.qty) }} {{ m.unit }}</strong><br>Stock: {{ qty(m.before) }} → {{ qty(m.after) }} {{ m.unit }}</div>
+  <div>{% if m.cost is not none %}<strong>{{ pounds(m.cost) }}</strong>{% endif %}{% if m.est_qty %}<br><small>Estimate {{ m.est_qty }} {{ m.est_unit }} · Actual {{ m.actual }} {{ m.actual_unit }}</small>{% endif %}</div>
+</article>{% endfor %}</div>{% endif %}
+{% if change.cost is not none or change.reason %}<dl class="workshop-facts workshop-panel">{% if change.cost is not none %}<dt>{{ 'Actual batch cost' if change.kind == 'production' else 'Recorded cost' }}</dt><dd>{{ pounds(change.cost) }}{% if change.details.cost_basis %} · {{ change.details.cost_basis }}{% endif %}</dd>{% endif %}{% if change.reason %}<dt>Reason or reference</dt><dd>{{ change.reason }}</dd>{% endif %}</dl>{% endif %}
+<form method="post" class="workshop-actions" data-inventory-confirm>
+  {{ csrf() }}<input type="hidden" name="approval" value="{{ approval }}">
+  <button class="btn btn-primary" type="submit">Confirm {{ 'count' if change.kind == 'count' else 'transaction' }}</button>
+  {% if change.kind == 'reversal' %}<a class="btn btn-outline-primary" href="{{ url_for('inventory.transaction',transaction_id=change.reverses_id) }}">Cancel</a>
+  {% else %}<a class="btn btn-outline-primary" href="{{ url_for('inventory.workflow',kind=change.kind,item_id=change.item_id) }}">Start a fresh preview</a>{% endif %}
+</form>
+{% endblock %}

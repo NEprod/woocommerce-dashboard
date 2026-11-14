@@ -1,0 +1,34 @@
+{% macro heading(title, description='') %}<header class="page-header workshop-heading"><div><p class="eyebrow">Production &amp; Operations</p><h1>{{ title }}</h1>{% if description %}<p>{{ description }}</p>{% endif %}</div></header>{% endmacro %}
+{% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
+{% macro error(message) %}{% if message %}<p class="alert alert-danger" role="alert">{{ message }}</p>{% endif %}{% endmacro %}
+{% macro field(label,name,values,type='text',required=false,limit=100,placeholder='') %}
+<label>{{ label }}<input class="form-control" name="{{ name }}" value="{{ values.get(name,'') }}" {% if type == 'decimal' %}inputmode="decimal"{% else %}type="{{ type }}"{% endif %} maxlength="{{ limit }}" {% if required %}required{% endif %} {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}></label>
+{% endmacro %}
+{% macro unit(label,name,selected,units,required=false,blank='Same as stock unit') %}
+<label>{{ label }}<select class="form-select" name="{{ name }}" {% if required %}required{% endif %}>
+  <option value="">{{ 'Choose a unit' if required else blank }}</option>
+  {% for option,label in [('piece','Pieces'),('sheet','Sheets'),('g','Grams (g)'),('kg','Kilograms (kg)'),('ml','Millilitres (ml)'),('l','Litres (l)'),('mm','Millimetres (mm)'),('m','Metres (m)')] %}
+    {% if option in units %}<option value="{{ option }}" {% if selected == option %}selected{% endif %}>{{ label }}</option>{% endif %}
+  {% endfor %}
+</select></label>
+{% endmacro %}
+{% macro scanner(target='', standalone=false) %}
+<details class="workshop-scan workshop-no-print" data-workshop-scan="{{ target }}" {% if standalone %}data-lookup-scan open{% endif %} hidden>
+  <summary>{{ 'Use the camera' if standalone else 'Scan or enter a barcode' }}</summary>
+  {% if not standalone %}<label>Enter barcode<input class="form-control" data-scan-manual placeholder="Type or scan the label code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24"></label>{% endif %}
+  <div class="workshop-actions">
+    {% if not standalone %}<button class="btn btn-outline-primary" type="button" data-scan-select>Use barcode</button>{% endif %}
+    <button class="btn btn-outline-primary" type="button" data-scan-open>Open camera</button>
+    <button class="btn btn-outline-primary" type="button" data-scan-stop hidden>Stop camera</button>
+  </div>
+  <video data-scan-video playsinline muted autoplay hidden aria-label="Barcode scanner camera preview"></video>
+  <p class="field-helper" data-scan-status role="status" aria-live="polite"></p>
+</details>
+{% endmacro %}
+{% macro pagination(page,args) %}
+{% if page.pages > 1 %}<nav class="workshop-actions" aria-label="Results pages">
+  {% if page.has_prev %}<a class="btn btn-outline-primary" href="{{ url_for(request.endpoint,page=page.prev_num,**args) }}">Previous</a>{% endif %}
+  <span>Page {{ page.page }} of {{ page.pages }}</span>
+  {% if page.has_next %}<a class="btn btn-outline-primary" href="{{ url_for(request.endpoint,page=page.next_num,**args) }}">Next</a>{% endif %}
+</nav>{% endif %}
+{% endmacro %}

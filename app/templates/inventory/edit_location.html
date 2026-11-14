@@ -1,0 +1,22 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading,field,csrf,error as show_error %}
+{% set title = 'Edit location' if row else 'Add location' %}
+{% block workshop %}
+{{ heading(title,'Stock is recorded at each location separately, including locations nested inside another.') }}
+{{ show_error(error) }}
+<form method="post" class="workshop-form">
+  {{ csrf() }}{% if row %}<input type="hidden" name="version" value="{{ values.version }}">{% endif %}
+  <fieldset class="workshop-panel"><legend>Location details</legend>
+    <div class="workshop-fields">
+      {{ field('Location name','name',values,required=true,limit=160) }}
+      {% if row %}<p><strong>Permanent barcode</strong><br>{{ row.identity.code }}</p>{% else %}{{ field('Permanent barcode','code',values,required=true,limit=24,placeholder='e.g. SH-A-B01') }}{% endif %}
+      <label>Parent location (optional)<select name="parent_id" class="form-select"><option value="">No parent</option>
+        {% for loc in choices if not row or loc.id != row.id %}<option value="{{ loc.id }}" {% if loc.id|string == values.get('parent_id')|string %}selected{% endif %}>{{ breadcrumbs(loc) }}</option>{% endfor %}
+      </select></label>
+    </div>
+    <label>Description<textarea class="form-control" name="description" rows="3" maxlength="4000">{{ values.get('description','') }}</textarea></label>
+    <label class="workshop-check"><input type="checkbox" name="active" value="yes" {% if values.get('active') == 'yes' %}checked{% endif %}> Active (untick to archive when empty)</label>
+  </fieldset>
+  <div class="workshop-actions"><button class="btn btn-primary">Save location</button><a class="btn btn-outline-primary" href="{{ url_for('inventory.locations') }}">Cancel</a></div>
+</form>
+{% endblock %}

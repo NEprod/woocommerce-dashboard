@@ -1,0 +1,67 @@
+.workshop { --workshop-gap: 1rem; }
+.workshop [hidden] { display: none !important; }
+.workshop .page-header { margin-block: .75rem 1rem; }
+.workshop-nav, .workshop-actions { display: flex; gap: .65rem; flex-wrap: wrap; align-items: center; }
+.workshop-nav { margin-bottom: 1.25rem; }
+.workshop-search { align-items: end; margin-block: 1rem; }
+.workshop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: var(--workshop-gap); }
+.workshop-tile, .workshop-panel, .workshop-list-row {
+  background: var(--color-surface-primary); border: 1px solid var(--color-border); border-radius: 1rem; padding: 1rem;
+  overflow-wrap: anywhere; min-width: 0;
+}
+.workshop-tile { display: grid; align-content: start; gap: .35rem; color: var(--color-text-primary); text-decoration: none; min-height: 6rem; }
+.workshop-tile:hover, .workshop-tile:focus-visible { background: var(--color-surface-elevated); border-color: var(--color-brand-forest); }
+.workshop-tile strong { font-size: 1.2rem; color: var(--color-brand-forest); }
+.workshop-tile span, .workshop-list-row small { color: var(--color-text-secondary); }
+.workshop-list { display: grid; gap: .65rem; margin-block: 1rem; }
+.workshop-list-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.2fr) max-content; gap: 1rem; align-items: center; }
+.workshop-list-three { grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1fr); }
+.workshop-list-row h2 { font-size: 1.1rem; margin: 0 0 .15rem; }
+.workshop .workshop-section-heading { margin-top: 1.5rem; }
+.workshop-form { display: grid; gap: var(--workshop-gap); max-width: 56rem; }
+.workshop-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: .75rem; }
+.workshop label { display: grid; gap: .3rem; font-weight: 600; min-width: 0; }
+.workshop-panel > :is(label, .workshop-fields, fieldset, details) { margin-bottom: .75rem; }
+.workshop fieldset { min-width: 0; }
+.workshop :is(h2, legend) { font-size: 1.25rem; }
+.workshop legend { float: none; width: auto; margin: 0; padding-inline: .4rem; font-weight: 700; }
+.workshop-recipe { padding: .9rem; border: 1px solid var(--color-border); border-radius: .65rem; margin-block: .65rem; }
+.workshop .workshop-check { display: flex; align-items: center; gap: .75rem; min-height: 44px; }
+.workshop-check input { width: 1.2rem; height: 1.2rem; flex: 0 0 auto; }
+.workshop-facts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: .45rem .9rem; margin-bottom: .75rem; align-items: baseline; }
+.workshop-facts dd { margin: 0; overflow-wrap: anywhere; }
+.workshop-total { color: var(--color-brand-forest); font-size: 1.35rem; font-weight: 700; }
+.workshop-warning { background: var(--color-warning-soft); color: var(--color-warning-ink); border-radius: .4rem; padding: .2rem .5rem; font-size: .85rem; white-space: nowrap; }
+.workshop-description { white-space: pre-wrap; margin-block: .8rem; }
+.workshop-item-image { display: block; max-width: min(100%, 18rem); max-height: 12rem; margin-block: .75rem; border-radius: .6rem; }
+.workshop-scan { border: 1px solid var(--color-border); border-radius: .6rem; padding: .65rem; margin-top: .65rem; background: var(--color-surface-elevated); }
+.workshop-scan summary { font-weight: 600; cursor: pointer; }
+.workshop-scan[open] summary { margin-bottom: .65rem; }
+.workshop-scan .workshop-actions { margin-top: .45rem; }
+.workshop-scan video { width: 100%; max-width: 28rem; max-height: 40vh; object-fit: contain; background: #111; margin-top: .5rem; }
+.workshop-scan [role='status'] { margin: .4rem 0 0; }
+.workshop-label {
+  --label-width: 100mm; width: min(100%, var(--label-width)); margin: 1.5rem 0; padding: 3mm; break-inside: avoid;
+  border: 1px solid #000; background: #fff; color: #000; text-align: center; overflow-wrap: anywhere;
+}
+.workshop-label-75 { --label-width: 75mm; }
+.workshop-label-125 { --label-width: 125mm; }
+.workshop-label :is(code, strong) { color: #000; }
+.workshop-label .workshop-qr { display: block; width: 27mm; max-width: 95%; margin: 0 auto; }
+.workshop-label .workshop-code128 { display: block; max-width: 100%; width: auto; height: auto; margin: 1mm auto 0; }
+@media (max-width: 680px) {
+  .workshop-grid, .workshop-list-row, .workshop-fields { grid-template-columns: minmax(0, 1fr); }
+  .workshop-list-row { align-items: start; gap: .55rem; }
+  .workshop-tile { min-height: 5rem; }
+  .workshop :is(.btn, .form-control, .form-select, summary) { min-height: 48px; font-size: 1rem; }
+  .workshop .btn { display: inline-flex; align-items: center; justify-content: center; white-space: normal; }
+  .workshop-form > .workshop-actions > .btn-primary, .workshop [data-inventory-confirm] .btn-primary { width: 100%; }
+  .workshop-nav .btn { flex: 1 1 auto; }
+  .workshop-search label { flex: 1 1 10rem; }
+  .workshop .workshop-facts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+@media print {
+  body:has(.workshop-label) :is(.app-sidebar, .mobile-bottom-nav, .app-utility-header, .app-offcanvas, footer, .skip-link, .workshop-nav, .workshop-no-print, .alert) { display: none !important; }
+  body:has(.workshop-label) :is(.app-frame, .app-workspace, .app-main, .app-content) { display: block; background: #fff; padding: 0; margin: 0; min-height: 0; }
+  .workshop-label { width: var(--label-width); margin: 0; }
+}

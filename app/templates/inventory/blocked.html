@@ -1,0 +1,7 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading,error %}
+{% set title = 'Stock confirmation not recorded' %}
+{% block workshop %}
+{{ heading(title) }}{{ error(message) }}
+<a class="btn btn-primary" href="{{ url_for('inventory.workflow',**start) }}">Start a fresh preview</a>
+{% endblock %}

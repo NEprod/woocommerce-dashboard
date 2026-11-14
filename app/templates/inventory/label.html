@@ -1,0 +1,17 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading %}
+{% set title = 'Barcode label' %}
+{% block workshop %}
+<div class="workshop-no-print">
+  {{ heading(title,'Print at actual size. Both barcodes identify the same workshop record.') }}
+  <form method="get" class="workshop-actions">
+    <label>Label width<select class="form-select" name="size">{% for width in ['75','100','125'] %}<option value="{{ width }}" {% if size == width %}selected{% endif %}>{{ width }} mm</option>{% endfor %}</select></label>
+    <button class="btn btn-outline-primary">Set size</button><button class="btn btn-primary" type="button" data-inventory-print hidden>Print label</button>
+  </form>
+</div>
+<figure class="workshop-label workshop-label-{{ size }}">
+  <figcaption><strong>{{ row.name }}</strong><br><code>{{ row.identity.code }}</code></figcaption>
+  <img class="workshop-code128" src="{{ url_for('inventory.label_art',record_id=row.id,style='code128') }}" alt="Code 128 for {{ row.identity.code }}">
+  <img class="workshop-qr" src="{{ url_for('inventory.label_art',record_id=row.id,style='qr') }}" alt="QR code for {{ row.identity.code }}">
+</figure>
+{% endblock %}

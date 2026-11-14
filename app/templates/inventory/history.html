@@ -1,0 +1,19 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading,pagination %}
+{% set title = 'Stock history' %}
+{% block workshop %}
+{{ heading(title,'Purchases, production batches and every recorded stock movement.') }}
+{% if selected_item %}<p>Showing <a href="{{ url_for('inventory.item',record_id=selected_item.id) }}">{{ selected_item.name }}</a> · <a href="{{ url_for('inventory.history') }}">See all items</a></p>{% endif %}
+<form method="get" class="workshop-search workshop-actions">
+  {% if selected_item %}<input type="hidden" name="item_id" value="{{ selected_item.id }}">{% endif %}
+  <label>Movement type<select class="form-select" name="kind"><option value="">All transactions</option>{% for key,label in steps.items() %}<option value="{{ key }}" {% if kind == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <button class="btn btn-outline-primary">Filter</button>
+</form>
+<div class="workshop-list">{% for tx in page.items %}<article class="workshop-list-row">
+  <div><h2><a href="{{ url_for('inventory.transaction',transaction_id=tx.id) }}">{{ steps[tx.kind] }}</a></h2>{{ tx.item.name }}</div>
+  <div>{{ tx.created_at.strftime('%d %b %Y, %H:%M UTC') }}<br><small>{{ tx.actor_label }}</small></div>
+  <div>{{ tx.reason or 'No reference' }}</div>
+  <a class="btn btn-outline-primary" href="{{ url_for('inventory.transaction',transaction_id=tx.id) }}">Open receipt</a>
+</article>{% else %}<p class="workshop-panel">No stock transactions recorded in this view.</p>{% endfor %}</div>
+{{ pagination(page,dict(kind=kind,item_id=selected_item.id if selected_item else none)) }}
+{% endblock %}

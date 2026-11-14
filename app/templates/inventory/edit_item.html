@@ -1,0 +1,52 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading,field,unit,csrf,error as show_error %}
+{% set title = ('Edit ' if row else 'Add ') + kinds[kind]|lower %}
+{% block workshop %}
+{{ heading(title,'Saving this record does not create stock. Record opening stock or a receipt afterwards.') }}
+{{ show_error(error) }}
+<form method="post" enctype="multipart/form-data" class="workshop-form">
+  {{ csrf() }}{% if row %}<input type="hidden" name="version" value="{{ values.version }}">{% endif %}
+  <fieldset class="workshop-panel"><legend>Identity and storage</legend>
+    <div class="workshop-fields">
+      {{ field('Name','name',values,required=true,limit=160) }}
+      {% if row %}<p><strong>Permanent barcode</strong><br>{{ row.identity.code }}</p>{% else %}{{ field('Permanent barcode','code',values,required=true,limit=24,placeholder='e.g. PLA-BLACK') }}{% endif %}
+      {{ field('Category','category',values) }}{{ field('Brand or specification','specification',values,limit=250) }}
+      {% if row or kind == 'manufactured' %}<p><strong>Stock unit</strong><br>{{ row.unit if row else 'piece' }}</p>{% else %}{{ unit('Stock unit (permanent)','unit',values.get('unit'),units,true) }}{% endif %}
+      {{ field('Minimum stock','minimum',values,'decimal') }}{{ field('Preferred reorder target','reorder',values,'decimal') }}
+    </div>
+    <label>Description<textarea class="form-control" name="description" rows="3" maxlength="4000">{{ values.get('description','') }}</textarea></label>
+    <label>Item image (optional, JPEG, PNG or WebP up to 2 MB)<input class="form-control" type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
+    {% if has_image %}<label class="workshop-check"><input type="checkbox" name="remove_image" value="yes"> Remove the current image</label>{% endif %}
+    <label class="workshop-check"><input type="checkbox" name="active" value="yes" {% if values.get('active') == 'yes' %}checked{% endif %}> Active (untick to archive when empty)</label>
+  </fieldset>
+  {% if kind != 'manufactured' %}
+  <fieldset class="workshop-panel"><legend>Purchasing</legend><div class="workshop-fields">
+    {{ field('Purchase pack quantity','pack_qty',values,'decimal') }}{{ unit('Purchase pack unit','pack_unit',values.get('pack_unit'),units) }}{{ field('Purchase pack price (GBP)','pack_price',values,'decimal') }}
+    {{ field('Supplier name','supplier',values,limit=160) }}{{ field('Supplier SKU','supplier_sku',values) }}{{ field('Supplier purchase URL','supplier_url',values,'url',limit=500) }}
+  </div></fieldset>
+  {% endif %}
+  {% if kind == 'material' %}
+  <fieldset class="workshop-panel"><legend>Sheet and filament details (optional)</legend>
+    <p class="field-helper">For sheet stock, enter all three dimensions in millimetres. Use the purchase pack above for stock conversion.</p>
+    <div class="workshop-fields">
+      {{ field('Sheet length (mm)','sheet_length',values,'decimal') }}{{ field('Sheet width (mm)','sheet_width',values,'decimal') }}{{ field('Sheet thickness (mm)','sheet_thickness',values,'decimal') }}
+      {{ field('Filament type','filament_type',values) }}{{ field('Filament colour','filament_colour',values) }}{{ field('Spool or purchase weight (g)','spool_grams',values,'decimal') }}
+    </div>
+  </fieldset>
+  {% endif %}
+  {% if kind == 'manufactured' %}
+  <fieldset class="workshop-panel"><legend>Material recipe</legend>
+    {{ field('Expected good components per batch','yield_qty',values,'decimal',true) }}
+    <p class="field-helper">Enter estimated use for the whole batch, including purge, supports and waste. To remove a line, clear both its material and quantity. If you add a line, reselect any new image before saving.</p>
+    {% if not materials %}<p class="alert alert-warning">Add at least one active raw material before saving a manufactured component.</p>{% endif %}
+    {% for material_id,amount,selected_unit in requirements %}<fieldset class="workshop-recipe">
+      <legend>Material {{ loop.index }}</legend><div class="workshop-fields">
+      <label>Raw material<select class="form-select" name="material_id"><option value="">Choose a material</option>{% for material in materials %}<option value="{{ material.id }}" {% if material.id|string == material_id|string %}selected{% endif %}>{{ material.name }} ({{ material.unit }})</option>{% endfor %}</select></label>
+      {{ field('Expected quantity','material_qty',dict(material_qty=amount),'decimal') }}{{ unit('Recipe unit','material_unit',selected_unit,units,blank='Choose a unit') }}
+    </div></fieldset>{% endfor %}
+    {% if requirements|length < 30 %}<button class="btn btn-outline-primary" name="action" value="add-line" formnovalidate>Add another material</button>{% endif %}
+  </fieldset>
+  {% endif %}
+  <div class="workshop-actions"><button class="btn btn-primary">Save {{ kinds[kind]|lower }}</button><a class="btn btn-outline-primary" href="{{ url_for('inventory.items',group='materials' if kind == 'material' else 'components') }}">Cancel</a></div>
+</form>
+{% endblock %}

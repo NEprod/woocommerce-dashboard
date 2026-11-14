@@ -1,0 +1,12 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading %}
+{% set title = row.name %}
+{% block workshop %}
+{{ heading(breadcrumbs(row),row.identity.code + (' · Archived' if not row.active else '')) }}
+<div class="workshop-actions"><a class="btn btn-primary" href="{{ url_for('inventory.edit_location',record_id=row.id) }}">Edit location</a><a class="btn btn-outline-primary" href="{{ url_for('inventory.label',record_id=row.id) }}">Print barcode label</a></div>
+{% if row.description %}<p class="workshop-description">{{ row.description }}</p>{% endif %}
+<section class="workshop-panel"><h2>Stock held here</h2>
+{% if balances %}<dl class="workshop-facts">{% for item,amount in balances %}<dt><a href="{{ url_for('inventory.item',record_id=item.id) }}">{{ item.name }}</a> <small>{{ item.identity.code }}</small></dt><dd>{{ qty(amount) }} {{ item.unit }}</dd>{% endfor %}</dl>{% else %}<p>No stock recorded at this location.</p>{% endif %}
+</section>
+{% if children %}<section class="workshop-panel workshop-section-heading"><h2>Locations inside this one</h2><ul>{% for child in children %}<li><a href="{{ url_for('inventory.location',record_id=child.id) }}">{{ child.name }}</a>{% if not child.active %} (archived){% endif %}</li>{% endfor %}</ul></section>{% endif %}
+{% endblock %}

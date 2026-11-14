@@ -1,0 +1,58 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading,field,csrf,scanner,error as show_error %}
+{% set title = steps[kind] %}
+{% macro select_location(label,name,stock_unit,available={},show_stock=false) %}
+  <label>{{ label }}<select class="form-select" name="{{ name }}" id="stock-{{ name }}" required>
+    <option value="">Choose a location</option>
+    {% for loc in locations %}<option value="{{ loc.id }}" data-code="{{ loc.identity.code }}" {% if values.get(name)|string == loc.id|string %}selected{% endif %}>{{ breadcrumbs(loc) }}{% if show_stock %} · {{ available.get(loc.id,'0') }} {{ stock_unit }} available{% endif %} ({{ loc.identity.code }})</option>{% endfor %}
+  </select></label>{{ scanner('stock-' ~ name) }}
+{% endmacro %}
+{% block workshop %}
+{{ heading(title) }}
+{{ show_error(error) }}
+{% if not row and not original %}
+  <form method="get" class="workshop-panel workshop-form">
+    <label>Choose an inventory item<select class="form-select" name="item_id" id="stock-item" required>
+      <option value="">Select by name or scan a label below</option>
+      {% for choice in choices %}<option value="{{ choice.id }}" data-code="{{ choice.identity.code }}">{{ choice.name }} ({{ choice.identity.code }})</option>{% endfor %}
+    </select></label>
+    {{ scanner('stock-item') }}
+    {% if choices %}<div class="workshop-actions"><button class="btn btn-primary">Continue</button></div>
+    {% else %}<p>No eligible items. Add an item in <a href="{{ url_for('inventory.items',group='materials') }}">Materials</a> or <a href="{{ url_for('inventory.items',group='components') }}">Components</a> to get started.</p>{% endif %}
+  </form>
+{% else %}
+  {% if row %}<section class="workshop-panel">
+    <h2>{{ row.name }}</h2><p>{{ row.identity.code }} · {{ row.unit }}</p>
+    {% if counts %}<dl class="workshop-facts">{% for loc in locations if loc.id in counts %}<dt>{{ breadcrumbs(loc) }}</dt><dd>{{ counts[loc.id] }} {{ row.unit }}</dd>{% endfor %}</dl>{% else %}<p>No stock recorded at any location.</p>{% endif %}
+    <a href="{{ url_for('inventory.workflow',kind=kind) }}">Choose a different item</a>
+  </section>{% elif original %}<p>Reverse <a href="{{ url_for('inventory.transaction',transaction_id=original.id) }}">{{ steps[original.kind] }} · {{ original.item.name }}</a>. This creates a new record to undo the stock movements. The original stays in history.</p>{% endif %}
+  <form method="post" class="workshop-form workshop-section-heading">
+    {{ csrf() }}<input type="hidden" name="request_id" value="{{ nonce }}">
+    {% if row %}<input type="hidden" name="item_id" value="{{ row.id }}">{% else %}<input type="hidden" name="original" value="{{ original.id }}">{% endif %}
+    {% if row and not locations %}<p class="alert alert-warning">Add an active <a href="{{ url_for('inventory.locations') }}">storage location</a> before recording a movement.</p>{% endif %}
+    {% if kind in ['opening','receive','production','move','count'] %}
+    <fieldset class="workshop-panel"><legend>{{ 'Batch output' if kind == 'production' else 'Stock details' }}</legend>
+      {% if kind == 'receive' %}<label>Receive in<select class="form-select" name="entry_unit"><option value="units">Stock units ({{ row.unit }})</option>{% if row.pack_qty %}<option value="packs" {% if values.get('entry_unit') == 'packs' %}selected{% endif %}>Purchase packs ({{ qty(row.pack_qty) }} {{ row.pack_unit }} per pack)</option>{% endif %}</select></label>{% endif %}
+      {{ field('Good components produced' if kind == 'production' else ('Physical quantity counted (' ~ row.unit ~ ')' if kind == 'count' else 'Quantity' if kind == 'receive' else 'Quantity (' ~ row.unit ~ ')'),'qty',values,'decimal',true) }}
+      {% if kind in ['receive','opening'] %}{{ field('Total purchase cost (GBP, optional)','cost',values,'decimal') }}<p class="field-helper">If left blank, the configured purchase pack price is used where available.</p>{% endif %}
+      {% if kind == 'move' %}{{ select_location('Source location','source',row.unit,counts,true) }}{% endif %}
+      {{ select_location('Count location' if kind == 'count' else 'Destination location','destination',row.unit,counts,kind == 'count') }}
+    </fieldset>
+    {% endif %}
+    {% if kind == 'production' %}
+    <section class="workshop-panel" data-production-estimate>
+      <h2>Materials actually used</h2><p>Expected yield: {{ row.yield_qty }} good pieces. Record everything used per material, including purge, supports and waste. The cost and stock changes are calculated on review.</p>
+      {% for req in row.materials %}<fieldset class="workshop-recipe"><legend>{{ req.material.name }} · {{ req.material.identity.code }}</legend>
+        <p>Recipe: {{ qty(req.qty) }} {{ req.unit }} per batch. <span data-expected="{{ qty(req.qty) }}" data-yield="{{ row.yield_qty }}" data-unit="{{ req.unit }}"></span></p>
+        {{ field('Actual consumed (' ~ req.unit ~ ')','actual_' ~ req.material_id,values,'decimal',true) }}
+        {{ select_location('Source location','source_' ~ req.material_id,req.material.unit,material_counts[req.material_id],true) }}
+      </fieldset>{% endfor %}
+    </section>
+    {% endif %}
+    <fieldset class="workshop-panel"><legend>Record details</legend>
+      {{ field('Reason (required)' if kind in ['reversal','opening'] else ('Reason (required if there is a difference)' if kind == 'count' else 'Reason or reference (optional)'),'reason',values,required=kind in ['reversal','opening'],limit=400) }}
+    </fieldset>
+    <div class="workshop-actions"><button class="btn btn-primary">Review {{ 'count' if kind == 'count' else 'transaction' }}</button></div>
+  </form>
+{% endif %}
+{% endblock %}

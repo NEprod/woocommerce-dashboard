@@ -1,0 +1,20 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading,pagination %}
+{% set title = 'Locations' %}
+{% block workshop %}
+{{ heading(title,'Organise shelves, drawers, bins or any other workshop storage.') }}
+<a class="btn btn-primary" href="{{ url_for('inventory.edit_location') }}">Add location</a>
+<form method="get" class="workshop-search workshop-actions">
+  <label>Search locations<input class="form-control" type="search" name="q" value="{{ search }}" maxlength="120"></label>
+  <label>Status<select class="form-select" name="state">{% for option in ['active','archived','all'] %}<option value="{{ option }}" {% if state == option %}selected{% endif %}>{{ option|capitalize }}</option>{% endfor %}</select></label>
+  <button class="btn btn-outline-primary">Filter</button>
+</form>
+<div class="workshop-list">
+  {% for row in page.items %}<article class="workshop-list-row workshop-list-three">
+    <div><h2><a href="{{ url_for('inventory.location',record_id=row.id) }}">{{ breadcrumbs(row) }}</a></h2><small>{{ row.identity.code }}{% if not row.active %} · Archived{% endif %}</small></div>
+    <a class="btn btn-outline-primary" href="{{ url_for('inventory.label',record_id=row.id) }}">Print label</a>
+    <a class="btn btn-outline-primary" href="{{ url_for('inventory.edit_location',record_id=row.id) }}">Edit</a>
+  </article>{% else %}<p class="workshop-panel">No locations match this view.</p>{% endfor %}
+</div>
+{{ pagination(page,dict(q=search,state=state)) }}
+{% endblock %}

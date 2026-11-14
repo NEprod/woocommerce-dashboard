@@ -1,0 +1,22 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading %}
+{% set title = steps[tx.kind] %}
+{% block workshop %}
+{{ heading(title,tx.item.name + ' · ' + tx.created_at.strftime('%d %b %Y, %H:%M UTC')) }}
+<section class="workshop-panel"><h2>Receipt</h2><dl class="workshop-facts">
+  <dt>Transaction ID</dt><dd><code>{{ tx.id }}</code></dd><dt>Recorded by</dt><dd>{{ tx.actor_label }}</dd>
+  {% if tx.reason %}<dt>Reason or reference</dt><dd>{{ tx.reason }}</dd>{% endif %}
+  {% if tx.cost is not none %}<dt>{{ 'Actual batch cost' if tx.kind == 'production' else 'Recorded cost' }}</dt><dd>{{ pounds(tx.cost) }}{% if details.cost_basis %} · {{ details.cost_basis }}{% endif %}</dd>{% endif %}
+  {% if unit_cost is not none %}<dt>Actual cost per good piece</dt><dd>{{ pounds(unit_cost) }}</dd>{% endif %}
+  {% if tx.kind == 'count' %}<dt>Count location</dt><dd><a href="{{ url_for('inventory.location',record_id=details.location_id) }}">{{ details.location }}</a></dd><dt>Expected / counted</dt><dd>{{ qty(details.expected) }} / {{ qty(details.physical) }} {{ tx.item.unit }}</dd><dt>Count difference</dt><dd>{{ qty(details.difference) }} {{ tx.item.unit }}</dd>{% endif %}
+  {% if tx.reverses_id %}<dt>Reverses</dt><dd><a href="{{ url_for('inventory.transaction',transaction_id=tx.reverses_id) }}">Original transaction</a></dd>{% endif %}
+  {% if reversed_by %}<dt>Reversed by</dt><dd><a href="{{ url_for('inventory.transaction',transaction_id=reversed_by) }}">Correction receipt</a></dd>{% endif %}
+</dl></section>
+<h2 class="workshop-section-heading">Recorded movements</h2>
+<div class="workshop-list">{% for move in tx.moves %}<article class="workshop-list-row">
+  <div><h2><a href="{{ url_for('inventory.item',record_id=move.item_id) }}">{{ move.item.name }}</a></h2><small>{{ move_names[move.kind] }} · Movement #{{ move.id }}</small></div>
+  <a href="{{ url_for('inventory.location',record_id=move.location_id) }}">{{ breadcrumbs(move.location) }}</a>
+  <strong>{{ '+' if move.qty > 0 }}{{ qty(move.qty) }} {{ move.unit }}</strong><div>{{ pounds(move.cost) if move.cost is not none else '' }}</div>
+</article>{% else %}<p>No stock moved.</p>{% endfor %}</div>
+{% if tx.moves and not (tx.reverses_id or reversed_by) %}<a class="btn btn-outline-primary" href="{{ url_for('inventory.workflow',kind='reversal',original=tx.id) }}">Reverse this transaction</a>{% endif %}
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading %}
+{% block workshop %}
+{{ heading('Production & Operations','Receive materials, record completed batches and keep workshop stock accurate. All inventory here stays in TLC.') }}
+<h2>Stock operations</h2>
+<div class="workshop-grid">
+  {% for kind, intro in [('receive','Receive a delivery in packs or stock units.'),('production','Record actual material used and good components made.'),('move','Transfer stock between shelves, bins or drawers.'),('count','Compare a physical count and record any difference.'),('opening','Record the initial stock at a location.' )] %}
+  <a class="workshop-tile" href="{{ url_for('inventory.workflow',kind=kind) }}"><strong>{{ steps[kind] }}</strong><span>{{ intro }}</span></a>
+  {% endfor %}
+</div>
+<h2 class="workshop-section-heading">Manage inventory</h2>
+<div class="workshop-grid">
+  <a class="workshop-tile" href="{{ url_for('inventory.items',group='materials') }}"><strong>Materials</strong><span>Raw materials, suppliers and reorder levels.</span></a>
+  <a class="workshop-tile" href="{{ url_for('inventory.items',group='components') }}"><strong>Components</strong><span>Purchased parts and manufactured recipes.</span></a>
+  <a class="workshop-tile" href="{{ url_for('inventory.locations') }}"><strong>Locations</strong><span>Manage storage and see what's held where.</span></a>
+</div>
+{% endblock %}

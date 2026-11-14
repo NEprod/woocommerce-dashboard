@@ -1,0 +1,47 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading %}
+{% set title = row.name %}
+{% block workshop %}
+{{ heading(row.name, kinds[row.kind] + ' · ' + row.identity.code + (' · Archived' if not row.active else '')) }}
+<div class="workshop-actions">
+  <a class="btn btn-primary" href="{{ url_for('inventory.edit_item',record_id=row.id) }}">Edit item</a>
+  <a class="btn btn-outline-primary" href="{{ url_for('inventory.label',record_id=row.id) }}">Print barcode label</a>
+  <a class="btn btn-outline-primary" href="{{ url_for('inventory.history',item_id=row.id) }}">Item stock history</a>
+</div>
+<div class="workshop-grid">
+  <section class="workshop-panel"><h2>Stock by location</h2>
+    <p class="workshop-total">{{ qty(total) }} {{ row.unit }}{% if row.active and total <= row.minimum %} <span class="workshop-warning">Low stock</span>{% endif %}</p>
+    {% if balances %}<dl class="workshop-facts">{% for loc,amount in balances %}<dt><a href="{{ url_for('inventory.location',record_id=loc.id) }}">{{ breadcrumbs(loc) }}</a></dt><dd>{{ qty(amount) }} {{ row.unit }}</dd>{% endfor %}</dl>{% else %}<p>No stock recorded at any location.</p>{% endif %}
+    <dl class="workshop-facts"><dt>Minimum</dt><dd>{{ qty(row.minimum) }} {{ row.unit }}</dd>{% if row.reorder is not none %}<dt>Reorder target</dt><dd>{{ qty(row.reorder) }} {{ row.unit }}</dd>{% endif %}</dl>
+  </section>
+  <section class="workshop-panel"><h2>{{ 'Recipe & estimated cost' if row.kind == 'manufactured' else 'Purchase & unit cost' }}</h2>
+  {% if row.kind == 'manufactured' %}
+    <p>{{ row.yield_qty }} expected good pieces per batch. Estimates include waste where entered.</p>
+    <dl class="workshop-facts">{% for r in row.materials %}<dt><a href="{{ url_for('inventory.item',record_id=r.material_id) }}">{{ r.material.name }}</a></dt><dd>{{ qty(r.qty) }} {{ r.unit }}</dd>{% endfor %}<dt>Estimated cost per good piece</dt><dd>{{ pounds(estimate) }}</dd></dl>
+    <p class="field-helper">Actual costs are on each completed batch in Item stock history.</p>
+  {% else %}
+    <dl class="workshop-facts">
+      {% if row.pack_qty is not none %}<dt>Purchase pack</dt><dd>{{ qty(row.pack_qty) }} {{ row.pack_unit }} at {{ pounds(row.pack_price) }}</dd>{% endif %}
+      <dt>Current unit cost (per {{ row.unit }})</dt><dd>{{ pounds(estimate) }}</dd>
+      {% if row.supplier %}<dt>Supplier</dt><dd>{{ row.supplier }}</dd>{% endif %}{% if row.supplier_sku %}<dt>Supplier SKU</dt><dd>{{ row.supplier_sku }}</dd>{% endif %}
+    </dl>
+    {% if row.supplier_url %}<a href="{{ row.supplier_url }}" rel="noreferrer noopener" target="_blank">Open supplier purchase page</a>{% endif %}
+  {% endif %}
+  </section>
+  {% if has_image or row.category or row.specification or row.description or row.sheet_length or row.filament_type or row.filament_colour or row.spool_grams %}
+  <section class="workshop-panel"><h2>Item details</h2>
+    {% if has_image %}<img class="workshop-item-image" src="{{ url_for('inventory.item_image',record_id=row.id) }}" alt="Inventory photo for {{ row.name }}">{% endif %}
+    <dl class="workshop-facts">
+      {% if row.category %}<dt>Category</dt><dd>{{ row.category }}</dd>{% endif %}
+      {% if row.specification %}<dt>Specification</dt><dd>{{ row.specification }}</dd>{% endif %}
+      {% if row.sheet_length %}<dt>Sheet dimensions</dt><dd>{{ qty(row.sheet_length) }} × {{ qty(row.sheet_width) }} × {{ qty(row.sheet_thickness) }} mm</dd>{% endif %}
+      {% if row.filament_type %}<dt>Filament type</dt><dd>{{ row.filament_type }}</dd>{% endif %}
+      {% if row.filament_colour %}<dt>Filament colour</dt><dd>{{ row.filament_colour }}</dd>{% endif %}
+      {% if row.spool_grams %}<dt>Spool weight</dt><dd>{{ qty(row.spool_grams) }} g</dd>{% endif %}
+    </dl>{% if row.description %}<p class="workshop-description">{{ row.description }}</p>{% endif %}
+  </section>{% endif %}
+</div>
+{% if row.active %}<h2 class="workshop-section-heading">Record a movement</h2><div class="workshop-actions">
+ {% for kind in ['production' if row.kind == 'manufactured' else 'receive','move','count','opening'] %}<a class="btn btn-outline-primary" href="{{ url_for('inventory.workflow',kind=kind,item_id=row.id) }}">{{ steps[kind] }}</a>{% endfor %}
+</div>{% endif %}
+{% endblock %}
