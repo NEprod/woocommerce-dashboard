@@ -50,12 +50,12 @@ function environment(t){
   });
   return env;
 }
-function issue(env, {nonce='c'.repeat(32), when=0, patch={}, tamper=false, signature=true}={}){
+function issue(env, {nonce='c'.repeat(32), when=0, patch={}, tamper=false, signature=true, route='/proxy'}={}){
   const body=JSON.stringify({nonce,product:'100',variant:'200',field,cart,revision:rev,...patch});
   const q=new URLSearchParams({intent:hash(body),shop,path_prefix:path,logged_in_customer_id:'',
     timestamp:String(Math.floor(Date.now()/1000)+when)});
   q.set('signature',signature?sign(secret,[...q].map(([k,v])=>k+'='+v).sort().join('')):'0'.repeat(64));
-  return worker.fetch(new Request(host+'/proxy?'+q,{method:'POST',body:tamper?'{}':body,
+  return worker.fetch(new Request(host+route+'?'+q,{method:'POST',body:tamper?'{}':body,
     headers:{'Content-Type':'application/json','Origin':origin}}),env);
 }
 const put=(env,ticket,body=png,mime='image/png',from=origin)=>worker.fetch(new Request(host+'/upload',{
@@ -141,13 +141,34 @@ test('cleanup is bounded, protects completed orders, expires retained photos and
   assert.deepEqual(refs.map(r=>env.TLC_UPLOADS.data.has('photos/'+r)),[false,true,false,true]);
 });
 
+test('Shopify proxy root with or without a slash uses the same signed handlers',async t=>{
+  const env=environment(t);
+  function probe(route,age=0,valid=true,settings=env) {
+    const q=new URLSearchParams({probe:'1',shop,path_prefix:path,logged_in_customer_id:'',
+      timestamp:String(Math.floor(Date.now()/1000)-age)});
+    q.set('signature',valid?sign(secret,[...q].map(([k,v])=>k+'='+v).sort().join('')):'0'.repeat(64));
+    return worker.fetch(new Request(host+route+'?'+q),settings);
+  }
+  for(const route of ['/proxy','/proxy/']){
+    assert.equal((await probe(route,0,false)).status,401);
+    assert.equal((await probe(route,91)).status,401);
+    assert.equal((await probe(route,0,true,{...env,SHOPIFY_CLIENT_SECRET:undefined})).status,503);
+    assert.equal((await issue(env,{route,signature:false})).status,401);
+    assert.equal((await issue(env,{route})).status,200);
+  }
+  assert.equal(env.TLC_UPLOADS.data.size,0);
+  for(const route of ['/proxy','/proxy/']){
+    const response=await probe(route);
+    assert.equal(response.status,200);
+    assert.equal(await response.text(),'{"proxy":"verified"}');
+  }
+  assert.equal((await probe('/proxy/unrelated')).status,404);
+});
+
 test('disabled/failed configuration and rate gate fail closed',async t=>{
   const env=environment(t);
   assert.equal((await service(env,'health')).status,503);
-  const q=new URLSearchParams({probe:'1',shop,path_prefix:path,logged_in_customer_id:'',
-    timestamp:String(Math.floor(Date.now()/1000))});
-  q.set('signature',sign(secret,[...q].map(([k,v])=>k+'='+v).sort().join('')));
-  assert.equal((await worker.fetch(new Request(host+'/proxy?'+q),env)).status,200);
+  await env.TLC_UPLOADS.put('health/shopify-proxy','ready',{customMetadata:{target:host+path}});
   assert.equal((await service(env,'health')).status,200);
   env.TLC_UPLOADS.data.get('health/shopify-proxy').uploaded=new Date(Date.now()-days(8));
   assert.equal((await service(env,'health')).status,503);

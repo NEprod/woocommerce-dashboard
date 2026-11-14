@@ -265,8 +265,11 @@ export default {
     try {
       demand(configured(env),503);
       if(url.pathname.startsWith('/private/'))return await staff(req,env,url.pathname);
-      if(url.pathname==='/proxy' && req.method==='GET')return await probe(req,env,url);
-      if(url.pathname==='/proxy' && req.method==='POST')return await proxy(req,env,url);
+      // Shopify forwards the storefront proxy root with a trailing slash.
+      if(url.pathname==='/proxy' || url.pathname==='/proxy/') {
+        if(req.method==='GET')return await probe(req,env,url);
+        if(req.method==='POST')return await proxy(req,env,url);
+      }
       if(url.pathname==='/upload') {
         if(req.method==='OPTIONS' && cors['Access-Control-Allow-Origin'])return new Response(null,{status:204,
           headers:{...headers,...cors,'Access-Control-Allow-Methods':'POST','Access-Control-Allow-Headers':'Authorization, Content-Type'}});
