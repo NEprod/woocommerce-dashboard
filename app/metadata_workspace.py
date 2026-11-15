@@ -568,7 +568,7 @@ def editor_workspace(product: Product, kind: str):
         "fields": EDITOR_FIELDS,
         "affected_total": affected_total,
         "variation_count": Variation.query.filter_by(product_id=product.id).count(),
-        "production_options": editor_options(product),
+        "production_options": editor_options(product, document=shared['data'] if kind == 'shared' else resolved),
         "affected_preview": preview,
         "product_images": product_images,
         "variation_image_preview": (

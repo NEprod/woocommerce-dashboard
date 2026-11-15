@@ -6,7 +6,7 @@ import { test } from 'node:test';
 const loader = new URL('../../app/static/assets/js/product-bom.js', import.meta.url);
 const window = {};
 runInNewContext(readFileSync(loader, 'utf8'), {window});
-const {Editor, layersFor, rows} = window.TLCProduction;
+const {Editor, layersFor, rows, modeOf, rule} = window.TLCProduction;
 const add = (item_id, quantity = '1') => ({op:'add', item_id, quantity, unit:'piece'});
 
 test('shared changes flow through sparse product and variant deltas', () => {
@@ -52,4 +52,55 @@ test('existing editor mounts expandable variant panels and uses the existing sav
   assert.match(designer,/method:'POST'/);
   assert.match(designer,/'X-CSRFToken'/);
   assert.doesNotMatch(designer,/innerHTML|document\.querySelector.+save/);
+});
+
+test('default Inherit and legacy Add do not materialize copies of shared option rules', () => {
+  const shared = {options:{Size:{A3:{mode:'replace',lines:{paper:add(9)}}}}};
+  const a3 = {name:'Size',value:'A3'};
+  assert.equal(modeOf({},{}),'inherit');
+  assert.equal(modeOf({}, {lines:{insert:add(2)}}),'add');
+  assert.equal(modeOf(rule(shared,a3),{}),'replace');
+  assert.equal(modeOf(rule(shared,a3),{mode:'inherit'}),'inherit');
+  assert.equal(modeOf(rule(shared,a3),{mode:'add'}),'add');
+  assert.equal(rule(shared,{name:'Size',value:'A4'}).mode,undefined);
+  assert.equal(rule({}, {name:'constructor',value:'prototype'}).mode,undefined);
+});
+
+test('replacement requires consent and changing modes leaves shared BOM and manual cost intact', () => {
+  const editor = Object.create(Editor.prototype);
+  const option = {name:'Size',value:'A3'};
+  editor.value = {options:{Size:{A3:{mode:'add',lines:{insert:add(2)}}}},
+    variants:{'SKU':{cost:{mode:'manual',amount:'0.00'},lines:{extra:add(3)}}}};
+  editor.shared = {lines:{box:add(1)}};
+  const notices = [];
+  let confirm = false;
+  window.confirm = (message) => { notices.push(message); return confirm; };
+  editor.changed = () => {};
+  assert.equal(editor.changeMode(option,'replace'),false);
+  assert.equal(rule(editor.value,option).lines.insert.item_id,2);
+  assert.match(notices[0],/packaging/);
+  confirm = true;
+  assert.equal(editor.changeMode(option,'replace'),true);
+  assert.equal(rule(editor.value,option).mode,'replace');
+  assert.equal(rule(editor.value,option).lines,undefined);
+  assert.equal(editor.changeMode('SKU','replace'),true);
+  assert.equal(editor.value.variants.SKU.cost.amount,'0.00');
+  assert.equal(editor.shared.lines.box.item_id,1);
+  assert.equal(editor.changeMode(option,'inherit'),true);
+  assert.equal(rule(editor.value,option).mode,'inherit');
+});
+
+test('variant list defaults to authored exceptions or flagged variants, but keeps selected ones', () => {
+  const editor = Object.create(Editor.prototype);
+  editor.value = {variants:{OWN:{mode:'replace'}}};
+  editor.shared = {variants:{SHARED:{lines:{paper:add(1)}}}};
+  editor.previewData = {variants:{CLASH:{warnings:['Competing replacement BOMs']}, PLAIN:{warnings:[]}}};
+  editor.selectedVariants = new Set(['FIND']);
+  for (const sku of ['OWN','SHARED','CLASH','FIND']) assert.ok(editor.variantNeedsCard({sku}));
+  assert.ok(!editor.variantNeedsCard({sku:'PLAIN'}));
+  const source = readFileSync(loader,'utf8');
+  assert.match(source,/Option Materials & Components/);
+  assert.match(source,/Individual Variant Adjustments/);
+  assert.match(source,/\[v\.sku,v\.label,v\.identity\]/);
+  assert.match(source,/Inherited: .*Resolved replacement:/);
 });

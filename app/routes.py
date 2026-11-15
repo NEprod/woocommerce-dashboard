@@ -796,17 +796,11 @@ def product_costing_preview(product_id):
     value = body.get('production', {})
     try:
         shared, override = product_bom.authored(product)
-        parent, child = shared.get('production', {}), override.get('production', {})
         if body['kind'] == 'shared':
-            parent, child = value, {}
+            shared, override = {**shared, 'production':value}, {}
         else:
-            child = value
-        product_bom.validate(parent)
-        product_bom.validate(child)
-        rates = {}
-        return jsonify(parent=product_bom.resolve(parent, child, rates=rates), variants={
-            v.sku: product_bom.resolve(parent, child, v.sku, rates=rates)
-            for v in product.variations if v.catalogue_status == 'active'})
+            override = {**override, 'production':value}
+        return jsonify(product_bom.editor_preview(product, shared, override, shared_editor=body['kind'] == 'shared'))
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
 
