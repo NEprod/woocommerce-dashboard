@@ -5,10 +5,11 @@ import {barcodeOption, cameraSession, initialize, normalizeCode} from '../../app
 import {browserBarcodeFallback, decodedBarcodeValue} from '../../app/static/assets/js/inventory-barcode-fallback.mjs';
 
 const retailFormats = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
-const allFormats = ['qr_code', 'code_128', ...retailFormats];
+const addedFormats = ['data_matrix', 'code_39', 'itf'];
+const allFormats = ['qr_code', 'code_128', ...retailFormats, ...addedFormats];
 const cameraOptions = {audio:false, video:{facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720}}};
 
-function mockCamera({native = true, supported = [...allFormats, 'data_matrix'], result = ['SH-A-01'], error,
+function mockCamera({native = true, supported = [...allFormats, 'aztec'], result = ['SH-A-01'], error,
   secure = true, decoder = async () => { throw new Error('no fallback fixture'); }} = {}) {
   const events = {state: [], status: [], code: [], permissions: [], formats: [], fallback: [], stopped: 0};
   const media = {getTracks: () => [{stop() { events.stopped++; }}]};
@@ -55,7 +56,7 @@ test('native Code 128 still works if the fallback for QR cannot load', async () 
   const {session, events} = mockCamera({supported: ['code_128'], result: ['PART-01']});
   await session.start();
   assert.deepEqual(events.formats, ['code_128']);
-  assert.deepEqual(events.fallback, [['qr_code', ...retailFormats]]);
+  assert.deepEqual(events.fallback, [['qr_code', ...retailFormats, ...addedFormats]]);
   assert.deepEqual(events.code, ['PART-01']);
 });
 
@@ -63,7 +64,7 @@ test('native QR support and local Code 128 support share one camera stream', asy
   const {session, events} = mockCamera({supported: ['qr_code'], result: [], decoder: async () => async () => 'PART-01'});
   await session.start();
   assert.deepEqual(events.formats, ['qr_code']);
-  assert.deepEqual(events.fallback, [['code_128', ...retailFormats]]);
+  assert.deepEqual(events.fallback, [['code_128', ...retailFormats, ...addedFormats]]);
   assert.deepEqual(events.code, ['PART-01']);
   assert.equal(events.permissions.length, 1);
 });
@@ -81,6 +82,33 @@ test('native retail detections must be strings with valid lengths and checksums'
   assert.equal(decodedBarcodeValue('0012345678905', 'upc_a'), '0012345678905');
   assert.equal(decodedBarcodeValue('012345678905', 'ean_13'), undefined);
   assert.equal(decodedBarcodeValue('04252614', 'upc_e'), '04252614');
+});
+
+test('native Data Matrix and Code 39 preserve exact decoded text, not just inventory keys', async () => {
+  for (const [format, rawValue] of [['data_matrix','MiX-00._/ +\nEnd'], ['code_39','00aZ-9.$A/+B%Z']]) {
+    const {session, events} = mockCamera({result:[{format, rawValue}]});
+    await session.start();
+    assert.deepEqual(events.code, [rawValue]);
+    assert.equal(events.stopped, 1);
+  }
+});
+
+test('native ITF selects only complete 14-digit checksummed symbols without rewriting them', async () => {
+  const invalid = ['12345678','0001234567890','00012345678906','0001234567890500','0001234567890A','0001234567890\n',12345678905];
+  const {session, events, timers} = mockCamera({result:invalid.map(rawValue => ({format:'itf', rawValue}))});
+  await session.start();
+  assert.deepEqual(events.code, []);
+  assert.equal(events.stopped, 0);
+  assert.ok([...timers.values()].some(timer => timer.ms === 180));
+  session.stop();
+  assert.equal(events.stopped, 1);
+  const rawValue = '00012345678905';
+  const valid = mockCamera({result:[{format:'itf', rawValue},{format:'itf', rawValue}]});
+  await valid.session.start();
+  assert.deepEqual(valid.events.code, [rawValue]);
+  assert.equal(valid.events.stopped, 1);
+  assert.equal(valid.timers.size, 0);
+  assert.equal(decodedBarcodeValue('00012345678906', 'code_128'), '00012345678906');
 });
 
 test('HTTP, unavailable cameras and denied Safari permission give a manual path', async () => {
@@ -226,6 +254,45 @@ const badEAN = '1010001011001000101110010100001011110101110110101011100101000010
 const ean8 = '1010001101001100100100110111101010101011100100111010100001001110101'; // 01234565
 const upcA = '10100011010011001001001101111010100011011000101010101000010001001001000111010011100101001110101'; // 012345678905
 const upcE = '101001110100100110111001001101101011110011001010101'; // 04252614, expanded 042100005264
+// Data Matrix modules were generated with the ZXing-C++ writer (test fixture
+// only). The GS1 fixture includes a literal group separator after LOT-A.
+const dataMatrix = `10101010101010101010101010
+10100110100110101101101111
+11011011000101111100001100
+10100000001110001001001011
+11000101011010101000101000
+10101001000000011001010111
+11111100110010101110111100
+10000001101000000100000011
+10011011101100110100110000
+10100010001101111000110101
+10110000100001010101001000
+11111111111111111111111111`.split('\n');
+const gs1Matrix = `10101010101010101010
+11001000001110000111
+10001001101011010100
+10110110110110110001
+11100010101000010110
+10101010000100101101
+11111001101110110010
+10010101000010011101
+10100100010110001100
+11010011011110101111
+10001011001110110010
+11110001001100011011
+11110011011010000000
+11011100110110110011
+11111010110101100110
+11000101001011101011
+11001101100011101000
+11001111000000010101
+10001001010101100010
+11111111111111111111`.split('\n');
+// Code 39 (no optional Mod-43 digit) and ITF modules from python-barcode.
+const code39 = '100010111011101010100011101110101010001110111010111010100010111010001110111010101000101011101110101110001011101011100010101110101000100010001010111010100010111010001000101000101000101000100010101110100010111010100010001000101000111011101010100010111011101';
+const itf14 = '101010101110001110001010001011101110100010001110001010111010001011100010111010111011101000100011101000101110001010001011100011101011101';
+const itfBadChecksum = '101010101110001110001010001011101110100010001110001010111010001011100010111010111011101000100011101000101110001010100011100011101011101';
+const itfShort = '101011101000101011100011101110100010100011101000111000101010001010111000111011101';
 
 function frame(rows, quiet, scale) {
   const width = (rows[0].length + 2 * quiet) * scale;
@@ -307,6 +374,42 @@ test('real self-hosted WASM decodes TLC and retail fixtures without uploading fr
     assert.equal(await decode(ean0232.slice(0, 80)), undefined);
   });
 
+  await t.test('ZXing preserves Data Matrix and standard Code 39 payloads, and camera ITF is checksum-valid ITF-14 only', async () => {
+    async function decode(pixels, formats = allFormats) {
+      const context = {drawImage() {}, getImageData:() => pixels};
+      const host = {document:{createElement:() => ({getContext:() => context})}};
+      const read = await browserBarcodeFallback(host, formats);
+      return read({videoWidth:pixels.width, videoHeight:pixels.height});
+    }
+    const linear = bits => frame(Array(32).fill(bits), 16, 3);
+    assert.equal(await decode(frame(dataMatrix, 4, 6)), 'MiX-00._/ +\nEnd');
+    assert.equal(await decode(frame(gs1Matrix, 4, 6), ['data_matrix']), '010001234567890510LOT-A\u001d21005');
+    assert.equal(await decode(frame(dataMatrix, 4, 6), ['qr_code']), undefined);
+    assert.equal(await decode(linear(code39)), '00AZ-9.$A/+B%Z');
+    assert.equal(await decode(linear(itf14)), '00012345678905');
+    assert.equal(await decode(linear(itfBadChecksum)), undefined);
+    assert.equal(await decode(linear(itfShort)), undefined);
+    assert.equal(await decode(linear(itf14.slice(0,-8))), undefined);
+  });
+
+  await t.test('extra formats get a bounded search cadence without slowing existing format opportunities', async () => {
+    const blank = {width:320, height:180, data:new Uint8ClampedArray(320 * 180 * 4).fill(255)};
+    const matrix = frame(dataMatrix, 4, 6);
+    const ean = linearCameraFrame(ean0232, 480, 270, 3);
+    let pixels = blank;
+    const context = {drawImage() {}, save() {}, restore() {}, fillRect() {}, translate() {}, rotate() {}, getImageData:() => pixels};
+    const host = {document:{createElement:() => ({getContext:() => context})}};
+    const read = await browserBarcodeFallback(host, allFormats);
+    const video = {videoWidth:320, videoHeight:180};
+    assert.equal(await read(video), undefined); // full search on a blank frame
+    pixels = matrix;
+    assert.equal(await read(video), undefined); // M1.3 formats only
+    pixels = ean;
+    assert.equal(await read(video), '6975337030232'); // still scanned on the next fast pass
+    pixels = matrix;
+    assert.equal(await read(video), 'MiX-00._/ +\nEnd'); // full search again
+  });
+
   await t.test('measured small EAN-13 labels at 1280 × 720 and 90° portrait, compared to the old cap', async () => {
     async function decode(pixels) {
       const context = {drawImage() {}, getImageData:() => pixels};
@@ -373,8 +476,8 @@ test('a decoded unregistered manufacturer barcode is unknown to the form, not a 
   assert.equal(events.stopped, 1);
 });
 
-function editor({raw = '000420', value = '', readOnly = false, respond} = {}) {
-  const {host, events, timers, video} = mockCamera({result: raw ? [raw] : []});
+function editor({raw = '000420', format = 'qr_code', value = '', readOnly = false, respond} = {}) {
+  const {host, events, timers, video} = mockCamera({result: raw ? [{rawValue:raw, format}] : []});
   function control(initial = {}) {
     const handlers = {};
     return Object.assign({addEventListener: (type, callback) => { handlers[type] = callback; },
@@ -426,6 +529,19 @@ test('editor scan fills a text field with leading zeros, without submitting or t
   assert.equal(view.requests.length, 1);
   assert.equal(view.requests[0].url.href, 'https://tlc.example.test/production/item/barcode-check?code=000420');
   assert.deepEqual(view.requests[0].options, {credentials:'same-origin', cache:'no-store'});
+});
+
+test('a Data Matrix editor scan leaves case unchanged; punctuation outside the registry rules does not select an item', async () => {
+  const matrix = editor({raw:'00aB-39', format:'data_matrix'});
+  await scanInEditor(matrix);
+  assert.equal(matrix.field.value, '00aB-39');
+  assert.equal(matrix.saves(), 0);
+  const punctuation = editor({raw:'00AZ-9.$A/+B%Z', format:'code_39'});
+  await scanInEditor(punctuation);
+  assert.equal(punctuation.field.value, '');
+  assert.match(punctuation.status.textContent, /Barcode decoded.*cannot be used as an inventory code/);
+  assert.equal(punctuation.requests.length, 0);
+  assert.equal(punctuation.saves(), 0);
 });
 
 test('an entered code is not replaced without explicit approval and a keyboard scanner cannot submit', async () => {

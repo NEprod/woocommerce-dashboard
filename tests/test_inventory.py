@@ -243,7 +243,7 @@ def test_receiving_suggests_deduplicated_physical_stock_and_real_history(worksho
 def test_receipt_requires_matching_scan_bound_to_item_form_and_operator(workshop):
     client = client_for(workshop)
     other_operator = client_for(workshop, 2)
-    raw = item(client, "material", "PLA", "Filament", unit="g")
+    raw = item(client, "material", "00012345678905", "Filament", unit="g")
     other_item = item(client, "purchased", "LED", "LED")
     a = location(client, "A", "Shelf A")
     b = location(client, "B", "New shelf")
@@ -251,7 +251,8 @@ def test_receipt_requires_matching_scan_bound_to_item_form_and_operator(workshop
     scan = scan_location(client, "receive", raw, nonce, "B")
     assert scan.status_code == 200 and scan.json["destination"] == str(b)
     proof = scan.json["proof"]
-    assert b"item barcode" in scan_location(client, "receive", raw, nonce, "PLA").data
+    item_scan = scan_location(client, "receive", raw, nonce, "00012345678905")
+    assert item_scan.status_code == 400 and b"item barcode" in item_scan.data and "proof" not in item_scan.json
     assert b"Unknown location barcode" in scan_location(client, "receive", raw, nonce, "UNKNOWN").data
     assert scan_location(client_for(workshop, 3), "receive", raw, nonce, "B").status_code == 403
     for operator, item_id, form_id, selected, evidence in (

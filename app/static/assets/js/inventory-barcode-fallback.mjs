@@ -1,20 +1,26 @@
 const wasmURL = new URL('./vendor/zxing-wasm-3.1.6/dist/reader/zxing_reader.wasm', import.meta.url).href;
-const names = {qr_code: 'QRCode', code_128: 'Code128', ean_13: 'EAN13', ean_8: 'EAN8', upc_a: 'UPCA', upc_e: 'UPCE'};
+const names = {qr_code: 'QRCode', code_128: 'Code128', ean_13: 'EAN13', ean_8: 'EAN8', upc_a: 'UPCA', upc_e: 'UPCE',
+  data_matrix: 'DataMatrix', code_39: 'Code39Std', itf: 'ITF14'};
 export const scanFormats = Object.freeze(Object.keys(names));
 const fromZXing = new Map(Object.entries(names).map(([native, zxing]) => [zxing, native]));
-const retailDigits = {ean_13: 13, ean_8: 8, upc_a: 12, upc_e: 8};
+// The pinned reader can report the parent symbology for both requested variants.
+fromZXing.set('Code39', 'code_39');
+fromZXing.set('ITF', 'itf');
+const extraFormats = new Set(['data_matrix', 'code_39', 'itf']);
+const checkedDigits = {ean_13: 13, ean_8: 8, upc_a: 12, upc_e: 8, itf: 14};
 export const scanFrameEdge = 1280;
 let readerReady;
 
 export function decodedBarcodeValue(value, format) {
   if (typeof value !== 'string' || !value || !scanFormats.includes(format)) return;
-  if (!retailDigits[format]) return value;
+  if (!checkedDigits[format]) return value;
 
   // Native and ZXing both validate retail checksums. Also reject malformed
   // adapter output. UPC-A bars are indistinguishable from a zero-led EAN-13;
   // keep the decoder's representation rather than aliasing either inventory key.
-  const zeroLedUPC = format === 'upc_a' && /^0\d{12}$/.test(value);
-  if (!zeroLedUPC && (value.length !== retailDigits[format] || !/^\d+$/.test(value))) return;
+  const zeroLedUPC = format === 'upc_a' && value.length === 13 && value.startsWith('0');
+  // Even ZXing's ITF14 request can return generic ITF of any supported length.
+  if (/\D/.test(value) || (!zeroLedUPC && value.length !== checkedDigits[format])) return;
   let digits = value;
   if (format === 'upc_e') {
     const [system, a, b, c, d, e, last, check] = value;
@@ -64,10 +70,16 @@ export async function browserBarcodeFallback(host, formats) {
   if (!context) throw new Error('Camera frame capture is unavailable.');
   const read = await loadReader();
   const options = {formats: formats.map((format) => names[format]), maxNumberOfSymbols: 1, tryRotate: true};
+  const fastOptions = {...options, formats: formats.filter((format) => !extraFormats.has(format)).map((format) => names[format])};
   let frame = 0;
   return async (video) => {
     const {videoWidth, videoHeight} = video;
     if (!videoWidth || !videoHeight) return;
+    const frameIndex = frame++;
+    // Clutter makes the extra searches noticeably heavier. Keep the original
+    // formats on every tick and include the added ones on every third tick.
+    const frameOptions = frameIndex % 3 === 0 ? options : fastOptions;
+    if (!frameOptions.formats.length) return; // ZXing would otherwise search every format.
     const scale = Math.min(1, scanFrameEdge / Math.max(videoWidth, videoHeight));
     const width = Math.max(1, Math.round(videoWidth * scale));
     const height = Math.max(1, Math.round(videoHeight * scale));
@@ -75,7 +87,7 @@ export async function browserBarcodeFallback(host, formats) {
     if (canvas.height !== height) canvas.height = height;
     // On occasional later attempts level a slightly tilted label. Reuse the
     // same canvas and one decode per tick; most frames remain unmodified.
-    const attempt = frame++ % 8;
+    const attempt = frameIndex % 8;
     if (attempt === 3 || attempt === 7) {
       context.save();
       context.fillStyle = '#fff';
@@ -87,7 +99,13 @@ export async function browserBarcodeFallback(host, formats) {
     } else {
       context.drawImage(video, 0, 0, width, height);
     }
-    const [result] = await read(context.getImageData(0, 0, width, height), options);
+    const pixels = context.getImageData(0, 0, width, height);
+    let [result] = await read(pixels, frameOptions);
+    if (result?.isValid && result.format === 'DataMatrix' && result.contentType !== 'Text') {
+      // HRI adds presentation formatting to e.g. GS1. Read only this valid
+      // Data Matrix again as plain content, leaving existing formats' HRI alone.
+      [result] = await read(pixels, {...options, formats: ['DataMatrix'], textMode: 'Plain'});
+    }
     return zxingValue(result);
   };
 }

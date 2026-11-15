@@ -98,8 +98,8 @@ export function cameraSession(host, video, status, onCode, onRunning, fallback =
       }
       if (generation !== request) return;
       const qr = reader.formats.includes('qr_code');
-      const linear = reader.formats.some((format) => format !== 'qr_code');
-      status(`Point the camera at ${qr && linear ? 'a QR code or barcode' : qr ? 'a QR code' : 'a barcode'}.`);
+      const other = reader.formats.some((format) => format !== 'qr_code');
+      status(`Point the camera at ${qr && other ? 'a QR code or barcode' : qr ? 'a QR code' : 'a barcode'}.`);
       host.clearTimeout(expiry);
       expiry = host.setTimeout(() => {
         stop();
@@ -154,7 +154,7 @@ function editorBarcode(host, block, field, status) {
     const request = check;
     const code = normalizeCode(raw);
     if (!code) {
-      status('This scan is not a valid inventory barcode. Use 1–24 letters, digits or hyphens, starting with a letter or digit.');
+      status('Barcode decoded, but this value cannot be used as an inventory code. Use 1–24 letters, digits or hyphens, starting with a letter or digit.');
       return;
     }
     if (field.readOnly && normalizeCode(field.value) === code) {
@@ -181,7 +181,7 @@ function editorBarcode(host, block, field, status) {
       status('The scan does not match the saved barcode. The permanent barcode is unchanged.');
       return;
     }
-    const value = String(raw).trim();
+    const value = raw;
     if (field.value.trim() && normalizeCode(field.value) !== code) {
       candidate = value;
       use.hidden = false;
@@ -210,31 +210,32 @@ export function initialize(doc, host) {
     const target = standalone ? null : doc.getElementById(block.dataset.workshopScan);
     const editor = block.dataset?.editorScan ? editorBarcode(host, block, target, status) : null;
     const input = standalone ? form.querySelector('[data-lookup-code]') : block.querySelector('[data-scan-manual]');
-    function accept(raw) {
+    function accept(raw, scanned = false) {
       if (editor) {
         void editor.accept(raw);
         return;
       }
       const code = normalizeCode(raw);
       if (!code) {
-        status('That is not a TLC label code. Enter the identifier printed on the label.');
+        status(scanned ? 'Barcode decoded, but this value cannot be matched to an inventory code. Enter a registered code.'
+          : 'That is not a TLC label code. Enter the identifier printed on the label.');
         return;
       }
-      input.value = code;
+      input.value = scanned ? raw : code;
       if (standalone) {
         form.requestSubmit();
         return;
       }
       const match = barcodeOption(target.options, code);
       if (!match) {
-        status(`${code} is not available for this field. Check that it is the right active item or location.`);
+        status(`${input.value} is not available for this field. Check that it is the right active item or location.`);
         return;
       }
       target.value = match.value;
       target.dispatchEvent(new host.Event('change', {bubbles: true}));
       status(`Selected ${match.textContent.trim()}.`);
     }
-    const session = cameraSession(host, video, status, accept, (running) => {
+    const session = cameraSession(host, video, status, (code) => accept(code, true), (running) => {
       start.hidden = running;
       stop.hidden = !running;
     });
