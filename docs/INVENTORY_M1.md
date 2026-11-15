@@ -27,7 +27,11 @@ The upgrade only adds a reserved, non-scannable ledger destination. Existing loc
 
 Choose **Print barcode label** from an item or location, pick a width, then print at actual size. The genuine Code 128 and QR symbols carry the same code. Print at 100% scaling and try a test label before printing a set.
 
-Open **Scan / Look up** or use a stock form's **Scan or enter a barcode** control. Camera scanning requires a trusted HTTPS dashboard origin, camera permission and native browser `BarcodeDetector` support. QR is preferred; Code 128 is accepted when the browser can decode it. Not all phone browsers provide that API. Without it, choose by name, type the label code, or use a keyboard-style scanner. The camera reads frames locally, stops after decoding or timing out, and never submits a stock transaction. If you use the unencrypted Unraid address, expect manual lookup rather than the camera.
+Open **Scan / Look up** or use the camera control beside an item or destination field. Camera scanning requires trusted HTTPS and permission. It reads QR, Code 128, EAN-13, EAN-8, UPC-A and UPC-E, using native support where available and the bundled ZXing fallback for the rest. All decoding happens on the device. Use even light, keep a margin around the bars and move back a little if the camera cannot focus. Manual entry and keyboard scanners still work, including on an unencrypted dashboard address.
+
+UPC-A and zero-prefixed EAN-13 can have identical bars but may be reported as 12 or 13 digits. The scanner keeps the exact decoded digits and never aliases these inventory codes. If the decoder reports a different representation than the one already registered, enter the registered value manually. For UPC-E the scanner keeps the decoder's original eight digits, not the expanded value.
+
+The fallback keeps up to 1280 pixels along the long edge and occasionally tries a small tilt correction while keeping the preview unchanged. Generated EAN-13 versions of `6975337030232` and `6975337030270` decoded at 1280 × 720 and in 90°-rotated 720 × 1280 frames at 1.7, 2 and 3 pixels per module. The previous 960-pixel cap missed the smallest versions. The printed `6975337030270` label in the reference photo is actually Code 128, so the same digits can also read on older builds. These are decoder checks, not a live iPhone camera test.
 
 ## Deploy and accept
 

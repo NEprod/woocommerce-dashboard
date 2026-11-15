@@ -1,6 +1,4 @@
-import {browserBarcodeFallback} from './inventory-barcode-fallback.mjs';
-
-const formats = ['qr_code', 'code_128'];
+import {browserBarcodeFallback, decodedBarcodeValue, scanFormats} from './inventory-barcode-fallback.mjs';
 
 export const normalizeCode = (raw) => {
   const code = String(raw || '').trim();
@@ -16,13 +14,13 @@ async function scannerFor(host, fallback) {
   let native, available = [];
   try {
     const supported = await host.BarcodeDetector?.getSupportedFormats?.();
-    available = formats.filter((format) => supported?.includes(format));
+    available = scanFormats.filter((format) => supported?.includes(format));
     if (available.length) native = new host.BarcodeDetector({formats: available});
   } catch {
     available = [];
   }
   let local;
-  const missing = formats.filter((format) => !available.includes(format));
+  const missing = scanFormats.filter((format) => !available.includes(format));
   if (missing.length) {
     try {
       local = await fallback(host, missing);
@@ -31,10 +29,14 @@ async function scannerFor(host, fallback) {
     }
   }
   return {
-    formats: local ? formats : available,
+    formats: local ? scanFormats : available,
     async read(video) {
       const results = native && await native.detect(video);
-      return results?.[0]?.rawValue || local?.(video);
+      for (const {rawValue, format} of results || []) {
+        const code = available.includes(format) && decodedBarcodeValue(rawValue, format);
+        if (code) return code;
+      }
+      return local?.(video);
     },
   };
 }
@@ -72,7 +74,9 @@ export function cameraSession(host, video, status, onCode, onRunning, fallback =
         status('The camera or barcode reader did not start in time. Try again or enter the code.');
       }, 30000);
       // Ask directly from the camera-button gesture, before loading the fallback.
-      const media = await host.navigator.mediaDevices.getUserMedia({audio: false, video: {facingMode: {ideal: 'environment'}}});
+      const media = await host.navigator.mediaDevices.getUserMedia({audio: false, video: {
+        facingMode: {ideal: 'environment'}, width: {ideal: 1280}, height: {ideal: 720},
+      }});
       if (generation !== request) {
         media.getTracks().forEach((track) => track.stop());
         return;
@@ -93,9 +97,9 @@ export function cameraSession(host, video, status, onCode, onRunning, fallback =
         return;
       }
       if (generation !== request) return;
-      const label = reader.formats.length === 2 ? 'a QR code or Code 128 label'
-        : reader.formats[0] === 'qr_code' ? 'a QR code' : 'a Code 128 label';
-      status(`Point the camera at ${label}.`);
+      const qr = reader.formats.includes('qr_code');
+      const linear = reader.formats.some((format) => format !== 'qr_code');
+      status(`Point the camera at ${qr && linear ? 'a QR code or barcode' : qr ? 'a QR code' : 'a barcode'}.`);
       host.clearTimeout(expiry);
       expiry = host.setTimeout(() => {
         stop();
