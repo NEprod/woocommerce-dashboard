@@ -81,9 +81,20 @@ def lookup(raw):
     return db.session.scalar(select(Identity).where(Identity.code == identifier(raw)))
 
 
+def item_barcode_conflict(identity):
+    owner = db.session.get(Location if identity.kind == "location" else Item, identity.id)
+    if owner is not None:
+        label = "location" if identity.kind == "location" else KINDS[owner.kind].lower()
+        return f"Barcode {identity.code} is already assigned to {label} “{owner.name}”. Choose a different code."
+    return "That barcode is already assigned, including archived records. Choose a different code."
+
+
 def _new_identity(raw, kind):
     code = identifier(raw)
-    if lookup(code):
+    existing = lookup(code)
+    if existing is not None:
+        if kind == "item":
+            raise ValueError(item_barcode_conflict(existing))
         raise ValueError("That barcode is already assigned, including archived records. Choose a different code.")
     return Identity(code=code,kind=kind)
 

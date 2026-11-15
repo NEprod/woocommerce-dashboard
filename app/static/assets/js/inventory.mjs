@@ -132,8 +132,70 @@ export function cameraSession(host, video, status, onCode, onRunning, fallback =
   return {start, stop};
 }
 
+function editorBarcode(host, block, field, status) {
+  const use = block.querySelector('[data-scan-use]');
+  let candidate, check = 0;
+  function reset() {
+    check++;
+    candidate = undefined;
+    use.hidden = true;
+  }
+  function fill(value) {
+    field.value = value;
+    reset();
+    status('Barcode entered. Review it and use Save to keep it.');
+  }
+  async function accept(raw) {
+    reset();
+    const request = check;
+    const code = normalizeCode(raw);
+    if (!code) {
+      status('This scan is not a valid inventory barcode. Use 1–24 letters, digits or hyphens, starting with a letter or digit.');
+      return;
+    }
+    if (field.readOnly && normalizeCode(field.value) === code) {
+      status('The scan matches the saved barcode.');
+      return;
+    }
+    status('Checking barcode availability…');
+    try {
+      const url = new URL(block.dataset.editorScan, host.location.href);
+      url.searchParams.set('code', code);
+      const reply = await host.fetch(url, {credentials: 'same-origin', cache: 'no-store'});
+      const result = await reply.json();
+      if (request !== check) return;
+      if (reply.status === 409) {
+        status(result.error);
+        return;
+      }
+      if (!reply.ok || result.available !== true) throw new Error('Barcode check unavailable');
+    } catch {
+      if (request === check) status('Could not check the scanned barcode. Try again, or enter a barcode manually on a new record.');
+      return;
+    }
+    if (field.readOnly) {
+      status('The scan does not match the saved barcode. The permanent barcode is unchanged.');
+      return;
+    }
+    const value = String(raw).trim();
+    if (field.value.trim() && normalizeCode(field.value) !== code) {
+      candidate = value;
+      use.hidden = false;
+      status(`Scanned ${value}. Select Use scanned barcode to replace the current entry.`);
+    } else {
+      fill(value);
+    }
+  }
+  use.addEventListener('click', () => { if (candidate !== undefined) fill(candidate); });
+  field.addEventListener('input', () => { reset(); status(''); });
+  field.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') event.preventDefault(); // a keyboard scanner must not implicitly submit the editor
+  });
+  return {accept, reset};
+}
+
 export function initialize(doc, host) {
-  let activeCamera;
+  let cancelActiveCamera;
   for (const block of doc.querySelectorAll('[data-workshop-scan]')) {
     const video = block.querySelector('[data-scan-video]');
     const start = block.querySelector('[data-scan-open]');
@@ -141,9 +203,14 @@ export function initialize(doc, host) {
     const status = (message) => { block.querySelector('[data-scan-status]').textContent = message; };
     const form = block.closest('form');
     const standalone = block.hasAttribute('data-lookup-scan');
-    const input = standalone ? form.querySelector('[data-lookup-code]') : block.querySelector('[data-scan-manual]');
     const target = standalone ? null : doc.getElementById(block.dataset.workshopScan);
+    const editor = block.dataset?.editorScan ? editorBarcode(host, block, target, status) : null;
+    const input = standalone ? form.querySelector('[data-lookup-code]') : block.querySelector('[data-scan-manual]');
     function accept(raw) {
+      if (editor) {
+        void editor.accept(raw);
+        return;
+      }
       const code = normalizeCode(raw);
       if (!code) {
         status('That is not a TLC label code. Enter the identifier printed on the label.');
@@ -166,14 +233,17 @@ export function initialize(doc, host) {
       start.hidden = running;
       stop.hidden = !running;
     });
+    const cancel = () => { editor?.reset(); session.stop(); };
     start.addEventListener('click', () => {
-      activeCamera?.stop();
-      activeCamera = session;
+      cancelActiveCamera?.();
+      cancelActiveCamera = cancel;
+      editor?.reset();
       void session.start();
     });
-    stop.addEventListener('click', () => { session.stop(); status('Camera stopped.'); });
-    block.addEventListener('toggle', () => { if (!block.open) session.stop(); });
-    if (!standalone) {
+    stop.addEventListener('click', () => { cancel(); status('Camera stopped.'); });
+    block.addEventListener('toggle', () => { if (!block.open) cancel(); });
+    if (editor) start.hidden = false;
+    if (!standalone && !editor) {
       block.querySelector('[data-scan-select]').addEventListener('click', () => { session.stop(); accept(input.value); });
       input.addEventListener('keydown', (event) => {
         if (event.key !== 'Enter') return;
@@ -184,8 +254,8 @@ export function initialize(doc, host) {
     }
     block.hidden = false;
   }
-  host.addEventListener('pagehide', () => activeCamera?.stop());
-  doc.addEventListener('visibilitychange', () => { if (doc.hidden) activeCamera?.stop(); });
+  host.addEventListener('pagehide', () => cancelActiveCamera?.());
+  doc.addEventListener('visibilitychange', () => { if (doc.hidden) cancelActiveCamera?.(); });
   for (const button of doc.querySelectorAll('[data-inventory-print]')) {
     button.hidden = false;
     button.addEventListener('click', async () => {

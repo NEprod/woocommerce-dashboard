@@ -5,7 +5,7 @@ import json
 import re
 from uuid import uuid4
 
-from flask import (Blueprint, Response, abort, current_app, flash, redirect,
+from flask import (Blueprint, Response, abort, current_app, flash, jsonify, redirect,
                    render_template, request, url_for)
 from flask_login import current_user, login_required
 from itsdangerous import BadData, URLSafeTimedSerializer
@@ -169,6 +169,18 @@ def item_image(record_id):
     if content is None:
         abort(404)
     return Response(content, mimetype="image/jpeg", headers={"X-Content-Type-Options":"nosniff"})
+
+
+@inventory.get("/item/barcode-check")
+def item_barcode_check():
+    """Check an editor scan without saving or changing an identity."""
+    try:
+        assigned = stock.lookup(request.args.get("code"))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    if assigned is not None:
+        return jsonify(error=stock.item_barcode_conflict(assigned)), 409
+    return jsonify(available=True)
 
 
 @inventory.get("/locations")

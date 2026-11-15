@@ -1,5 +1,5 @@
 {% extends 'inventory/base.html' %}
-{% from 'inventory/_fields.html' import heading,field,unit,csrf,error as show_error %}
+{% from 'inventory/_fields.html' import heading,field,unit,csrf,scanner_preview,error as show_error %}
 {% set title = ('Edit ' if row else 'Add ') + kinds[kind]|lower %}
 {% block workshop %}
 {{ heading(title,'Saving this record does not create stock. Record opening stock or a receipt afterwards.') }}
@@ -9,7 +9,16 @@
   <fieldset class="workshop-panel"><legend>Identity and storage</legend>
     <div class="workshop-fields">
       {{ field('Name','name',values,required=true,limit=160) }}
-      {% if row %}<p><strong>Permanent barcode</strong><br>{{ row.identity.code }}</p>{% else %}{{ field('Permanent barcode','code',values,required=true,limit=24,placeholder='e.g. PLA-BLACK') }}{% endif %}
+      <div class="workshop-barcode-editor" data-workshop-scan="inventory-item-barcode" data-editor-scan="{{ url_for('inventory.item_barcode_check') }}">
+        <label for="inventory-item-barcode">Permanent barcode</label>
+        <input class="form-control" id="inventory-item-barcode" type="text" value="{{ row.identity.code if row else values.get('code','') }}" autocomplete="off" spellcheck="false"
+               {% if row %}readonly{% else %}name="code" required maxlength="24" placeholder="e.g. PLA-BLACK"{% endif %}>
+        <button class="btn btn-outline-primary" type="button" data-scan-open hidden>Scan Barcode</button>
+        <button class="btn btn-outline-primary" type="button" data-scan-stop hidden>Cancel scan</button>
+        {{ scanner_preview() }}
+        <button class="btn btn-outline-primary" type="button" data-scan-use hidden>Use scanned barcode</button>
+        {% if row %}<p class="field-helper">Scan to check the saved barcode. This identity cannot be changed.</p>{% endif %}
+      </div>
       {{ field('Category','category',values) }}{{ field('Brand or specification','specification',values,limit=250) }}
       {% if row or kind == 'manufactured' %}<p><strong>Stock unit</strong><br>{{ row.unit if row else 'piece' }}</p>{% else %}{{ unit('Stock unit (permanent)','unit',values.get('unit'),units,true) }}{% endif %}
       {{ field('Minimum stock','minimum',values,'decimal') }}{{ field('Preferred reorder target','reorder',values,'decimal') }}

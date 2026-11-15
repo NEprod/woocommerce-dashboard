@@ -149,6 +149,62 @@ def test_item_management_pack_specs_image_location_hierarchy_and_permanent_codes
         assert db.session.scalar(select(func.count(Movement.id))) == 0
 
 
+def test_item_barcode_scanner_present_on_new_and_existing_editors(workshop):
+    client = client_for(workshop)
+    raw = item(client, "material", "RAW", "Filament")
+    purchased = item(client, "purchased", "SW", "Switches")
+    made = manufactured(client, [(raw, "1", "piece")])
+
+    for kind, record_id in (("material", raw), ("purchased", purchased), ("manufactured", made)):
+        new = client.get(f"/production/item/new/{kind}")
+        edit = client.get(f"/production/item/{record_id}/edit")
+        for page in (new, edit):
+            assert page.status_code == 200
+            assert b'data-editor-scan="/production/item/barcode-check"' in page.data
+            assert b'type="button" data-scan-open hidden>Scan Barcode' in page.data
+            assert b'type="button" data-scan-stop hidden>Cancel scan' in page.data
+        new_input = re.search(rb'<input[^>]*id="inventory-item-barcode"[^>]*>', new.data).group()
+        edit_input = re.search(rb'<input[^>]*id="inventory-item-barcode"[^>]*>', edit.data).group()
+        assert b'name="code"' in new_input and b'readonly' not in new_input
+        assert b'readonly' in edit_input and b'name=' not in edit_input
+
+
+def test_item_barcode_check_is_read_only_and_creates_only_on_save(workshop):
+    client = client_for(workshop)
+    check = "/production/item/barcode-check?code="
+    assert client_for(workshop, 3).get(check + "00042").status_code == 403
+    assert client.get(check + "%2Fbin").status_code == 400
+    free = client.get(check + "00042")
+    assert free.json == {"available": True}
+    assert "no-store" in free.headers["Cache-Control"]
+    with workshop.app_context():
+        assert db.session.scalar(select(func.count(Identity.id))) == 0
+        assert db.session.scalar(select(func.count(Movement.id))) == 0
+
+    raw = item(client, "material", "00042", "Filament")
+    switches = item(client, "purchased", "SW", "Switches")
+    rack = location(client, "RACK", "Rack")
+    comp = manufactured(client, [(raw, "1", "piece")])
+    for code, owner in (("00042", "Filament"), ("SW", "Switches"), ("RACK", "Rack"), ("BODY", "Printed body")):
+        duplicate = client.get(check + code)
+        assert duplicate.status_code == 409
+        assert owner in duplicate.json["error"]
+        failed = client.post("/production/item/new/purchased", data={"name":"Duplicate","unit":"piece","active":"yes","code":code})
+        assert failed.status_code == 400 and b"already assigned" in failed.data and owner.encode() in failed.data
+
+    assert client.get("/production/lookup?code=00042").location.endswith(f"/item/{raw}")
+    assert f'value="{raw}" data-code="00042"'.encode() in client.get("/production/stock/receive").data
+    transact(client, "receive", raw, destination=rack, qty="2")
+    edited = client.post(f"/production/item/{raw}/edit", data={"name":"Filament renamed","version":"1","active":"yes","code":"NEW"})
+    assert row_id(edited) == raw
+    with workshop.app_context():
+        assert db.session.get(Item, raw).identity.code == "00042"
+        assert db.session.get(Item, comp).materials[0].material_id == raw
+        assert stock.balance(raw, rack) == 2 * stock.SCALE
+        assert db.session.scalar(select(func.count(Transaction.id))) == 1
+        assert db.session.scalar(select(func.count(Identity.id))) == 4
+
+
 def test_receiving_opening_counts_transfers_idempotence_and_correction(workshop):
     client=client_for(workshop)
     rack=location(client,"RACK","Rack")

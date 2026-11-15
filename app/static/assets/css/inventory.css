@@ -38,8 +38,13 @@
 .workshop-scan summary { font-weight: 600; cursor: pointer; }
 .workshop-scan[open] summary { margin-bottom: .65rem; }
 .workshop-scan .workshop-actions { margin-top: .45rem; }
-.workshop-scan video { width: 100%; max-width: 28rem; max-height: 40vh; object-fit: contain; background: #111; margin-top: .5rem; }
+.workshop [data-scan-video] { width: 100%; max-width: 28rem; max-height: 40vh; object-fit: contain; background: #111; margin-top: .5rem; }
 .workshop-scan [role='status'] { margin: .4rem 0 0; }
+.workshop-barcode-editor { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: start; gap: .3rem .5rem; }
+.workshop-barcode-editor > :is(label, video, p, [data-scan-use]) { grid-column: 1 / -1; }
+.workshop-barcode-editor > p { margin: 0; overflow-wrap: anywhere; }
+.workshop-barcode-editor > [data-scan-status]:empty { display: none; }
+.workshop-barcode-editor > [data-scan-use] { justify-self: start; }
 .workshop-label {
   --label-width: 100mm; width: min(100%, var(--label-width)); margin: 1.5rem 0; padding: 3mm; break-inside: avoid;
   border: 1px solid #000; background: #fff; color: #000; text-align: center; overflow-wrap: anywhere;

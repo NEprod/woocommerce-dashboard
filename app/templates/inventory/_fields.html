@@ -12,6 +12,10 @@
   {% endfor %}
 </select></label>
 {% endmacro %}
+{% macro scanner_preview() %}
+<video data-scan-video playsinline muted autoplay hidden aria-label="Barcode scanner camera preview"></video>
+<p class="field-helper" data-scan-status role="status" aria-live="polite"></p>
+{% endmacro %}
 {% macro scanner(target='', standalone=false) %}
 <details class="workshop-scan workshop-no-print" data-workshop-scan="{{ target }}" {% if standalone %}data-lookup-scan open{% endif %} hidden>
   <summary>{{ 'Use the camera' if standalone else 'Scan or enter a barcode' }}</summary>
@@ -21,8 +25,7 @@
     <button class="btn btn-outline-primary" type="button" data-scan-open>Open camera</button>
     <button class="btn btn-outline-primary" type="button" data-scan-stop hidden>Stop camera</button>
   </div>
-  <video data-scan-video playsinline muted autoplay hidden aria-label="Barcode scanner camera preview"></video>
-  <p class="field-helper" data-scan-status role="status" aria-live="polite"></p>
+  {{ scanner_preview() }}
 </details>
 {% endmacro %}
 {% macro pagination(page,args) %}

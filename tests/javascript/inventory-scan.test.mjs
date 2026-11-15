@@ -247,3 +247,120 @@ test('manual, camera and keyboard wedge use the same known code resolver', () =>
   assert.equal(normalizeCode('stock/12'),null);
   assert.equal(normalizeCode('ß-12'),null);
 });
+
+function editor({raw = '000420', value = '', readOnly = false, respond} = {}) {
+  const {host, events, timers, video} = mockCamera({result: raw ? [raw] : []});
+  function control(initial = {}) {
+    const handlers = {};
+    return Object.assign({addEventListener: (type, callback) => { handlers[type] = callback; },
+      fire: (type, event) => handlers[type]?.(event)}, initial);
+  }
+  const field = control({value, readOnly});
+  const unsaved = {name: 'Edited filament', description: 'Unsaved notes'};
+  const requests = [];
+  let saves = 0;
+  const form = {requestSubmit: () => { saves++; }, submit: () => { saves++; }};
+  const start = control({hidden: true});
+  const stop = control({hidden: true});
+  const use = control({hidden: true});
+  const status = {textContent: ''};
+  const nodes = {'[data-scan-open]':start, '[data-scan-stop]':stop, '[data-scan-video]':video,
+    '[data-scan-status]':status, '[data-scan-use]':use};
+  const block = control({closest: () => form, hasAttribute: () => false, querySelector: selector => nodes[selector],
+    dataset: {workshopScan:'inventory-item-barcode', editorScan:'/production/item/barcode-check'}});
+  const doc = control({querySelector: () => null, getElementById: id => {
+    assert.equal(id, 'inventory-item-barcode');
+    return field;
+  }, querySelectorAll: selector => selector === '[data-workshop-scan]' ? [block] : []});
+  host.addEventListener = () => {};
+  host.location = {href:'https://tlc.example.test/production/item/new/material'};
+  host.fetch = async (url, options) => {
+    requests.push({url, options});
+    return respond ? respond(url) : {ok:true, status:200, json:async () => ({available:true})};
+  };
+  initialize(doc, host);
+  return {field, start, stop, use, status, events, timers, video, requests, unsaved, saves: () => saves};
+}
+
+async function scanInEditor(view) {
+  assert.equal(view.start.hidden, false);
+  view.start.fire('click');
+  await new Promise(setImmediate);
+}
+
+test('editor scan fills a text field with leading zeros, without submitting or touching other form data', async () => {
+  const view = editor();
+  await scanInEditor(view);
+  assert.equal(view.field.value, '000420');
+  assert.match(view.status.textContent, /use Save/);
+  assert.deepEqual(view.unsaved, {name:'Edited filament', description:'Unsaved notes'});
+  assert.equal(view.saves(), 0);
+  assert.equal(view.events.stopped, 1);
+  assert.equal(view.video.srcObject, null);
+  assert.equal(view.timers.size, 0);
+  assert.equal(view.requests.length, 1);
+  assert.equal(view.requests[0].url.href, 'https://tlc.example.test/production/item/barcode-check?code=000420');
+  assert.deepEqual(view.requests[0].options, {credentials:'same-origin', cache:'no-store'});
+});
+
+test('an entered code is not replaced without explicit approval and a keyboard scanner cannot submit', async () => {
+  const view = editor({value:'TLC-001', raw:'Box-0006'});
+  await scanInEditor(view);
+  assert.equal(view.field.value, 'TLC-001');
+  assert.equal(view.use.hidden, false);
+  view.use.fire('click');
+  assert.equal(view.field.value, 'Box-0006');
+  assert.equal(view.use.hidden, true);
+  view.field.value = '000017';
+  view.field.fire('input');
+  let prevented = false;
+  view.field.fire('keydown', {key:'Enter', preventDefault: () => { prevented = true; }});
+  assert.equal(view.field.value, '000017');
+  assert.equal(prevented, true);
+  assert.equal(view.saves(), 0);
+});
+
+test('editing checks the saved barcode but never offers replacement', async () => {
+  const matching = editor({value:'000420', readOnly:true});
+  await scanInEditor(matching);
+  assert.match(matching.status.textContent, /matches the saved barcode/);
+  assert.equal(matching.requests.length, 0);
+  const different = editor({value:'TLC-001', readOnly:true});
+  await scanInEditor(different);
+  assert.match(different.status.textContent, /permanent barcode is unchanged/);
+  assert.equal(different.field.value, 'TLC-001');
+  assert.equal(different.use.hidden, true);
+  assert.equal(different.saves(), 0);
+});
+
+test('conflicting or cancelled scans leave the old field value unchanged', async () => {
+  const duplicate = editor({value:'TLC-001', respond: async () => ({status:409, json:async () => ({error:
+    'Barcode 000420 is already assigned to location “Shelf A”.'})})});
+  await scanInEditor(duplicate);
+  assert.match(duplicate.status.textContent, /already assigned.*Shelf A/);
+  assert.equal(duplicate.field.value, 'TLC-001');
+  assert.equal(duplicate.use.hidden, true);
+  assert.equal(duplicate.saves(), 0);
+  const cancelled = editor({value:'TLC-001', raw:null});
+  await scanInEditor(cancelled);
+  assert.equal(cancelled.video.hidden, false);
+  cancelled.stop.fire('click');
+  assert.equal(cancelled.field.value, 'TLC-001');
+  assert.equal(cancelled.video.hidden, true);
+  assert.equal(cancelled.events.stopped, 1);
+  assert.equal(cancelled.requests.length, 0);
+  assert.equal(cancelled.saves(), 0);
+});
+
+test('a late availability result cannot overwrite new manual input', async () => {
+  let reply;
+  const view = editor({respond: () => new Promise(resolve => { reply = resolve; })});
+  await scanInEditor(view);
+  view.field.value = '000999';
+  view.field.fire('input');
+  reply({ok:true, status:200, json:async () => ({available:true})});
+  await new Promise(setImmediate);
+  assert.equal(view.field.value, '000999');
+  assert.equal(view.use.hidden, true);
+  assert.equal(view.saves(), 0);
+});
