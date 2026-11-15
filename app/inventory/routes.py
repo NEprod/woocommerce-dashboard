@@ -44,13 +44,18 @@ def private(response):
 @inventory.context_processor
 def view_helpers():
     return dict(kinds=stock.KINDS, steps=stock.STEPS, units=stock.UNITS, move_names=MOVE_NAMES,
-                qty=stock.quantity_text, pounds=stock.money_text, breadcrumbs=location_path)
+                qty=stock.quantity_text, pounds=stock.money_text, breadcrumbs=location_path,
+                unassigned_id=stock.UNASSIGNED_ID)
 
 
 def location_path(row):
     names = []
     while row is not None:
-        names.append(row.name)
+        # Disambiguate a familiar legacy label without using it as identity.
+        name = row.name
+        if row.id != stock.UNASSIGNED_ID and name.strip().casefold() == "unassigned":
+            name += f" (location · {row.identity.code})"
+        names.append(name)
         row = row.parent
     return " / ".join(reversed(names))
 
@@ -187,7 +192,7 @@ def item_barcode_check():
 def locations():
     search = request.args.get("q", "").strip()[:120]
     state = request.args.get("state", "active")
-    statement = select(Location).join(Identity, Identity.id == Location.id)
+    statement = select(Location).join(Identity, Identity.id == Location.id).where(Location.id != stock.UNASSIGNED_ID)
     if search:
         statement = statement.where(or_(Location.name.icontains(search, autoescape=True), Identity.code.icontains(search, autoescape=True)))
     if state in {"active", "archived"}:
@@ -198,6 +203,8 @@ def locations():
 
 @inventory.get("/location/<int:record_id>")
 def location(record_id):
+    if record_id == stock.UNASSIGNED_ID:
+        abort(404)
     row = _record(Location, record_id)
     children = db.session.scalars(select(Location).where(Location.parent_id == row.id).order_by(Location.name)).all()
     return render_template("inventory/location.html", row=row, balances=stock.location_balances(row.id), children=children)
@@ -206,6 +213,8 @@ def location(record_id):
 @inventory.route("/location/new", methods=["GET", "POST"], defaults={"record_id": None})
 @inventory.route("/location/<int:record_id>/edit", methods=["GET", "POST"])
 def edit_location(record_id):
+    if record_id == stock.UNASSIGNED_ID:
+        abort(404)
     row = _record(Location, record_id) if record_id is not None else None
     error = ""
     if request.method == "POST":
@@ -255,7 +264,7 @@ def _item_choices(kind=None, *, include_archived=False):
 
 
 def _location_choices(*, include_archived=False):
-    statement = select(Location)
+    statement = select(Location).where(Location.id != stock.UNASSIGNED_ID)
     if not include_archived:
         statement = statement.where(Location.active.is_(True))
     return sorted(db.session.scalars(statement).all(), key=lambda loc: location_path(loc).casefold())
@@ -263,6 +272,51 @@ def _location_choices(*, include_archived=False):
 
 def _signer():
     return URLSafeTimedSerializer(current_app.secret_key, salt="tlc-workshop-confirmation-v1")
+
+
+def _location_scan_signer():
+    return URLSafeTimedSerializer(current_app.secret_key, salt="tlc-workshop-location-scan-v1")
+
+
+def _scan_binding(kind, item_id, nonce):
+    return dict(owner=current_user.get_id(), kind=kind, item_id=item_id, request_id=nonce)
+
+
+@inventory.post("/stock/<kind>/scan-location")
+def scan_location(kind):
+    if kind not in {"receive", "move"}:
+        abort(404)
+    try:
+        nonce = request.form.get("request_id", "")
+        if not re.fullmatch(r"[a-f0-9]{32}", nonce):
+            raise ValueError("Open a new stock form before scanning.")
+        item = stock.item_for(request.form.get("item_id"))
+        if kind == "receive" and item.kind == "manufactured":
+            raise ValueError("Use Complete Production for a manufactured component.")
+        identity = stock.lookup(request.form.get("code"))
+        if identity is None:
+            raise ValueError("Unknown location barcode. Check the label; no location was created.")
+        if identity.kind != "location":
+            raise ValueError("This is an item barcode. Scan a storage location barcode instead.")
+        location = stock.location_for(identity.id)
+        token = _location_scan_signer().dumps(dict(_scan_binding(kind, str(item.id), nonce), destination=str(location.id)))
+        return jsonify(destination=str(location.id), label=location_path(location), proof=token)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+def _attach_scan_evidence(kind, fields, nonce, token):
+    if not (kind == "receive" and fields.get("unassigned") != "yes"
+            or kind == "move" and fields.get("source") == stock.UNASSIGNED):
+        return
+    try:
+        scanned = _location_scan_signer().loads(token, max_age=1200)
+    except BadData:
+        scanned = None
+    expected = dict(_scan_binding(kind, fields.get("item_id"), nonce), destination=fields.get("destination"))
+    if scanned != expected:
+        raise ValueError("Scan the selected physical destination before reviewing this transaction.")
+    fields["verified_destination"] = scanned["destination"]
 
 
 @inventory.route("/stock/<kind>", methods=["GET", "POST"])
@@ -295,8 +349,9 @@ def workflow(kind):
             nonce = values.get("request_id", "")
             if not re.fullmatch(r"[a-f0-9]{32}", nonce):
                 raise ValueError("Open a new stock form before reviewing.")
-            fields = {k:v for k,v in values.items() if k in {"item_id", "original", "qty", "source", "destination", "reason", "entry_unit", "cost"}
+            fields = {k:v for k,v in values.items() if k in {"item_id", "original", "qty", "source", "destination", "reason", "entry_unit", "cost", "unassigned"}
                       or re.fullmatch(r"(actual|source)_[1-9][0-9]{0,12}", k)}
+            _attach_scan_evidence(kind, fields, nonce, values.get("location_proof", ""))
             change = stock.plan(kind, fields)
             signed = _signer().dumps(dict(owner=current_user.get_id(), kind=kind, data=fields,
                                           request_id=nonce, digest=stock.digest(change)))
@@ -318,11 +373,13 @@ def workflow(kind):
         except ValueError as exc:
             row, error = None, str(exc)
     counts = {loc.id: stock.quantity_text(n) for loc,n in stock.item_balances(row.id)} if row else {}
+    suggestions = sorted(stock.receipt_locations(row.id), key=lambda pair: (pair[1] <= 0, location_path(pair[0]).casefold())) if row and kind == "receive" else ()
     material_counts = {req.material_id: {loc.id:stock.quantity_text(n) for loc,n in stock.item_balances(req.material_id)}
                        for req in row.materials} if row and kind == "production" else {}
     return render_template("inventory/workflow.html", kind=kind, row=row, error=error, original=original,
                            values=values, nonce=uuid4().hex, choices=_item_choices(available_kinds) if not row and not original else (),
-                           locations=_location_choices() if row else (), counts=counts, material_counts=material_counts), 400 if error else 200
+                           locations=_location_choices() if row else (), counts=counts, material_counts=material_counts,
+                           suggestions=suggestions, total=stock.balance(row.id) if row else None), 400 if error else 200
 
 
 @inventory.get("/history")
@@ -349,6 +406,8 @@ def transaction(transaction_id):
 
 @inventory.get("/label/<int:record_id>")
 def label(record_id):
+    if record_id == stock.UNASSIGNED_ID:
+        abort(404)
     identity = _record(Identity, record_id)
     row = _record(Item if identity.kind == "item" else Location, identity.id)
     size = request.args.get("size", "100")
@@ -357,6 +416,8 @@ def label(record_id):
 
 @inventory.get("/label/<int:record_id>/<style>.svg")
 def label_art(record_id, style):
+    if record_id == stock.UNASSIGNED_ID:
+        abort(404)
     code = _record(Identity, record_id).code
     output = BytesIO()
     if style == "code128":

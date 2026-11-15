@@ -227,6 +227,7 @@ export function initialize(doc, host) {
         return;
       }
       target.value = match.value;
+      target.dispatchEvent(new host.Event('change', {bubbles: true}));
       status(`Selected ${match.textContent.trim()}.`);
     }
     const session = cameraSession(host, video, status, accept, (running) => {

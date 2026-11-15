@@ -45,6 +45,12 @@
 .workshop-barcode-editor > p { margin: 0; overflow-wrap: anywhere; }
 .workshop-barcode-editor > [data-scan-status]:empty { display: none; }
 .workshop-barcode-editor > [data-scan-use] { justify-self: start; }
+.workshop-location-cards { display: grid; gap: .5rem; margin: .65rem 0; }
+.workshop .workshop-location-card { display: flex; align-items: center; gap: .75rem; padding: .75rem; min-height: 58px; border: 1px solid var(--color-border); border-radius: .6rem; cursor: pointer; }
+.workshop-location-card:has(input:checked) { border-color: var(--color-brand-forest); background: var(--color-surface-elevated); }
+.workshop-location-card small { display: block; color: var(--color-text-secondary); }
+.workshop [data-physical-destination] > .field-helper { margin-top: .75rem; }
+.workshop [data-physical-destination] > [data-scan-status]:empty { display: none; }
 .workshop-label {
   --label-width: 100mm; width: min(100%, var(--label-width)); margin: 1.5rem 0; padding: 3mm; break-inside: avoid;
   border: 1px solid #000; background: #fff; color: #000; text-align: center; overflow-wrap: anywhere;

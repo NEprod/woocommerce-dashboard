@@ -1,11 +1,34 @@
 {% extends 'inventory/base.html' %}
-{% from 'inventory/_fields.html' import heading,field,csrf,scanner,error as show_error %}
+{% from 'inventory/_fields.html' import heading,field,csrf,scanner,scanner_preview,error as show_error %}
 {% set title = steps[kind] %}
-{% macro select_location(label,name,stock_unit,available={},show_stock=false) %}
-  <label>{{ label }}<select class="form-select" name="{{ name }}" id="stock-{{ name }}" required>
+{% block javascripts %}{{ super() }}{% if row and kind in ['receive','move'] %}<script type="module" src="{{ url_for('static',filename='assets/js/inventory-receiving.mjs') }}"></script>{% endif %}{% endblock %}
+{% macro select_location(label,name,stock_unit,available={},show_stock=false,allow_unassigned=false,disabled=false) %}
+  <label>{{ label }}<select class="form-select" name="{{ name }}" id="stock-{{ name }}" required {% if disabled %}disabled{% endif %}>
     <option value="">Choose a location</option>
+    {% if allow_unassigned %}<option value="unassigned" {% if values.get(name) == 'unassigned' %}selected{% endif %}>Unassigned — built-in{% if show_stock %} · {{ available.get(unassigned_id,'0') }} {{ stock_unit }} available{% endif %}</option>{% endif %}
     {% for loc in locations %}<option value="{{ loc.id }}" data-code="{{ loc.identity.code }}" {% if values.get(name)|string == loc.id|string %}selected{% endif %}>{{ breadcrumbs(loc) }}{% if show_stock %} · {{ available.get(loc.id,'0') }} {{ stock_unit }} available{% endif %} ({{ loc.identity.code }})</option>{% endfor %}
   </select></label>{{ scanner('stock-' ~ name) }}
+{% endmacro %}
+{% macro scanned_destination(hidden=false) %}
+  <div data-physical-destination {% if hidden %}hidden{% endif %}>
+    <input type="hidden" name="destination" data-scanned-destination {% if hidden %}disabled{% endif %}>
+    <input type="hidden" name="location_proof" data-location-proof {% if hidden %}disabled{% endif %}>
+    {% if kind == 'receive' and suggestions %}<div class="workshop-location-cards">
+      {% for loc,amount in suggestions %}<label class="workshop-location-card">
+        <input type="radio" name="suggested_location" value="{{ loc.id }}" data-location-label="{{ breadcrumbs(loc) }}">
+        <span><strong>{{ breadcrumbs(loc) }}</strong><small>{{ qty(amount) ~ ' ' ~ row.unit ~ ' on hand' if amount > 0 else 'Previously used' }}</small></span>
+      </label>{% endfor %}
+    </div>{% elif kind == 'receive' %}<p>No physical locations have been used for this item. Scan a location’s barcode to select it.</p>{% endif %}
+    <p class="field-helper">{{ 'Select a suggestion or scan any physical location.' if kind == 'receive' and suggestions else 'Scan the physical destination’s barcode.' }} A selection alone does not verify it.</p>
+    <p data-destination-status role="status" aria-live="polite">No destination verified.</p>
+    <div class="workshop-actions">
+      <button type="button" class="btn btn-primary" data-scan-location hidden>Scan Location</button>
+      <button type="button" class="btn btn-outline-primary" data-cancel-location hidden>Cancel scan</button>
+      <button type="button" class="btn btn-outline-primary" data-use-location hidden>Use scanned location</button>
+    </div>
+    {{ scanner_preview() }}
+    <noscript><p>Enable JavaScript and camera access to scan a destination.</p></noscript>
+  </div>
 {% endmacro %}
 {% block workshop %}
 {{ heading(title) }}
@@ -23,20 +46,38 @@
 {% else %}
   {% if row %}<section class="workshop-panel">
     <h2>{{ row.name }}</h2><p>{{ row.identity.code }} · {{ row.unit }}</p>
-    {% if counts %}<dl class="workshop-facts">{% for loc in locations if loc.id in counts %}<dt>{{ breadcrumbs(loc) }}</dt><dd>{{ counts[loc.id] }} {{ row.unit }}</dd>{% endfor %}</dl>{% else %}<p>No stock recorded at any location.</p>{% endif %}
+    <dl class="workshop-facts"><dt>Total on hand</dt><dd>{{ qty(total) }} {{ row.unit }}</dd>
+      {% for loc in locations if loc.id in counts %}<dt>{{ breadcrumbs(loc) }}</dt><dd>{{ counts[loc.id] }} {{ row.unit }}</dd>{% endfor %}
+      {% if unassigned_id in counts %}<dt>Unassigned — built-in</dt><dd>{{ counts[unassigned_id] }} {{ row.unit }}</dd>{% endif %}
+    </dl>
     <a href="{{ url_for('inventory.workflow',kind=kind) }}">Choose a different item</a>
   </section>{% elif original %}<p>Reverse <a href="{{ url_for('inventory.transaction',transaction_id=original.id) }}">{{ steps[original.kind] }} · {{ original.item.name }}</a>. This creates a new record to undo the stock movements. The original stays in history.</p>{% endif %}
-  <form method="post" class="workshop-form workshop-section-heading">
+  {% set requires_scan = kind == 'receive' or (kind == 'move' and values.get('source') == 'unassigned') %}
+  {% set keep_unassigned = kind == 'receive' and values.get('unassigned') == 'yes' %}
+  <form method="post" class="workshop-form workshop-section-heading"
+        {% if kind in ['receive','move'] %} data-verified-stock="{{ kind }}" data-stock-unit="{{ row.unit }}" data-location-check="{{ url_for('inventory.scan_location',kind=kind) }}"{% endif %}>
     {{ csrf() }}<input type="hidden" name="request_id" value="{{ nonce }}">
     {% if row %}<input type="hidden" name="item_id" value="{{ row.id }}">{% else %}<input type="hidden" name="original" value="{{ original.id }}">{% endif %}
-    {% if row and not locations %}<p class="alert alert-warning">Add an active <a href="{{ url_for('inventory.locations') }}">storage location</a> before recording a movement.</p>{% endif %}
+    {% if row and not locations and kind != 'receive' %}<p class="alert alert-warning">Add an active <a href="{{ url_for('inventory.locations') }}">storage location</a> before recording a movement.</p>{% endif %}
     {% if kind in ['opening','receive','production','move','count'] %}
     <fieldset class="workshop-panel"><legend>{{ 'Batch output' if kind == 'production' else 'Stock details' }}</legend>
       {% if kind == 'receive' %}<label>Receive in<select class="form-select" name="entry_unit"><option value="units">Stock units ({{ row.unit }})</option>{% if row.pack_qty %}<option value="packs" {% if values.get('entry_unit') == 'packs' %}selected{% endif %}>Purchase packs ({{ qty(row.pack_qty) }} {{ row.pack_unit }} per pack)</option>{% endif %}</select></label>{% endif %}
       {{ field('Good components produced' if kind == 'production' else ('Physical quantity counted (' ~ row.unit ~ ')' if kind == 'count' else 'Quantity' if kind == 'receive' else 'Quantity (' ~ row.unit ~ ')'),'qty',values,'decimal',true) }}
       {% if kind in ['receive','opening'] %}{{ field('Total purchase cost (GBP, optional)','cost',values,'decimal') }}<p class="field-helper">If left blank, the configured purchase pack price is used where available.</p>{% endif %}
-      {% if kind == 'move' %}{{ select_location('Source location','source',row.unit,counts,true) }}{% endif %}
-      {{ select_location('Count location' if kind == 'count' else 'Destination location','destination',row.unit,counts,kind == 'count') }}
+      {% if kind == 'move' %}
+        {{ select_location('Source location','source',row.unit,counts,true,true) }}
+        <div data-normal-move-destination {% if requires_scan %}hidden{% endif %}>{{ select_location('Destination location','destination',row.unit,counts,false,true,requires_scan) }}</div>
+        {{ scanned_destination(not requires_scan) }}
+      {% elif kind != 'receive' %}
+        {{ select_location('Count location' if kind == 'count' else 'Destination location','destination',row.unit,counts,kind == 'count') }}
+      {% endif %}
+    </fieldset>
+    {% endif %}
+    {% if kind == 'receive' %}
+    <fieldset class="workshop-panel"><legend>Where would you like to store this stock?</legend>
+      <label class="workshop-check"><input type="checkbox" name="unassigned" value="yes" data-keep-unassigned {% if keep_unassigned %}checked{% endif %}> Keep stock unassigned</label>
+      <p class="alert alert-info" data-unassigned-note {% if not keep_unassigned %}hidden{% endif %}>No physical location will be recorded. Use Move Stock later to allocate it to a verified shelf or bin.</p>
+      {{ scanned_destination(keep_unassigned) }}
     </fieldset>
     {% endif %}
     {% if kind == 'production' %}
@@ -52,7 +93,7 @@
     <fieldset class="workshop-panel"><legend>Record details</legend>
       {{ field('Reason (required)' if kind in ['reversal','opening'] else ('Reason (required if there is a difference)' if kind == 'count' else 'Reason or reference (optional)'),'reason',values,required=kind in ['reversal','opening'],limit=400) }}
     </fieldset>
-    <div class="workshop-actions"><button class="btn btn-primary">Review {{ 'count' if kind == 'count' else 'transaction' }}</button></div>
+    <div class="workshop-actions"><button class="btn btn-primary" {% if kind in ['receive','move'] %}data-review-verified-stock{% endif %}>Review {{ 'receipt' if kind == 'receive' else 'count' if kind == 'count' else 'transaction' }}</button></div>
   </form>
 {% endif %}
 {% endblock %}

@@ -3,17 +3,20 @@ from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from io import BytesIO
 import re
+import sqlite3
 from threading import Barrier
 from uuid import uuid4
 from xml.etree import ElementTree
 
 import pytest
+from alembic import command
 from PIL import Image
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.datastructures import MultiDict
 
 from app import db
+from app.database import _alembic_config, ensure_database
 from app.inventory import service as stock
 from app.inventory.models import Identity, Item, Location, Movement, Transaction
 from app.models import User
@@ -51,10 +54,19 @@ def open_form(client, kind, item_id=None, original=None):
 
 
 def review(client, kind, item_id=None, nonce=None, **values):
+    nonce = nonce or open_form(client, kind, item_id, values.get("original"))
+    if kind == "receive" and values.get("destination") and "location_proof" not in values:
+        with client.application.app_context():
+            location_code = db.session.get(Location, int(values["destination"])).identity.code
+        values["location_proof"] = scan_location(client, kind, item_id, nonce, location_code).json["proof"]
     form = client.post(f"/production/stock/{kind}", data=dict(
-        values, item_id=item_id or "", request_id=nonce or open_form(client,kind,item_id,values.get("original"))))
+        values, item_id=item_id or "", request_id=nonce))
     match = re.search(rb'name="approval" value="([^\"]+)"', form.data)
     return form, match.group(1).decode() if match else None
+
+
+def scan_location(client, kind, item_id, nonce, code):
+    return client.post(f"/production/stock/{kind}/scan-location", data={"item_id":item_id, "request_id":nonce, "code":code})
 
 
 def approve(client, kind, approval):
@@ -178,7 +190,7 @@ def test_item_barcode_check_is_read_only_and_creates_only_on_save(workshop):
     assert free.json == {"available": True}
     assert "no-store" in free.headers["Cache-Control"]
     with workshop.app_context():
-        assert db.session.scalar(select(func.count(Identity.id))) == 0
+        assert db.session.scalar(select(func.count(Identity.id)).where(Identity.id > 0)) == 0
         assert db.session.scalar(select(func.count(Movement.id))) == 0
 
     raw = item(client, "material", "00042", "Filament")
@@ -202,7 +214,146 @@ def test_item_barcode_check_is_read_only_and_creates_only_on_save(workshop):
         assert db.session.get(Item, comp).materials[0].material_id == raw
         assert stock.balance(raw, rack) == 2 * stock.SCALE
         assert db.session.scalar(select(func.count(Transaction.id))) == 1
-        assert db.session.scalar(select(func.count(Identity.id))) == 4
+        assert db.session.scalar(select(func.count(Identity.id)).where(Identity.id > 0)) == 4
+
+
+def test_receiving_suggests_deduplicated_physical_stock_and_real_history(workshop):
+    client = client_for(workshop)
+    raw = item(client, "material", "PLA", "Filament", unit="g")
+    a = location(client, "A", "Shelf A")
+    b = location(client, "B", "Shelf B")
+    c = location(client, "C", "Earlier drawer")
+    location(client, "UNUSED", "Never used")
+    assert b"No physical locations have been used" in client.get(f"/production/stock/receive?item_id={raw}").data
+    transact(client, "receive", raw, destination=a, qty="200")
+    first = client.get(f"/production/stock/receive?item_id={raw}").data
+    assert first.count(b'data-location-label="Shelf A"') == 1 and b"200 g on hand" in first
+    transact(client, "receive", raw, destination=a, qty="125")
+    transact(client, "receive", raw, destination=c, qty="70")
+    transact(client, "move", raw, source=c, destination=b, qty="70")
+    transact(client, "receive", raw, unassigned="yes", qty="50")
+    page = client.get(f"/production/stock/receive?item_id={raw}").data
+    assert page.count(b'data-location-label="Shelf A"') == 1 and b"325 g on hand" in page
+    assert b"70 g on hand" in page and b"Previously used" in page
+    assert page.index(b'data-location-label="Shelf B"') < page.index(b'data-location-label="Earlier drawer"')
+    assert b'data-location-label="Never used"' not in page and b'data-location-label="Unassigned' not in page
+    assert b'name="unassigned" value="yes" data-keep-unassigned checked' not in page
+
+
+def test_receipt_requires_matching_scan_bound_to_item_form_and_operator(workshop):
+    client = client_for(workshop)
+    other_operator = client_for(workshop, 2)
+    raw = item(client, "material", "PLA", "Filament", unit="g")
+    other_item = item(client, "purchased", "LED", "LED")
+    a = location(client, "A", "Shelf A")
+    b = location(client, "B", "New shelf")
+    nonce = open_form(client, "receive", raw)
+    scan = scan_location(client, "receive", raw, nonce, "B")
+    assert scan.status_code == 200 and scan.json["destination"] == str(b)
+    proof = scan.json["proof"]
+    assert b"item barcode" in scan_location(client, "receive", raw, nonce, "PLA").data
+    assert b"Unknown location barcode" in scan_location(client, "receive", raw, nonce, "UNKNOWN").data
+    assert scan_location(client_for(workshop, 3), "receive", raw, nonce, "B").status_code == 403
+    for operator, item_id, form_id, selected, evidence in (
+        (client, raw, nonce, b, ""), (client, raw, nonce, b, "forged"), (client, raw, nonce, a, proof),
+        (client, other_item, nonce, b, proof), (client, raw, open_form(client, "receive", raw), b, proof),
+        (other_operator, raw, nonce, b, proof),
+    ):
+        response, approval = review(operator, "receive", item_id, nonce=form_id, destination=selected, qty="100",
+                                    location_proof=evidence, verified_destination=str(selected))
+        assert response.status_code == 400 and approval is None
+        assert b"Scan the selected physical destination" in response.data
+    preview, approval = review(client, "receive", raw, nonce=nonce, destination=b, qty="100", location_proof=proof)
+    assert b"Physical destination verified" in preview.data and b"Confirm receipt" in preview.data
+    with workshop.app_context():
+        assert stock.balance(raw) == 0
+    receipt = approve(client, "receive", approval)
+    assert receipt.status_code == 303 and approve(client, "receive", approval).location == receipt.location
+    with workshop.app_context():
+        assert stock.balance(raw, b) == 100 * stock.SCALE
+        assert db.session.scalar(select(func.count(Transaction.id))) == 1
+    # A matched scan cannot commit if its destination is retired after preview.
+    _, old_approval = review(client, "receive", raw, destination=a, qty="10")
+    assert client.post(f"/production/location/{a}/edit", data={"name":"Shelf A","version":"1"}).status_code == 303
+    blocked = approve(client, "receive", old_approval)
+    assert blocked.status_code == 409 and b"active storage location" in blocked.data
+
+
+def test_unassigned_receipt_without_locations_and_partial_verified_allocation(workshop):
+    client = client_for(workshop)
+    raw = item(client, "material", "PLA", "Filament", unit="g")
+    assert client.get("/production/location/0").status_code == 404
+    assert client.get("/production/label/0/qr.svg").status_code == 404
+    assert b"Unassigned" not in client.get("/production/locations").data
+    invalid, _ = review(client, "receive", raw, qty="200", unassigned="off")
+    assert invalid.status_code == 400
+    received = transact(client, "receive", raw, qty="200", unassigned="yes")
+    assert b"Explicitly kept Unassigned" in client.get(received).data
+    assert b"Unassigned" in client.get(f"/production/item/{raw}").data
+    shelf = location(client, "A", "Shelf A")
+    nonce = open_form(client, "move", raw)
+    proof = scan_location(client, "move", raw, nonce, "A").json["proof"]
+    rejected, _ = review(client, "move", raw, nonce=nonce, source="unassigned", destination=shelf, qty="100")
+    assert rejected.status_code == 400 and b"Scan the selected physical destination" in rejected.data
+    overdraw, _ = review(client, "move", raw, nonce=nonce, source="unassigned", destination=shelf, qty="201", location_proof=proof)
+    assert overdraw.status_code == 400 and b"Not enough Filament in Unassigned" in overdraw.data
+    _, approved = review(client, "move", raw, nonce=nonce, source="unassigned", destination=shelf, qty="100", location_proof=proof)
+    moved = approve(client, "move", approved)
+    assert moved.status_code == 303
+    assert b"verified by barcode" in client.get(moved.location).data
+    with workshop.app_context():
+        assert stock.balance(raw, stock.UNASSIGNED_ID) == 100 * stock.SCALE
+        assert stock.balance(raw, shelf) == 100 * stock.SCALE
+        assert stock.balance(raw) == 200 * stock.SCALE
+        receipt_id = received.rsplit("/", 1)[1]
+        assert db.session.get(Transaction, receipt_id).moves[0].location_id == stock.UNASSIGNED_ID
+
+
+def test_manual_unassigned_location_can_be_explicitly_transferred_without_merging_history(workshop):
+    client = client_for(workshop)
+    legacy = location(client, "MANUAL", "Unassigned")
+    raw = item(client, "material", "PLA", "Filament", unit="g")
+    receipt = transact(client, "receive", raw, destination=legacy, qty="100")
+    assert b"separate from the built-in" in client.get(f"/production/location/{legacy}").data
+    assert client.get("/production/lookup?code=MANUAL").location.endswith(f"/location/{legacy}")
+    moved = transact(client, "move", raw, source=legacy, destination="unassigned", qty="40", reason="Reconcile old staging stock")
+    assert b"Explicitly kept Unassigned" in client.get(moved).data
+    with workshop.app_context():
+        assert stock.balance(raw, legacy) == 60 * stock.SCALE
+        assert stock.balance(raw, stock.UNASSIGNED_ID) == 40 * stock.SCALE
+        assert stock.balance(raw) == 100 * stock.SCALE
+        assert db.session.get(Transaction, receipt.rsplit("/", 1)[1]).moves[0].location_id == legacy
+
+
+@pytest.mark.parametrize("has_history", [False, True])
+def test_unassigned_upgrade_keeps_manual_location_and_all_existing_rows(tmp_path, has_history):
+    database = tmp_path / "inventory-m1.db"
+    url = f"sqlite:///{database}"
+    command.upgrade(_alembic_config(url), "0022_inventory_foundation")
+    with sqlite3.connect(database) as connection:
+        connection.execute("INSERT INTO inventory_identity VALUES (1, 'MANUAL', 'location')")
+        connection.execute("INSERT INTO inventory_location VALUES (1, 'Unassigned', 'Manually created', NULL, 1, 1)")
+        if has_history:
+            connection.execute("INSERT INTO inventory_identity VALUES (2, 'PLA', 'item')")
+            connection.execute("""INSERT INTO inventory_item
+                (id,kind,name,category,description,specification,filament_type,filament_colour,unit,supplier,supplier_sku,supplier_url,minimum,active,version)
+                VALUES (2,'material','Filament','','','','','','g','','','',0,1,1)""")
+            connection.execute("""INSERT INTO inventory_transaction
+                (id,kind,item_id,actor,actor_label,created_at,reason,details,request_hash)
+                VALUES ('prior','receive',2,'1','Operator','2026-01-01 00:00','Original','{}','original-hash')""")
+            connection.execute("""INSERT INTO inventory_movement (id,transaction_id,item_id,location_id,qty,unit,kind)
+                VALUES (3,'prior',2,1,120000000,'g','receipt')""")
+        old_rows = {table: connection.execute(f"SELECT * FROM inventory_{table} ORDER BY id").fetchall()
+                    for table in ("identity", "location", "item", "transaction", "movement")}
+    report = ensure_database(url)
+    assert report.revision == "0023_unassigned_stock" and report.backup_path.is_file()
+    with sqlite3.connect(database) as connection:
+        for table, rows in old_rows.items():
+            assert connection.execute(f"SELECT * FROM inventory_{table} WHERE id != 0 ORDER BY id").fetchall() == rows
+        assert connection.execute("SELECT code, kind FROM inventory_identity WHERE id=0").fetchone() == ("~UNASSIGNED", "system")
+        assert connection.execute("SELECT COUNT(*) FROM inventory_movement WHERE location_id=0").fetchone() == (0,)
+        assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_receiving_opening_counts_transfers_idempotence_and_correction(workshop):

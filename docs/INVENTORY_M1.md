@@ -12,12 +12,16 @@ Open **Operations → Production & Operations** as an administrator. On a phone,
 
 ## Record and review
 
-- **Receive Stock** accepts stock units or packs for materials and purchased components. Enter the total receipt price in GBP if known; otherwise the configured pack price is used as an estimate, if available.
+- **Receive Stock** accepts stock units or packs for materials and purchased components. Enter the total receipt price in GBP if known; otherwise the configured pack price is used as an estimate, if available. Select a current or previously used shelf, then scan its barcode, or scan any active physical location directly. A location selection alone never enables confirmation. **Keep stock unassigned** records the receipt without a physical destination only when you explicitly tick it.
 - **Complete Production** scales the recipe for the actual good output as a guide, but requires actual consumption of each listed material. Choose the source location for each material; choose one destination for the finished components. Check the review for before/after counts and actual cost. All changes post together; shortages, missing source inputs or stale previews do not post any part of the batch.
-- **Move Stock** posts equal and opposite movements in one transaction. **Stock Check** displays the expected balance, physical count and difference. A mismatch needs a reason; a matching check does not move stock.
+- **Move Stock** posts equal and opposite movements in one transaction. To allocate Unassigned stock, choose **Unassigned — built-in** as the source and scan the physical destination. **Stock Check** displays the expected balance, physical count and difference. A mismatch needs a reason; a matching check does not move stock.
 - **Stock History** shows each receipt and movement ID, with references, operator, costs, and links between original and reversing transactions. **Reverse this transaction** creates a new compensating receipt; it cannot remove stock that is no longer available. Never repair counts by editing SQLite. A completed transaction's original receipt remains immutable.
 
 Storage uses an inventory-only additive SQLite migration and an append-only stock ledger. Amounts and GBP totals are recorded to six decimal places without binary floating-point balance arithmetic. Current raw/purchased unit costs use a weighted average of costed receipts/opening stock that have not been reversed, falling back to the configured pack price when needed. It is not FIFO or a per-location valuation. Production uses the current costing basis and stores the resulting actual batch cost and cost per good component; later price changes do not reprice a batch. A production ingredient can have one source location per batch in M1; move stock first if it is split across locations. Nested component recipes, shop-floor integrations, reservations and picking are not included.
+
+## Legacy locations named Unassigned
+
+The upgrade only adds a reserved, non-scannable ledger destination. Existing locations, barcodes, balances and history are not adopted, merged or renamed based on their display name. Check the existing location's code and **Stock held here** before deciding what to do. If those balances are genuinely unlocated, use **Move Stock** once per item: choose the exact legacy location as source, choose **Unassigned — built-in** as destination, enter the applicable quantity and a reference, then review and confirm. This records an ordinary auditable transfer and leaves the old history in place. If the location is physical, leave it alone or rename it to reflect where it is. New items, staff accounts and storage mounts do not need to be recreated.
 
 ## Labels and phones
 

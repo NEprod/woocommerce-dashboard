@@ -5,6 +5,7 @@
 {{ heading(breadcrumbs(row),row.identity.code + (' · Archived' if not row.active else '')) }}
 <div class="workshop-actions"><a class="btn btn-primary" href="{{ url_for('inventory.edit_location',record_id=row.id) }}">Edit location</a><a class="btn btn-outline-primary" href="{{ url_for('inventory.label',record_id=row.id) }}">Print barcode label</a></div>
 {% if row.description %}<p class="workshop-description">{{ row.description }}</p>{% endif %}
+{% if row.name|trim|lower == 'unassigned' %}<p class="alert alert-info">This named location ({{ row.identity.code }}) is separate from the built-in Unassigned stock bucket. Its stock and history are unchanged. If its stock has no physical location, use Move Stock: choose this named location as the source and Unassigned — built-in as the destination.</p>{% endif %}
 <section class="workshop-panel"><h2>Stock held here</h2>
 {% if balances %}<dl class="workshop-facts">{% for item,amount in balances %}<dt><a href="{{ url_for('inventory.item',record_id=item.id) }}">{{ item.name }}</a> <small>{{ item.identity.code }}</small></dt><dd>{{ qty(amount) }} {{ item.unit }}</dd>{% endfor %}</dl>{% else %}<p>No stock recorded at this location.</p>{% endif %}
 </section>

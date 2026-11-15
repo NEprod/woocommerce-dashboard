@@ -10,8 +10,10 @@
 </div>
 <div class="workshop-grid">
   <section class="workshop-panel"><h2>Stock by location</h2>
-    <p class="workshop-total">{{ qty(total) }} {{ row.unit }}{% if row.active and total <= row.minimum %} <span class="workshop-warning">Low stock</span>{% endif %}</p>
-    {% if balances %}<dl class="workshop-facts">{% for loc,amount in balances %}<dt><a href="{{ url_for('inventory.location',record_id=loc.id) }}">{{ breadcrumbs(loc) }}</a></dt><dd>{{ qty(amount) }} {{ row.unit }}</dd>{% endfor %}</dl>{% else %}<p>No stock recorded at any location.</p>{% endif %}
+    <p class="workshop-total">Total on hand: {{ qty(total) }} {{ row.unit }}{% if row.active and total <= row.minimum %} <span class="workshop-warning">Low stock</span>{% endif %}</p>
+    {% if balances %}<dl class="workshop-facts">{% for loc,amount in balances %}
+      <dt>{% if loc.id == unassigned_id %}Unassigned — built-in{% else %}<a href="{{ url_for('inventory.location',record_id=loc.id) }}">{{ breadcrumbs(loc) }}</a>{% endif %}</dt><dd>{{ qty(amount) }} {{ row.unit }}</dd>
+    {% endfor %}</dl>{% else %}<p>No stock recorded at any location.</p>{% endif %}
     <dl class="workshop-facts"><dt>Minimum</dt><dd>{{ qty(row.minimum) }} {{ row.unit }}</dd>{% if row.reorder is not none %}<dt>Reorder target</dt><dd>{{ qty(row.reorder) }} {{ row.unit }}</dd>{% endif %}</dl>
   </section>
   <section class="workshop-panel"><h2>{{ 'Recipe & estimated cost' if row.kind == 'manufactured' else 'Purchase & unit cost' }}</h2>

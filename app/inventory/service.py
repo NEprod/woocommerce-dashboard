@@ -13,6 +13,8 @@ from app import db
 from .models import Identity, Item, Location, Movement, RecipeMaterial, Transaction
 
 SCALE = 1_000_000
+UNASSIGNED_ID = 0
+UNASSIGNED = "unassigned"
 MAX_QTY = 10**14          # 100 million stock units
 MAX_COST = 10**15         # £1 billion per recorded transaction
 KINDS = {"material": "Material", "purchased": "Purchased component", "manufactured": "Manufactured component"}
@@ -118,6 +120,14 @@ def item_balances(item_id):
         .where(Movement.item_id==item_id).group_by(Location.id).having(amount!=0).order_by(Location.name)).all()
 
 
+def receipt_locations(item_id):
+    """Active physical locations with current stock or real movement history."""
+    return db.session.execute(select(Location, func.sum(Movement.qty))
+        .join(Movement, Movement.location_id == Location.id)
+        .where(Movement.item_id == item_id, Location.id != UNASSIGNED_ID, Location.active.is_(True))
+        .group_by(Location.id)).all()
+
+
 def location_balances(location_id):
     amount=func.sum(Movement.qty)
     return db.session.execute(select(Item,amount).join(Movement,Movement.item_id==Item.id)
@@ -180,6 +190,20 @@ def location_for(raw, *, active=True):
     if not row or active and not row.active:
         raise ValueError("Choose an active storage location.")
     return row
+
+
+def unassigned_location():
+    row = db.session.get(Location, UNASSIGNED_ID)
+    if not row or not row.active or row.identity.kind != "system":
+        raise ValueError("The built-in Unassigned stock destination is not available.")
+    return row
+
+
+def scan_verified_location(data):
+    loc = location_for(data.get("destination"))
+    if str(loc.id) != data.get("verified_destination"):
+        raise ValueError("Scan the physical destination’s barcode before reviewing this transaction.")
+    return loc
 
 
 def _check_version(row, data):
@@ -342,7 +366,15 @@ def plan(kind, data):
         if kind in {"receive","opening"}:
             if kind=="receive" and item.kind=="manufactured":
                 raise ValueError("Use Complete Production for a manufactured component.")
-            loc=location_for(data.get("destination"))
+            if kind == "receive":
+                if data.get("unassigned") == "yes":
+                    if data.get("destination") or data.get("verified_destination"):
+                        raise ValueError("Clear the physical destination when keeping stock Unassigned.")
+                    loc = unassigned_location()
+                else:
+                    loc = scan_verified_location(data)
+            else:
+                loc = location_for(data.get("destination"))
             qty=number(data.get("qty"),"Quantity",positive=True)
             if kind=="opening" and db.session.scalar(select(Movement.id).where(
                     Movement.item_id==item.id,Movement.location_id==loc.id).limit(1)):
@@ -362,9 +394,20 @@ def plan(kind, data):
                 details["cost_basis"]="Configured purchase pack estimate"
             elif total is not None:
                 details["cost_basis"]="Recorded total cost"
+            if kind == "receive":
+                details["placement"] = "explicit_unassigned" if loc.id == UNASSIGNED_ID else "barcode_verified"
             moves.append(_movement(item,loc,qty,"receipt" if kind=="receive" else "opening",total))
         elif kind=="move":
-            source,destination=(location_for(data.get(k)) for k in ("source","destination"))
+            if data.get("source") == UNASSIGNED:
+                source, destination = unassigned_location(), scan_verified_location(data)
+                details["placement"] = "barcode_verified"
+            else:
+                source = location_for(data.get("source"))
+                if data.get("destination") == UNASSIGNED:
+                    destination = unassigned_location()
+                    details["placement"] = "explicit_unassigned"
+                else:
+                    destination = location_for(data.get("destination"))
             if source.id==destination.id:
                 raise ValueError("Choose two different locations.")
             qty=converted(number(data.get("qty"),"Quantity",positive=True),item.unit,item.unit)

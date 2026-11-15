@@ -3,6 +3,8 @@
 {% set title = 'Review ' + steps[change.kind]|lower %}
 {% block workshop %}
 {{ heading(title,change.item + ' · No stock has changed yet.') }}
+{% if change.details.placement == 'explicit_unassigned' %}<p class="alert alert-info">Unassigned explicitly selected. No physical destination will be recorded.</p>
+{% elif change.details.placement == 'barcode_verified' %}<p class="alert alert-success">Physical destination verified by barcode.</p>{% endif %}
 {% if change.kind == 'count' %}<section class="workshop-panel"><h2>Count at {{ change.details.location }}</h2>
   <dl class="workshop-facts"><dt>Expected</dt><dd>{{ qty(change.details.expected) }} {{ change.unit }}</dd><dt>Counted</dt><dd>{{ qty(change.details.physical) }} {{ change.unit }}</dd><dt>Difference</dt><dd>{{ qty(change.details.difference) }} {{ change.unit }}</dd></dl>
   {% if not change.moves %}<p>This count matches the ledger. Confirmation records that you counted it, without adding a movement.</p>{% endif %}
@@ -16,7 +18,7 @@
 {% if change.cost is not none or change.reason %}<dl class="workshop-facts workshop-panel">{% if change.cost is not none %}<dt>{{ 'Actual batch cost' if change.kind == 'production' else 'Recorded cost' }}</dt><dd>{{ pounds(change.cost) }}{% if change.details.cost_basis %} · {{ change.details.cost_basis }}{% endif %}</dd>{% endif %}{% if change.reason %}<dt>Reason or reference</dt><dd>{{ change.reason }}</dd>{% endif %}</dl>{% endif %}
 <form method="post" class="workshop-actions" data-inventory-confirm>
   {{ csrf() }}<input type="hidden" name="approval" value="{{ approval }}">
-  <button class="btn btn-primary" type="submit">Confirm {{ 'count' if change.kind == 'count' else 'transaction' }}</button>
+  <button class="btn btn-primary" type="submit">Confirm {{ 'receipt' if change.kind == 'receive' else 'count' if change.kind == 'count' else 'transaction' }}</button>
   {% if change.kind == 'reversal' %}<a class="btn btn-outline-primary" href="{{ url_for('inventory.transaction',transaction_id=change.reverses_id) }}">Cancel</a>
   {% else %}<a class="btn btn-outline-primary" href="{{ url_for('inventory.workflow',kind=change.kind,item_id=change.item_id) }}">Start a fresh preview</a>{% endif %}
 </form>
