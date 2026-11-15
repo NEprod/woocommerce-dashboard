@@ -1,0 +1,5 @@
+shopify.app*.toml
+**/dist/
+**/generated/
+**/schema.graphql
+.env*

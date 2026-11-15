@@ -1,0 +1,22 @@
+{
+  "name": "tlc-exact-multibuy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "codegen": {
+    "schema": "schema.graphql",
+    "documents": "src/*.graphql",
+    "generates": {
+      "./generated/api.ts": {
+        "plugins": ["typescript", "typescript-operations"]
+      }
+    },
+    "config": {
+      "omitOperationSuffix": true
+    }
+  },
+  "dependencies": {
+    "@shopify/shopify_function": "~2.0.0"
+  }
+}

@@ -72,6 +72,8 @@ def create_app(*, recover=None):
     app.register_blueprint(packaging)
     from .inventory.routes import inventory
     app.register_blueprint(inventory)
+    from app.promotions.routes import promotions
+    app.register_blueprint(promotions)
 
     @app.context_processor
     def commerce_context():

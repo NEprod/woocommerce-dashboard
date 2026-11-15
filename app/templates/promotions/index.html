@@ -1,0 +1,23 @@
+{% extends 'promotions/base.html' %}
+{% block promotions %}
+{% if not ready %}<p class="alert alert-warning">The separate development Shopify Promotions app is not configured. Definitions can be saved and reviewed locally; Shopify publishing is blocked.</p>{% endif %}
+<div class="workspace-panel">
+  {% for row,data,status,proof in rows %}
+  <article class="editor-workspace-section">
+    <h2>{{ data.name }}</h2>
+    <p><strong>{{ status }}</strong> · {{ kinds[data.kind] }} · {{ data.method|title }}{% if data.code %} ({{ data.code }}){% endif %} · {{ data.targets|length }} catalogue selections</p>
+    <p>{{ uk(data.starts) or 'Start not set' }} → {{ uk(data.ends) or 'No scheduled end' }} (UK time)</p>
+    {% if proof.published %}<p>Shopify: {{ proof.published.result.status|title }} at last readback {{ uk(proof.published.checked) }}{% if proof.published.revision != row.revision %} · Local changes not published{% endif %}. Configuration verified; checkout not tested.</p>
+    {% else %}<p>Shopify: not verified.</p>{% endif %}
+    {% if proof.error %}<p class="alert alert-warning">{{ proof.error }}</p>{% endif %}
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-primary" href="{{ url_for('promotions.edit',ident=row.id) }}">Edit</a>
+      <a class="btn btn-outline-primary" href="{{ url_for('promotions.review',ident=row.id) }}">Review &amp; Publish</a>
+      <form method="post" action="{{ url_for('promotions.duplicate',ident=row.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-primary">Duplicate</button></form>
+    </div>
+  </article>
+  {% else %}<p>No promotions yet. Create one to choose its eligible variants, prices and schedule.</p>{% endfor %}
+</div>
+{% if pagination.has_prev %}<a class="btn btn-outline-primary" href="{{ url_for('promotions.index',page=pagination.prev_num) }}">Previous</a>{% endif %}
+{% if pagination.has_next %}<a class="btn btn-outline-primary" href="{{ url_for('promotions.index',page=pagination.next_num) }}">Next</a>{% endif %}
+{% endblock %}

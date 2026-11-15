@@ -1,0 +1,17 @@
+query ExactMultiBuy {
+  localization { country { isoCode } }
+  cart {
+    deliveryGroups { deliveryAddress { countryCode } }
+    lines {
+      id
+      quantity
+      cost { amountPerQuantity { amount currencyCode } }
+      merchandise { ... on ProductVariant { id } }
+      sellingPlanAllocation { sellingPlan { id } }
+    }
+  }
+  discount {
+    discountClasses
+    metafield(namespace: "$app:tlc-promotions", key: "configuration") { jsonValue }
+  }
+}

@@ -1,0 +1,17 @@
+api_version = "2026-10"
+
+[[extensions]]
+name = "TLC exact multi-buy"
+handle = "tlc-exact-multibuy"
+uid = "2d150131-7ff0-407c-66c6-dd2d797643f6be2e621f"
+type = "function"
+description = "Exact fixed-total multi-buy pricing for reviewed variant sets."
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/cart.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"

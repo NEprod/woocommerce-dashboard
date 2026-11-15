@@ -1,0 +1,85 @@
+{% extends 'promotions/base.html' %}
+{% macro targetpicker(name, heading, targets) %}
+<section class="editor-workspace-section" data-promotion-targets="{{ name }}">
+  <header><h2>{{ heading }}</h2></header>
+  <p>Search by product, variant SKU or collection, then select all variants, a specific retained variant, or an option value. Option and collection membership is recalculated only for review, not silently published.</p>
+  <div data-target-chosen>
+  {% for target in targets %}
+    <div class="repeatable-row" data-target-row>
+      <input type="hidden" name="{{ name }}" value="{{ target|tojson|forceescape }}">
+      <span>{{ target.source }}{% if target.mode=='fixed' %} · {{ target.sku }}{% elif target.mode=='option' %} · {{ target.name }} = {{ target.value }}{% else %} · {{ target.mode|title }}{% endif %}</span>
+      <button class="btn btn-outline-primary" type="button" data-remove-target>Remove</button>
+    </div>
+  {% endfor %}
+  </div>
+  <label class="guided-field">Find catalogue entries<input type="search" data-target-search class="form-control" autocomplete="off"></label>
+  <p role="status" data-target-status></p>
+  <div data-target-results class="structured-editor-list"></div>
+</section>
+{% endmacro %}
+{% block promotions %}
+{% if error %}<p class="alert alert-danger" role="alert">{{ error }}</p>{% endif %}
+{% if published %}<p class="alert alert-info">This record owns a Shopify discount. Saving is local only. To enable, disable, archive or reschedule remotely, save the intended change then use Review &amp; Publish.</p>{% endif %}
+<form method="post" data-promotion-editor data-search-url="{{ url_for('promotions.search') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if row %}<input type="hidden" name="revision" value="{{ row.revision }}">{% endif %}
+  <section class="editor-workspace-section">
+    <header><h2>{{ 'Edit promotion' if row else 'New promotion' }}</h2></header>
+    <div class="editor-field-grid">
+      <label class="guided-field">Name<input name="name" required maxlength="95" value="{{ d.name }}"></label>
+      <label class="guided-field">Type<select name="kind">{% for key,label in kinds.items() %}<option value="{{ key }}" {% if d.kind==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label class="guided-field">Applies to<select name="scope"><option value="product">Selected variants</option><option value="order" {% if d.scope=='order' %}selected{% endif %}>Qualifying order</option></select></label>
+      <label class="guided-field">Activation<select name="method"><option value="automatic">Automatic</option><option value="code" {% if d.method=='code' %}selected{% endif %}>Discount code</option></select></label>
+      <label class="guided-field">Local intent<select name="intent">{% for key,label in changes %}<option value="{{ key }}" {% if d.intent==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label class="guided-field">Starts (UK)<input name="starts" value="{{ d.starts_text|default(uk(d.starts)) }}" maxlength="35" placeholder="2027-01-15 18:00"></label>
+      <label class="guided-field">Ends (UK, optional)<input name="ends" value="{{ d.ends_text|default(uk(d.ends)) }}" maxlength="35" placeholder="2027-01-20 23:00"></label>
+    </div>
+    <p class="field-helper">Use UK local time or include a UTC offset. A future start time schedules a reviewed Live promotion; saving never starts it in Shopify.</p>
+  </section>
+  <section class="editor-workspace-section" data-show-method="code">
+    <header><h2>Discount code</h2></header>
+    <div class="editor-field-grid">
+      <label class="guided-field">Code<input name="code" maxlength="40" value="{{ d.code|default('') }}"></label>
+      <label class="guided-field">Maximum uses (optional)<input name="usage" inputmode="numeric" value="{{ d.usage_text|default(d.usage or '') }}"></label>
+      <label class="guided-field">Shopify customer Segment ID (optional, native only)<input name="segment" value="{{ d.segment or '' }}"></label>
+      <label class="check-row"><input type="checkbox" name="once" {% if d.once %}checked{% endif %}> Once per customer</label>
+    </div>
+  </section>
+  <section class="editor-workspace-section" data-show-kind="exact">
+    <header><h2>Exact fixed-total multi-buy</h2></header>
+    <label class="guided-field">Quantity and price tiers (one per line, GBP)<textarea name="tiers" maxlength="128" rows="3">{% if d.tiers_text is defined %}{{ d.tiers_text }}{% else %}{% for tier in d.tiers|default([{'qty':2,'total':900}]) %}{{ tier.qty }}={{ money(tier.total) }}{% if not loop.last %}{{ '\n' }}{% endif %}{% endfor %}{% endif %}</textarea></label>
+    <label class="check-row"><input type="checkbox" name="repeat" {% if d.repeat %}checked{% endif %}> Allow more than one qualifying set in the same cart</label>
+    <p class="field-helper">For example, 2=9.00 and 3=12.50. UK/GBP only. Requires the separate Shopify Discount Function.</p>
+  </section>
+  <section class="editor-workspace-section" data-show-kind="bxgy">
+    <header><h2>Buy X Get Y</h2></header>
+    <div class="editor-field-grid">
+      <label class="guided-field">Buy quantity<input name="buy" inputmode="numeric" value="{{ d.buy_text|default(d.buy|default(2)) }}"></label>
+      <label class="guided-field">Reward quantity<input name="get" inputmode="numeric" value="{{ d.get_text|default(d.get|default(1)) }}"></label>
+      <label class="guided-field">Reward percentage (100 = free)<input name="reward_percent" inputmode="decimal" value="{{ d.reward_percent_text|default(money(d.value) if d.kind=='bxgy' and d.value is defined else '100') }}"></label>
+      <label class="guided-field">Maximum sets per order<input name="limit" inputmode="numeric" value="{{ d.limit_text|default(d.limit|default(1)) }}"></label>
+    </div>
+    <p class="field-helper">Customers must add reward items to their cart. Leave reward selections empty to use the same eligible group.</p>
+  </section>
+  <section class="editor-workspace-section" data-show-kind="percent fixed">
+    <header><h2>Discount value</h2></header>
+    <div class="editor-field-grid">
+      <label class="guided-field">Amount (percent, or GBP for a fixed amount)<input name="amount" inputmode="decimal" value="{{ d.amount_text|default(money(d.value) if d.kind in ('percent','fixed') and d.value is defined else '') }}"></label>
+      <label class="guided-field">Minimum qualifying item quantity<input name="minimum" inputmode="numeric" value="{{ d.minimum_text|default(d.minimum|default(1)) }}"></label>
+    </div>
+  </section>
+  <div data-promotion-product-scope>{{ targetpicker('targets','Qualifying variants',d.targets) }}</div>
+  <div data-show-kind="bxgy">{{ targetpicker('rewards','Reward variants',d.rewards|default([])) }}</div>
+  <section class="editor-workspace-section">
+    <header><h2>Combinations</h2></header>
+    <p>Default: no stacking. Exact offers can coexist with opted-in offers on different products. Overlapping TLC product groups cannot be published for the same period.</p>
+    {% for key,label in [('productDiscounts','Product discounts on other items'),('orderDiscounts','Order discounts'),('shippingDiscounts','Shipping discounts')] %}
+    <label class="check-row"><input name="{{ key }}" type="checkbox" {% if d.combines.get(key) %}checked{% endif %}> {{ label }}</label>
+    {% endfor %}
+  </section>
+  <div class="page-actions">
+    <button class="btn btn-primary">Save locally</button>
+    {% if row %}<a class="btn btn-outline-primary" href="{{ url_for('promotions.review',ident=row.id) }}">Review &amp; Publish saved version</a>{% endif %}
+  </div>
+</form>
+{% endblock %}

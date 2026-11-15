@@ -1,0 +1,55 @@
+{% extends 'promotions/base.html' %}
+{% block promotions %}
+<section class="editor-workspace-section">
+  <header><h2>Review &amp; Publish: {{ d.name }}</h2></header>
+  <p>{{ kinds[d.kind] }} · {{ d.method|title }}{% if d.code %} ({{ d.code }}){% endif %} · {{ d.scope|title }} discount · {{ d.intent|title }}</p>
+  <p>UK schedule: {{ uk(d.starts) or 'Start not set' }} → {{ uk(d.ends) or 'No scheduled end' }}.</p>
+  {% if d.kind=='exact' %}<p>{% for tier in d.tiers %}Any {{ tier.qty }} for £{{ money(tier.total) }}{% if not loop.last %} · {% endif %}{% endfor %} · {{ 'Repeating sets' if d.repeat else 'One set per cart' }}.</p>
+  {% elif d.kind=='bxgy' %}<p>Buy {{ d.buy }}, get {{ d.get }} at {{ money(d.value) }}% off. Limit {{ d.limit }} sets per order.</p>
+  {% else %}<p>{{ money(d.value) ~ '%' if d.kind=='percent' else '£' ~ money(d.value) }} off; at least {{ d.minimum }} qualifying items.</p>{% endif %}
+  <p>Combines with: {% for key,value in d.combines.items() if value %}{{ key }}{% if not loop.last %}, {% endif %}{% else %}None{% endfor %}.</p>
+  {% if d.method=='code' %}<p>{{ d.usage or 'Unlimited' }} uses · {{ 'Once per customer' if d.once else 'Repeat use permitted' }} · {{ d.segment or 'All eligible buyers' }}.</p>{% endif %}
+  {% if error %}<p class="alert alert-warning" role="alert">{{ error }}</p>{% endif %}
+  {% if proof.published %}
+    <p>Retained Shopify discount: {{ proof.published.result.id }} · Last readback {{ uk(proof.published.checked) }} · {{ proof.published.result.status }}.</p>
+    {% if admin_url %}<a href="{{ admin_url }}" rel="noopener noreferrer">Open Shopify Discounts</a>{% endif %}
+  {% endif %}
+  {% if proof.error %}<p>{{ proof.error }}</p>{% endif %}
+  {% if plan %}
+    <p>Proposed action: <strong>{{ plan.action|replace('_',' ')|title }}</strong>. This approval is limited to the verified development app and shop.</p>
+    {% if plan.remote %}<p>Current Shopify status: {{ plan.remote.status }}. Current schedule: {{ uk(plan.remote.starts) }} → {{ uk(plan.remote.ends) or 'No end' }}.</p>{% endif %}
+    {% if plan.expected.function %}<p>Function ID: {{ plan.expected.function.id }} · UK market: {{ plan.expected.function.market }}.</p>{% endif %}
+    <p>Granted Shopify scopes: {{ plan.scopes|join(', ') }}.</p>
+    <p>Shopify resolves combinations with other discounts. Configuration readback is not a checkout test.</p>
+  {% endif %}
+</section>
+{% if rows %}
+<section class="editor-workspace-section" {% if d.kind=='exact' %}data-promotion-quote{% endif %}>
+  <header><h2>Resolved qualifying variants ({{ rows|length }})</h2></header>
+  <div class="structured-editor-list">
+  {% for variant in rows %}
+    <div class="structured-editor-row"><strong>{{ variant.name }} · {{ variant.sku }}</strong>
+      <span>{{ variant.id }}{% for name,value in variant.options.items() %} · {{ name }} = {{ value }}{% endfor %} · Local list price £{{ variant.price }} · Local cost {{ '£' ~ money(variant.cost) if variant.cost is defined else 'unavailable' }}</span>
+      {% if d.kind=='exact' %}<label class="guided-field">Quantity in sample cart<input inputmode="numeric" value="0" data-quote-id="{{ variant.id }}" data-quote-price="{{ variant.price }}" data-quote-cost="{{ variant.cost|default('') }}"></label>{% endif %}
+    </div>
+  {% endfor %}
+  </div>
+  {% if d.kind=='exact' %}<script type="application/json" data-quote-offer>{{ {'tiers':d.tiers,'repeat':d.repeat,'variants':rows|map(attribute='id')|list}|tojson }}</script>
+  <p data-quote-result aria-live="polite">Preview with local list prices; actual checkout prices and permitted combinations may differ.</p>{% endif %}
+</section>
+{% endif %}
+{% if plan and plan.rewards %}
+<section class="editor-workspace-section"><h2>Resolved reward variants</h2><ul>{% for v in plan.rewards %}<li>{{ v.name }} · {{ v.sku }} · {{ v.id }}</li>{% endfor %}</ul></section>
+{% endif %}
+<div class="page-actions">
+  <a class="btn btn-outline-primary" href="{{ url_for('promotions.edit',ident=row.id) }}">Back to editor</a>
+  {% if approval %}
+  <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="approval" value="{{ approval }}"><input type="hidden" name="action" value="confirm">
+    <label class="check-row"><input type="checkbox" name="ack" value="yes" required> {{ 'I approve the reviewed change on the separate Shopify development app.' if plan.action not in ('verify','verify_disabled') else 'Save this read-only Shopify verification.' }}</label>
+    <button class="btn btn-primary">{{ 'Confirm reviewed publication' if plan.action not in ('verify','verify_disabled') else 'Save verification' }}</button>
+  </form>
+  {% elif row.state in ('pending','uncertain') %}
+  <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary" name="action" value="reconcile">Reconcile by reading Shopify</button></form>
+  {% endif %}
+</div>
+{% endblock %}

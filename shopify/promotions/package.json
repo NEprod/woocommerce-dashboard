@@ -1,0 +1,9 @@
+{
+  "name": "tlc-promotions",
+  "private": true,
+  "type": "module",
+  "workspaces": ["extensions/*"],
+  "scripts": {
+    "test": "node --test extensions/tlc-exact-multibuy/test/*.test.mjs"
+  }
+}

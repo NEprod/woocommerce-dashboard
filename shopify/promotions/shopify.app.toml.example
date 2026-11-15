@@ -1,0 +1,18 @@
+# Link a NEW app. Do not use ../shopify.app.toml or the TLCDashboard client ID.
+client_id = "00000000000000000000000000000000"
+name = "TLC Promotions Development"
+application_url = "https://shopify.dev/apps/default-app-home"
+embedded = false
+
+[build]
+automatically_update_urls_on_dev = false
+
+[access_scopes]
+scopes = "read_products,write_discounts,read_markets"
+optional_scopes = ["read_customers"]
+
+[auth]
+redirect_urls = []
+
+[webhooks]
+api_version = "2026-10"
