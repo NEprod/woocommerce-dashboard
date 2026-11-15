@@ -188,7 +188,12 @@ def common_plan(product, *, variable=False):
         "Inventory quantities/locations", "Media replacement, addition or removal on existing drafts",
         "Shopify saved-package assignment readback/clearing is unavailable; reviewed writes record acceptance only"]
     from app.shopify_products import source_fingerprint
-    plan["workspace_source_fingerprint"] = source_fingerprint(product, images)
+    from app.inventory import product_bom
+    production_layers = product_bom.authored(product)
+    costs = product_bom.contract(product, production_layers)
+    if costs:
+        plan['production_costs'] = costs
+    plan["workspace_source_fingerprint"] = source_fingerprint(product, images, production_costs=costs, production_layers=production_layers)
     from app.shopify_native_dimensions import desired
     plan["native_policy"] = desired(product)
     if plan["native_policy"]["enabled"]:
@@ -309,6 +314,8 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
             attach_dimensions(result, config, shop, adapter)
             from app.shopify_eu_identifier import attach as attach_eu_identifier
             attach_eu_identifier(product, result, config, shop, adapter)
+            from app.shopify_item_cost import attach as attach_item_cost
+            attach_item_cost(result, config, shop, adapter)
             if any(f['changed'] for f in result['fields']):
                 result['classification'] = 'update'
             from app.shopify_optional_packages import attach as attach_packages
@@ -349,6 +356,8 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
     attach_dimensions(plan, config, shop, adapter)
     from app.shopify_eu_identifier import attach as attach_eu_identifier
     attach_eu_identifier(product, plan, config, shop, adapter)
+    from app.shopify_item_cost import attach as attach_item_cost
+    attach_item_cost(plan, config, shop, adapter)
     from app.shopify_optional_packages import attach as attach_packages
     attach_packages(product, plan, None, config, shop)
     from app.shopify_native_dimensions import attach_review
@@ -582,7 +591,9 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
     attach_dimensions(plan, config, shop, adapter)
     from app.shopify_eu_identifier import attach as attach_eu_identifier
     attach_eu_identifier(product, plan, config, shop, adapter)
-    if plan.get('eu_identifier') and plan['blockers']:
+    from app.shopify_item_cost import attach as attach_item_cost
+    attach_item_cost(plan, config, shop, adapter)
+    if (plan.get('eu_identifier') or plan.get('production_costs')) and plan['blockers']:
         raise ShopifyError('; '.join(plan['blockers']))
     from app.shopify_optional_packages import attach as attach_packages
     attach_packages(product, plan, None, config, shop)
@@ -678,6 +689,8 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
         apply_dimensions(row, data, config, adapter)
         from app.shopify_eu_identifier import apply as apply_eu_identifier
         apply_eu_identifier(row, data, config, adapter)
+        from app.shopify_item_cost import apply as apply_item_cost
+        apply_item_cost(row, data, config, adapter)
         apply_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]), adapter)
         from app.shopify_publication import apply_reviewed, complete as publication_complete
         if apply_reviewed(row,data,config,adapter):
@@ -1033,6 +1046,8 @@ def confirm_update(reviewed, adapter=None):
         apply_dimensions(row, data, config, adapter)
         from app.shopify_eu_identifier import apply as apply_eu_identifier
         apply_eu_identifier(row, data, config, adapter)
+        from app.shopify_item_cost import apply as apply_item_cost
+        apply_item_cost(row, data, config, adapter)
         from app.shopify_publication import apply_reviewed
         if apply_reviewed(row,data,config,adapter):
             attempted=True
@@ -1062,7 +1077,8 @@ def confirm_update(reviewed, adapter=None):
         retained = evidence(row)
         attempted = attempted or package_attempted(retained,lease.id) or (
             row.operation_id == lease.id and (retained.get('update_attempted') is True
-                or retained.get('eu_identifier_attempt', {}).get('operation_id') == lease.id))
+                or retained.get('eu_identifier_attempt', {}).get('operation_id') == lease.id
+                or retained.get('item_cost_attempt', {}).get('operation_id') == lease.id))
         diagnostic = failure_diagnostic(exc, locals().get('finalisation_stage') or evidence(row).get('stage'), lease.id)
         if attempted:
             row = db.session.get(ShopifyProductIdentity, row.id)
@@ -1139,6 +1155,10 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
     from app.shopify_eu_identifier import verify as verify_eu_identifier
     if plan.get('eu_identifier'):
         rows.extend(verify_eu_identifier(row, data, configuration(), adapter or ShopifyAdapter()))
+    if plan.get('item_cost'):
+        data["variant_id"], data["inventory_item_id"] = variant["id"], variant["inventoryItem"]["id"]
+        from app.shopify_item_cost import verify as verify_item_cost
+        rows.extend(verify_item_cost(row, data, configuration(), adapter or ShopifyAdapter()))
     data["verification"]["memberships"] = "verified"
     data["stage"] = "media_verification"
     save(row, data)

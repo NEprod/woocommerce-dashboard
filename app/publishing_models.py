@@ -41,6 +41,8 @@ class ShopifyPublishJob(db.Model):
     view_revision = db.Column(db.String(64))
     view_pending = db.Column(db.Boolean, nullable=False, default=True, index=True)
     scan_operation_id = db.Column(db.String(32))
+    production_basis_revision = db.Column(db.String(64))
+    production_checked_at = db.Column(db.DateTime)
 
 
 class ShopifyDueEvent(db.Model):

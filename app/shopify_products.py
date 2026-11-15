@@ -11,7 +11,7 @@ from app.taxonomy_assignments import product_document
 from app.shopify_connection import ShopifyError
 
 
-def source_fingerprint(product, images):
+def source_fingerprint(product, images, *, production_costs=None, include_costs=True, production_layers=None):
     """Cheap metadata/stat comparison, not a substitute for Preview byte hashing."""
     from app.catalogue_images import _source_context
     context = _source_context(product)
@@ -106,6 +106,15 @@ def source_fingerprint(product, images):
     native_policy = desired(product)
     if native_policy["enabled"] or native_policy.get('desired'):
         data["native_policy"] = native_policy
+    from app.inventory import product_bom
+    if production_layers is None:
+        production_layers = product_bom.authored(product)
+    if any(product_bom.KEY in layer for layer in production_layers):
+        data['production_definition'] = [layer.get(product_bom.KEY) for layer in production_layers]
+        if include_costs:
+            costs = product_bom.contract(product, production_layers) if production_costs is None else production_costs
+            if costs:
+                data['production_costs'] = {sku: [row['mode'], row['value']] for sku, row in costs.items()}
     return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 
 

@@ -143,10 +143,17 @@ def prepare_request(product, kind, payload):
         if any(k in before and edit.data.get(k) != before[k] for k in ("collection_type", "sku_prefix")):
             raise ValueError("Changing an existing folder layout or SKU allocation prefix requires a separate reviewed operation.")
     if edit.validation.valid:
+        from app.inventory.product_bom import check_changed_references
+        if 'production' in edit.data and kind == 'shared':
+            check_changed_references(json.loads(text).get('production', {}), edit.data['production'])
         effective = edit.data
         if kind == "override":
             _, shared, _ = source(product, "shared")
-            effective = resolved_metadata(product, json.loads(shared), edit.data)
+            shared = json.loads(shared)
+            if 'production' in edit.data:
+                check_changed_references(json.loads(text).get('production', {}), edit.data['production'],
+                                         inherited=shared.get('production', {}))
+            effective = resolved_metadata(product, shared, edit.data)
         else:
             children = Product.query.filter_by(collection_id=product.collection_id).limit(MAX_SHARED_PRODUCTS+1).all() if product.collection_id else [product]
             if len(children) > MAX_SHARED_PRODUCTS:

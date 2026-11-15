@@ -69,7 +69,7 @@ def configure(*, enabled, actor_id, confirmation=None, required_fields=None, ada
     return row
 
 
-def local_revision(product):
+def local_revision(product, **production):
     """Existing canonical managed fingerprint plus all resolved variant sources.
 
     This runs on ingestion or in a bounded worker, never on catalogue navigation.
@@ -84,16 +84,22 @@ def local_revision(product):
             images += variation_image_diagnostics(variant, include_parent_fallback=False)
     references = list(dict.fromkeys(i['source_reference'] for i in images
                                    if i.get('source_exists') and i.get('source_reference')))
-    return fingerprint(product, [{'source': ref} for ref in references])
+    return fingerprint(product, [{'source': ref} for ref in references], **production)
 
 
 def queue_product(product, *, trigger='scan', priority=0):
     """Upsert one desired revision; never rewrite the revision already executing."""
     from app.shopify_publication import intent
+    from app.inventory import product_bom
     stamp = drafts.now()
+    basis = None
     try:
-        revision = local_revision(product)
+        layers = product_bom.authored(product)
+        costs = product_bom.contract(product, layers)
+        revision = local_revision(product, production_layers=layers, production_costs=costs)
         wanted = intent(product_document(product))
+        if any(row['mode'] == 'calculated' for row in costs.values()):
+            basis = local_revision(product, production_layers=layers, include_costs=False)
         state, error = 'pending', None
         identities = ShopifyProductIdentity.query.filter_by(product_id=product.id).all()
         if wanted['status'] != 'ACTIVE':
@@ -109,19 +115,57 @@ def queue_product(product, *, trigger='scan', priority=0):
     table = ShopifyPublishJob.__table__
     values = dict(product_id=product.id, source_identity=product.source_relpath or '', requested_revision=revision,
         generation=1, state=state, trigger=trigger, priority=priority, attempts=0, next_attempt=stamp,
-        updated_at=stamp, error=error, view_pending=True)
+        updated_at=stamp, error=error, view_pending=True, production_basis_revision=basis,
+        production_checked_at=stamp if basis else None)
     db.session.execute(insert(table).values(**values).on_conflict_do_update(index_elements=[table.c.product_id],
         set_={**{k: v for k, v in values.items() if k not in {'product_id', 'generation'}},
               'generation': table.c.generation + 1,
               'state': case((table.c.owner.isnot(None), table.c.state),
                             (table.c.state == 'recovery_required', table.c.state), else_=state),
               'manual_actor_id': None, 'manual_revision': None, 'manual_config': None},
-        where=(table.c.requested_revision != revision) | (table.c.state == 'attention')))
+        where=(table.c.requested_revision != revision) | (table.c.state == 'attention')
+        | table.c.production_basis_revision.is_distinct_from(basis)))
     if error is None:
         from app.publishing_due import index_product
         index_product(product)
     # Caller owns the source/ingestion transaction.
     return revision
+
+
+def refresh_production_costs(*, fence, limit=24):
+    """Advance only costs derived from unchanged, completed-scan source JSON."""
+    from app.inventory import product_bom
+    from app.shopify_publication import intent
+    stamp = drafts.now()
+    table = ShopifyPublishJob.__table__
+    jobs = ShopifyPublishJob.query.filter(ShopifyPublishJob.production_basis_revision.isnot(None),
+        ShopifyPublishJob.owner.is_(None), ShopifyPublishJob.state.in_({'verified', 'pending', 'matching', 'attention'}),
+        ShopifyPublishJob.manual_actor_id.is_(None)).order_by(
+            ShopifyPublishJob.production_checked_at, ShopifyPublishJob.product_id).limit(limit).all()
+    for job in jobs:
+        changes = {'production_checked_at': stamp}
+        product = db.session.get(Product, job.product_id)
+        try:
+            if product and product.source_relpath == job.source_identity and product.catalogue_status == 'active':
+                authored = product_document(product)
+                if intent(authored)['status'] == 'ACTIVE':
+                    layers = product_bom.authored(product)
+                    if local_revision(product, include_costs=False, production_layers=layers) == job.production_basis_revision:
+                        revised = local_revision(product, production_layers=layers)
+                        if revised != job.requested_revision:
+                            changes.update(requested_revision=revised, generation=job.generation+1, state='pending',
+                                trigger='inventory_cost', priority=0, attempts=0, next_attempt=stamp, updated_at=stamp,
+                                error=None, view_pending=True)
+        except (ShopifyError, ValueError, OSError, RuntimeError):
+            # Leave the completed scan and any existing issue intact.
+            pass
+        fence()
+        db.session.execute(update(table).where(table.c.product_id == job.product_id, table.c.owner.is_(None),
+            table.c.generation == job.generation, table.c.state == job.state,
+            table.c.manual_actor_id.is_(None)).values(**changes))
+    if jobs:
+        fence()
+        db.session.commit()
 
 
 def sync_now(product, *, actor_id, acknowledged):
@@ -602,6 +646,14 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None, schedul
     saved = saved_states([product], url_builder=lambda *a, **kw: None)[product.id]
     selection['catalogue_state'] = saved['state']
     continuing = row and (processing_readback(row) or drafts.upload_pending(row))
+    # A newer, scan-bound inventory revision can resolve a previously missing
+    # BOM cost. Only that obsolete cost-only finding may be rechecked here;
+    # the normal approval/preflight must still verify the current Shopify state.
+    prior_cost_only = bool(job.trigger == 'inventory_cost' and job.view_pending and comparison
+        and summary.get('local') != job.requested_revision and summary.get('config') == config.fingerprint()
+        and summary.get('missing_evidence') and all(
+            finding.get('component') == 'cost_per_item' and finding.get('kind') == 'authored_configuration'
+            for finding in summary['missing_evidence']))
     if saved['state'] in {'processing', 'recovery_required'} and not continuing:
         selection.update(outcome='blocked', write_attempted=False)
         if saved['state'] == 'processing':
@@ -609,7 +661,7 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None, schedul
         job.state, job.error = 'recovery_required', saved.get('message') or 'Retained remote evidence requires safe recovery.'
         fence(); db.session.commit(); return 'recovery_required'
     if (saved['state'] in {'attention', 'unavailable'} and not continuing
-            and not (legacy_reason and saved.get('message') == legacy_reason)):
+            and not prior_cost_only and not (legacy_reason and saved.get('message') == legacy_reason)):
         selection.update(outcome='blocked', write_attempted=False)
         job.state, job.error = 'attention', saved.get('message') or 'Resolve the saved catalogue finding before publication.'
         fence(); db.session.commit(); return 'attention'
@@ -886,6 +938,9 @@ def run_slice(run_id, owner, *, adapter=None):
     try:
         guard()
         recover_jobs(run_id + ':' + owner, guard=guard, fence=fence)
+        if scheduled and policy().enabled and data.get('scope') is None and not data.get('production_checked'):
+            refresh_production_costs(fence=fence)
+            data['production_checked'] = True
         # Upgrade/bootstrap only existing database identities in bounded slices.
         # This does not discover folders, run a scanner, or create local products.
         seeded = 0

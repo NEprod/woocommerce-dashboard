@@ -873,6 +873,10 @@ a.metric-card:hover, a.products-stat-card:hover, a.dashboard-stat-card:hover { b
 .structured-editor-row { display: grid; gap: var(--space-3); padding: var(--space-4); border: var(--border-subtle); border-radius: var(--radius-card-small); background: var(--color-surface-secondary); }
 .attribute-editor-row { grid-template-columns: minmax(130px, .65fr) minmax(220px, 1.5fr) repeat(3, auto); }
 .modifier-editor-row { grid-template-columns: minmax(180px, 1.4fr) repeat(6, minmax(84px, .65fr)) repeat(3, auto); overflow-x: auto; }
+.production-bom-variant { margin-top: var(--space-4); }
+.production-bom-variant > summary { cursor: pointer; padding-block: var(--space-3); }
+.production-bom-line { grid-template-columns: repeat(auto-fit, minmax(min(100%, 175px), 1fr)); align-items: end; }
+.production-bom-line > p { grid-column: 1 / -1; margin: 0; }
 .image-attribute-field { margin-top: var(--space-6); }
 .side-summary-card { padding: var(--space-5); }
 .side-summary-card h2 { margin: 0 0 var(--space-4); font-size: 16px; }

@@ -782,6 +782,35 @@ def metadata_validate():
     return jsonify(response), 200 if result.valid else 400
 
 
+@main.post('/api/products/<int:product_id>/production-costing')
+@login_required
+def product_costing_preview(product_id):
+    if not current_user.is_admin:
+        abort(403)
+    from app.inventory import product_bom
+    product = db.get_or_404(Product, product_id)
+    request.max_content_length = 1024 * 1024
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or body.get('kind') not in ('shared', 'override'):
+        abort(400)
+    value = body.get('production', {})
+    try:
+        shared, override = product_bom.authored(product)
+        parent, child = shared.get('production', {}), override.get('production', {})
+        if body['kind'] == 'shared':
+            parent, child = value, {}
+        else:
+            child = value
+        product_bom.validate(parent)
+        product_bom.validate(child)
+        rates = {}
+        return jsonify(parent=product_bom.resolve(parent, child, rates=rates), variants={
+            v.sku: product_bom.resolve(parent, child, v.sku, rates=rates)
+            for v in product.variations if v.catalogue_status == 'active'})
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
 @main.route("/edit_products/<sku>/save", methods=["POST"])
 @login_required
 def product_save_json(sku):

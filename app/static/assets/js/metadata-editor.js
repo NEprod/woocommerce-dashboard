@@ -25,6 +25,8 @@
     "country_of_origin", "harmonized_system_code", "customs_description", "no_eu_standardized_identifier", "requires_shipping", "manage_stock", "backorders", "primary_category", "shopify_status", "shopify_channels", "packaging", "finished_dimensions"
   ]);
   if (isShared) knownFields.add("shopify_market_ids");
+  if (window.TLCProduction) knownFields.add('production');
+  let productionDesigner;
   let authored = structuredClone(boot.authored || {});
   let originalDocument = structuredClone(boot.authored || {});
   let initialValues = {};
@@ -666,6 +668,12 @@
 
   function populate(documentValue) {
     authored = structuredClone(documentValue || {});
+    const productionRoot = guided.querySelector('[data-production-editor]');
+    productionDesigner?.dispose();
+    if (productionRoot && window.TLCProduction) productionDesigner = new window.TLCProduction.Editor(productionRoot, {
+      value: authored.production, shared: isShared ? {} : boot.collection?.production,
+      ...boot.production_options, kind: boot.kind, preview: boot.production_preview_url, onChange: () => setDirty(true)
+    });
     const parentDrivers=boot.collection?.collection_type==='Simple'?[]:boot.collection?.variation_attributes || Object.keys(boot.collection?.attributes || {});
     attributeReplacementActive = !isShared && Object.keys(authored.attributes || {}).some(name=>parentDrivers.includes(name));
     attributeReplacementDraft = attributeReplacementActive ? structuredClone(authored.attributes) : null;
@@ -764,6 +772,10 @@
     }
     if(packagingDesigner){const value=packagingDesigner.get();if(value)result.packaging=value;}
     if(finishedDesigner){const value=finishedDesigner.get();if(value)result.finished_dimensions=value;}
+    if (window.TLCProduction) {
+      const production = productionDesigner?.get();
+      if (production) result.production = production;
+    }
     guided.querySelectorAll("[data-field]").forEach((control) => {
       const field = control.dataset.field;
       if (!overrideEnabled(field)) return;

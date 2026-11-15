@@ -1,6 +1,6 @@
 # Production & Operations — Inventory M1
 
-Open **Operations → Production & Operations** as an administrator. On a phone, use **More** to find the same entry. The workshop data is TLC-local; there is no Shopify or order-picking integration. Catalogue JSON is unchanged.
+Open **Operations → Production & Operations** as an administrator. On a phone, use **More** to find the same entry. Workshop stocks and history stay TLC-local. [M2 Product BOMs and Cost per item](PRODUCT_BOMS.md) optionally uses the recorded inventory costs to calculate Shopify's merchant-only Cost per item; it does not synchronise inventory or implement order picking.
 
 ## Set up the workshop
 

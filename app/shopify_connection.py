@@ -197,6 +197,17 @@ EU_IDENTIFIER_WRITE = '''mutation TLCUpdateVariantEUIdentifier($id: ID!, $varian
 } }'''
 READ_QUERIES |= {EU_IDENTIFIER_READ}
 WRITE_QUERIES |= {EU_IDENTIFIER_WRITE}
+ITEM_COST_READ = '''query TLCVariantItemCost($ids: [ID!]!, $hasVariants: Boolean!) {
+ shop { currencyCode }
+ nodes(ids: $ids) @include(if: $hasVariants) { ... on ProductVariant { id
+ product { id metafield(namespace: "tlc_dashboard", key: "publish_attempt") { value } }
+ inventoryItem { id unitCost { amount currencyCode } } } }
+}'''
+ITEM_COST_WRITE = '''mutation TLCUpdateItemCost($id: ID!, $input: InventoryItemInput!) {
+ inventoryItemUpdate(id: $id, input: $input) { inventoryItem { id } userErrors { field message } }
+}'''
+READ_QUERIES |= {ITEM_COST_READ}
+WRITE_QUERIES |= {ITEM_COST_WRITE}
 NATIVE_QUERIES |= frozenset((VARIABLE_NATIVE_READ, NATIVE_INVENTORY_READ))
 VERSIONED_QUERIES = NATIVE_QUERIES | {EU_IDENTIFIER_READ, EU_IDENTIFIER_WRITE}
 
@@ -937,6 +948,14 @@ class ShopifyAdapter:
         return self._transport(config, EU_IDENTIFIER_READ, {
             "ids": [_gid(value, "ProductVariant") for value in variant_ids],
             "hasVariants": bool(variant_ids), "probe": probe}, api_version="2027-01")
+
+    def read_item_costs(self, config, variant_ids):
+        return self._transport(config, ITEM_COST_READ, {
+            'ids': [_gid(value, 'ProductVariant') for value in variant_ids], 'hasVariants': bool(variant_ids)})
+
+    def write_item_cost(self, config, inventory_id, value):
+        return self._transport(config, ITEM_COST_WRITE, {
+            'id': _gid(inventory_id, 'InventoryItem'), 'input': {'cost': value}})
 
     def write_eu_identifier(self, config, product_id, variant_ids, desired):
         if type(desired) is not bool or not variant_ids:

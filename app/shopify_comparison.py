@@ -33,6 +33,10 @@ def missing_evidence(plan):
     if plan.get('scope') != 'inventory':
         for diagnostic in plan.get('attribute_diagnostics', []):
             add('informational_attributes', diagnostic.get('action') or 'Required attribute readback is incomplete.')
+        for diagnostic in plan.get('item_cost_diagnostics', []):
+            add('cost_per_item', diagnostic['reason'])
+            if diagnostic.get('authored'):
+                result[-1]['kind'] = 'authored_configuration'
     native = plan.get('native') or {}
     if native_required(native) and native.get('classification') == 'blocked':
         add('native_packed_dimensions', native.get('reason') or 'Native InventoryItem measurement readback is incomplete.')
@@ -87,11 +91,11 @@ def attribute_mapping_digest(row):
     return digest({"remote":row.remote_id,"state":row.state,"evidence":row.evidence_json}) if row else None
 
 
-def fingerprint(product, images):
+def fingerprint(product, images, **production):
     from app.shopify_products import source_fingerprint
     from app.shopify_taxonomy import fingerprint as taxonomy_fingerprint
     from app.shopify_drafts import digest
-    return digest({"local": source_fingerprint(product, images), "taxonomy": taxonomy_fingerprint(product)})
+    return digest({"local": source_fingerprint(product, images, **production), "taxonomy": taxonomy_fingerprint(product)})
 
 
 def identity_revision(identity):

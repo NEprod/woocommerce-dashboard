@@ -43,7 +43,7 @@
 {% endif %}
 
 <nav class="metadata-section-nav" aria-label="Editor sections">
-{% for id, name in [('basic-information-title','General'),('publishing-title','Publishing'),('pricing-title','Pricing'),('attributes-title','Variations & attributes'),('image-attributes-title','Images'),('categories-tags-title','Organisation'),('shipping-title','Shipping'),('seo-title','SEO'),('customisations-title','Customisations'),('advanced-fields-title','Advanced')] %}<a href="#{{ id }}">{{ name }}</a>{% endfor %}
+{% for id, name in [('basic-information-title','General'),('publishing-title','Publishing'),('pricing-title','Pricing'),('production-title','Production & Costing'),('attributes-title','Variations & attributes'),('image-attributes-title','Images'),('categories-tags-title','Organisation'),('shipping-title','Shipping'),('seo-title','SEO'),('customisations-title','Customisations'),('advanced-fields-title','Advanced')] %}<a href="#{{ id }}">{{ name }}</a>{% endfor %}
 </nav>
 <div class="metadata-owner-actions">
 <span data-save-state role="status" aria-live="polite">Saved</span>
@@ -104,6 +104,11 @@
         <div class="editor-field-grid">{{ sale_datetime('sale_start_date','Sale start') }}{{ sale_datetime('sale_end_date','Sale end') }}</div>
         <p class="field-helper">Future sale metadata stays local until effective. Authorisation / execution status: <span data-sale-status>{{ workspace.sale.state }}</span>. Due work uses separately granted automatic publishing authority or existing signed sale approval. Existing date-only ends remain inclusive until deliberately edited; new date/time ends are exclusive.</p>
         <div class="page-actions"><button class="btn btn-outline-primary" type="button" data-review-sale disabled>Review Sale</button><button class="btn btn-sm btn-ghost" type="button" data-sale-check>Check review availability</button></div><p data-sale-readiness role="status" aria-live="polite">Checking saved JSON and scanner projection…</p>
+      </section>
+      <section class="editor-workspace-section" aria-labelledby="production-title">
+        <header><h2 id="production-title">Production &amp; Costing</h2><p>Define the requirements for one sellable unit. Product and variant changes apply to individual inherited lines. Separate lines for the same item are added together. Saving does not move inventory.</p></header>
+        <div data-production-editor></div>
+        <p class="field-error" data-field-error="production" hidden></p>
       </section>
       <section class="editor-workspace-section taxonomy-editor-section" aria-labelledby="categories-tags-title">
         <header><div><h2 id="categories-tags-title">Organisation</h2><p>Collection assignments and product assignments combine. Only local values are saved in this product's normal JSON fields.</p></div></header>
@@ -262,6 +267,8 @@
   'collection': workspace.shared.data,
   'override': workspace.override.data,
   'resolved': workspace.resolved,
+  'production_options': workspace.production_options,
+  'production_preview_url': url_for('main.product_costing_preview', product_id=product.id),
   'title_preview': workspace.title_preview,
   'customisation_template': workspace.customisation_template,
   'customisation_templates_url': url_for('customisations.templates'),
@@ -285,4 +292,4 @@
 {% endblock %}
 
 {% block stylesheets %}<link rel="stylesheet" href="{{ url_for('static', filename='assets/css/metadata-taxonomy.css') }}">{% endblock %}
-{% block javascripts %}{% include 'packaging/_modal.html' %}<script src="{{ url_for('static', filename='assets/js/packaging.js') }}"></script><script src="{{ url_for('static', filename='assets/js/customisation-designer.js') }}"></script><script src="{{ url_for('static', filename='assets/js/sale-editor.js') }}"></script><script src="{{ url_for('static', filename='assets/js/metadata-editor.js') }}"></script>{% endblock %}
+{% block javascripts %}{% include 'packaging/_modal.html' %}<script src="{{ url_for('static', filename='assets/js/packaging.js') }}"></script><script src="{{ url_for('static', filename='assets/js/customisation-designer.js') }}"></script><script src="{{ url_for('static', filename='assets/js/sale-editor.js') }}"></script><script src="{{ url_for('static', filename='assets/js/product-bom.js') }}"></script><script src="{{ url_for('static', filename='assets/js/metadata-editor.js') }}"></script>{% endblock %}

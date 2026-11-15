@@ -463,6 +463,8 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
         attach_dimensions(plan, config, shop, adapter)
         from app.shopify_eu_identifier import attach as attach_eu_identifier
         attach_eu_identifier(product, plan, config, shop, adapter)
+        from app.shopify_item_cost import attach as attach_item_cost
+        attach_item_cost(plan, config, shop, adapter)
         from app.shopify_optional_packages import attach as attach_packages
         attach_packages(product, plan, row if remote_id else None, config, shop)
         native_review(plan,row if remote_id else None,data,config,shop,adapter)
@@ -491,6 +493,7 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
         "customisations":plan.get('customisations'),
         "finished_dimensions":plan.get('dimension_metadata'),
         **({'eu_identifier': plan['eu_identifier']} if 'eu_identifier' in plan else {}),
+        **({'item_cost': plan['item_cost']} if 'item_cost' in plan else {}),
         "package_assignments":package_binding(plan),
         "native":{k:v for k,v in plan["native"].items() if k!="checked_at"},
         "publication":review_binding(plan.get('publication') or {})})
@@ -694,6 +697,8 @@ def verify(row,data,config,adapter, *, recover=False, approval=None, allow_attri
     verify_dimensions(row, data, config, adapter)
     from app.shopify_eu_identifier import verify as verify_eu_identifier
     fields_found.extend(verify_eu_identifier(row, data, config, adapter))
+    from app.shopify_item_cost import verify as verify_item_cost
+    fields_found.extend(verify_item_cost(row, data, config, adapter))
     data["verification"]["memberships"] = "verified"
     expected = [m.get("id") for m in data.get("created_media",[])]
     observed = remote["media"]["nodes"]
@@ -928,6 +933,8 @@ def confirm(reviewed, adapter=None):
         apply_dimensions(row,data,config,adapter)
         from app.shopify_eu_identifier import apply as apply_eu_identifier
         apply_eu_identifier(row,data,config,adapter)
+        from app.shopify_item_cost import apply as apply_item_cost
+        apply_item_cost(row,data,config,adapter)
         from app.shopify_variable_readback import begin,complete
         begin(row,data,'base')
         return complete(row,adapter,allow_writes=True)
@@ -955,6 +962,7 @@ def confirm(reviewed, adapter=None):
                 data=retained
             if package_attempted(retained,lease.id):attempted=True
             if retained.get('eu_identifier_attempt', {}).get('operation_id') == lease.id:attempted=True
+            if retained.get('item_cost_attempt', {}).get('operation_id') == lease.id:attempted=True
             if not attempted and creating is False and previous:
                 row.operation_id,row.reviewed_digest,row.verification_state=previous["operation_id"],previous["reviewed_digest"],previous['verification_state']
                 drafts.save(row,previous["data"],previous['state'])

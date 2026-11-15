@@ -289,6 +289,12 @@ def validate_product_info(data, kind):
             validate_extensions(data, partial=kind == "override")
         except ValueError as error:
             errors += (ValidationIssue("$.customisation", "invalid_catalogue_extension", str(error)),)
+    if not errors and 'production' in data:
+        from app.inventory.product_bom import validate as validate_bom
+        try:
+            validate_bom(data['production'])
+        except ValueError as error:
+            errors += (ValidationIssue('$.production', 'invalid_production', str(error)),)
     if "variation_attributes" in data and not errors and (kind == "collection" or "attributes" in data):
         from app.taxonomy_assignments import variation_drivers
         try:

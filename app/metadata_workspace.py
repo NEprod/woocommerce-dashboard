@@ -419,6 +419,7 @@ def product_workspace(product: Product):
 
 def editor_workspace(product: Product, kind: str):
     from app.taxonomy_assignments import resolve, options
+    from app.inventory.product_bom import editor_options
     shared = metadata_source(product, "shared")
     override = metadata_source(product, "override")
     authored = shared if kind == "shared" else override
@@ -567,6 +568,7 @@ def editor_workspace(product: Product, kind: str):
         "fields": EDITOR_FIELDS,
         "affected_total": affected_total,
         "variation_count": Variation.query.filter_by(product_id=product.id).count(),
+        "production_options": editor_options(product),
         "affected_preview": preview,
         "product_images": product_images,
         "variation_image_preview": (
