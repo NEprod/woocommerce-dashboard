@@ -2019,6 +2019,10 @@ def setup():
     if User.query.first():
         return redirect(url_for("main.login"))
     form = SetupAdminForm()
+    if current_app.config.get("TLC_DEPLOYMENT_PROOF"):
+        form.commerce_platform.choices = [("shopify", "Shopify")]
+        if request.method == "GET":
+            form.commerce_platform.data = "shopify"
     if form.validate_on_submit():
         from app.commerce_config import initialize_platform, CommerceConfigError
         try:

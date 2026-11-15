@@ -73,6 +73,9 @@ if [ "$(id -u)" -ne 0 ]; then
     fail "startup preparation requires root; the application is dropped to PUID:PGID before launch"
 fi
 
+# Reject swapped marked storage before mkdir, chown or write probes.
+python -m app.deployment_guard
+
 target_group=$(getent group "${PGID}" | cut -d: -f1 || true)
 current_group=$(id -gn app)
 current_gid=$(id -g app)

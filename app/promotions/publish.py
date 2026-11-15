@@ -113,6 +113,8 @@ def _overlaps(row, store, expected):
 
 def build(row, adapter):
     d, saved = document(row), receipt(row)
+    if row.state == "migration_review":
+        raise ShopifyPromotionError("Review the detached variant or customer selections in Edit Promotion before publishing.")
     if row.state in ('pending','uncertain'):
         raise ShopifyPromotionError('Read-only reconciliation is required before publishing another change.')
     if d['intent']=='draft':
@@ -199,6 +201,9 @@ def _complete(row, raw, proof, attempt, actual):
 
 
 def confirm(row, token, actor, adapter):
+    from app.deployment_guard import promotion_transport
+    if hasattr(adapter, "config"):
+        promotion_transport(adapter.config, writing=True)
     try:
         signed = _serializer().loads(token,max_age=600)
     except BadData:

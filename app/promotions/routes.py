@@ -76,7 +76,7 @@ def _uk(value):
 
 
 def _local_status(data, row):
-    if row.state in ('pending','uncertain','attention'):
+    if row.state in ('pending','uncertain','attention','migration_review'):
         return 'Needs attention'
     if data['intent'] != 'live':
         return data['intent'].title()
@@ -113,6 +113,8 @@ def edit(ident=None):
         return _render_edit(row,data)
     if row and row.state in ('pending','uncertain'):
         return _render_edit(row,data,error='Resolve the retained publication attempt first.',status=409)
+    if row and row.state == "migration_review" and request.form.get("review_detached_targets") != "yes":
+        return _render_edit(row,data,error="Confirm the detached promotion selections have been reviewed.",status=409)
     try:
         data = _from_form(request.form)
     except ValueError as exc:
@@ -133,9 +135,10 @@ def edit(ident=None):
         return _render_edit(row,current,error=str(exc),status=400)
     if row:
         revision = request.form.get('revision',type=int)
+        migrated = {"state": "local"} if row.state == "migration_review" else {}
         changed = db.session.execute(update(Promotion).where(Promotion.id==row.id,Promotion.revision==revision,
             Promotion.state.not_in(('pending','uncertain'))).values(document=domain.canonical(data),
-            revision=Promotion.revision+1,updated_at=publish.stamp())).rowcount
+            revision=Promotion.revision+1,updated_at=publish.stamp(),**migrated)).rowcount
         if changed!=1:
             db.session.rollback()
             return _render_edit(row,data,error='This promotion changed in another session. Reopen it before saving.',status=409)
@@ -150,6 +153,9 @@ def edit(ident=None):
 @promotions.post('/<ident>/duplicate')
 def duplicate(ident):
     row = db.get_or_404(Promotion,ident)
+    if row.state == "migration_review":
+        flash("Review the detached promotion selections before duplicating this promotion.", "warning")
+        return redirect(url_for("promotions.edit", ident=row.id), code=303)
     data = publish.document(row)
     data.update(name=data['name'][:85] + ' (copy)',intent='draft')
     copy = Promotion(id=uuid4().hex,document=domain.canonical(data),updated_at=publish.stamp())

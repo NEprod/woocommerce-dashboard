@@ -38,9 +38,13 @@ def document():
             raise ValueError()
         if any(not isinstance(value, str) for value in data.get("shopify", {}).values()):
             raise ValueError()
+        if current_app.config.get("TLC_DEPLOYMENT_PROOF") and (
+                data["active_platform"] != "shopify" or data.get("shopify")):
+            raise ValueError()
         return data
     except FileNotFoundError:
-        return {"version": 1, "active_platform": "woocommerce", "shopify": {}}
+        platform = "shopify" if current_app.config.get("TLC_DEPLOYMENT_PROOF") else "woocommerce"
+        return {"version": 1, "active_platform": platform, "shopify": {}}
     except (OSError, ValueError, AttributeError):
         raise CommerceConfigError("Commerce settings are unreadable or invalid. Restore protected instance settings; do not switch platforms.") from None
 
@@ -71,6 +75,8 @@ def _save(transform):
 def initialize_platform(platform):
     """Only first administrator creation may choose a platform; retries cannot switch."""
     from app.models import User
+    if current_app.config.get("TLC_DEPLOYMENT_PROOF") and platform != "shopify":
+        raise CommerceConfigError("This managed deployment is bound to Shopify.")
     if platform not in {"woocommerce", "shopify"} or User.query.first() is not None:
         raise CommerceConfigError("An established installation cannot switch platforms here.")
     def select(data):

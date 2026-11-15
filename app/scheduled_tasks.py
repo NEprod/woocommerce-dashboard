@@ -473,11 +473,13 @@ def tick(owner,*,adapter=None):
     # The supervisor shares one container-start deadline with its child workers.
     # Explicit manual work is permitted once the application is ready.
     from datetime import UTC
+    from flask import current_app
+    deployment = current_app.config.get("TLC_DEPLOYMENT_PROOF")
     try:
         grace = now().replace(tzinfo=UTC).timestamp() < float(os.environ.get('TLC_SCHEDULER_READY_AT','0'))
     except ValueError:
         grace = True
-    if grace:
+    if grace or deployment and not deployment[0].automation:
         claimed=claim(owner,manual_only=True)
         if claimed:run_slice(*claimed,owner,adapter=adapter)
         return claimed

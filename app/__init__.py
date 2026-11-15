@@ -21,6 +21,20 @@ def create_app(*, recover=None):
     app.config["SECRET_KEY"] = secret_key
     app.config["SHOPIFY_CAPACITY_COORDINATION"] = True
 
+    from .deployment_guard import DeploymentError, identity, verify_startup
+    if identity(os.environ):
+        from pathlib import Path
+        from sqlalchemy.engine import make_url
+        url = make_url(app.config["SQLALCHEMY_DATABASE_URI"])
+        root = Path(app.instance_path)
+        if url.drivername != "sqlite" or not url.database or (root / url.database).resolve() != root / "site.db":
+            raise DeploymentError("Managed SQLite must reside in the marked instance directory.")
+    app.config["TLC_DEPLOYMENT_PROOF"] = verify_startup(app.instance_path, os.environ)
+    if app.config["TLC_DEPLOYMENT_PROOF"]:
+        app.config.update(SHOPIFY_ORDERS_STARTUP_ENABLED=False,
+                          SESSION_COOKIE_SECURE=True,
+                          SESSION_COOKIE_NAME="tlc_" + app.config["TLC_DEPLOYMENT_PROOF"][0].environment)
+
     app.config["DISCORD_WEBHOOK_URL"] = os.getenv("DISCORD_WEBHOOK_URL", "")
     app.config["DISCORD_ENABLED"] = (
         os.getenv("DISCORD_ENABLED", "false").lower() == "true"

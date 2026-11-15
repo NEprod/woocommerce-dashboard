@@ -165,6 +165,8 @@ class Admin:
         return answer
 
     def _graphql(self, query, variables=None):
+        from app.deployment_guard import promotion_transport
+        promotion_transport(self.config, writing=not query.lstrip().startswith("query "))
         if not self._token:
             try:
                 path = Path(self.config.private_key)

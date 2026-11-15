@@ -12,6 +12,10 @@ from urllib.parse import urlsplit, unquote
 import requests
 
 QUERY = "query Connection { shop { id myshopifyDomain primaryDomain { host } domains { host } } currentAppInstallation { accessScopes { handle } } }"
+DEPLOYMENT_QUERY = """query DeploymentIdentity {
+  shop { id myshopifyDomain plan { partnerDevelopment } }
+  currentAppInstallation { app { id } }
+}"""
 VERSIONS = ("2026-10", "2026-07", "2026-04", "2026-01")
 
 PAGE = "pageInfo { hasNextPage endCursor }"
@@ -30,7 +34,7 @@ PRODUCT_QUERY = """query Product($id: ID!, $variants: String, $media: String) {
 VARIANT_QUERY = "query Variant($id: ID!, $after: String) { productVariant(id: $id) { id title sku media(first: 20, after: $after) { edges { cursor node { " + MEDIA_FIELDS + " } } " + PAGE + " } } }"
 COLLECTIONS_QUERY = "query Collections($after: String) { collections(first: 20, after: $after, sortKey: ID) { nodes { " + COLLECTION_FIELDS + " } " + PAGE + " } }"
 COLLECTION_QUERY = "query Collection($id: ID!, $after: String) { collection(id: $id) { " + COLLECTION_FIELDS + " products(first: 20, after: $after, sortKey: ID) { nodes { id title handle status } " + PAGE + " } } }"
-READ_QUERIES = frozenset((QUERY, PRODUCTS_QUERY, PRODUCT_QUERY, VARIANT_QUERY, COLLECTIONS_QUERY, COLLECTION_QUERY))
+READ_QUERIES = frozenset((QUERY, DEPLOYMENT_QUERY, PRODUCTS_QUERY, PRODUCT_QUERY, VARIANT_QUERY, COLLECTIONS_QUERY, COLLECTION_QUERY))
 from .order_queries import READ_QUERIES as ORDER_READ_QUERIES
 READ_QUERIES |= ORDER_READ_QUERIES
 from .packaging_queries import CAPABILITY as PACKAGING_CAPABILITY
@@ -511,6 +515,18 @@ class ShopifyAdapter:
     platform = "shopify"
     can_publish = False
 
+    def deployment_identity(self, configuration):
+        # Startup calls this outside Flask and before opening writable state.
+        data = self._request(configuration, DEPLOYMENT_QUERY)
+        try:
+            shop = data["shop"]
+            dev = shop["plan"]["partnerDevelopment"]
+            if type(dev) is not bool:
+                raise ValueError()
+            return shop["myshopifyDomain"], shop["id"], data["currentAppInstallation"]["app"]["id"], dev
+        except (KeyError, TypeError, ValueError):
+            raise ShopifyError("Shopify returned incomplete deployment identity evidence.") from None
+
     def product_revisions(self, configuration, ids):
         if not 1 <= len(ids) <= 25 or len(set(ids)) != len(ids):
             raise ShopifyError("Revision checks require one to 25 distinct product identities.")
@@ -536,6 +552,8 @@ class ShopifyAdapter:
         return self._transport(configuration, query, variables)
 
     def _transport(self, configuration, query, variables=None, *, session=None, api_version=None):
+        from app.deployment_guard import product_transport
+        product_transport(configuration, writing=query in WRITE_QUERIES)
         from app.shopify_read_scope import transport
         name = re.search(r'(?:query|mutation)\s+(\w+)', query)
         with transport(configuration, name.group(1) if name else 'fixed-query', query, variables,
@@ -1057,6 +1075,8 @@ class ShopifyAdapter:
 
     def upload_image(self, configuration, target, image, content):
         """Upload only to a validated staged target, without the Admin API token."""
+        from app.deployment_guard import product_transport
+        product_transport(configuration, writing=True)
         from app.shopify_capacity import before
         before(configuration, writing=True)
         config = configuration.validated()

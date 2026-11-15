@@ -44,6 +44,10 @@ def configure(*, enabled, actor_id, confirmation=None, required_fields=None, ada
                 or len(set(required_fields)) != len(required_fields)):
             raise ValueError('Choose only supported TLC Live-required fields.')
     if enabled:
+        from flask import current_app
+        deployment = current_app.config.get("TLC_DEPLOYMENT_PROOF")
+        if deployment and not deployment[0].automation:
+            raise ValueError("Automatic publishing is disabled by the deployment policy.")
         config = drafts.configuration()
         if confirmation != config.domain:
             raise ValueError('Explicitly confirm the connected store domain before enabling automatic publishing.')

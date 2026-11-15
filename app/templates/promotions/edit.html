@@ -23,6 +23,10 @@
 <form method="post" data-promotion-editor data-search-url="{{ url_for('promotions.search') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% if row %}<input type="hidden" name="revision" value="{{ row.revision }}">{% endif %}
+  {% if row and row.state == "migration_review" %}
+  <p class="alert alert-warning">This draft no longer has its old Shopify variant or segment links. Review the qualifying and reward groups, and choose any replacements explicitly. An empty reward group uses the qualifying group.</p>
+  <label class="check-row"><input type="checkbox" name="review_detached_targets" value="yes" required> I reviewed the detached selections and confirm the new groups and restrictions.</label>
+  {% endif %}
   <section class="editor-workspace-section">
     <header><h2>{{ 'Edit promotion' if row else 'New promotion' }}</h2></header>
     <div class="editor-field-grid">
