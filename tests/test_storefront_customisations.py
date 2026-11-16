@@ -7,13 +7,15 @@ import pytest
 
 from app import db, shopify_drafts as drafts, shopify_customisations as storefront
 from app.customisations import merge
-from app.models import CatalogueOperation, ShopifyProductIdentity
+from app.models import CatalogueOperation, ShopifyAttributeIdentity, ShopifyProductIdentity
 from app.storefront_customisations import public_configuration
 from test_shopify_drafts import world
 from test_phase3_woo_publish_preview import preview_app, _client
 from test_shopify_simple_updates import UpdateAdapter, change
 from test_shopify_variables import VariableAdapter, variable_world
 from test_shopify_foundation import isolated_transport, Session, Response, TOKEN
+from test_shopify_taxonomy_lifecycle import LifecycleAdapter, informational
+from test_shopify_taxonomy_products import registry
 
 PUBLIC = {'storefront_enabled':True, 'proof_policy':'required', 'private_notes':'NEVER PUBLIC', 'fields':{
     'name':{'type':'text','label':'Name','required':True,'max_length':30,'order':0,'production_recipe':'PRIVATE PATH'},
@@ -124,6 +126,138 @@ def test_reviewed_simple_create_public_ids_readback_no_source_changes(world):
     plan, token = drafts.preview(world[0], adapter)
     assert plan['classification'] == 'no_change' and token is None
     assert not any(f['changed'] for f in plan['fields'])
+
+
+@pytest.fixture
+def stopped_draft(world, monkeypatch):
+    from app import shopify_attributes
+    change(world, customisation=PUBLIC)
+    adapter = CustomerAdapter()
+    apply = shopify_attributes.apply
+
+    def interrupted(row, data, config, adapter):
+        data['stage'] = 'attribute_registration'
+        drafts.save(row, data)
+        raise drafts.ShopifyError('Attribute definition outcome uncertain.')
+
+    monkeypatch.setattr(shopify_attributes, 'apply', interrupted)
+    _, token = drafts.preview(world[0], adapter)
+    row = drafts.confirm(token, True, adapter)
+    monkeypatch.setattr(shopify_attributes, 'apply', apply)
+    assert row.state == 'uncertain' and adapter.customer_value is None
+    return row, adapter, token
+
+
+def test_interrupted_create_finishes_existing_draft_only_after_fresh_review(world, stopped_draft, monkeypatch):
+    row, adapter, create_token = stopped_draft
+    row_id, remote_id = row.id, row.shopify_product_id
+    media = copy.deepcopy(adapter.remote['media'])
+    # Legacy Phase B receipts already contain the failure diagnostic. Recovery
+    # works after reloading the row, without any new marker or migration.
+    db.session.expire_all()
+    row = db.session.get(ShopifyProductIdentity, row_id)
+    adapter.calls.clear()
+    for _ in range(2):
+        drafts.reconcile(row, adapter=adapter)
+        assert row.state == 'creation_review_required' and row.verification_state == 'base_verified'
+        assert row.verified_at is None and row.shopify_product_id == remote_id
+        assert drafts.evidence(row)['creation_remaining_review'] == ['customer configuration']
+    plan, token = drafts.preview(world[0], adapter)
+    assert token and plan['classification'] == 'update' and not plan.get('publication')
+    assert plan['remote_id'] == remote_id and plan['customisations']['value_changed']
+    with pytest.raises(drafts.ShopifyError, match='no duplicate creation'):
+        drafts.confirm(create_token, True, adapter)
+    with monkeypatch.context() as scoped:
+        scoped.setattr('app.shopify_capacity.background', lambda: {'authority': 'automatic'})
+        with pytest.raises(drafts.ShopifyError, match='fresh manual Review'):
+            drafts.confirm(token, True, adapter)
+    with pytest.raises(drafts.ShopifyError, match='acknowledgement'):
+        drafts.confirm(token, False, adapter)
+    assert all(call.endswith('_read') for call in adapter.calls)
+    adapter.calls.clear()
+    drafts.confirm(token, True, adapter)
+    assert [call for call in adapter.calls if not call.endswith('_read')] == [
+        'configuration_definition_write', 'configuration_value_write']
+    assert row.state == row.verification_state == 'verified' and row.verified_at
+    assert row.shopify_product_id == remote_id and adapter.remote['status'] == 'DRAFT'
+    assert adapter.remote['media'] == media and ShopifyProductIdentity.query.count() == 1
+    assert 'creation_remaining_review' not in drafts.evidence(row)
+
+
+@pytest.mark.parametrize('change_kind', ['attempted', 'different_stage', 'different_operation', 'remote_drift', 'not_draft'])
+def test_interrupted_create_never_defers_uncertain_mutations_or_drift(world, stopped_draft, change_kind):
+    row, adapter, _ = stopped_draft
+    data = drafts.evidence(row)
+    if change_kind == 'attempted':
+        data['storefront_configuration'] = {'state': 'pending', 'value_attempted': True}
+    elif change_kind == 'different_stage':
+        data['failure_diagnostic']['stage'] = 'customisation_configuration'
+    elif change_kind == 'different_operation':
+        data['failure_diagnostic']['operation_id'] = 'unrelated-operation'
+    elif change_kind == 'remote_drift':
+        adapter.definition = {'id': 'gid://shopify/MetafieldDefinition/801', 'key': storefront.KEY,
+            'namespace': 'app--77--tlc_customisations', 'ownerType': 'PRODUCT', 'type': {'name': 'json'},
+            'access': {'admin': 'MERCHANT_READ', 'storefront': 'NONE'}}
+    else:
+        adapter.remote['status'] = 'ACTIVE'
+    drafts.save(row, data)
+    adapter.calls.clear()
+    drafts.reconcile(row, adapter=adapter)
+    assert row.state == 'uncertain' and row.verified_at is None
+    assert not drafts.evidence(row).get('creation_remaining_review')
+    with pytest.raises(drafts.ShopifyError, match='Recovery required'):
+        drafts.preview(world[0], adapter)
+    assert all(call.endswith('_read') for call in adapter.calls)
+
+
+def test_first_use_attribute_readback_loss_can_finish_retained_create(world, registry):
+    from app import shopify_attributes
+
+    class Adapter(ConfigurationMixin, LifecycleAdapter):
+        def attribute_resource(self, config, kind, spec):
+            result = super().attribute_resource(config, kind, spec)
+            if kind == 'definition' and result and self.resource_failure == 'readback':
+                self.resource_failure = None
+                raise drafts.ShopifyError('The definition was created but the readback was interrupted.')
+            return result
+
+        def create_attribute_resource(self, config, kind, spec):
+            if kind == 'field' and spec['namespace'] == storefront.NAMESPACE:
+                return super().create_attribute_resource(config, kind, spec)
+            return LifecycleAdapter.create_attribute_resource(self, config, kind, spec)
+
+        def update_attribute_access(self, config, kind, remote_id, spec):
+            return LifecycleAdapter.update_attribute_access(self, config, kind, remote_id, spec)
+
+        def set_attributes(self, config, values):
+            if values[0]['namespace'] == storefront.NAMESPACE:
+                return super().set_attributes(config, values)
+            return LifecycleAdapter.set_attributes(self, config, values)
+
+    informational(registry)
+    change(world, customisation=PUBLIC, attributes={'Occasion': ['Birthday']})
+    adapter = Adapter()
+    adapter.resource_failure = 'readback'
+    _, token = drafts.preview(world[0], adapter)
+    row = drafts.confirm(token, True, adapter)
+    remote_id = row.shopify_product_id
+    resource = ShopifyAttributeIdentity.query.one()
+    definition_id = resource.remote_id
+    assert row.state == resource.state == 'uncertain' and adapter.customer_value is None
+    drafts.reconcile(row, adapter=adapter)
+    assert row.state == 'uncertain'  # Must resolve the uncertain resource first.
+    shopify_attributes.reconcile(resource, adapter, drafts.configuration())
+    drafts.reconcile(row, adapter=adapter)
+    assert resource.state == 'verified' and row.state == 'creation_review_required'
+    assert drafts.evidence(row)['verification']['attributes'] == 'remaining_review'
+    # Even with an intended Live product, this step may only finish its Draft.
+    change(world, live=True)
+    plan, token = drafts.preview(world[0], adapter)
+    assert token and plan['remote_id'] == remote_id and not plan.get('publication')
+    assert drafts.confirm(token, True, adapter).state == 'verified'
+    assert resource.remote_id == definition_id and adapter.calls.count('attribute_definition_create') == 1
+    assert row.shopify_product_id == remote_id and adapter.calls.count('product_create') == 1
+    assert adapter.remote['status'] == 'DRAFT' and adapter.customer_value is not None
 
 
 def test_reviewed_configuration_uses_collection_plus_local_fields_and_is_repeatable(world):

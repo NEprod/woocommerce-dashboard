@@ -200,6 +200,9 @@ def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=N
                     message="Shopify writes acknowledged; server read-only verification is pending. No product, image or variant mutation will be repeated." if wait.get('state') in {'pending','waiting_authority'} else "Read-only reconciliation is required to check media processing.")
             elif row.state=="attribute_review_required":
                 state.update(state="attention",label="Needs Attention",message="Base metadata/media/memberships are verified; remaining informational stages need a fresh signed Review. No automatic write replay.")
+            elif row.state == "creation_review_required":
+                state.update(state="attention", label="Needs Attention", remote_status="Draft",
+                    message="Existing Shopify Draft verified. Review the remaining changes; no new product or upload is needed.")
             elif row.state == "scoped_verified":
                 state.update(state="attention",label="Needs Attention",message="Inventory-only correction verified. Full metadata, attributes and publication comparison remains outstanding.")
             elif row.state == "verified" and row.verification_state == "verified":

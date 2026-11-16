@@ -300,7 +300,7 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
     if origin and origin not in adapter.country_codes(config):
         raise ShopifyError("Country of origin is not supported by Shopify's current CountryCode contract.")
     if row and row.state not in {"failed_before_create", "remote_deleted"} and not upload_pending(row):
-        if row.state not in {"verified","attribute_review_required","scoped_verified"} or row.verification_state not in {"verified","base_verified","inventory_verified"}:
+        if row.state not in {"verified","attribute_review_required","creation_review_required","scoped_verified"} or row.verification_state not in {"verified","base_verified","inventory_verified"}:
             raise ShopifyError(f"Recovery required for Shopify identity {row.id} ({row.state}). Reconcile its retained operation before any write; another create is blocked.")
         result, token = update_preview(product, row, plan, config, shop, adapter)
         from app.shopify_native_dimensions import attach_review
@@ -321,7 +321,10 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
             from app.shopify_optional_packages import attach as attach_packages
             attach_packages(product, result, row, config, shop)
             from app.shopify_publication import annotate
-            annotate(product,result,row,config,shop,adapter)
+            if row.state == "creation_review_required":
+                result["warnings"].append("Finish the remaining reviewed work on the retained Shopify Draft. Availability is deferred until a separate review after verification. No new product or image upload.")
+            else:
+                annotate(product,result,row,config,shop,adapter)
         if result["classification"] == "update":
             token = serializer().dumps({"mode": "update", "scope":scope, **{key: result[key] for key in (
                 "product_id", "digest", "identity_id", "remote_id", "store_id", "domain", "config_digest",
@@ -330,6 +333,8 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
             result["blockers"].append("Missing write_products; read-only comparison is available, writes are blocked.")
         if row.state=="attribute_review_required" and result["classification"]=="no_change":
             result["blockers"].append("Remaining attributes now match; complete read-only identity reconciliation before claiming final publishing verification.")
+        elif row.state == "creation_review_required" and result["classification"] == "no_change":
+            result["blockers"].append("No reviewed changes remain; complete read-only identity reconciliation before claiming final publishing verification.")
         from app.shopify_comparison import record
         record(product, result, row)
         from app.shopify_publication import has_reviewed_changes
@@ -897,6 +902,8 @@ def update_preview(product, row, plan, config, shop, adapter):
     if remote is None:
         from app.shopify_connection import ShopifyProductAbsent
         raise ShopifyProductAbsent("Exact Shopify product read returned absent. Refresh its retained identity before reviewing recreation.")
+    if row.state == "creation_review_required" and remote.get("status") != "DRAFT":
+        raise ShopifyError("The retained draft is no longer Draft. Reconcile its state before any write.")
     variant = simple_identity(row, data, remote)
     if not data.get("variant_id") and variant.get("sku") != row.sku:
         raise ShopifyError("Legacy Simple variant cannot be adopted with a different SKU; recovery review is required.")
@@ -976,8 +983,14 @@ def confirm_update(reviewed, adapter=None):
     adapter = adapter or ShopifyAdapter()
     product = db.session.get(Product, reviewed["product_id"])
     row = db.session.get(ShopifyProductIdentity, reviewed["identity_id"])
-    if not product or not row or row.state not in {"verified","attribute_review_required","scoped_verified"} or row.verification_state not in {"verified","base_verified","inventory_verified"}:
+    if not product or not row or row.state not in {"verified","attribute_review_required","creation_review_required","scoped_verified"} or row.verification_state not in {"verified","base_verified","inventory_verified"}:
         raise ShopifyError("Identity is not verified or another attempt requires recovery. Generate a fresh Preview.")
+    recovering_creation = row.state == "creation_review_required"
+    if recovering_creation:
+        from app.shopify_capacity import background
+        if background():
+            raise ShopifyError("Finishing the retained draft requires a fresh manual Review; no automatic write is allowed.")
+    recovery_evidence = evidence(row) if recovering_creation else None
     # Acquire before revalidation; reviewed update cannot overlap another write.
     lease = acquire_catalogue_operation("shopify_draft_publish", {"product_id": product.id, "sku": product.sku, "mode": "update"})
     attempted = False
@@ -1097,14 +1110,32 @@ def confirm_update(reviewed, adapter=None):
             data = evidence(row)
             if data.get("stage") == "update_pending" and not data.get("update_attempted"):
                 previous = data.pop("previous_verified")
-                data.update(plan=previous["plan"], stage="verified", last_failed_review_operation_id=lease.id)
+                state = "creation_review_required" if recovering_creation else "verified"
+                if recovery_evidence is not None:
+                    data = recovery_evidence
+                data.update(plan=previous["plan"], stage=state, last_failed_review_operation_id=lease.id)
                 data['publication_review_operation_id']=previous.get('publication_review_operation_id')
                 row.operation_id = previous["operation_id"]
                 row.reviewed_digest = previous["reviewed_digest"]
-                row.verification_state = "verified"
-                save(row, data, "verified")
+                row.verification_state = "base_verified" if recovering_creation else "verified"
+                save(row, data, state)
             raise ShopifyError(message) from None
         return row
+
+
+def _stopped_simple_create_at_attributes(row, data, remote):
+    """Only the original, acknowledged Draft create can defer its unsent tail."""
+    failure = data.get("failure_diagnostic") or {}
+    return (row.state in {"uncertain", "creation_review_required"} and not row.verified_at
+            and row.operation_id and failure.get("operation_id") == row.operation_id
+            and failure.get("stage") == "attribute_registration"
+            and data.get("create_attempted") is True and not data["plan"].get("remote_id")
+            and {"product_create", "variant_update"}.issubset(data.get("completed_steps") or [])
+            and not any(data.get(key) for key in ("previous_verified", "update_attempted",
+                "customisation_update", "eu_identifier_attempt", "item_cost_attempt", "publication_update"))
+            and (data.get("storefront_configuration") or {}).get("state") not in {"pending", "uncertain"}
+            and not any("before_id" in receipt for receipt in (data.get("dimension_definitions") or {}).values())
+            and remote.get("status") == "DRAFT")
 
 
 def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_review=False):
@@ -1148,17 +1179,34 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
         from app.shopify_attributes import remaining_review
         remaining=remaining_review(plan,configuration(),adapter or ShopifyAdapter(),row.shopify_product_id)
     data["verification"]["attributes"]="remaining_review" if remaining else "verified"
-    from app.shopify_customisations import verify as verify_customisations
-    verify_customisations(row, data, configuration(), adapter or ShopifyAdapter())
+    unsent_tail = allow_attribute_review and _stopped_simple_create_at_attributes(row, data, remote)
+    deferred = []
+    from app.shopify_customisations import snapshot as read_customisations, verify as verify_customisations
+    customisations = plan.get("customisations") or {}
+    if unsent_tail and customisations.get("changed") and read_customisations(
+            adapter or ShopifyAdapter(), configuration(), row.shopify_product_id) == customisations["before"]:
+        deferred.append("customer configuration")
+        data["verification"]["customisations"] = "not_attempted"
+    else:
+        verify_customisations(row, data, configuration(), adapter or ShopifyAdapter())
     from app.shopify_dimension_metadata import verify as verify_dimensions
-    verify_dimensions(row, data, configuration(), adapter or ShopifyAdapter())
+    if unsent_tail and any(s["changed"] for s in (plan.get("dimension_metadata") or {}).get("definitions", [])):
+        deferred.append("finished-size definitions")
+    else:
+        verify_dimensions(row, data, configuration(), adapter or ShopifyAdapter())
     from app.shopify_eu_identifier import verify as verify_eu_identifier
     if plan.get('eu_identifier'):
-        rows.extend(verify_eu_identifier(row, data, configuration(), adapter or ShopifyAdapter()))
+        if unsent_tail:
+            deferred.append("EU identifier declaration")
+        else:
+            rows.extend(verify_eu_identifier(row, data, configuration(), adapter or ShopifyAdapter()))
     if plan.get('item_cost'):
         data["variant_id"], data["inventory_item_id"] = variant["id"], variant["inventoryItem"]["id"]
         from app.shopify_item_cost import verify as verify_item_cost
-        rows.extend(verify_item_cost(row, data, configuration(), adapter or ShopifyAdapter()))
+        if unsent_tail:
+            deferred.append("Cost per item")
+        else:
+            rows.extend(verify_item_cost(row, data, configuration(), adapter or ShopifyAdapter()))
     data["verification"]["memberships"] = "verified"
     data["stage"] = "media_verification"
     save(row, data)
@@ -1185,13 +1233,21 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
         if receipt is None:
             raise ShopifyError("Local media receipt is missing; automatic adoption is refused.")
         receipt.update(mapping[media_id])
-    row.verification_state = "base_verified" if ready and remaining else "verified" if ready else "processing"
-    if ready and not remaining:
+    if deferred and not ready:
+        raise ShopifyError("The retained Draft gallery is still processing. Repeat read-only reconciliation once its images are ready.")
+    partial = remaining or bool(deferred)
+    if deferred:
+        data["creation_remaining_review"] = deferred
+    else:
+        data.pop("creation_remaining_review", None)
+    row.verification_state = "base_verified" if ready and partial else "verified" if ready else "processing"
+    if ready and not partial:
         row.verified_at = now()
-    data["stage"] = "attribute_review_required" if ready and remaining else "verified" if ready else "media_reordering" if observed != expected else "media_processing"
+    review_state = "creation_review_required" if deferred else "attribute_review_required"
+    data["stage"] = review_state if ready and partial else "verified" if ready else "media_reordering" if observed != expected else "media_processing"
     data.pop("error", None)
-    save(row, data, "attribute_review_required" if ready and remaining else "verified" if ready else "processing")
-    if ready and not remaining:
+    save(row, data, review_state if ready and partial else "verified" if ready else "processing")
+    if ready and not partial:
         from app.shopify_comparison import record
         product = db.session.get(Product, row.product_id)
         if product:

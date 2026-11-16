@@ -245,13 +245,17 @@ def saved_states(products, *, url_builder=None):
             elif drafts.upload_pending(identity):
                 state.update(state='processing', label='Uploading gallery', execution_pending=True,
                     message='Acknowledged uploads retained for the next authorised slice; no product Create attempted.')
+            elif not uncertain and identity.state == 'creation_review_required':
+                state.update(state='attention', label='Needs Attention', remote_status='Draft',
+                    message='Existing Shopify Draft verified. Review the remaining changes; no new product or upload is needed.')
             elif uncertain or identity.state not in {'verified', 'remote_deleted', 'failed_before_create', 'processing', 'scoped_verified', 'attribute_review_required'}:
                 state.update(state='recovery_required', label='Recovery Required', message='Retained remote operation requires safe recovery; no automatic retry.')
             elif identity.state == 'processing':
                 state.update(state='processing', label='Processing', execution_pending=True)
         elif len(identities) > 1:
             state.update(state='recovery_required', label='Recovery Required', message='Multiple retained Shopify identities require review.')
-        protected = state['state'] in {'recovery_required', 'processing'}
+        protected = state['state'] in {'recovery_required', 'processing'} or (
+            len(identities) == 1 and identities[0].state == 'creation_review_required')
         view_current = bool(job and not job.view_pending and job.view_revision == job.requested_revision
             and saved.get('config') == config and saved.get('context') == current_context)
         compared_matching = state['state'] == 'no_change' and view_current
