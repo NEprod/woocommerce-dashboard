@@ -184,12 +184,14 @@ def test_interrupted_create_finishes_existing_draft_only_after_fresh_review(worl
     assert 'creation_remaining_review' not in drafts.evidence(row)
 
 
-@pytest.mark.parametrize('change_kind', ['attempted', 'different_stage', 'different_operation', 'remote_drift', 'not_draft'])
+@pytest.mark.parametrize('change_kind', ['attempted', 'unexplained_update', 'different_stage', 'different_operation', 'remote_drift', 'not_draft'])
 def test_interrupted_create_never_defers_uncertain_mutations_or_drift(world, stopped_draft, change_kind):
     row, adapter, _ = stopped_draft
     data = drafts.evidence(row)
     if change_kind == 'attempted':
         data['storefront_configuration'] = {'state': 'pending', 'value_attempted': True}
+    elif change_kind == 'unexplained_update':
+        data['update_attempted'] = True
     elif change_kind == 'different_stage':
         data['failure_diagnostic']['stage'] = 'customisation_configuration'
     elif change_kind == 'different_operation':
@@ -235,7 +237,8 @@ def test_first_use_attribute_readback_loss_can_finish_retained_create(world, reg
             return LifecycleAdapter.set_attributes(self, config, values)
 
     informational(registry)
-    change(world, customisation=PUBLIC, attributes={'Occasion': ['Birthday']})
+    change(world, customisation=PUBLIC, attributes={'Occasion': ['Birthday']},
+           categories=['Cards > Birthday Cards'], storefront_collections=['Personalised'])
     adapter = Adapter()
     adapter.resource_failure = 'readback'
     _, token = drafts.preview(world[0], adapter)
@@ -244,9 +247,20 @@ def test_first_use_attribute_readback_loss_can_finish_retained_create(world, reg
     resource = ShopifyAttributeIdentity.query.one()
     definition_id = resource.remote_id
     assert row.state == resource.state == 'uncertain' and adapter.customer_value is None
+    data = drafts.evidence(row)
+    assert data['update_attempted'] is True  # Initial collection joins set this flag, too.
+    assert {step for step in data['completed_steps'] if step.startswith('join:')} == {
+        'join:categories:cards', 'join:categories:birthday', 'join:storefront_collections:personalised'}
     drafts.reconcile(row, adapter=adapter)
     assert row.state == 'uncertain'  # Must resolve the uncertain resource first.
     shopify_attributes.reconcile(resource, adapter, drafts.configuration())
+    saved = drafts.evidence(row)
+    unexpected = copy.deepcopy(saved)
+    unexpected['completed_steps'].append('product_update')
+    drafts.save(row, unexpected)
+    drafts.reconcile(row, adapter=adapter)
+    assert row.state == 'uncertain'  # An unrelated update is not a collection join.
+    drafts.save(row, saved)
     drafts.reconcile(row, adapter=adapter)
     assert resource.state == 'verified' and row.state == 'creation_review_required'
     assert drafts.evidence(row)['verification']['attributes'] == 'remaining_review'

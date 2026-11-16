@@ -1126,12 +1126,23 @@ def confirm_update(reviewed, adapter=None):
 def _stopped_simple_create_at_attributes(row, data, remote):
     """Only the original, acknowledged Draft create can defer its unsent tail."""
     failure = data.get("failure_diagnostic") or {}
+    plan, steps = data["plan"], set(data.get("completed_steps") or [])
+    # An initial create also sets update_attempted before each collection join.
+    # Accept that flag only when the signed joins were all acknowledged and
+    # no step outside the create prefix was recorded. Membership is read back
+    # separately before using this predicate; no join is retried here.
+    joins = {"join:" + item["key"] for item in plan.get("collections", []) if item["action"] == "Join"}
+    create_steps = ({"staged_uploads", "original_image_uploads", "product_create", "variant_update"} | joins
+                    | {"register:" + item["key"] for item in plan.get("collections", []) if item.get("registration")}
+                    | {"attribute:" + item["key"] for item in plan.get("attributes", [])})
+    joins_only = data.get("update_attempted") is True and bool(joins) and joins <= steps <= create_steps
     return (row.state in {"uncertain", "creation_review_required"} and not row.verified_at
             and row.operation_id and failure.get("operation_id") == row.operation_id
             and failure.get("stage") == "attribute_registration"
-            and data.get("create_attempted") is True and not data["plan"].get("remote_id")
-            and {"product_create", "variant_update"}.issubset(data.get("completed_steps") or [])
-            and not any(data.get(key) for key in ("previous_verified", "update_attempted",
+            and data.get("create_attempted") is True and plan["classification"] == "create" and not plan.get("remote_id")
+            and {"product_create", "variant_update"} <= steps
+            and (not data.get("update_attempted") or joins_only)
+            and not any(data.get(key) for key in ("previous_verified",
                 "customisation_update", "eu_identifier_attempt", "item_cost_attempt", "publication_update"))
             and (data.get("storefront_configuration") or {}).get("state") not in {"pending", "uncertain"}
             and not any("before_id" in receipt for receipt in (data.get("dimension_definitions") or {}).values())
