@@ -124,7 +124,7 @@ def test_new_variable_draft_completion_yield_preserves_receipt(variable_world,mo
     from app.manual_publishing import KEY
     from app.shopify_products import states_for
     from app.utils.operation_control import recover_interrupted_operations
-    from test_manual_publishing_worker import accepted
+    from test_manual_publishing_worker import accepted, products_badge
     from test_shopify_markets import VariableMarketAdapter, market
     from test_shopify_publication_sales import VariableAcceptanceAdapter
 
@@ -226,6 +226,14 @@ def test_new_variable_draft_completion_yield_preserves_receipt(variable_world,mo
                 assert not plan['native']['can_write']
             else:
                 assert len([f for f in plan['fields'] if f['changed'] and f['field'].startswith('native.')])==len(product.variations)
+        if boundary=='legacy_native':
+            from app import catalogue_views, scheduled_tasks
+            from test_automatic_publishing import queued
+            scheduled_tasks.configure(scheduled_tasks.VIEW_KEY,enabled=False,interval=5)
+            queued(product)
+            catalogue_views.capture(product)
+            db.session.commit()
+            assert products_badge(product)['state']=='update'
         fresh_id,fresh_token=accepted((product,),adapter)
         assert fresh_id!=op_id and adapter.remote['status']=='DRAFT'
         step(adapter)
@@ -253,6 +261,8 @@ def test_new_variable_draft_completion_yield_preserves_receipt(variable_world,mo
                 for p in final['variant_native'].values())
             assert not adapter.market_writes
             assert final['publication_update']['market_observed']['availability']=={market(1):True}
+        if boundary=='legacy_native':
+            assert products_badge(product)['label']=='Up to Date'
         from app.shopify_progress import receipt
         with current_app.test_request_context():
             assert receipt(product_id,fresh_token)['state']=='completed'

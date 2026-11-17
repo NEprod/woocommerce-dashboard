@@ -224,6 +224,17 @@ def run_slice(run_id, owner, *, adapter=None):
         if identity and op.status=='succeeded' and op.recovery_state in {None,'none'} and identity.state in {'verified','scoped_verified'}:
             scope=json.loads(op.scope);scope['manual_review']['state']='completed';op.scope=json.dumps(scope)
             update(op,stage='operation_completed',message='Reviewed work completed with its retained verification scope.',status='completed')
+            # The readback is already retained. Refresh this product's saved
+            # badge locally, even when the catalogue-views task is disabled.
+            try:
+                with db.session.begin_nested():
+                    from app.catalogue_views import capture
+                    capture(product, settle_queue=False)
+            except Exception as exc:
+                # Presentation failure must not downgrade verified publication.
+                from flask import current_app
+                current_app.logger.warning('Saved catalogue view refresh failed for product %s (%s).',
+                    scope['product_id'], type(exc).__name__)
             fence();db.session.commit()
             return tasks.save_progress(KEY,run_id,owner,data,terminal='completed')
         raise ShopifyError(op.error or (drafts.evidence(identity).get('error') if identity else None) or 'Publishing was not completely verified. Inspect its receipt before any retry.')

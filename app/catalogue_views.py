@@ -134,7 +134,8 @@ def attention_candidates(after=0):
             yield job
 
 
-def capture(product, *, scan_operation=None, context=None):
+def capture(product, *, scan_operation=None, context=None, settle_queue=True):
+    """Project one product from local evidence, optionally leaving queue state alone."""
     from app.taxonomy_assignments import product_document
     from app.catalogue_images import resolve_product_catalogue_image
     from app.shopify_products import states_for
@@ -162,27 +163,33 @@ def capture(product, *, scan_operation=None, context=None):
         except ValueError: config = None
         data = {'version': 1, 'authored': authored, 'display_title': title, 'state': state, 'config': config,
             'context': context or context_digest()}
-        proof = json.loads(job.view_json or '{}').get('checkpoint_validation')
+        previous = json.loads(job.view_json or '{}')
+        proof = previous.get('checkpoint_validation')
         if proof and proof.get('revision') == expected: data['checkpoint_validation'] = proof
-        from app.automatic_publishing import settle_obsolete_attention, no_changes_settlement, draft_pause_settlement
-        draft_attention = (job.state == 'attention' and (job.error or '').startswith(
-            'Publication requires a fully verified retained product.'))
-        if state['state'] == 'no_change' or draft_attention:
-            settle_obsolete_attention(product)
-            if job.state == 'attention' and not job.owner and not CatalogueOperation.query.filter(
-                    CatalogueOperation.status.in_({'running', 'pending'})).first():
-                # Do not schedule the same conclusively ineligible evidence every
-                # five minutes. A scan/comparison/identity/context change reopens it.
-                data['attention_check'] = attention_check(job)
-        settlement = no_changes_settlement(job)
-        if settlement and state['state'] == 'no_change':
-            data['queue_no_changes'] = settlement
-        elif settlement:
-            # A historical no-op never turns subsequent differences into scanned work.
-            job.state = 'attention'
-        paused = draft_pause_settlement(job)
-        if paused:
-            data['queue_draft_pause'] = paused
+        if not settle_queue:
+            # Badge refresh is not a queue decision, even when the evidence changed.
+            data.update({key: previous[key] for key in ('attention_check', 'queue_no_changes', 'queue_draft_pause')
+                         if key in previous})
+        else:
+            from app.automatic_publishing import settle_obsolete_attention, no_changes_settlement, draft_pause_settlement
+            draft_attention = (job.state == 'attention' and (job.error or '').startswith(
+                'Publication requires a fully verified retained product.'))
+            if state['state'] == 'no_change' or draft_attention:
+                settle_obsolete_attention(product)
+                if job.state == 'attention' and not job.owner and not CatalogueOperation.query.filter(
+                        CatalogueOperation.status.in_({'running', 'pending'})).first():
+                    # Do not schedule the same conclusively ineligible evidence every
+                    # five minutes. A scan/comparison/identity/context change reopens it.
+                    data['attention_check'] = attention_check(job)
+            settlement = no_changes_settlement(job)
+            if settlement and state['state'] == 'no_change':
+                data['queue_no_changes'] = settlement
+            elif settlement:
+                # A historical no-op never turns subsequent differences into scanned work.
+                job.state = 'attention'
+            paused = draft_pause_settlement(job)
+            if paused:
+                data['queue_draft_pause'] = paused
     except (ValueError, OSError, RuntimeError) as exc:
         from app.utils.operation_control import sanitize_operation_error
         data = {'version': 1, 'authored': {}, 'state': {'state': 'unavailable',

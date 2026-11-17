@@ -36,6 +36,108 @@ def step(adapter,owner='manual-worker'):
     return tasks.tick(owner,adapter=adapter)
 
 
+def products_badge(product):
+    response = _client(current_app).get('/api/edit_products')
+    assert response.status_code == 200
+    return next(item['shopify'] for item in response.json['items'] if item['id'] == product.id)
+
+
+@pytest.mark.parametrize('mode', ['create', 'update', 'drift', 'incomplete', 'uncertain', 'projection_failure'])
+def test_manual_simple_completion_refreshes_only_its_saved_badge(world, monkeypatch, mode):
+    from app import catalogue_views as views
+    from app.models import ShopifyProductComparison, ShopifyPublishJob, ScheduledTaskRun
+    from test_automatic_publishing import queued
+    from test_shopify_publication_sales import AcceptanceAdapter
+    from test_shopify_simple_updates import change
+
+    product = world[0]
+    class Adapter(AcceptanceAdapter):
+        report_readback_change = False
+
+        def publication_state(self, config, product_id):
+            result = super().publication_state(config, product_id)
+            row = ShopifyProductIdentity.query.one_or_none()
+            proof = drafts.evidence(row).get('publication_update', {}) if row else {}
+            if self.report_readback_change and proof.get('operation_id') == self.current_op and proof.get('state') == 'verified':
+                if mode == 'incomplete':
+                    raise ShopifyError('Fixture publication comparison not available.')
+                # Simulate an independent change after the write was verified.
+                self.report_readback_change = False
+                self.memberships.remove('gid://shopify/Publication/2')
+                result = super().publication_state(config, product_id)
+            return result
+
+    adapter = Adapter()
+    tasks.configure(tasks.VIEW_KEY, enabled=False, interval=5)
+    change(world, live=True, shopify_channels={'online-store': True})
+    if mode != 'create':
+        _, token = drafts.preview(product, adapter)
+        assert drafts.confirm(token, True, adapter).state == 'verified'
+        if mode in {'drift', 'incomplete'}:
+            change(world, shopify_channels={'online-store': True, 'shop': True})
+        else:
+            change(world, description='A freshly reviewed change.')
+    job = queued(product)
+    # Save the old Products-list view, as if it had been built before publishing.
+    drafts.preview(product, adapter)
+    views.capture(product)
+    db.session.commit()
+    job.view_json = json.dumps({**json.loads(job.view_json), 'attention_check': 'previous-queue-evidence'})
+    db.session.commit()
+    assert products_badge(product)['label'] == ('Needs Creating' if mode == 'create' else 'Update Available')
+
+    unaffected = Product.query.filter(Product.id != product.id).first()
+    other = ShopifyPublishJob(product_id=unaffected.id, source_identity=unaffected.source_relpath or '',
+        requested_revision='unscanned', next_attempt=drafts.now(), updated_at=drafts.now(), view_json='{}')
+    db.session.add(other)
+    db.session.commit()
+    original_capture = views.capture
+    captured = []
+
+    def capture_local(target, **options):
+        assert target.id == product.id
+        assert options == {'settle_queue': False}
+        captured.append(target.id)
+        if mode == 'projection_failure':
+            raise RuntimeError('Fixture local projection failure')
+        before = list(adapter.calls)
+        with patch('requests.Session.request', side_effect=AssertionError('Badge must not contact Shopify')):
+            result = original_capture(target, **options)
+        assert adapter.calls == before
+        return result
+
+    monkeypatch.setattr(views, 'capture', capture_local)
+    op_id, _ = accepted(world, adapter)
+    if mode == 'uncertain':
+        adapter.update_failure = 'after'
+    if mode in {'drift', 'incomplete'}:
+        # Ignore the previous publication's verified evidence until this
+        # exact operation has recorded its own availability acknowledgement.
+        adapter.current_op = op_id
+        adapter.report_readback_change = True
+    step(adapter)
+    op = db.session.get(CatalogueOperation, op_id)
+    assert op.status == ('partial' if mode == 'uncertain' else 'succeeded'), op.error
+    badge = products_badge(product)
+    label = {'drift': 'Update Available', 'incomplete': 'Verification Unavailable',
+        'uncertain': 'Recovery Required', 'projection_failure': 'Update Available'}.get(mode, 'Up to Date')
+    assert badge['label'] == label, badge
+    assert captured == ([] if mode == 'uncertain' else [product.id])
+    saved = db.session.get(ShopifyPublishJob, job.product_id, populate_existing=True)
+    assert saved.view_pending == (mode in {'uncertain', 'projection_failure'})
+    assert json.loads(saved.view_json)['attention_check'] == 'previous-queue-evidence'
+    assert other.view_json == '{}' and other.projected_at is None
+    assert not ScheduledTaskRun.query.filter(ScheduledTaskRun.task_key != manual.KEY).count()
+    if mode in {'create', 'update'}:
+        comparison = ShopifyProductComparison.query.filter_by(source_identity=product.source_relpath).one()
+        persisted = comparison.summary_json
+        expired = drafts.now() + timedelta(minutes=10, seconds=1)
+        monkeypatch.setattr(drafts, 'now', lambda: expired)
+        stale = products_badge(product)
+        assert stale['label'] == 'Last check matched' and stale['evidence_stale'] and stale['change_count'] == 0
+        assert stale['compared_at'] == badge['compared_at'] and comparison.summary_json == persisted
+
+
 def test_browser_can_close_after_accepted_and_worker_finishes_same_operation(world):
     product,content=originals(world)
     adapter=ByteAdapter();op_id,token=accepted(world,adapter)
