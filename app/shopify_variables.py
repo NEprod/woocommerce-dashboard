@@ -799,19 +799,31 @@ def confirm(reviewed, adapter=None):
                 raise ShopifyError("Source/configuration changed during variable execution; retained successful stages remain, no further write allowed.")
         row = drafts.matching_identity(plan["store_id"],product)
         from app.shopify_variable_readback import reconciled_completion_review
-        publication_only = reconciled_completion_review(row,reviewed)
-        if publication_only:
+        reconciled_completion = reconciled_completion_review(row,reviewed)
+        if reconciled_completion:
             from app.shopify_capacity import background
             from app.manual_publishing import executing_lease
             if background() and not executing_lease():
                 raise ShopifyError('Reconciled completion requires fresh manual approval; no automatic write is allowed.')
             from app.shopify_publication import has_metadata_changes
-            if (plan['actual_status']!='DRAFT' or has_metadata_changes(plan)
+            publication = plan.get('publication') or {}
+            native_plan = plan['native']
+            # Packed measurements are separately displayed and included in the
+            # signed review digest. Admit only those exact InventoryItem fields;
+            # the normal completion stage still reserves and verifies each write.
+            targets = [p for p in native_plan['variants'].values() if not p.get('unconfigured')] if native_plan['enabled'] else []
+            if any(not p.get('desired') or not p.get('inventory_id') or p.get('reason')
+                    or p.get('classification') not in {'no_change','update'}
+                    or p['classification']=='update' and not native_plan.get('can_write') for p in targets):
+                raise ShopifyError('Reviewed packed dimensions cannot be safely applied to the retained Draft; no write was attempted.')
+            packed_fields = {'native.'+p['sku'] for p in targets if p['classification']=='update'}
+            metadata = dict(plan, fields=[f for f in plan['fields'] if f['field'] not in packed_fields])
+            if (plan['actual_status']!='DRAFT' or not publication.get('pending') or not publication.get('read_complete')
+                    or publication.get('blockers') or has_metadata_changes(metadata)
                     or any(v['action']=='Create' for v in plan['variants'])
                     or plan['media_actions']['alt'] or plan['media_actions']['reorder']
-                    or any(e.get('action')=='assign' for e in plan.get('optional_packages',[]))
-                    or plan['native']['enabled'] and any(not v['native'].get('unconfigured') for v in plan['variants'])):
-                raise ShopifyError('Reconciled completion permits only reviewed availability on the retained Draft; no product content will be changed.')
+                    or any(e.get('action')=='assign' for e in plan.get('optional_packages',[]))):
+                raise ShopifyError('Reconciled completion permits only reviewed availability and verified packed-dimension targets on the retained Draft; no product content will be changed.')
         creating = not plan.get("remote_id")
         if creating:
             if drafts.upload_pending(row):
@@ -874,8 +886,8 @@ def confirm(reviewed, adapter=None):
                 variant_write_acknowledgements=[],variant_ack_before_sku={})
             row.operation_id,row.reviewed_digest,row.verification_state=lease.id,plan["digest"],"unverified"
             drafts.save(row,data,"updating")
-            if publication_only:
-                # Recheck the retained draft, then apply only signed availability.
+            if reconciled_completion:
+                # Apply only the signed availability and eligible packed dimensions.
                 # Do not call the normal metadata writers for this recovery case.
                 from app.shopify_variable_readback import begin,complete
                 begin(row,data,'base')

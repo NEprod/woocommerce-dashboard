@@ -115,7 +115,8 @@ def test_restart_pending_verification_never_repeats_variant_writes(variable_worl
     assert db.session.get(Product,product_id).sku==row.sku
 
 
-@pytest.mark.parametrize('boundary', ['completion', 'publication_readback', 'final', 'final_receipt', 'restart', 'uncertain_write', 'legacy'])
+@pytest.mark.parametrize('boundary', ['completion', 'publication_readback', 'final', 'final_receipt', 'restart', 'uncertain_write',
+    'legacy', 'legacy_native', 'legacy_native_with_metadata', 'legacy_native_no_inventory_scope'])
 def test_new_variable_draft_completion_yield_preserves_receipt(variable_world,monkeypatch,boundary):
     from app import shopify_capacity as capacity, shopify_variable_readback as readback
     from app import shopify_taxonomy
@@ -124,15 +125,23 @@ def test_new_variable_draft_completion_yield_preserves_receipt(variable_world,mo
     from app.shopify_products import states_for
     from app.utils.operation_control import recover_interrupted_operations
     from test_manual_publishing_worker import accepted
+    from test_shopify_markets import VariableMarketAdapter, market
     from test_shopify_publication_sales import VariableAcceptanceAdapter
 
     monkeypatch.setenv('TLC_SCHEDULER_READY_AT','99999999999')
-    rescan(variable_world,live=True,shopify_channels={'online-store':True})
+    legacy=boundary.startswith('legacy')
+    native=boundary.startswith('legacy_native')
+    channels={'online-store':True,'shop':True,'pos':True} if native else {'online-store':True}
+    options={}
+    if native:
+        monkeypatch.setenv('SHOPIFY_NATIVE_DIMENSIONS_ENABLED','true')
+        options['packaging']={'packed_dimensions_cm':{'length':'21','width':'14.8','height':'.1'},'measured':True}
+    rescan(variable_world,live=True,shopify_channels=channels,**options)
     product=large_variable(variable_world) if boundary=='completion' else variable_world[0]
     if boundary=='completion':
         assert len(product.variations)>=9 and len(drafts.local_plan(product)['images'])>=13
 
-    class Adapter(VariableAcceptanceAdapter):
+    class Adapter(VariableMarketAdapter if native else VariableAcceptanceAdapter):
         stopped=False
 
         def pause_at_budget(self,config):
@@ -154,11 +163,15 @@ def test_new_variable_draft_completion_yield_preserves_receipt(variable_world,mo
                 if boundary=='restart':
                     self.stopped=True
                     raise SystemExit('Worker process terminated before the first completion write')
-                elif boundary in {'completion','legacy'} or boundary=='publication_readback' and readback.publication_acknowledged(proof):
+                elif boundary=='completion' or legacy or boundary=='publication_readback' and readback.publication_acknowledged(proof):
                     self.pause_at_budget(config)
             return super().publication_state(config,pid)
 
         def set_publication(self,*args):
+            # The Markets fixture routes non-Online-Store writes to market
+            # catalogues; HERO also has two other sales-channel destinations.
+            if native and args[2] in {'gid://shopify/Publication/2','gid://shopify/Publication/3'}:
+                return VariableAcceptanceAdapter.set_publication(self,*args)
             response=super().set_publication(*args)
             if boundary=='uncertain_write':
                 self.stopped=True
@@ -166,6 +179,9 @@ def test_new_variable_draft_completion_yield_preserves_receipt(variable_world,mo
             return response
 
     adapter=Adapter()
+    if native:
+        adapter.memberships.clear()
+        adapter.market_rows=adapter.market_rows[:1]  # UK inherits Online Store, as on the retained draft.
     if boundary=='final':
         verify_memberships=shopify_taxonomy.verify_memberships
         def yield_after_fields(plan,config,connector,remote_id):
@@ -177,7 +193,7 @@ def test_new_variable_draft_completion_yield_preserves_receipt(variable_world,mo
     op_id,token=accepted((product,),adapter)
     if boundary=='restart':
         with pytest.raises(SystemExit):step(adapter)
-    elif boundary=='legacy':
+    elif legacy:
         # Reproduce the existing terminal receipt from the pre-fix worker.
         with monkeypatch.context() as old:
             old.setattr(readback,'_completion_checkpoint',lambda *a:None)
@@ -193,21 +209,54 @@ def test_new_variable_draft_completion_yield_preserves_receipt(variable_world,mo
     original_uploads=adapter.calls.count('binary_upload')
     assert len(proof['variant_maps'])==len(product.variations) and adapter.calls.count('product_create')==1
     assert all(wait['base_receipt'][key]=='verified' for key in ('identity','fields','media','memberships','attributes'))
-    if boundary=='legacy':
+    if legacy:
         assert op.recovery_state=='review_required' and row.state=='uncertain' and adapter.remote['status']=='DRAFT'
         calls=list(adapter.calls);step(adapter);assert adapter.calls==calls
         drafts.reconcile(row,adapter=adapter)
         assert row.state=='verified' and adapter.remote['status']=='DRAFT'
         prior_scope=db.session.get(CatalogueOperation,op_id).scope
-        fresh_id,_=accepted((product,),adapter)
+        original_remote=copy.deepcopy(adapter.remote)
+        if boundary=='legacy_native_with_metadata':
+            rescan(variable_world,description='A different description must not ride the completion approval.')
+        if boundary=='legacy_native_no_inventory_scope':
+            adapter.native_permission=False
+        if native:
+            plan,_=drafts.preview(product,adapter)
+            if boundary=='legacy_native_no_inventory_scope':
+                assert not plan['native']['can_write']
+            else:
+                assert len([f for f in plan['fields'] if f['changed'] and f['field'].startswith('native.')])==len(product.variations)
+        fresh_id,fresh_token=accepted((product,),adapter)
         assert fresh_id!=op_id and adapter.remote['status']=='DRAFT'
         step(adapter)
+        fresh=db.session.get(CatalogueOperation,fresh_id)
+        if boundary in {'legacy_native_with_metadata','legacy_native_no_inventory_scope'}:
+            reason='Reconciled completion' if boundary=='legacy_native_with_metadata' else 'Reviewed packed dimensions cannot be safely applied'
+            assert fresh.status=='failed' and reason in fresh.error
+            assert row.operation_id==op_id and adapter.remote==original_remote
+            assert all(stage not in adapter.calls for stage in ('status_write','publication_write','product_update','native_write'))
+            return
         assert row.operation_id==fresh_id and row.shopify_product_id==remote_id and row.state=='verified'
-        assert db.session.get(CatalogueOperation,fresh_id).status=='succeeded'
+        assert fresh.status=='succeeded',fresh.error
         assert db.session.get(CatalogueOperation,op_id).scope==prior_scope
         assert adapter.calls.count('binary_upload')==original_uploads
-        assert all(adapter.calls.count(stage)==1 for stage in ('product_create','variants_update','variants_create','status_write','publication_write'))
+        assert all(adapter.calls.count(stage)==1 for stage in ('product_create','variants_update','variants_create','status_write'))
+        assert adapter.calls.count('publication_write')==len(channels)
         assert 'product_update' not in adapter.calls
+        assert adapter.remote==dict(original_remote,status='ACTIVE')
+        assert adapter.memberships=={f'gid://shopify/Publication/{i+1}' for i in range(len(channels))}
+        final=drafts.evidence(row)
+        assert final['variant_maps']==proof['variant_maps'] and final['created_media']==proof['created_media']
+        if native:
+            assert adapter.calls.count('native_write')==len(product.variations)
+            assert all(p['state']=='verified' and p['operation_id']==fresh_id and adapter.packed[p['inventory_id']]==p['desired']
+                for p in final['variant_native'].values())
+            assert not adapter.market_writes
+            assert final['publication_update']['market_observed']['availability']=={market(1):True}
+        from app.shopify_progress import receipt
+        with current_app.test_request_context():
+            assert receipt(product_id,fresh_token)['state']=='completed'
+            assert states_for([db.session.get(Product,product_id)],fresh=True)[product_id]['label']=='Up to Date'
         return
     if boundary=='uncertain_write':
         assert op.recovery_state=='review_required' and row.state=='uncertain' and not readback.pending(row)
