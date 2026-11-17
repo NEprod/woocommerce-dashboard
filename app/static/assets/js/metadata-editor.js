@@ -40,11 +40,13 @@
   let attributeReplacementActive = false;
   let attributeReplacementDraft = null;
   let channels = boot.channels || [];
+  let channelsChecked = false; // cached names are useful, but do not verify current access
   let channelDraft = {};
   const marketEditor = guided.querySelector("[data-market-editor]");
   let markets = [];
   let marketsLoaded = false;
   let marketsLoading = false;
+  let marketsEdited = false;
   let customisationDesigner = null;
   let packagingDesigner = null;
   let finishedDesigner = null;
@@ -58,23 +60,71 @@
     return result;
   }
 
+  function verificationState(complete, available) {
+    return !complete ? "Not verified" : available ? "Available" : "Unavailable";
+  }
+
   function renderChannels(values) {
     const target = guided.querySelector("[data-channel-choices]");
     if (!target) return;
     channelDraft = structuredClone(values || {});
     target.replaceChildren();
+    const inherited = !overrideEnabled("shopify_channels");
+    const owner = (inherited ? boot.shared_reference : boot.authored_reference) || "its local product_info.json";
+    const source = (inherited ? "Inherited from " : "Saved in ") + owner;
     channels.forEach(channel => {
       const label = document.createElement("label"); label.textContent = channel.name;
+      const saved = Object.hasOwn(channelDraft, channel.key);
+      if (saved) label.textContent += " (" + channel.key + ") · " + verificationState(channelsChecked, true) + " · " + source;
       const select = document.createElement("select"); select.className = "form-select";
       select.dataset.channelIntent = channel.key;
       select.add(new Option("Unmanaged — preserve remote membership", ""));
       select.add(new Option("Publish through reviewed confirmation", "true"));
       select.add(new Option("Unpublish through reviewed confirmation", "false"));
-      select.value = Object.hasOwn(channelDraft,channel.key) ? String(channelDraft[channel.key]) : "";
+      select.value = saved ? String(channelDraft[channel.key]) : "";
       label.appendChild(select); target.appendChild(label);
     });
-    if (!channels.length) target.textContent = "No discovered channel choices. Discover explicitly; no Shopify request was made to render this page.";
+    const discovered = new Set(channels.map(channel => channel.key));
+    Object.entries(channelDraft).filter(([key])=>!discovered.has(key)).forEach(([key,selected])=>{
+      const row=document.createElement("p");
+      const name=key==="click-drop-app-1" ? "Click & Drop ("+key+")" : key;
+      const availability=verificationState(channelsChecked, false) + (channelsChecked
+        ? " — not returned by the connected Shopify app" : " — discover channels to check access");
+      row.textContent=name+" · "+availability+" · Saved intent: "+(selected ? "publish" : "unpublish")
+        +" · "+source+". ";
+      const button=document.createElement("button");
+      button.type="button"; button.className="btn btn-outline-primary";
+      button.dataset.removeUnavailableChannel=key;
+      button.textContent=inherited ? "Override for this product and remove selection" : "Remove saved selection";
+      button.addEventListener("click",()=>{
+        const remaining=channelValues();
+        delete remaining[key];
+        if(inherited) guided.querySelector('[data-override-toggle="shopify_channels"]').checked=true;
+        renderChannels(remaining);
+        setDirty(true);
+      });
+      row.append(button); target.append(row);
+    });
+    if (!target.childNodes.length) target.textContent = channelsChecked
+      ? "No eligible Shopify channels were returned." : "Discover available channels to check this store.";
     setControlState("shopify_channels");
+  }
+
+  async function discoverChannels() {
+    try {
+      const response = await fetch(boot.discover_channels_url,{method:"POST",headers:{"X-CSRFToken":document.querySelector('meta[name="csrf-token"]')?.content || ""}});
+      const payload = await response.json();
+      if (!response.ok || !Array.isArray(payload.channels)) throw new Error(payload.error || "Channel discovery unavailable; existing intent is unchanged.");
+      const values = channelValues();
+      channels = payload.channels;
+      channelsChecked = true;
+      renderChannels(values);
+      showFeedback("success","Shopify channel access checked","Read-only discovery. No product visibility changed.");
+    } catch (error) {
+      channelsChecked = false;
+      renderChannels(channelValues());
+      showFeedback("error","Channel discovery unavailable",error.message);
+    }
   }
 
   function marketValues() {
@@ -86,7 +136,7 @@
     const target = marketEditor.querySelector("[data-market-choices]");
     const wanted = new Set(Array.isArray(values) ? values : []);
     const choices = [...markets, ...[...wanted].filter(id => !markets.some(m => m.id === id))
-      .map(id => ({id, name: "Saved market — " + id, active: !marketsLoaded}))];
+      .map(id => ({id, name: "Saved market", active: false}))];
     target.replaceChildren();
     for (const market of choices) {
       const label = document.createElement("label");
@@ -98,8 +148,14 @@
       if (!market.home || wanted.has(market.id)) input.dataset.marketId = "";
       input.value = market.id;
       input.checked = market.home || wanted.has(market.id);
-      input.disabled = market.home || (!market.active && !input.checked);
-      label.append(input, document.createTextNode(market.name + (market.home ? " — included by default" : market.active ? "" : " (unavailable)")));
+      input.disabled = !isShared || market.home || (!market.active && !input.checked);
+      const owner=boot.shared_reference || "the collection product_info.json";
+      const saved = wanted.has(market.id);
+      const availability = verificationState(marketsLoaded, market.active) + (marketsLoaded && !market.active
+        ? " — missing, inactive or unsupported for publishing" : "");
+      label.append(input, document.createTextNode(market.name + (saved ? " (" + market.id + ") · " + availability
+        + " · " + (isShared ? "Saved in " : "Inherited from ") + owner : "")
+        + (market.home ? " — included by default" : "")));
       target.appendChild(label);
     }
   }
@@ -113,13 +169,15 @@
       const response = await fetch(boot.discover_markets_url, {method: "POST",
         headers: {"X-CSRFToken": document.querySelector('meta[name="csrf-token"]')?.content || ""}});
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Shopify Markets unavailable.");
+      if (!response.ok || !Array.isArray(payload.markets)) throw new Error(payload.error || "Shopify Markets unavailable.");
       const values = marketValues();
       markets = payload.markets;
       marketsLoaded = true;
       renderMarkets(values);
       status.textContent = markets.length ? "Shopify markets loaded. No availability changed." : "No Shopify markets were returned.";
     } catch (error) {
+      marketsLoaded = false;
+      renderMarkets(marketValues());
       status.textContent = error.message + " Saved selections are unchanged.";
     } finally {
       marketsLoading = false;
@@ -330,7 +388,7 @@
     if (wrapper) {
       wrapper.classList.toggle("is-inherited", !enabled);
       wrapper.querySelectorAll("input:not([data-override-toggle]), textarea, select, button").forEach((control) => {
-        if (control.matches("[data-discover-channels]")) return;
+        if (control.matches("[data-discover-channels], [data-remove-unavailable-channel]")) return;
         control.disabled = !enabled;
       });
     }
@@ -715,7 +773,8 @@
     const dimensions = valueFor("dimensions");
     renderChannels(valueFor("shopify_channels"));
     if (marketEditor) {
-      renderMarkets(authored.shopify_market_ids);
+      marketsEdited = false;
+      renderMarkets(isShared ? authored.shopify_market_ids : boot.collection?.shopify_market_ids);
     }
     guided.querySelectorAll("[data-dimension]").forEach((control) => { control.value = dimensions && dimensions[control.dataset.dimension] != null ? dimensions[control.dataset.dimension] : ""; });
     ["categories", "tags", "storefront_collections", "image_attributes"].forEach((field) => renderList(field, valueFor(field)));
@@ -810,8 +869,8 @@
       delete result.collection_type;
       delete result.sku_prefix;
     }
-    if (overrideEnabled("shopify_channels") && (Object.keys(channelValues()).length || Object.hasOwn(authored,"shopify_channels"))) result.shopify_channels = channelValues();
-    if (marketEditor) result.shopify_market_ids = marketValues();
+    if (overrideEnabled("shopify_channels") && (!isShared || Object.keys(channelValues()).length || Object.hasOwn(authored,"shopify_channels"))) result.shopify_channels = channelValues();
+    if (marketEditor && isShared && marketsEdited) result.shopify_market_ids = marketValues();
     Object.keys(result).forEach((key) => {
       if (result[key] === "" && !["description", "short_description", "meta_title", "meta_description", "customs_description"].includes(key)) delete result[key];
     });
@@ -1082,6 +1141,9 @@
   guided.addEventListener("change", async (event) => {
     if (event.target.matches('[data-override-toggle="attributes"]')) await changeAttributeReplacement(event.target);
     if (event.target.matches("[data-override-toggle]")) setControlState(event.target.dataset.overrideToggle);
+    if (event.target.dataset.overrideToggle === "shopify_channels") {
+      renderChannels(event.target.checked ? valueFor("shopify_channels") : boot.collection?.shopify_channels);
+    }
     if (event.target.dataset.overrideToggle === "no_eu_standardized_identifier" && !event.target.checked) {
       const control = guided.querySelector('[data-field="no_eu_standardized_identifier"]');
       const inherited = boot.collection?.no_eu_standardized_identifier;
@@ -1154,21 +1216,14 @@
     if (value) validateDocument(value);
   }));
   saveButtons.forEach((button) => button.addEventListener("click", save));
-  guided.querySelector("[data-discover-channels]")?.addEventListener("click", async () => {
-    try {
-      const values = channelValues();
-      const response = await fetch(boot.discover_channels_url,{method:"POST",headers:{"X-CSRFToken":document.querySelector('meta[name="csrf-token"]')?.content || ""}});
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Channel discovery unavailable; existing intent is unchanged.");
-      channels = payload.channels; renderChannels(values);
-      showFeedback("success","Available Shopify channels discovered","Read-only discovery only. Review actual remote status/publication separately before confirming. No product visibility changed.");
-    } catch (error) { showFeedback("error","Channel discovery unavailable",error.message); }
-  });
+  guided.querySelector("[data-discover-channels]")?.addEventListener("click", discoverChannels);
   marketEditor?.addEventListener("toggle", () => {
     if (marketEditor.open && !marketsLoaded) discoverMarkets();
   });
   marketEditor?.querySelector("[data-discover-markets]").addEventListener("click", discoverMarkets);
-  marketEditor?.querySelector("[data-market-choices]").addEventListener("change", () => renderMarkets(marketValues()));
+  marketEditor?.querySelector("[data-market-choices]").addEventListener("change", () => {
+    if(isShared){ marketsEdited=true; renderMarkets(marketValues()); }
+  });
   const loadTemplateButton = document.getElementById("loadTemplateBtn");
   if (loadTemplateButton) loadTemplateButton.addEventListener("click", async () => {
     const select = document.getElementById("templateSelect");

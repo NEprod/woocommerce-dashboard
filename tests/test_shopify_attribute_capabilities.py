@@ -43,6 +43,7 @@ class CapabilitiesAdapter(AccessAdapter):
         # Exact pending target exists durably before every definition mutation.
         pending=ShopifyAttributeIdentity.query.filter_by(remote_id=gid).one()
         assert pending.state=='updating_access' and pending.operation_id
+        assert json.loads(pending.evidence_json)['registration_phase']=='settings_sent'
         self.patches.append((kind,gid,copy.deepcopy(spec)))
         return super().update_attribute_access(config,kind,gid,spec)
 
@@ -209,6 +210,69 @@ def test_capability_timeout_recovers_exact_identity_with_read_only_queries(world
     assert row.state=='verified' and drafts.preview(world[0],adapter)[0]['classification']=='no_change'
 
 
+@pytest.mark.parametrize('boundary',['pre_dispatch_pause','crash_after_ack','crash_before_ack'])
+def test_manual_partial_update_resumes_only_safe_work_on_the_existing_draft(world,registry,monkeypatch,boundary):
+    from datetime import timedelta
+    from app.manual_publishing import KEY
+    from app.models import CatalogueOperation, Product, ScheduledTask, ShopifyProductIdentity
+    from app.shopify_capacity import RequestNotSent
+    from app.utils.operation_control import recover_interrupted_operations
+    from test_automatic_publishing import queued
+    from test_manual_publishing_worker import accepted, products_badge, step
+
+    class ProcessExited(BaseException):
+        pass
+
+    monkeypatch.setenv('TLC_SCHEDULER_READY_AT','99999999999')
+    row,adapter=setup(world,registry)
+    queued(world[0])  # The fixture inserts the product outside the catalogue scanner.
+    row_id,product_id,remote_id=row.id,world[0].id,row.shopify_product_id
+    before=adapter.calls.copy()
+    patch_count=len(adapter.patches)
+    disable(adapter,'smartCollectionCondition')
+    original=adapter.update_attribute_access
+    read=adapter.attribute_resource
+    def restart_at_boundary(*args):
+        adapter.update_attribute_access=original
+        if boundary=='pre_dispatch_pause':
+            raise RequestNotSent('Worker budget reached before this definition update')
+        result=original(*args)
+        if boundary=='crash_before_ack':
+            raise ProcessExited()
+        def exit_on_readback(*args):
+            adapter.attribute_resource=read
+            raise ProcessExited()
+        adapter.attribute_resource=exit_on_readback
+        return result
+    adapter.update_attribute_access=restart_at_boundary
+    operation,_=accepted(world,adapter)
+    if boundary=='pre_dispatch_pause':
+        step(adapter)
+        assert db.session.get(CatalogueOperation,operation).status=='pending'
+        assert len(adapter.patches)==patch_count
+    else:
+        with pytest.raises(ProcessExited):
+            step(adapter)
+        assert db.session.get(CatalogueOperation,operation).status=='running'
+        assert len(adapter.patches)==patch_count+1
+        task=db.session.get(ScheduledTask,KEY)
+        task.lease_until=drafts.now()-timedelta(seconds=1)
+        db.session.commit()
+    db.session.remove()
+    db.engine.dispose()
+    assert recover_interrupted_operations()==0
+    step(adapter,owner='replacement-update-worker')
+    row=db.session.get(ShopifyProductIdentity,row_id)
+    assert row.shopify_product_id==remote_id
+    uncertain=boundary=='crash_before_ack'
+    assert row.state==('uncertain' if uncertain else 'verified')
+    receipt=db.session.get(CatalogueOperation,operation)
+    assert (receipt.status,receipt.recovery_state)==(('partial','review_required') if uncertain else ('succeeded','none'))
+    assert len(adapter.patches)==patch_count+1
+    assert not {'product_create','product_update','binary_upload','staged_uploads','attribute_assignment_write'}.intersection(adapter.calls[len(before):])
+    assert products_badge(db.session.get(Product,product_id))['label']==('Recovery Required' if uncertain else 'Up to Date')
+
+
 def test_capability_drift_invalidates_signed_confirm_before_write(world,registry):
     row,adapter=setup(world,registry); disable(adapter)
     _,token=drafts.preview(world[0],adapter)
@@ -307,3 +371,91 @@ def test_variable_layouts_preserve_product_variants_inventory_and_images(variabl
     assert drafts.confirm(token,True,adapter).state=='verified'
     assert identities==drafts.evidence(row)['variant_maps'] and media==adapter.remote['media']
     assert drafts.preview(variable_world[0],adapter)[0]['classification']=='no_change'
+
+
+@pytest.mark.parametrize('boundary',['before_dispatch','after_ack','uncertain'])
+def test_manual_53_image_registration_restart(variable_world,registry,monkeypatch,boundary):
+    from app.models import CatalogueOperation, Product, ShopifyProductIdentity
+    from app.shopify_capacity import BackgroundYield, RequestNotSent
+    from test_variable_creation_recovery import RealPagedVariable, large_variable, assert_complete
+    from test_manual_publishing_worker import accepted, products_badge, step
+
+    monkeypatch.setenv('TLC_SCHEDULER_READY_AT','99999999999')
+    informational(registry)
+    class Adapter(RealPagedVariable,CapabilitiesAdapter):
+        def __init__(self):
+            RealPagedVariable.__init__(self)
+            self.resources={}; self.attr_values={}; self.resource_failure=None
+            self.patches=[]; self.eligible={key:True for key in attrs.CAPABILITY_LABELS}
+            self.interrupted=False; self.pause_after_ack=False
+        def test_connection(self,config):
+            shop=RealPagedVariable.test_connection(self,config)
+            shop['scopes']+=list(attrs.READ_SCOPES|attrs.WRITE_SCOPES)
+            return shop
+        def update_attribute_access(self,*args):
+            if boundary=='before_dispatch' and not self.interrupted:
+                self.interrupted=True
+                raise RequestNotSent('Test: request not sent')
+            result=CapabilitiesAdapter.update_attribute_access(self,*args)
+            if not self.interrupted:
+                self.interrupted=True
+                if boundary=='uncertain':
+                    raise BackgroundYield('Test: no reliable response acknowledgement after dispatch')
+                self.pause_after_ack=boundary=='after_ack'
+            return result
+        def attribute_resource(self,config,kind,spec):
+            if kind=='field' and self.pause_after_ack:
+                self.pause_after_ack=False
+                raise RequestNotSent('Test: readback deferred after acknowledged write')
+            return CapabilitiesAdapter.attribute_resource(self,config,kind,spec)
+
+    # Index the two actual option axes first; the additional attribute is informational.
+    product=large_variable(variable_world)
+    product_id=product.id
+    from unittest.mock import patch
+    from app import shopify_attributes
+    # Model the additional registry assignment without rescanning the fixture's
+    # explicitly indexed large gallery (preserves its local image projections).
+    with patch.object(shopify_attributes,'assigned',return_value=[{
+            'key':'attr-occasion','name':'Occasion','role':'filter','public':True,
+            'terms':[{'key':'term-birthday','name':'Birthday','aliases':[],'state':'active'}],
+        }]):
+        adapter=Adapter()
+        operation,_=accepted(variable_world,adapter)
+        for _ in range(18):
+            step(adapter)
+            if adapter.interrupted:
+                break
+        row=ShopifyProductIdentity.query.one()
+        kept_id,remote_id=row.id,row.shopify_product_id
+        writes=list(adapter.calls)
+        assert writes.count('binary_upload')==53 and writes.count('product_create')==1
+        variant_maps=copy.deepcopy(drafts.evidence(row)['variant_maps'])
+        media_ids=[image['id'] for image in adapter.remote['media']['nodes']]
+        assert len(variant_maps)==14 and len(media_ids)==53
+        task=db.session.get(CatalogueOperation,operation)
+        assert task.status==('partial' if boundary=='uncertain' else 'pending')
+        remote=copy.deepcopy(adapter.__dict__)
+        db.session.remove()
+        db.engine.dispose()
+        replacement=Adapter()
+        replacement.__dict__.update(remote)
+        for _ in range(5):
+            step(replacement,owner='replacement-registration-worker')
+            task=db.session.get(CatalogueOperation,operation)
+            if task.finished_at:
+                break
+        row=db.session.get(ShopifyProductIdentity,kept_id)
+        assert row.operation_id==operation and row.shopify_product_id==remote_id
+        assert drafts.evidence(row)['variant_maps']==variant_maps
+        assert [image['id'] for image in replacement.remote['media']['nodes']]==media_ids
+        if boundary=='uncertain':
+            assert task.recovery_state=='review_required'
+            assert replacement.calls==writes
+        else:
+            assert_complete(product,row,replacement)
+            assert task.status=='succeeded'
+            assert len(replacement.patches)==1
+            assert replacement.calls.count('variants_create')==writes.count('variants_create')==1
+            assert replacement.calls.count('variants_update')==writes.count('variants_update')==1
+            assert products_badge(db.session.get(Product,product_id))['label']=='Up to Date'

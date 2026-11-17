@@ -567,7 +567,11 @@ def test_collection_editor_save_reuses_scoped_scan_and_inherits(core, monkeypatc
     response = client.get(f'/edit_products/{ids[name]}/edit/shared')
     assert response.status_code == 200 and b'data-market-editor' in response.data and b'data-discover-channels' in response.data
     response = client.get(f'/edit_products/{ids[name]}/edit/override')
-    assert response.status_code == 200 and b'data-market-editor' not in response.data
+    assert response.status_code == 200 and b'data-market-editor' in response.data
+    assert b'Products cannot override these Market IDs.' in response.data
+    assert b'Review or remove selections in collection metadata' in response.data
+    assert b'Simple Collection/product_info.json' in response.data
+    assert market(1).encode() in response.data and market(2).encode() in response.data
 
 
 def test_schema_accepts_uk_only_and_rejects_product_overrides():

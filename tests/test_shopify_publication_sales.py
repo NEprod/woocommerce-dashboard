@@ -7,6 +7,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from flask import current_app
 from sqlalchemy import text
 from alembic import command
 from app import db,shopify_drafts as drafts,shopify_sales as sales,shopify_publication as publication,scheduled_tasks as tasks
@@ -219,6 +220,38 @@ def test_publication_timeout_requires_read_only_recovery(world,published):
     with pytest.raises(ShopifyError): publication.preview(product,adapter)
     drafts.reconcile(row,adapter=adapter)
     assert row.state=='verified' and adapter.calls.count('publication_write')==writes
+
+
+def test_unavailable_inherited_channel_keeps_equal_product_from_being_up_to_date(world,published):
+    product,_,adapter,_=published
+    change(world,live=True,shopify_channels={'online-store':True})
+    _,token=drafts.preview(product,adapter)
+    assert drafts.confirm(token,True,adapter).state=='verified'
+    with current_app.test_request_context():
+        assert states_for([product])[product.id]['label']=='Up to Date'
+
+    shared=world[2]
+    document=json.loads(shared.read_text())
+    document['shopify_channels']['click-drop-app-1']=True
+    shared.write_text(json.dumps(document))
+    before=list(adapter.calls)
+    plan,token=drafts.preview(product,adapter)
+    assert token is None
+    assert plan['publication']['read_complete'] is False and plan['publication']['pending'] is True
+    assert 'click-drop-app-1' in plan['publication']['reason']
+    with current_app.test_request_context():
+        badge=states_for([product])[product.id]
+    assert badge['label']=='Needs Attention'
+    assert not {'status_write','publication_write','product_create','product_update'}.intersection(adapter.calls[len(before):])
+
+
+def test_missing_channel_nodes_is_incomplete_discovery_not_an_empty_complete_result():
+    class Adapter:
+        def publications(self,config):
+            return [{'id':'gid://shopify/Publication/1','autoPublish':False,'channels':{'pageInfo':{'hasNextPage':False}}}]
+
+    with pytest.raises(ShopifyError,match='Incomplete channel discovery'):
+        publication.discovered(Adapter(),None,{'scopes':['read_publications']})
 
 
 def test_future_price_changes_do_not_invalidate_effective_fingerprint(world,published):

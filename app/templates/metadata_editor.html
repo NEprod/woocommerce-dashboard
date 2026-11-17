@@ -84,16 +84,18 @@
         {{ sale_datetime('shopify_release_at','Optional scheduled Live release') }}
         <p class="field-helper">Keep this product Draft until release. The saved date is checked every five minutes after startup grace; publication requires automatic publishing authority. Clear an enabled product override to cancel its inherited release; disable the override to inherit again.</p>
         <div class="guided-field" data-field-wrapper="shopify_channels"><div class="guided-field-label"><strong>Sales-channel intent</strong>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="shopify_channels" {% if 'shopify_channels' in workspace.override.data %}checked{% endif %}>Override channel-intent object</label>{% endif %}</div><div data-channel-choices></div><button type="button" class="btn btn-outline-primary" data-discover-channels>Discover available Shopify channels (read-only)</button><p class="field-helper">Only discovered eligible channels are selectable. Unmanaged is not unpublished. Channel handles, not remote GIDs, are authored; mappings stay operational. A product override replaces this intent object. Unchanged remote memberships are preserved.</p></div>
-        {% if is_shared %}
         <details class="guided-field" data-market-editor>
           <summary>Markets</summary>
-          <p class="field-helper">United Kingdom is included by default for Live Online Store products. Select additional markets for this collection. Save changes locally; apply availability changes only through Review &amp; Sync.</p>
+          {% if is_shared %}
+          <p class="field-helper">United Kingdom is included by default for Live Online Store products. Select additional markets or uncheck a saved selection to remove it from this collection and the products that inherit it. Save changes locally; apply availability changes only through Review &amp; Sync.</p>
+          {% else %}
+          <p class="field-helper">Market selections are owned by <code>{{ workspace.shared.reference or 'the collection JSON' }}</code>. {% if product.collection_id %}<a href="{{ url_for('main.collection_metadata_edit',collection_id=product.collection_id) }}">Review or remove selections in collection metadata</a>. {% endif %}Products cannot override these Market IDs.</p>
+          {% endif %}
           <div data-market-choices></div>
           <p class="field-helper" data-market-feedback role="status"></p>
           <button type="button" class="btn btn-outline-primary" data-discover-markets>Load Shopify markets (read-only)</button>
           <p class="field-helper">No additional selections means UK only. International restrictions require a Shopify catalogue for each market that needs product exclusions.</p>
         </details>
-        {% endif %}
         <p class="field-helper">New Drafts remain local. Linked Draft metadata pauses until Live; changing a linked Live product to Draft queues a priority status-only transition. Review &amp; Sync and acknowledged Sync Now remain available.</p>
       </section>
       <section class="editor-workspace-section" aria-labelledby="pricing-title">
@@ -266,6 +268,8 @@
   'authored': workspace.authored.data,
   'collection': workspace.shared.data,
   'override': workspace.override.data,
+  'shared_reference': workspace.shared.reference,
+  'authored_reference': workspace.authored.reference,
   'resolved': workspace.resolved,
   'production_options': workspace.production_options,
   'production_preview_url': url_for('main.product_costing_preview', product_id=product.id),

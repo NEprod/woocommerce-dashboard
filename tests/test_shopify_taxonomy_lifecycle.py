@@ -163,6 +163,30 @@ def test_on_demand_categories_ancestors_and_storefront_reuse(world,registry):
     _,token=drafts.preview(world[0],adapter); assert token is None
 
 
+@pytest.mark.parametrize('dispatched',[False,True])
+def test_collection_registration_outside_attribute_checkpoint_never_replays_create(world,registry,dispatched):
+    from app.shopify_capacity import BackgroundYield, RequestNotSent
+
+    class Adapter(LifecycleAdapter):
+        def create_collection(self,config,data):
+            if not dispatched:
+                raise RequestNotSent('Collection request did not leave the worker')
+            super().create_collection(config,data)
+            raise BackgroundYield('Collection response not acknowledged')
+
+    change(world,categories=['Cards'])
+    adapter=Adapter()
+    _,token=drafts.preview(world[0],adapter)
+    row=drafts.confirm(token,True,adapter)
+    assert row.shopify_product_id and row.state=='uncertain'
+    assert ShopifyCollectionIdentity.query.filter_by(state='uncertain').count()==1
+    assert not drafts.evidence(row).get('registration_checkpoint')
+    assert adapter.calls.count('collection_create')==int(dispatched)
+    with pytest.raises(ShopifyError,match='another create is blocked'):
+        drafts.preview(world[0],adapter)
+    assert adapter.calls.count('collection_create')==int(dispatched)
+
+
 def test_informational_first_use_multiple_terms_and_explicit_clear(world,registry):
     informational(registry)
     change(world,attributes={"Occasion":["Christmas","Birthday"]},variation_attributes=[])

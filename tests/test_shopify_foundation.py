@@ -119,6 +119,27 @@ def test_connection_only_fixed_query_and_secret_not_in_repr():
     assert ShopifyAdapter.can_publish is False
 
 
+def test_only_the_pre_dispatch_worker_gate_proves_that_a_mutation_was_not_sent(monkeypatch):
+    from app import shopify_capacity as capacity
+    from app.shopify_connection import ATTRIBUTE_FIELD_ACCESS
+
+    settings=ShopifyConfiguration('fictional.myshopify.com',TOKEN)
+    adapter=ShopifyAdapter()
+    session=Session()
+    with capacity.background_work(lambda:None,seconds=0,publisher_authority=lambda:None):
+        with pytest.raises(capacity.RequestNotSent,match='budget'):
+            adapter._request(settings,ATTRIBUTE_FIELD_ACCESS,session=session)
+    assert not session.calls
+
+    def defer_after_dispatch(*args,**kwargs):
+        raise capacity.BackgroundYield('Worker no longer owns the response')
+    monkeypatch.setattr(capacity,'observed',defer_after_dispatch)
+    with pytest.raises(capacity.BackgroundYield) as interrupted:
+        adapter._request(settings,ATTRIBUTE_FIELD_ACCESS,session=session)
+    assert not isinstance(interrupted.value,capacity.RequestNotSent)
+    assert len(session.calls)==1
+
+
 @pytest.mark.parametrize("domain", ["localhost", "127.0.0.1", "https://fictional.myshopify.com", "fictional.myshopify.com:443",
     "fictional.myshopify.com.evil.test", "fictional.myshopify.com/path", "x@fictional.myshopify.com", "", None])
 def test_invalid_domain_never_sends_credentials(domain):

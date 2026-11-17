@@ -688,32 +688,7 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
         save(row, data)
         from app.shopify_taxonomy import join_reviewed
         join_reviewed(row, data, config, adapter)
-        from app.shopify_attributes import apply
-        apply(row, data, config, adapter)
-        from app.shopify_customisations import apply as apply_customisations
-        apply_customisations(row, data, config, adapter)
-        from app.shopify_dimension_metadata import apply as apply_dimensions
-        apply_dimensions(row, data, config, adapter)
-        from app.shopify_eu_identifier import apply as apply_eu_identifier
-        apply_eu_identifier(row, data, config, adapter)
-        from app.shopify_item_cost import apply as apply_item_cost
-        apply_item_cost(row, data, config, adapter)
-        apply_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]), adapter)
-        from app.shopify_publication import apply_reviewed, complete as publication_complete
-        if apply_reviewed(row,data,config,adapter):
-            apply_readback(row,data,adapter.read_simple(config,row.shopify_product_id,plan['managed']['namespace']),adapter)
-        state = row.state
-        from app.shopify_native_dimensions import after_publish
-        finalisation_stage = 'native_dimensions'
-        native_state = after_publish(row, plan, adapter, lease.id)
-        from app.shopify_package_assignments import apply as apply_packages
-        finalisation_stage = 'package_preflight'
-        package_state=apply_packages(row,adapter,lease.id)
-        finalisation_stage = 'operation_finalisation'
-        finish_catalogue_operation(lease.id, status="succeeded" if state == "verified" and native_state in {"disabled", "verified", "unconfigured"} and package_state in {'none', 'accepted'} and publication_complete(evidence(row)) else "partial",
-            products_attempted=1, products_succeeded=int(state == "verified"), recovery_state="none" if state == "verified" and native_state != "uncertain" and package_state!='uncertain' else "review_required",
-            operation_summary={"identity_id": row.id, "shopify_product_id": row.shopify_product_id, "stage": evidence(row)['stage'], "state": row.state, "native_dimensions": native_state,'package_assignment':package_state})
-        return row
+        return finish_registration_tail(row,data,config,adapter,updating=False)
     except GalleryPending as exc:
         data['upload_no_progress'] = data.get('upload_no_progress',0)+1 if len(data.get('upload_inputs',[]))==data.get('upload_start_count') else 0
         data.update(stage='gallery_uploading', error=None)
@@ -726,10 +701,14 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
         # Raw transport exceptions/payloads must never leak tokens or signed targets.
         db.session.rollback()
         row = db.session.get(ShopifyProductIdentity, row.id)
+        from app.shopify_capacity import BackgroundYield
+        from app.shopify_registration_checkpoint import pending as registration_pending
+        if isinstance(exc, BackgroundYield) and registration_pending(row):
+            raise
         data = evidence(row)
         message = str(exc) if isinstance(exc, ShopifyError) else "Draft execution failed unexpectedly. Retained identity requires explicit reconciliation."
         data["error"] = message
-        diagnostic = failure_diagnostic(exc, locals().get('finalisation_stage') or data.get('stage'), lease.id)
+        diagnostic = failure_diagnostic(exc, getattr(exc,'finalisation_stage',None) or data.get('stage'), lease.id)
         data['failure_diagnostic'] = diagnostic
         data['stage'] = 'recovery_required' if data['create_attempted'] else 'failed_before_create'
         save(row, data, "uncertain" if data["create_attempted"] else "failed_before_create")
@@ -754,8 +733,58 @@ def failure_diagnostic(error, stage, operation_id):
     if isinstance(error, KeyError) and error.args and isinstance(error.args[0], str) and error.args[0] in {
             'config_digest', 'digest', 'inventory_id', 'variant_id', 'shipping_package_id', 'native', 'plan'}:
         reason += ' Key: ' + error.args[0]
-    return {'operation_id': operation_id, 'category': redact_diagnostic(type(error).__name__, limit=80),
+    category = 'BackgroundYield' if isinstance(error, BackgroundYield) else type(error).__name__
+    return {'operation_id': operation_id, 'category': redact_diagnostic(category, limit=80),
         'stage': redact_diagnostic(stage or 'unknown', limit=100), 'reason': reason}
+
+
+def finish_registration_tail(row,data,config,adapter,*,updating):
+    """Finish Simple publication without replaying its product/media/variant prefix."""
+    plan=data['plan']
+    from app.shopify_registration_checkpoint import apply
+    apply(row,data,config,adapter,'simple_update' if updating else 'simple_create')
+    from app.shopify_customisations import apply as apply_customisations
+    from app.shopify_dimension_metadata import apply as apply_dimensions
+    from app.shopify_eu_identifier import apply as apply_eu_identifier
+    from app.shopify_item_cost import apply as apply_item_cost
+    for step in (apply_customisations,apply_dimensions,apply_eu_identifier,apply_item_cost):
+        step(row,data,config,adapter)
+    from app.shopify_publication import apply_reviewed, complete as publication_complete
+    def read():
+        return adapter.read_simple(config,row.shopify_product_id,plan["managed"]["namespace"])
+    if updating:
+        apply_reviewed(row,data,config,adapter)
+        apply_simple_readback(row,data,read(),adapter)
+    else:
+        apply_readback(row,data,read(),adapter)
+        if apply_reviewed(row,data,config,adapter):
+            apply_readback(row,data,read(),adapter)
+    state=row.state
+    from app.shopify_native_dimensions import after_publish
+    from app.shopify_package_assignments import apply as apply_packages
+    stage='native_dimensions'
+    try:
+        native_state=after_publish(row,plan,adapter,row.operation_id)
+        stage='package_preflight'
+        package_state=apply_packages(row,adapter,row.operation_id)
+        stage='operation_finalisation'
+        retained=evidence(row)
+        summary={'identity_id':row.id,'stage':retained['stage'],'native_dimensions':native_state,'package_assignment':package_state}
+        if updating:
+            summary.update(mode='update',completed_steps=retained.get('completed_steps',[]))
+            state=row.state
+        else:
+            summary.update(shopify_product_id=row.shopify_product_id,state=state)
+        finish_catalogue_operation(row.operation_id,status='succeeded' if state=='verified' and
+            native_state in {'disabled','verified','unconfigured'} and package_state in {'none','accepted'}
+            and publication_complete(retained) else 'partial',
+            products_attempted=1,products_succeeded=int(state=='verified'),
+            recovery_state='none' if state=='verified' and native_state!='uncertain' and
+                (updating or package_state!='uncertain') else 'review_required',operation_summary=summary)
+    except Exception as exc:
+        exc.finalisation_stage=stage
+        raise
+    return row
 
 
 def apply_readback(row, data, remote, adapter=None, *, allow_attribute_review=False):
@@ -1051,42 +1080,17 @@ def confirm_update(reviewed, adapter=None):
         if any(i["action"] in {"Join","Create & Join"} for i in plan["collections"]):
             attempted = True
         join_reviewed(row, data, config, adapter)
-        from app.shopify_attributes import apply
-        if any(a["changed"] for a in plan.get("attributes", [])):
+        if (any(a["changed"] for a in plan.get("attributes", []))
+                or (plan.get('customisations') or {}).get('changed')
+                or any(s['changed'] for s in (plan.get('dimension_metadata') or {}).get('definitions', []))):
             attempted = True
-        apply(row, data, config, adapter)
-        from app.shopify_customisations import apply as apply_customisations
-        if (plan.get('customisations') or {}).get('changed'):
-            attempted = True
-        apply_customisations(row, data, config, adapter)
-        from app.shopify_dimension_metadata import apply as apply_dimensions
-        if any(s['changed'] for s in (plan.get('dimension_metadata') or {}).get('definitions', [])):
-            attempted = True
-        apply_dimensions(row, data, config, adapter)
-        from app.shopify_eu_identifier import apply as apply_eu_identifier
-        apply_eu_identifier(row, data, config, adapter)
-        from app.shopify_item_cost import apply as apply_item_cost
-        apply_item_cost(row, data, config, adapter)
-        from app.shopify_publication import apply_reviewed
-        if apply_reviewed(row,data,config,adapter):
-            attempted=True
-        apply_simple_readback(row, data, adapter.read_simple(config, row.shopify_product_id, plan["managed"]["namespace"]), adapter)
-        from app.shopify_native_dimensions import after_publish
-        finalisation_stage = 'native_dimensions'
-        native_state = after_publish(row, plan, adapter, lease.id)
-        from app.shopify_package_assignments import apply as apply_packages
-        finalisation_stage = 'package_preflight'
-        package_state=apply_packages(row,adapter,lease.id)
-        finalisation_stage = 'operation_finalisation'
-        from app.shopify_publication import complete as publication_complete
-        finish_catalogue_operation(lease.id, status="succeeded" if row.state == "verified" and native_state in {"disabled", "verified", "unconfigured"} and package_state in {'none', 'accepted'} and publication_complete(evidence(row)) else "partial",
-            products_attempted=1, products_succeeded=int(row.state == "verified"),
-            recovery_state="none" if row.state == "verified" and native_state != "uncertain" else "review_required",
-            operation_summary={"identity_id": row.id, "mode": "update", "stage": evidence(row)['stage'], "completed_steps": evidence(row).get("completed_steps", []), "native_dimensions": native_state,'package_assignment':package_state})
-        return row
+        return finish_registration_tail(row,data,config,adapter,updating=True)
     except Exception as exc:
         db.session.rollback()
         from app.shopify_capacity import BackgroundYield
+        from app.shopify_registration_checkpoint import pending as registration_pending
+        if isinstance(exc, BackgroundYield) and row.operation_id == lease.id and registration_pending(row):
+            raise
         if isinstance(exc, BackgroundYield) and not attempted and row.operation_id != lease.id:
             # Preflight has not reserved this identity or attempted a mutation.
             # Let the existing task owner defer the same signed operation.
@@ -1098,7 +1102,9 @@ def confirm_update(reviewed, adapter=None):
             row.operation_id == lease.id and (retained.get('update_attempted') is True
                 or retained.get('eu_identifier_attempt', {}).get('operation_id') == lease.id
                 or retained.get('item_cost_attempt', {}).get('operation_id') == lease.id))
-        diagnostic = failure_diagnostic(exc, locals().get('finalisation_stage') or evidence(row).get('stage'), lease.id)
+        if (evidence(row).get('publication_update') or {}).get('operation_id') == lease.id:
+            attempted=True
+        diagnostic = failure_diagnostic(exc, getattr(exc,'finalisation_stage',None) or evidence(row).get('stage'), lease.id)
         if attempted:
             row = db.session.get(ShopifyProductIdentity, row.id)
             data = evidence(row)

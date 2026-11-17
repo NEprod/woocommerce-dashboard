@@ -600,8 +600,13 @@ class ShopifyAdapter:
             raise ShopifyError("Unsupported Shopify operation.")
         writing = query in WRITE_QUERIES
         config = configuration.validated()
-        from app.shopify_capacity import before
-        before(config, writing=writing, query=query)
+        from app.shopify_capacity import BackgroundYield, RequestNotSent, before
+        try:
+            before(config, writing=writing, query=query)
+        except BackgroundYield as exc:
+            # Only this gate proves no product request was dispatched. A yield
+            # from response/capacity handling must never be given this meaning.
+            raise RequestNotSent(str(exc)) from None
         if api_version is not None and (api_version != "2027-01" or query not in VERSIONED_QUERIES):
             raise ShopifyError("Only packed-dimension and EU identifier operations may use the release-candidate API.")
         version = api_version or config.api_version

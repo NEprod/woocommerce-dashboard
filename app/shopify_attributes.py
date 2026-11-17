@@ -5,6 +5,7 @@ from app.models import ShopifyAttributeIdentity, Product
 from app.taxonomy_assignments import product_document, resolve
 from app.taxonomy_registry import load_configured_registry, attribute_browse_role, attribute_storefront_public
 from app.shopify_connection import ShopifyError, _gid
+from app.shopify_capacity import BackgroundYield, RequestNotSent, fence_owner
 
 NAMESPACE = "$app:tlc_attributes"
 CAPABILITY_POLICY_VERSION = 1
@@ -263,6 +264,7 @@ def save_resource(row,data,state):
     encoded=json.dumps(data,sort_keys=True)
     if len(encoded.encode())>16384:
         raise ShopifyError("Attribute evidence exceeds its bound.")
+    fence_owner()
     row.evidence_json,row.state=encoded,state
     db.session.add(row); db.session.commit()
 
@@ -271,61 +273,101 @@ def ensure(item,store,config,adapter,operation):
     kind,key,spec=item["kind"],item["source"],item["spec"]
     row=resource(store,key)
     changing_access=item["action"] in {"Update storefront access","Update definition settings"}
-    remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id if row else None,allow_access=changing_access)
-    if row:
-        if row.state=="absent_verified" and remote is None and item["mapping_digest"]==drafts.digest(row.evidence_json):
-            pass  # explicit read-confirmed noncreation + a NEW signed product review
-        elif row.state!="verified" or remote is None:
-            raise ShopifyError("Retained attribute needs explicit read-only reconciliation; no create retry.")
-        elif not changing_access:
-            return remote["id"]
-    if drafts.digest(remote)!=item["remote_digest"]:
-        raise ShopifyError("Attribute candidate changed since signed review; rebuild before registration.")
-    if row is None:
-        row=ShopifyAttributeIdentity(store_id=store,source_key=key,state="pending",operation_id=operation,evidence_json='{"version":1}')
-    if changing_access:
-        row.remote_id=remote["id"]  # exact retained target durable BEFORE access mutation
-    row.operation_id=operation
-    save_resource(row,{"version":1,"kind":kind,"spec":spec,"source":key,"before_access":item.get("before_access"),
-        "settings_before":{k:remote[k] for k in ("access","capabilities") if remote and k in remote} if changing_access else None},"pending")
-    try:
-        if changing_access:
-            save_resource(row,json.loads(row.evidence_json),"updating_access")
-            patch=settings_patch(kind,spec,item["settings_changes"])
-            payload=drafts.payload_result(adapter.update_attribute_access(config,kind,remote["id"],patch),"metaobjectDefinitionUpdate" if kind=="definition" else "metafieldDefinitionUpdate")
-            returned=(payload.get("metaobjectDefinition" if kind=="definition" else "updatedDefinition") or {}).get("id")
-            if returned!=remote["id"]:
-                raise ShopifyError("Access update receipt identity differs; reconcile retained resource.")
-            remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id)
+    saved = json.loads(row.evidence_json) if row and row.operation_id == operation else {}
+    phase = saved.get('registration_phase')
+    remote = None
+    if phase:
+        if (saved.get('spec') != spec or saved.get('kind') != kind or saved.get('source') != key
+                or phase not in {'create_ready', 'create_ack', 'settings_ready', 'settings_ack'}
+                or row.state != ('creating' if phase.startswith('create_') else 'updating_access')):
+            raise ShopifyError('Retained attribute mutation is not acknowledged; reconcile before any retry: '+key)
+    else:
+        remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id if row else None,allow_access=changing_access)
+        if row:
+            if row.state=="absent_verified" and remote is None and item["mapping_digest"]==drafts.digest(row.evidence_json):
+                pass  # explicit read-confirmed noncreation + a NEW signed product review
+            elif row.state!="verified" or remote is None:
+                raise ShopifyError("Retained attribute needs explicit read-only reconciliation; no create retry.")
+            elif not changing_access or (saved.get('registration_verified') is True and saved.get('spec') == spec):
+                return valid(kind,remote,spec,key,row.remote_id)["id"]
+        if drafts.digest(remote)!=item["remote_digest"]:
+            raise ShopifyError("Attribute candidate changed since signed review; rebuild before registration.")
+        if row is None:
+            row=ShopifyAttributeIdentity(store_id=store,source_key=key,state="pending",operation_id=operation,evidence_json='{"version":1}')
+        row.operation_id=operation
+        saved={"version":1,"kind":kind,"spec":spec,"source":key,"before_access":item.get("before_access")}
         if remote is None:
-            creating_evidence=json.loads(row.evidence_json)
-            creating_evidence["base_capability_pending"] = kind=="field" and bool(spec.get("capabilities"))
-            save_resource(row,creating_evidence,"creating")
+            saved.update(registration_phase='create_ready', base_capability_pending=kind=='field' and bool(spec.get('capabilities')))
+        elif changing_access:
+            row.remote_id=remote['id']
+            saved.update(registration_phase='settings_ready', settings_before=_settings(remote),
+                         settings_patch=settings_patch(kind,spec,item['settings_changes']))
+        else:
+            row.remote_id=remote['id']
+            save_resource(row,{**saved,'observed':remote,'registration_verified':True},'verified')
+            return row.remote_id
+        save_resource(row,saved,'creating' if saved['registration_phase']=='create_ready' else 'updating_access')
+
+    def mark(value):
+        saved['registration_phase']=value
+        save_resource(row,saved,'creating' if value.startswith('create_') else 'updating_access')
+
+    def write(step, invoke, acknowledge):
+        mark(step+'_sent')
+        try:
+            response=invoke()
+        except RequestNotSent:
+            mark(step+'_ready')  # Only the transport gate can prove this.
+            raise
+        acknowledge(response)
+        mark(step+'_ack')
+
+    try:
+        if saved['registration_phase']=='create_ready':
+            if phase and adapter.attribute_resource(config,kind,spec) is not None:
+                raise ShopifyError('Attribute identity is no longer absent; reconcile before creation.')
             name,receipt,model=PAYLOADS[kind]
-            # Eligibility is available on an actual definition, not on a type
-            # template. Create the reviewed base first; never guess list support.
             creating={k:v for k,v in spec.items() if k!="capabilities"}
-            payload=drafts.payload_result(adapter.create_attribute_resource(config,kind,creating),name)
-            row.remote_id=_gid((payload.get(receipt) or {}).get("id"),model); db.session.commit()
+            def created(response):
+                payload=drafts.payload_result(response,name)
+                row.remote_id=_gid((payload.get(receipt) or {}).get("id"),model)
+            write('create',lambda:adapter.create_attribute_resource(config,kind,creating),created)
+        if saved['registration_phase']=='create_ack':
             remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id,allow_access=kind=="field")
+            if remote is None:
+                raise ShopifyError("Acknowledged attribute definition is not independently visible.")
             changes=settings_changes(kind,remote,spec)
             if changes:
-                # The signed new-definition plan explicitly authorises enabling
-                # only supported/eligible flags after independent creation readback.
-                before={k:remote[k] for k in ("access","capabilities") if k in remote}
-                save_resource(row,{"version":1,"kind":kind,"spec":spec,"source":key,"settings_before":before},"updating_access")
-                result=drafts.payload_result(adapter.update_attribute_access(config,kind,remote["id"],settings_patch(kind,spec,changes)),"metafieldDefinitionUpdate")
-                if (result.get("updatedDefinition") or {}).get("id")!=row.remote_id:
-                    raise ShopifyError("Capability receipt identity differs; reconcile retained definition.")
-                remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id)
+                saved.update(settings_before=_settings(remote),settings_patch=settings_patch(kind,spec,changes),
+                             base_capability_pending=False)
+                mark('settings_ready')
+        if saved['registration_phase']=='settings_ready':
+            target=remote or valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id,allow_access=True)
+            if target is None or _settings(target)!=saved['settings_before']:
+                raise ShopifyError('Attribute settings changed since their reviewed readback; reconcile first.')
+            def updated(response):
+                payload=drafts.payload_result(response,"metaobjectDefinitionUpdate" if kind=="definition" else "metafieldDefinitionUpdate")
+                if (payload.get("metaobjectDefinition" if kind=="definition" else "updatedDefinition") or {}).get("id")!=row.remote_id:
+                    raise ShopifyError("Attribute settings acknowledgement has a different identity.")
+            write('settings',lambda:adapter.update_attribute_access(config,kind,row.remote_id,saved['settings_patch']),updated)
+        if saved['registration_phase']=='settings_ack':
+            remote=valid(kind,adapter.attribute_resource(config,kind,spec),spec,key,row.remote_id)
         if remote is None:
             raise ShopifyError("Attribute receipt is not independently verified.")
-        row.remote_id=remote["id"]
-        save_resource(row,{"version":1,"kind":kind,"spec":spec,"source":key,"observed":remote},"verified")
+        save_resource(row,{"version":1,"kind":kind,"spec":spec,"source":key,"observed":remote,"registration_verified":True},"verified")
         return row.remote_id
-    except Exception:
-        db.session.rollback(); save_resource(row,json.loads(row.evidence_json),"uncertain")
+    except Exception as exc:
+        db.session.rollback()
+        retained=json.loads(row.evidence_json)
+        if (isinstance(exc,BackgroundYield) and retained.get('registration_phase') in
+                {'create_ready','create_ack','settings_ready','settings_ack'}):
+            raise
+        save_resource(row,retained,"uncertain")
         raise ShopifyError("Attribute registration uncertain: "+key+". Reconcile by deterministic owned identity; no retry.") from None
+
+
+def _settings(remote):
+    return {k:remote[k] for k in ('access','capabilities') if k in remote}
 
 
 def apply(row,data,config,adapter):
@@ -336,8 +378,11 @@ def apply(row,data,config,adapter):
     if [{k:a[k] for k in ("key","name","role","public","terms")} for a in entries]!=wanted or config.fingerprint()!=data["plan"]["config_digest"]:
         raise ShopifyError("Informational source/configuration changed; no additional write.")
     for attr in entries:
-        if not attr["changed"]:
+        if not attr["changed"] or "attribute:"+attr["key"] in data.get("completed_steps",()):
             continue
+        flight=data.get('attribute_assignment_attempt') or {}
+        if flight.get('operation')==row.operation_id:
+            raise ShopifyError('Attribute assignment was not acknowledged; reconcile the existing product before another write.')
         data["stage"]="attribute_registration"; drafts.save(row,data)
         definition=attr["resources"][0]
         did=ensure(definition,row.store_id,config,adapter,row.operation_id)
@@ -355,10 +400,20 @@ def apply(row,data,config,adapter):
             # still proves both resources and the exact product reference list.
             data.setdefault("completed_steps",[]).append("attribute:"+attr["key"]); drafts.save(row,data)
             continue
-        data["stage"]="attribute_assignment"; drafts.save(row,data)  # durable BEFORE CAS mutation
+        data["stage"]="attribute_assignment"
+        data['attribute_assignment_attempt']={'operation':row.operation_id,'attribute':attr['key']}
+        drafts.save(row,data)  # durable BEFORE CAS mutation
         value={"ownerId":row.shopify_product_id,"namespace":NAMESPACE,"key":attr["field_key"],"type":"list.metaobject_reference",
             "value":json.dumps(ids),"compareDigest":current["compareDigest"] if current else None}
-        drafts.payload_result(adapter.set_attributes(config,[value]),"metafieldsSet")
+        try:
+            drafts.payload_result(adapter.set_attributes(config,[value]),"metafieldsSet")
+        except RequestNotSent:
+            data.pop('attribute_assignment_attempt')
+            drafts.save(row,data)
+            raise
+        except BackgroundYield:
+            raise ShopifyError('Attribute assignment outcome is uncertain; no write replay.') from None
+        data.pop('attribute_assignment_attempt')
         data.setdefault("completed_steps",[]).append("attribute:"+attr["key"]); drafts.save(row,data)
 
 

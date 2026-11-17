@@ -119,7 +119,7 @@ def run_slice(run_id, owner, *, adapter=None):
         if db.session.connection().connection.driver_connection.in_transaction:
             fence()
         else:tasks.renew(KEY,run_id,owner)
-    lease=None;context_token=None
+    lease=None;context_token=None;registration=False
     try:
         guard()
         if not data.get('operation_id'):
@@ -146,9 +146,11 @@ def run_slice(run_id, owner, *, adapter=None):
         # pre-create prefix or known processing/verified evidence. Never replay
         # an unknown binary upload, Create, update or other mutation.
         package_correction = reviewed.get('mode') == 'package_correction'
+        from app.shopify_registration_checkpoint import pending as registration_pending
         from app.shopify_variable_readback import pending as verification_pending
+        registration = registration_pending(identity)
         if (identity and not package_correction and identity.state not in {'uploading','processing','verified','scoped_verified'}
-                and not verification_pending(identity)):
+                and not registration and not verification_pending(identity)):
             proof=drafts.evidence(identity)
             candidate=SimpleNamespace(state='uploading',shopify_product_id=identity.shopify_product_id,
                 reviewed_digest=identity.reviewed_digest,media_evidence_json=identity.media_evidence_json)
@@ -173,6 +175,10 @@ def run_slice(run_id, owner, *, adapter=None):
             if package_correction:
                 authority()
                 identity=drafts.execute_reviewed(reviewed,adapter,expected_product_id=product.id)
+            elif registration:
+                authority()
+                from app.shopify_registration_checkpoint import resume as resume_registration
+                identity=resume_registration(identity,adapter)
             elif identity and (identity.state=='processing' or verification_pending(identity)):
                 data['readback_polls']=data.get('readback_polls',0)+1
                 if verification_pending(identity):
@@ -254,6 +260,7 @@ def run_slice(run_id, owner, *, adapter=None):
             op=db.session.get(CatalogueOperation,lease.id);scope=json.loads(op.scope)
             identity=ShopifyProductIdentity.query.filter_by(operation_id=op.id).first()
             uncertain=bool(identity and (drafts.evidence(identity).get('create_attempted') or
+                drafts.evidence(identity).get('registration_checkpoint') or
                 drafts.evidence(identity).get('upload_attempt',{}).get('state')=='pending' or identity.state not in {'pending','uploading','failed_before_create'}))
             scope['manual_review']['state']='recovery_required' if uncertain else 'failed';op.scope=json.dumps(scope)
             update(op,stage='recovery_required' if uncertain else 'operation_failed',message=sanitize_operation_error(exc),status='recovery_required' if uncertain else 'failed')
@@ -262,6 +269,11 @@ def run_slice(run_id, owner, *, adapter=None):
             if acknowledged and uncertain and identity.state=='processing':
                 retained=drafts.evidence(identity);retained['verification_wait']['state']='recovery_required'
                 retained['error']=sanitize_operation_error(exc);identity.verification_state='unverified'
+                drafts.save(identity,retained,'uncertain')
+            elif uncertain and identity and registration:
+                retained=drafts.evidence(identity)
+                retained['error']=sanitize_operation_error(exc)
+                retained['failure_diagnostic']=drafts.failure_diagnostic(exc,retained.get('stage'),op.id)
                 drafts.save(identity,retained,'uncertain')
             finish_catalogue_operation(op.id,status='partial' if uncertain else 'failed',recovery_state='review_required' if uncertain else 'none',error=str(exc),products_attempted=1,products_failed=0 if acknowledged else 1)
         return tasks.save_progress(KEY,run_id,owner,data,terminal='failed',error=str(exc))

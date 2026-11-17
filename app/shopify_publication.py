@@ -61,9 +61,10 @@ def discovered(adapter,config,shop):
         if type(publication.get('autoPublish')) is not bool:
             raise ShopifyError('Publication automatic-availability evidence is incomplete; no status/channel write allowed.')
         channels = publication.get('channels')
-        if not isinstance(channels,dict) or channels.get('pageInfo',{}).get('hasNextPage') is not False:
+        if (not isinstance(channels,dict) or (channels.get('pageInfo') or {}).get('hasNextPage') is not False
+                or not isinstance(channels.get('nodes'),list) or any(not isinstance(node,dict) for node in channels['nodes'])):
             raise ShopifyError('Incomplete channel discovery; no selectable guesses.')
-        for channel in channels.get('nodes',[]):
+        for channel in channels['nodes']:
             key, name = channel.get('handle'), channel.get('name')
             if not isinstance(key,str) or not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,95}',key) or key in handles or not isinstance(name,str) or not name.strip():
                 raise ShopifyError('Ambiguous/unsupported channel handles; inspect the actual Shopify publications.')
@@ -313,11 +314,16 @@ def annotate(product,plan,row,config,shop,adapter):
     if wanted['status']=='DRAFT' and (not row or plan.get('actual_status', 'DRAFT')=='DRAFT') and not wanted['channels'] and not (row and drafts.evidence(row).get('publication_update')):
         return
     result={'intent':wanted,'read_complete':False,'pending':True}
+    def require_available(keys):
+        missing=sorted(set(wanted['channels'])-set(keys))
+        if missing:
+            raise ShopifyReadinessFinding('An intended channel is unavailable; no replacement inferred: '+', '.join(missing),
+                                          code='publication_configuration')
     if not row or not row.shopify_product_id:
         try:
             channels=discovered(adapter,config,shop)
             keys={c['key']:c for c in channels}
-            if set(wanted['channels'])-set(keys): raise ShopifyError('An intended channel is unavailable; no replacement inferred.')
+            require_available(keys)
             targets={}
             for key,value in wanted['channels'].items():
                 pid=keys[key]['id']
@@ -348,7 +354,7 @@ def annotate(product,plan,row,config,shop,adapter):
             channels=discovered(adapter,config,shop)
             observed=read(row,data,adapter,config)
             keys={c['key']:c for c in channels}
-            if set(wanted['channels'])-set(keys): raise ShopifyError('An intended channel is unavailable; no replacement inferred.')
+            require_available(keys)
             rows=[{'field':'publication.status','label':'Shopify lifecycle status',
                    'before':observed['status'],'after':wanted['status'],'changed':observed['status']!=wanted['status'],'publication_only':True}]
             targets={}

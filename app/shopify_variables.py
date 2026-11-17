@@ -951,25 +951,13 @@ def confirm(reviewed, adapter=None):
             acknowledge(row,data,payload,[v for v in plan['variants'] if v['action']=='Create'],'variant_create')
         from app.shopify_taxonomy import join_reviewed
         join_reviewed(row,data,config,adapter)
-        from app.shopify_attributes import apply as apply_attributes
         if any(a["changed"] for a in plan.get("attributes",[])):
             attempted=True
-        apply_attributes(row,data,config,adapter)
-        from app.shopify_customisations import apply as apply_customisations
         if (plan.get('customisations') or {}).get('changed'):
             attempted=True
-        apply_customisations(row,data,config,adapter)
-        from app.shopify_dimension_metadata import apply as apply_dimensions
         if any(s['changed'] for s in (plan.get('dimension_metadata') or {}).get('definitions', [])):
             attempted=True
-        apply_dimensions(row,data,config,adapter)
-        from app.shopify_eu_identifier import apply as apply_eu_identifier
-        apply_eu_identifier(row,data,config,adapter)
-        from app.shopify_item_cost import apply as apply_item_cost
-        apply_item_cost(row,data,config,adapter)
-        from app.shopify_variable_readback import begin,complete
-        begin(row,data,'base')
-        return complete(row,adapter,allow_writes=True)
+        return finish_registration_tail(row,data,config,adapter)
     except drafts.GalleryPending:
         data['upload_no_progress'] = data.get('upload_no_progress',0)+1 if len(data.get('upload_inputs',[]))==data.get('upload_start_count') else 0
         data.update(stage='gallery_uploading', error=None)
@@ -981,8 +969,9 @@ def confirm(reviewed, adapter=None):
     except Exception as exc:
         db.session.rollback()
         from app.shopify_capacity import BackgroundYield
+        from app.shopify_registration_checkpoint import pending as registration_pending
         from app.shopify_variable_readback import pending as verification_pending
-        if isinstance(exc,BackgroundYield) and row and row.operation_id==lease.id and verification_pending(row):
+        if isinstance(exc,BackgroundYield) and row and row.operation_id==lease.id and (registration_pending(row) or verification_pending(row)):
             raise  # Lost fence while saving a safe checkpoint; the replacement worker owns it.
         if isinstance(exc, BackgroundYield) and not attempted and (not row or row.operation_id != lease.id):
             # A read-only preflight yield is owned by the existing task runner.
@@ -1020,6 +1009,22 @@ def confirm(reviewed, adapter=None):
         from app.utils.operation_control import sanitize_operation_error
         finish_catalogue_operation(lease.id,status="failed",error="Variable review failed before remote writes. "+sanitize_operation_error(exc))
         raise
+
+
+def finish_registration_tail(row,data,config,adapter):
+    from app.shopify_registration_checkpoint import apply
+    apply(row,data,config,adapter,'variable')
+    from app.shopify_customisations import apply as apply_customisations
+    apply_customisations(row,data,config,adapter)
+    from app.shopify_dimension_metadata import apply as apply_dimensions
+    apply_dimensions(row,data,config,adapter)
+    from app.shopify_eu_identifier import apply as apply_eu_identifier
+    apply_eu_identifier(row,data,config,adapter)
+    from app.shopify_item_cost import apply as apply_item_cost
+    apply_item_cost(row,data,config,adapter)
+    from app.shopify_variable_readback import begin,complete
+    begin(row,data,'base')
+    return complete(row,adapter,allow_writes=True)
 
 
 def reconcile(row,adapter=None, *, candidate_id=None, approval=None, allow_attribute_review=False):

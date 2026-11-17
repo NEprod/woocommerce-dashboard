@@ -144,6 +144,13 @@ def states_for(products, *, fresh=False, url_builder=None):
             for p in products}
 
 
+def _publication_configuration_failure(failure):
+    return (failure.get('kind') == 'market_configuration'
+            or failure.get('kind') == 'authored_configuration'
+            and bool(failure.get('components'))
+            and all(item.get('component') == 'publication' for item in failure['components']))
+
+
 def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=None):
     from flask import url_for as flask_url_for
     url_for = url_builder or flask_url_for
@@ -192,7 +199,11 @@ def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=N
                 state.update(state='recovery_required',label='Recovery Required',can_delete=False,
                     message='Saved-package assignment outcome is uncertain. No public assignment readback exists; inspect Shopify Admin before any retry.')
                 return state
-            if upload_pending(row):
+            from app.shopify_registration_checkpoint import pending as registration_pending
+            if registration_pending(row):
+                state.update(state='processing',label='Registration in progress',can_delete=False,
+                    message='The server is completing reviewed attribute registration; earlier product, variant and media writes will not repeat.')
+            elif upload_pending(row):
                 state.update(state='processing',label='Uploading gallery',message='Acknowledged uploads retained. Use the authorised publisher or Sync Now to continue; no product Create has been attempted.')
             elif row.state == "processing":
                 wait=data.get('verification_wait') or {}
@@ -254,9 +265,13 @@ def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=N
                         state.update(evidence_stale=True,
                             label="Last check matched" if classification == "no_change" else "Update Available (last check)",
                             message="Verification is due. Saved comparison only; the background Scheduled Task refreshes it independently. Manual Refresh remains available.")
-                    if classification == "no_change" and (data["blockers"] or (data.get('publication') or {}).get('pending') or publication_pending and not data.get('publication')):
-                        state.update(state="attention", label="Needs Attention", message="Metadata matches, but publication or taxonomy blockers remain.")
                     publication = data.get('publication') or {}
+                    if classification == "no_change" and (data["blockers"]
+                            or publication and (publication.get('pending') or publication.get('blockers')
+                                               or publication.get('read_complete') is not True)
+                            or publication_pending and not publication):
+                        state.update(state="attention", label="Needs Attention",
+                                     message=publication.get('reason') or "Metadata matches, but publication or taxonomy blockers remain.")
                     if publication.get('markets') and publication.get('blockers'):
                         state.update(state="attention", label="Needs Attention", message='; '.join(publication['blockers']))
                     if data.get('package_assignments_unverified'):
@@ -269,7 +284,7 @@ def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=N
                         kind=data["refresh_failure"].get("kind")
                         if kind == 'readiness':
                             state.update(state='attention', label='Publishing prerequisite needed')
-                        if kind == 'market_configuration':
+                        if _publication_configuration_failure(data['refresh_failure']):
                             state.update(state='attention', label='Needs Attention')
                         if kind in {"identity_conflict","variant_missing"}:
                             state.update(state="recovery_required" if kind=="identity_conflict" else "attention",label="Recovery Required" if kind=="identity_conflict" else "Needs Attention",message=data["refresh_failure"]["message"])
@@ -311,7 +326,7 @@ def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=N
                         kind=failed["refresh_failure"].get("kind")
                         if kind == 'readiness':
                             state.update(state='attention', label='Publishing prerequisite needed')
-                        if kind == 'market_configuration':
+                        if _publication_configuration_failure(failed['refresh_failure']):
                             state.update(state='attention', label='Needs Attention')
                         if kind in {"identity_conflict","variant_missing"}:
                             state.update(state="recovery_required" if kind=="identity_conflict" else "attention",label="Recovery Required" if kind=="identity_conflict" else "Needs Attention")

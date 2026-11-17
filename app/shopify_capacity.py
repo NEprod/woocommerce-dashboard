@@ -17,6 +17,10 @@ class BackgroundYield(RuntimeError):
     """Local scheduling deferral, NOT a failed Shopify verification."""
 
 
+class RequestNotSent(BackgroundYield):
+    """The transport's pre-request gate declined this exact request."""
+
+
 def now():
     from app.shopify_drafts import now as utcnow
     return utcnow()

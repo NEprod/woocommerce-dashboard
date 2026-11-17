@@ -118,15 +118,15 @@ test('Markets changes persist additional IDs, with empty and absent both UK-only
   const ids = ['gid://shopify/Market/1', 'gid://shopify/Market/2'];
   const knownFields = new Set(['harmonized_system_code', 'shopify_market_ids']);
   assert.deepEqual(customsEditor('001234', true, 'harmonized_system_code', {
-    isShared:true, knownFields, marketEditor:{}, marketValues:()=>ids
+    isShared:true, knownFields, marketEditor:{}, marketsEdited:true, marketValues:()=>ids
   }), {harmonized_system_code:'001234',future:{keep:true},shopify_market_ids:ids});
   assert.deepEqual(customsEditor('001234', true, 'harmonized_system_code', {
-    isShared:true, knownFields, marketEditor:{}, marketValues:()=>[],
+    isShared:true, knownFields, marketEditor:{}, marketsEdited:true, marketValues:()=>[],
     authored:{harmonized_system_code:'001234',shopify_market_ids:ids},
     initialValues:{harmonized_system_code:'001234',shopify_market_ids:ids}
   }), {harmonized_system_code:'001234',shopify_market_ids:[]});
   assert.deepEqual(customsEditor('001234', true, 'harmonized_system_code', {
-    isShared:true, knownFields, marketEditor:{}, marketValues:()=>[],
+    isShared:true, knownFields, marketEditor:{}, marketsEdited:true, marketValues:()=>[],
     authored:{harmonized_system_code:'001234'},
     initialValues:{harmonized_system_code:'001234',shopify_market_ids:[]}
   }), {harmonized_system_code:'001234'});
@@ -152,4 +152,94 @@ test('channel intent preserves explicit false and removes only deliberately unma
   const code=source.slice(source.indexOf('  function channelValues('),source.indexOf('  function renderChannels('));
   vm.runInContext(code,context);
   assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(channelValues())',context)),{'online-store':false,unavailable:true});
+});
+
+const destinationsCode = source.slice(source.indexOf('  function channelValues('), source.indexOf('  function registryChoices('));
+const savedChannels = {online_store:true, 'shop-72':true, pos:false, 'click-drop-app-1':true};
+const market = id => `gid://shopify/Market/${id}`;
+
+function destinationEditor({shared=false, local={}, inherited=savedChannels}={}) {
+  const element = () => ({dataset:{}, children:[], textContent:'',
+    replaceChildren(){this.children=[]; this.textContent='';},
+    get childNodes(){return this.children;},
+    append(...children){this.children.push(...children);},
+    appendChild(child){this.append(child);}, add(){},
+    addEventListener(event, callback){this[event]=callback;},
+  });
+  const channelRows=element(), marketRows=element(), feedback=element();
+  const override={checked:Object.hasOwn(local,'shopify_channels')};
+  const field={dataset:{field:'description'}, value:'original'};
+  const selected = rows => rows.children.flatMap(n=>n.children).filter(n=>n.dataset);
+  const marketEditor={querySelector:key=>key==='[data-market-choices]'?marketRows:feedback,
+    querySelectorAll:()=>selected(marketRows).filter(n=>n.checked && Object.hasOwn(n.dataset,'marketId'))};
+  const context=vm.createContext({structuredClone,window:{},isShared:shared,authored:structuredClone(local),
+    boot:{shared_reference:'Cards/product_info.json',authored_reference:shared?'Cards/product_info.json':'Cards/Item/product_info.json'},
+    initialValues:{}, knownFields:new Set(['shopify_channels','shopify_market_ids','description']),
+    channelDraft:{},channels:[{key:'online_store',name:'Online Store'}],channelsChecked:false,
+    marketEditor,markets:[],marketsLoaded:false,marketsEdited:false,marketsLoading:false,
+    customisationDesigner:null,packagingDesigner:null,finishedDesigner:null,explicitVariation:false,
+    guided:{querySelector:key=>key==='[data-channel-choices]'?channelRows:override,
+      querySelectorAll:key=>key==='[data-field]'?[field]:key==='[data-channel-intent]'
+        ?selected(channelRows).filter(n=>Object.hasOwn(n.dataset,'channelIntent')):[]},
+    document:{querySelector:()=>({content:'csrf'}),createElement:element,createTextNode:text=>({textContent:text})},
+    Option:function(){}, setControlState(){}, setDirty(){}, showFeedback(){},
+    overrideEnabled:key=>key==='shopify_channels'?shared||override.checked:key==='description',
+    listValues:()=>[], attributeValues:()=>({}), modifierValues:()=>({}),
+    startingChannels:local.shopify_channels||inherited, startingMarkets:local.shopify_market_ids||[market(1),market(3)],
+  });
+  vm.runInContext(destinationsCode+valuesCode+guidedCode+patchCode+`
+    renderChannels(startingChannels); renderMarkets(startingMarkets); initialValues=guidedValues();`,context);
+  const result = expression => JSON.parse(vm.runInContext(`JSON.stringify(${expression})`,context));
+  const text = node => node.textContent+node.children?.map(text).join('');
+  const read = (target, payload, ok=true) => {
+    context.fetch=async()=>({ok,json:async()=>payload});
+    return vm.runInContext(`discover${target}()`,context);
+  };
+  return {context,field,read,result,channelRows,marketRows,selected,text};
+}
+
+test('discovery checks every effective inherited selection without dropping intent, including after failure',async()=>{
+  const e=destinationEditor();
+  const {read,result,text,channelRows,marketRows}=e;
+  assert.match(text(channelRows),/Online Store .*Not verified .*Inherited from Cards\/product_info\.json/);
+  assert.match(text(channelRows),/Click & Drop .*Not verified/);
+  assert.match(text(marketRows),/Market\/3.*Not verified.*Inherited from Cards\/product_info\.json/);
+  await read('Channels',{channels:[{key:'online_store',name:'Online Store'},{key:'shop-72',name:'Shop'},{key:'pos',name:'POS'}]});
+  await read('Markets',{markets:[{id:market(1),name:'France',active:true}]});
+  assert.match(text(channelRows),/Online Store .* · Available · Inherited from Cards\/product_info\.json/);
+  assert.match(text(channelRows),/Click & Drop .* · Unavailable .*Saved intent: publish.*Inherited from Cards\/product_info\.json/);
+  assert.match(text(marketRows),/France.* · Available · Inherited from Cards\/product_info\.json/);
+  assert.match(text(marketRows),/Market\/3.* · Unavailable .*Inherited from Cards\/product_info\.json/);
+  assert.ok(e.selected(marketRows).every(input=>input.disabled));
+  await read('Channels',{error:'Incomplete channel discovery'},false);
+  await read('Markets',{error:'Missing Markets access'},false);
+  assert.doesNotMatch(text(channelRows)+text(marketRows),/ · (Available|Unavailable) /);
+  assert.deepEqual(result('channelValues()'),savedChannels);
+  assert.deepEqual(result('marketValues()'),[market(1),market(3)]);
+  e.field.value='new description';
+  assert.deepEqual(result('guidedDocument()'),{description:'new description'});
+});
+
+test('only an explicit action removes inherited channel intent or a shared Market',async()=>{
+  const e=destinationEditor();
+  await e.read('Channels',{channels:[{key:'online_store',name:'Online Store'},{key:'shop-72',name:'Shop'},{key:'pos',name:'POS'}]});
+  e.selected(e.channelRows).find(n=>n.dataset.removeUnavailableChannel==='click-drop-app-1').click();
+  assert.deepEqual(e.result('guidedDocument()'),{shopify_channels:{online_store:true,'shop-72':true,pos:false}});
+  assert.match(e.text(e.channelRows),/POS.*Saved in Cards\/Item\/product_info\.json/);
+  assert.equal(savedChannels['click-drop-app-1'],true);
+
+  const local={shopify_channels:savedChannels,shopify_market_ids:[market(1),market(3)], customs_description:'Keep this'};
+  const shared=destinationEditor({shared:true,local});
+  await shared.read('Markets',{markets:[{id:market(1),name:'France',active:true}]});
+  shared.field.value='new description';
+  assert.deepEqual(shared.result('documentPatch(authored,guidedDocument())'),{data:{description:'new description'},remove_paths:[]});
+  shared.selected(shared.marketRows).find(n=>n.value===market(3)).checked=false;
+  shared.context.marketsEdited=true;
+  assert.deepEqual(shared.result('documentPatch(authored,guidedDocument())'),{
+    data:{description:'new description',shopify_market_ids:[market(1)]},remove_paths:[]});
+
+  const override=destinationEditor({local:{shopify_channels:{'click-drop-app-1':false}}});
+  assert.match(override.text(override.channelRows),/Saved intent: unpublish.*Saved in Cards\/Item\/product_info\.json/);
+  override.selected(override.channelRows).find(n=>n.dataset.removeUnavailableChannel==='click-drop-app-1').click();
+  assert.deepEqual(override.result('guidedDocument()'),{shopify_channels:{}});
 });
