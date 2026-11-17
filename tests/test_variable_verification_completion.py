@@ -1,6 +1,7 @@
 """Acknowledged writes are not replayable just because readback is delayed."""
 import copy
 import json
+from datetime import timedelta
 from flask import current_app
 import pytest
 from app import db, shopify_drafts as drafts, shopify_variables as variable
@@ -112,6 +113,141 @@ def test_restart_pending_verification_never_repeats_variant_writes(variable_worl
     assert replacement.calls.count('variants_create')==1 and replacement.calls.count('variants_update')==1
     assert db.session.get(CatalogueOperation,operation_id).status=='succeeded'
     assert db.session.get(Product,product_id).sku==row.sku
+
+
+@pytest.mark.parametrize('boundary', ['completion', 'publication_readback', 'final', 'final_receipt', 'restart', 'uncertain_write', 'legacy'])
+def test_new_variable_draft_completion_yield_preserves_receipt(variable_world,monkeypatch,boundary):
+    from app import shopify_capacity as capacity, shopify_variable_readback as readback
+    from app import shopify_taxonomy
+    from app.models import ScheduledTask
+    from app.manual_publishing import KEY
+    from app.shopify_products import states_for
+    from app.utils.operation_control import recover_interrupted_operations
+    from test_manual_publishing_worker import accepted
+    from test_shopify_publication_sales import VariableAcceptanceAdapter
+
+    monkeypatch.setenv('TLC_SCHEDULER_READY_AT','99999999999')
+    rescan(variable_world,live=True,shopify_channels={'online-store':True})
+    product=large_variable(variable_world) if boundary=='completion' else variable_world[0]
+    if boundary=='completion':
+        assert len(product.variations)>=9 and len(drafts.local_plan(product)['images'])>=13
+
+    class Adapter(VariableAcceptanceAdapter):
+        stopped=False
+
+        def pause_at_budget(self,config):
+            self.stopped=True
+            state=capacity.background()
+            assert state['remaining']>0  # Exercise elapsed time, not the request limit.
+            with monkeypatch.context() as clock:
+                # Advance only the capacity check past the actual worker deadline.
+                clock.setattr(capacity,'monotonic',lambda:state['deadline']+1)
+                capacity.before(config)
+
+        def publication_state(self,config,pid):
+            row=ShopifyProductIdentity.query.one()
+            proof=drafts.evidence(row)
+            wait=proof.get('verification_wait') or {}
+            if not self.stopped and boundary=='final_receipt' and wait.get('state')=='completed':
+                self.pause_at_budget(config)
+            if not self.stopped and wait.get('state')=='writing' and wait.get('phase')=='completion':
+                if boundary=='restart':
+                    self.stopped=True
+                    raise SystemExit('Worker process terminated before the first completion write')
+                elif boundary in {'completion','legacy'} or boundary=='publication_readback' and readback.publication_acknowledged(proof):
+                    self.pause_at_budget(config)
+            return super().publication_state(config,pid)
+
+        def set_publication(self,*args):
+            response=super().set_publication(*args)
+            if boundary=='uncertain_write':
+                self.stopped=True
+                raise capacity.BackgroundYield('Ownership lost before receipt could be proved')
+            return response
+
+    adapter=Adapter()
+    if boundary=='final':
+        verify_memberships=shopify_taxonomy.verify_memberships
+        def yield_after_fields(plan,config,connector,remote_id):
+            row=ShopifyProductIdentity.query.one()
+            if not connector.stopped and drafts.evidence(row).get('verification_wait',{}).get('phase')=='final':
+                connector.pause_at_budget(config)
+            return verify_memberships(plan,config,connector,remote_id)
+        monkeypatch.setattr(shopify_taxonomy,'verify_memberships',yield_after_fields)
+    op_id,token=accepted((product,),adapter)
+    if boundary=='restart':
+        with pytest.raises(SystemExit):step(adapter)
+    elif boundary=='legacy':
+        # Reproduce the existing terminal receipt from the pre-fix worker.
+        with monkeypatch.context() as old:
+            old.setattr(readback,'_completion_checkpoint',lambda *a:None)
+            step(adapter)
+    else:
+        for _ in range(15):
+            step(adapter)
+            if adapter.stopped:break
+    assert adapter.stopped,(db.session.get(CatalogueOperation,op_id).error,adapter.calls)
+    row=ShopifyProductIdentity.query.one();row_id,product_id,remote_id=row.id,product.id,row.shopify_product_id
+    proof=drafts.evidence(row);wait=proof['verification_wait']
+    op=db.session.get(CatalogueOperation,op_id)
+    original_uploads=adapter.calls.count('binary_upload')
+    assert len(proof['variant_maps'])==len(product.variations) and adapter.calls.count('product_create')==1
+    assert all(wait['base_receipt'][key]=='verified' for key in ('identity','fields','media','memberships','attributes'))
+    if boundary=='legacy':
+        assert op.recovery_state=='review_required' and row.state=='uncertain' and adapter.remote['status']=='DRAFT'
+        calls=list(adapter.calls);step(adapter);assert adapter.calls==calls
+        drafts.reconcile(row,adapter=adapter)
+        assert row.state=='verified' and adapter.remote['status']=='DRAFT'
+        prior_scope=db.session.get(CatalogueOperation,op_id).scope
+        fresh_id,_=accepted((product,),adapter)
+        assert fresh_id!=op_id and adapter.remote['status']=='DRAFT'
+        step(adapter)
+        assert row.operation_id==fresh_id and row.shopify_product_id==remote_id and row.state=='verified'
+        assert db.session.get(CatalogueOperation,fresh_id).status=='succeeded'
+        assert db.session.get(CatalogueOperation,op_id).scope==prior_scope
+        assert adapter.calls.count('binary_upload')==original_uploads
+        assert all(adapter.calls.count(stage)==1 for stage in ('product_create','variants_update','variants_create','status_write','publication_write'))
+        assert 'product_update' not in adapter.calls
+        return
+    if boundary=='uncertain_write':
+        assert op.recovery_state=='review_required' and row.state=='uncertain' and not readback.pending(row)
+        calls=list(adapter.calls);step(adapter)
+        assert adapter.calls==calls  # Even when Shopify accepted the unacknowledged mutation.
+        return
+
+    assert wait['phase']=={'publication_readback':'publication','final':'final','final_receipt':'final'}.get(boundary,'completion')
+    assert readback.pending(row) and op.recovery_state in {None,'none'}
+    if boundary=='restart':
+        assert wait['state']=='writing' and op.status=='running'
+        task=db.session.get(ScheduledTask,KEY)
+        task.lease_until=drafts.now()-timedelta(seconds=1);db.session.commit()
+    else:
+        assert wait['state']=='pending' and op.status=='pending' and 'Bounded API/time budget' in wait['last_reason']
+    if boundary in {'completion','restart'}:
+        assert not proof.get('publication_update') and adapter.remote['status']=='DRAFT'
+    else:
+        assert adapter.remote['status']=='ACTIVE' and readback.publication_acknowledged(proof)
+
+    remote=copy.deepcopy(adapter.__dict__)
+    db.session.remove();db.engine.dispose()
+    recover_interrupted_operations()  # Application boot must retain the accepted manual operation.
+    adapter=Adapter();adapter.__dict__.update(remote)
+    for _ in range(4):
+        step(adapter,owner='replacement-completion-worker')
+        if db.session.get(CatalogueOperation,op_id).status=='succeeded':break
+    row=db.session.get(ShopifyProductIdentity,row_id)
+    assert row.operation_id==op_id and row.shopify_product_id==remote_id and row.state=='verified'
+    assert db.session.get(CatalogueOperation,op_id).status=='succeeded'
+    assert adapter.calls.count('binary_upload')==original_uploads
+    assert all(adapter.calls.count(stage)==1 for stage in ('product_create','variants_update','variants_create','status_write','publication_write'))
+    for key in ('variant_maps','created_media'):
+        assert drafts.evidence(row)[key]==proof[key]
+    assert drafts.evidence(row)['verification_wait']['base_receipt']==wait['base_receipt']
+    assert set(proof['completed_steps'])<=set(drafts.evidence(row)['completed_steps'])
+    from app.shopify_progress import receipt
+    with current_app.test_request_context():
+        assert receipt(product_id,token)['state']=='completed'
+        assert states_for([db.session.get(Product,product_id)],fresh=True)[product_id]['label']=='Up to Date'
 
 
 @pytest.mark.parametrize('kind',['nonce','transport_ambiguity','never_consistent'])

@@ -14,6 +14,11 @@ from app.shopify_capacity import BackgroundYield,fence_owner,guard_owner
 class ReadbackLag(ShopifyError):pass
 
 
+def _verified_base(verification,operation_id):
+    return (verification.get('operation_id')==operation_id
+        and all(verification.get(k)=='verified' for k in ('identity','fields','media','memberships','attributes')))
+
+
 def acknowledge(row,data,payload,wanted,stage):
     nodes=payload.get('productVariants')
     if not isinstance(nodes,list):raise ShopifyError('Variant acknowledgement missing returned identities; retain recovery, never replay.')
@@ -42,15 +47,28 @@ def pending(row):
         and w.get('source_digest')==row.reviewed_digest==data.get('plan',{}).get('digest')
         and op and op.recovery_state in {None,'none'} and op.status in {'running','pending','partial'}
         and ((row.state=='processing' and w.get('state') in {'pending','waiting_authority'})
-             or row.state=='verified' and w.get('state')=='completed' and op.status in {'running','pending'}))
+             or row.state=='verified' and w.get('state')=='completed' and op.status in {'running','pending'}
+             or row.state=='verified' and w.get('state')=='pending' and w.get('phase')=='base'
+             and _verified_base(data.get('verification') or {},row.operation_id)
+             or row.state=='updating' and w.get('state')=='pending' and w.get('phase')=='publication'
+             and _completion_checkpoint(data,row.operation_id)=='completion'
+             or row.state in {'verified','updating'} and w.get('state')=='writing'
+             and w.get('phase')=='completion' and _completion_checkpoint(data,row.operation_id)))
 
 
 def begin(row,data,phase):
     old=data.get('verification_wait') or {}
     if old.get('operation_id')!=row.operation_id:old={}
+    base_receipt=old.get('base_receipt')
+    verified=data.get('verification') or {}
+    if not base_receipt and phase=='completion' and _verified_base(verified,row.operation_id):
+        # Keep the original readback even when a later verification commits only
+        # partial observations. This is audit evidence, not a substitute for a read.
+        base_receipt=copy.deepcopy(verified)
     data['verification_wait']={'operation_id':row.operation_id,'source_digest':data['plan']['digest'],
         'state':'pending','phase':phase,'attempts':old.get('attempts',0) if old.get('phase')==phase else 0,
         'started_at':old.get('started_at') or drafts.now().isoformat()}
+    if base_receipt:data['verification_wait']['base_receipt']=base_receipt
     data['stage']='verification_pending';row.verification_state='processing'
     drafts.save(row,data,'processing')
 
@@ -66,6 +84,7 @@ def _pause(row,data,reason,*,count=True):
         finish_catalogue_operation(row.operation_id,status='partial',recovery_state='review_required',error=message,
             products_attempted=1,products_succeeded=0,products_failed=0)
         raise ShopifyError(message)
+    if w['state']=='completed':w['state']='pending'  # A deferred final check remains a final read.
     data['error']=None;data['stage']='verification_pending';row.verification_state='processing'
     drafts.save(row,data,'processing')
     op=db.session.get(CatalogueOperation,row.operation_id)
@@ -84,6 +103,47 @@ def publication_acknowledged(data):
     if (plan.get('observed') or {}).get('status')!=(plan.get('intent') or {}).get('status'):required.add('publication.status')
     return bool(p.get('unified') and p.get('operation_id')==data.get('publication_review_operation_id')
         and required.issubset(set(p.get('completed',[]))))
+
+
+def _completion_checkpoint(data,operation_id):
+    """A completion preflight can yield; a reserved mutation cannot be replayed."""
+    # Native/package continuation has its own evidence requirements. Do not
+    # restart those writers if this operation reserved or handled an item.
+    if any(proof.get('operation_id')==operation_id or proof.get('state') in {'pending','uncertain'}
+           for key in ('variant_native','package_assignments') for proof in (data.get(key) or {}).values()):
+        return None
+    proof=data.get('publication_update') or {}
+    if not proof or proof.get('operation_id')!=operation_id and proof.get('state')=='verified':
+        return 'completion'
+    if (proof.get('operation_id')==operation_id and publication_acknowledged(data)
+            and proof.get('plan')==data['plan'].get('publication')):
+        if proof.get('state')=='pending':return 'publication'  # read acknowledgement only
+        if proof.get('state')=='verified':return 'completion'  # writer will skip already verified publication
+    return None
+
+
+def reconciled_completion_review(row,reviewed):
+    """Legacy terminal yield: fresh manual review only after a later full read."""
+    if (not row or reviewed.get('mode')!='variable' or reviewed.get('classification')!='update'
+            or reviewed.get('scope')!='full' or row.id!=reviewed.get('identity_id')
+            or row.product_id!=reviewed.get('product_id') or row.store_id!=reviewed.get('store_id')
+            or not row.shopify_product_id or row.shopify_product_id!=reviewed.get('remote_id')
+            or row.state!='verified' or row.verification_state!='verified'):
+        return False
+    op=db.session.get(CatalogueOperation,row.operation_id)
+    if (not op or op.status!='partial' or op.recovery_state!='review_required' or not op.finished_at
+            or not row.verified_at or row.verified_at<=op.finished_at):
+        return False
+    data=drafts.evidence(row);wait=data.get('verification_wait') or {}
+    failure=data.get('failure_diagnostic') or {};verification=data.get('verification') or {}
+    return (data.get('kind')=='variable' and data.get('observed_status')=='DRAFT'
+        and reviewed.get('identity_digest')==drafts.digest(data)
+        and wait.get('operation_id')==failure.get('operation_id')==verification.get('operation_id')==op.id
+        and wait.get('source_digest')==row.reviewed_digest==data['plan'].get('digest')
+        and wait.get('state')=='recovery_required' and wait.get('phase')=='completion'
+        and failure.get('category')=='BackgroundYield' and failure.get('stage')=='variable_readback.completion'
+        and _verified_base(verification,op.id)
+        and _completion_checkpoint(data,op.id)=='completion')
 
 
 def _transient(exc):
@@ -117,6 +177,9 @@ def complete(row,adapter,*,allow_writes=False):
             if not control._active_operation or control._active_operation['id']!=row.operation_id:
                 from app.manual_publishing import resume
                 resume(control.OperationLease(row.operation_id,'shopify_draft_publish'))
+        if w['state']=='writing':
+            # Replacement worker after a crash during a provably safe boundary.
+            begin(row,data,_completion_checkpoint(data,row.operation_id));w=data['verification_wait']
         if w['state']=='completed':
             # Crash AFTER the last verified receipt commit, BEFORE operation finalisation.
             variable.verify(row,data,config,adapter)
@@ -181,7 +244,15 @@ def complete(row,adapter,*,allow_writes=False):
     except Exception as exc:
         # Only READ phases are safely retryable. A timeout during a mutation is
         # never converted into a pending/read-only continuation.
-        if data['verification_wait'].get('state') in {'pending','waiting_authority','completed'} and _transient(exc):return _pause(row,data,exc)
+        if isinstance(exc,BackgroundYield):
+            # Look at committed receipts, not a pending in-memory write plan.
+            # A lost owner cannot park the job: all saves below remain fenced.
+            db.session.rollback();data=drafts.evidence(row);w=data['verification_wait']
+            if pending(row):
+                if w['state']=='writing':begin(row,data,_completion_checkpoint(data,row.operation_id))
+                return _pause(row,data,exc)
+        elif data['verification_wait'].get('state') in {'pending','waiting_authority','completed'} and _transient(exc):
+            return _pause(row,data,exc)
         # Preserve the latest COMMITTED acknowledgement/readback on every error,
         # including non-Shopify exceptions and continuations outside confirm().
         # Unknown exceptions remain protected; they do not authorise write replay.

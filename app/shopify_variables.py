@@ -798,6 +798,20 @@ def confirm(reviewed, adapter=None):
             if local_plan(product)["digest"]!=plan["digest"] or drafts.configuration().fingerprint()!=plan["config_digest"]:
                 raise ShopifyError("Source/configuration changed during variable execution; retained successful stages remain, no further write allowed.")
         row = drafts.matching_identity(plan["store_id"],product)
+        from app.shopify_variable_readback import reconciled_completion_review
+        publication_only = reconciled_completion_review(row,reviewed)
+        if publication_only:
+            from app.shopify_capacity import background
+            from app.manual_publishing import executing_lease
+            if background() and not executing_lease():
+                raise ShopifyError('Reconciled completion requires fresh manual approval; no automatic write is allowed.')
+            from app.shopify_publication import has_metadata_changes
+            if (plan['actual_status']!='DRAFT' or has_metadata_changes(plan)
+                    or any(v['action']=='Create' for v in plan['variants'])
+                    or plan['media_actions']['alt'] or plan['media_actions']['reorder']
+                    or any(e.get('action')=='assign' for e in plan.get('optional_packages',[]))
+                    or plan['native']['enabled'] and any(not v['native'].get('unconfigured') for v in plan['variants'])):
+                raise ShopifyError('Reconciled completion permits only reviewed availability on the retained Draft; no product content will be changed.')
         creating = not plan.get("remote_id")
         if creating:
             if drafts.upload_pending(row):
@@ -860,6 +874,12 @@ def confirm(reviewed, adapter=None):
                 variant_write_acknowledgements=[],variant_ack_before_sku={})
             row.operation_id,row.reviewed_digest,row.verification_state=lease.id,plan["digest"],"unverified"
             drafts.save(row,data,"updating")
+            if publication_only:
+                # Recheck the retained draft, then apply only signed availability.
+                # Do not call the normal metadata writers for this recovery case.
+                from app.shopify_variable_readback import begin,complete
+                begin(row,data,'base')
+                return complete(row,adapter,allow_writes=True)
             metadata,_=drafts.update_inputs(dict(plan,variant_id="unused"))
             if len(metadata)>1:
                 fresh()
@@ -949,6 +969,9 @@ def confirm(reviewed, adapter=None):
     except Exception as exc:
         db.session.rollback()
         from app.shopify_capacity import BackgroundYield
+        from app.shopify_variable_readback import pending as verification_pending
+        if isinstance(exc,BackgroundYield) and row and row.operation_id==lease.id and verification_pending(row):
+            raise  # Lost fence while saving a safe checkpoint; the replacement worker owns it.
         if isinstance(exc, BackgroundYield) and not attempted and (not row or row.operation_id != lease.id):
             # A read-only preflight yield is owned by the existing task runner.
             # Do not terminalise/notify an operation which will resume there.

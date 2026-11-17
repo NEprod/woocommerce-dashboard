@@ -38,6 +38,11 @@ def require_no_prior_recovery(product_id, reviewed):
     operations = [db.session.get(CatalogueOperation, row.operation_id) for row in identities if row.operation_id]
     if ((job and job.state == 'recovery_required') or any(
             op and op.recovery_state not in {None, 'none'} for op in operations)):
+        from app.shopify_variable_readback import reconciled_completion_review
+        if (len(identities)==1 and reviewed.get('product_id')==product_id
+                and (not job or job.state!='recovery_required' or job.operation_id==identities[0].operation_id)
+                and reconciled_completion_review(identities[0],reviewed)):
+            return  # Old history retained; only a new signed review of the same Draft can proceed.
         raise ShopifyError('Existing Recovery Required blocks this new update; no new Shopify write was attempted. '
             'Inspect the original operation and unresolved package evidence before separately authorised recovery.')
 
@@ -141,7 +146,9 @@ def run_slice(run_id, owner, *, adapter=None):
         # pre-create prefix or known processing/verified evidence. Never replay
         # an unknown binary upload, Create, update or other mutation.
         package_correction = reviewed.get('mode') == 'package_correction'
-        if identity and not package_correction and identity.state not in {'uploading','processing','verified','scoped_verified'}:
+        from app.shopify_variable_readback import pending as verification_pending
+        if (identity and not package_correction and identity.state not in {'uploading','processing','verified','scoped_verified'}
+                and not verification_pending(identity)):
             proof=drafts.evidence(identity)
             candidate=SimpleNamespace(state='uploading',shopify_product_id=identity.shopify_product_id,
                 reviewed_digest=identity.reviewed_digest,media_evidence_json=identity.media_evidence_json)
@@ -156,7 +163,6 @@ def run_slice(run_id, owner, *, adapter=None):
             if drafts.configuration().fingerprint()!=reviewed['config_digest'] or local_revision(product)!=approval['source_revision']:
                 raise ShopifyError('Source revision or connection changed after signed approval; retained work needs fresh review.')
 
-        from app.shopify_variable_readback import pending as verification_pending
         op.status='pending' if identity and (identity.state=='processing' or verification_pending(identity)) else 'running'
         op.finished_at=None;op.error=None;op.products_attempted=1
         update(op,stage='worker_running',message='Server worker owns this approved operation.',status='running')
@@ -169,17 +175,19 @@ def run_slice(run_id, owner, *, adapter=None):
                 identity=drafts.execute_reviewed(reviewed,adapter,expected_product_id=product.id)
             elif identity and (identity.state=='processing' or verification_pending(identity)):
                 data['readback_polls']=data.get('readback_polls',0)+1
-                # Read-only even though the original operation was approved.
-                with background_work(guard,fence=fence,requests=80,seconds=90):
-                    identity=drafts.finalize_processing(identity,adapter)
                 if verification_pending(identity):
                     authority()
                     from app.shopify_variable_readback import complete as finish_readback
                     identity=finish_readback(identity,adapter,allow_writes=True)
-                elif identity.state=='verified' and drafts.evidence(identity).get('kind')=='variable':
-                    authority()
-                    from app.shopify_variables import complete_deferred_availability
-                    identity=complete_deferred_availability(identity,adapter)
+                else:
+                    # Legacy media polling has no acknowledged variable checkpoint.
+                    with background_work(guard,fence=fence,requests=80,seconds=90):
+                        identity=drafts.finalize_processing(identity,adapter)
+                    retained=drafts.evidence(identity)
+                    if identity.state=='verified' and retained.get('kind')=='variable' and not retained.get('verification_wait'):
+                        authority()
+                        from app.shopify_variables import complete_deferred_availability
+                        identity=complete_deferred_availability(identity,adapter)
                 from app.shopify_notifications import complete
                 if complete(identity,drafts.evidence(identity)) and db.session.get(CatalogueOperation,lease.id).status!='succeeded':
                     finish_catalogue_operation(lease.id,status='succeeded',recovery_state='none',products_attempted=1,products_succeeded=1,products_failed=0)
