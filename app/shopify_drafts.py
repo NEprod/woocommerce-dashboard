@@ -32,6 +32,7 @@ MAX_IMAGE_PIXELS = 20_000_000
 MAX_IMAGES = 250  # Complete Shopify image gallery; transport/evidence byte bounds still apply.
 UPLOAD_BATCH = 20
 MAX_EVIDENCE_BYTES = 1024 * 1024
+SIMPLE_RESUME = "simple_resume"
 
 
 def now():
@@ -326,7 +327,8 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
             else:
                 annotate(product,result,row,config,shop,adapter)
         if result["classification"] == "update":
-            token = serializer().dumps({"mode": "update", "scope":scope, **{key: result[key] for key in (
+            mode = SIMPLE_RESUME if row.state == "creation_review_required" else "update"
+            token = serializer().dumps({"mode": mode, "scope":scope, **{key: result[key] for key in (
                 "product_id", "digest", "identity_id", "remote_id", "store_id", "domain", "config_digest",
                 "remote_digest", "identity_digest", "taxonomy_review_digest")}})
         if result["classification"] == "update" and not can_write:
@@ -558,7 +560,7 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
     if reviewed.get("mode") in {"variable","variable_resume"}:
         from app.shopify_variables import confirm as variable_confirm
         return variable_confirm(reviewed, adapter)
-    if reviewed.get("mode") == "update":
+    if reviewed.get("mode") in {"update", SIMPLE_RESUME}:
         return confirm_update(reviewed, adapter)
     product = db.session.get(Product, reviewed["product_id"])
     if not product:
@@ -986,10 +988,14 @@ def confirm_update(reviewed, adapter=None):
     if not product or not row or row.state not in {"verified","attribute_review_required","creation_review_required","scoped_verified"} or row.verification_state not in {"verified","base_verified","inventory_verified"}:
         raise ShopifyError("Identity is not verified or another attempt requires recovery. Generate a fresh Preview.")
     recovering_creation = row.state == "creation_review_required"
+    if recovering_creation != (reviewed.get("mode") == SIMPLE_RESUME):
+        raise ShopifyError("The retained draft's recovery state changed. Generate a fresh Review; no write was attempted.")
     if recovering_creation:
         from app.shopify_capacity import background
-        if background():
+        from app.manual_publishing import executing_lease
+        if background() and not executing_lease():
             raise ShopifyError("Finishing the retained draft requires a fresh manual Review; no automatic write is allowed.")
+        require_simple_creation_review(row, product.id, reviewed)
     recovery_evidence = evidence(row) if recovering_creation else None
     # Acquire before revalidation; reviewed update cannot overlap another write.
     lease = acquire_catalogue_operation("shopify_draft_publish", {"product_id": product.id, "sku": product.sku, "mode": "update"})
@@ -1147,6 +1153,24 @@ def _stopped_simple_create_at_attributes(row, data, remote):
             and (data.get("storefront_configuration") or {}).get("state") not in {"pending", "uncertain"}
             and not any("before_id" in receipt for receipt in (data.get("dimension_definitions") or {}).values())
             and remote.get("status") == "DRAFT")
+
+
+def require_simple_creation_review(row, product_id, reviewed):
+    """Let only a fresh signed review of this proved Draft supersede its own history."""
+    if (not row or row.product_id != product_id or row.id != reviewed.get("identity_id")
+            or row.state != "creation_review_required" or row.verification_state != "base_verified"
+            or not row.shopify_product_id or row.shopify_product_id != reviewed.get("remote_id")
+            or row.store_id != reviewed.get("store_id") or reviewed.get("scope") != "full"):
+        raise ShopifyError("The signed draft recovery no longer matches the retained identity. No write was attempted.")
+    data = evidence(row)
+    if (reviewed.get("identity_digest") != digest(data) or not data.get("creation_remaining_review")
+            or not _stopped_simple_create_at_attributes(row, data, {"status": data.get("observed_status")})):
+        raise ShopifyError("Retained draft recovery evidence changed. Reconcile and generate a fresh Review; no write was attempted.")
+    from app.shopify_package_assignments import guard as package_guard
+    package_guard(data)
+    if (data.get("native_dimensions", {}).get("state") in {"pending", "uncertain"}
+            or any(p.get("state") in {"pending", "uncertain"} for p in data.get("variant_native", {}).values())):
+        raise ShopifyError("An unresolved packed-dimension write still requires its own recovery; no write was attempted.")
 
 
 def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_review=False):

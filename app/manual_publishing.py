@@ -32,6 +32,9 @@ def require_no_prior_recovery(product_id, reviewed):
     from app.models import ShopifyPublishJob
     job = db.session.get(ShopifyPublishJob, product_id)
     identities = ShopifyProductIdentity.query.filter_by(product_id=product_id).all()
+    if reviewed.get('mode') == drafts.SIMPLE_RESUME:
+        drafts.require_simple_creation_review(identities[0] if len(identities) == 1 else None, product_id, reviewed)
+        return  # Prior receipt remains historical; the proved Draft has its own signed completion.
     operations = [db.session.get(CatalogueOperation, row.operation_id) for row in identities if row.operation_id]
     if ((job and job.state == 'recovery_required') or any(
             op and op.recovery_state not in {None, 'none'} for op in operations)):

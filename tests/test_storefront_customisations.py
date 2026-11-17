@@ -1,6 +1,7 @@
 """Fictional catalogue/Shopify only. No theme deployment, live writes or webhooks."""
 import copy
 import json
+import re
 import sqlite3
 
 import pytest
@@ -212,8 +213,12 @@ def test_interrupted_create_never_defers_uncertain_mutations_or_drift(world, sto
     assert all(call.endswith('_read') for call in adapter.calls)
 
 
-def test_first_use_attribute_readback_loss_can_finish_retained_create(world, registry):
-    from app import shopify_attributes
+@pytest.mark.parametrize('stale', [False, True])
+def test_first_use_attribute_readback_loss_can_finish_retained_create(world, registry, monkeypatch, stale):
+    from flask import current_app
+    from app import manual_publishing, scheduled_tasks, shopify_attributes
+
+    monkeypatch.setenv('TLC_SCHEDULER_READY_AT', '99999999999')
 
     class Adapter(ConfigurationMixin, LifecycleAdapter):
         def attribute_resource(self, config, kind, spec):
@@ -243,6 +248,7 @@ def test_first_use_attribute_readback_loss_can_finish_retained_create(world, reg
     adapter.resource_failure = 'readback'
     _, token = drafts.preview(world[0], adapter)
     row = drafts.confirm(token, True, adapter)
+    original_operation_id = row.operation_id
     remote_id = row.shopify_product_id
     resource = ShopifyAttributeIdentity.query.one()
     definition_id = resource.remote_id
@@ -266,9 +272,39 @@ def test_first_use_attribute_readback_loss_can_finish_retained_create(world, reg
     assert drafts.evidence(row)['verification']['attributes'] == 'remaining_review'
     # Even with an intended Live product, this step may only finish its Draft.
     change(world, live=True)
-    plan, token = drafts.preview(world[0], adapter)
-    assert token and plan['remote_id'] == remote_id and not plan.get('publication')
-    assert drafts.confirm(token, True, adapter).state == 'verified'
+    monkeypatch.setattr(drafts, 'ShopifyAdapter', lambda: adapter)
+    client = _client(current_app)
+    target = f'/products/{world[0].id}/shopify/review'
+    preview = client.post(target, data={'action': 'preview'})
+    assert preview.status_code == 200 and b'Availability is deferred' in preview.data
+    token = re.search(rb'name="review" value="([^"]+)"', preview.data)[1].decode()
+    signed = drafts.serializer().loads(token)
+    assert signed['mode'] == drafts.SIMPLE_RESUME and signed['remote_id'] == remote_id
+    ordinary = drafts.serializer().dumps({**signed, 'mode': 'update'})
+    def approve(value):
+        return client.post(target, data={'action':'confirm','review':value,'acknowledge':'yes'},
+                           headers={'Accept':'application/json'})
+    assert approve(ordinary).status_code == 400  # Ordinary Sync cannot bypass recovery history.
+    response = approve(token)
+    assert response.status_code == 202, response.json
+    operation_id = response.json['operation_id']
+    assert row.operation_id == original_operation_id and not adapter.customer_value
+    assert approve(token).json['operation_id'] == operation_id  # Duplicate confirms only poll.
+    if stale:
+        evidence = drafts.evidence(row)
+        evidence['package_assignments'] = {'fixture': {'state':'uncertain'}}
+        drafts.save(row, evidence)
+    claimed = scheduled_tasks.claim('recovery-worker', manual_only=True)
+    assert claimed and claimed[0] == manual_publishing.KEY
+    scheduled_tasks.run_slice(*claimed, 'recovery-worker', adapter=adapter)
+    op = db.session.get(CatalogueOperation, operation_id)
+    assert db.session.get(CatalogueOperation, original_operation_id).recovery_state == 'review_required'
+    if stale:
+        assert op.status == 'failed' and row.state == 'creation_review_required' and not adapter.customer_value
+        assert row.operation_id == original_operation_id and adapter.calls.count('product_create') == 1
+        return
+    assert op.status == 'succeeded', op.error
+    assert row.state == 'verified' and row.operation_id == operation_id
     assert resource.remote_id == definition_id and adapter.calls.count('attribute_definition_create') == 1
     assert row.shopify_product_id == remote_id and adapter.calls.count('product_create') == 1
     assert adapter.remote['status'] == 'DRAFT' and adapter.customer_value is not None
