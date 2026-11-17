@@ -508,11 +508,14 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
     from app.shopify_customisations import reserve as customisation_reserve
     reserves['storefront_configuration'] = customisation_reserve(plan)
     drafts.encode(reserves)
-    from app.shopify_comparison import record
-    record(product,plan,row if remote_id else None)
     reviewed = {"mode":"variable_resume" if resume_creation else "variable", **{key:plan.get(key) for key in
         ("product_id","digest","store_id","config_digest","nonce","remote_id","remote_digest","identity_digest","taxonomy_review_digest","classification","identity_id","scope")}}
     if resume_creation:reviewed['creation_resume']=plan['creation_resume']
+    from app.shopify_variable_readback import attribute_review_only, reconciled_attribute_review
+    if reconciled_attribute_review(row, reviewed) and not attribute_review_only(data, plan):
+        plan['blockers'].append('Reconciled attribute recovery permits only the remaining informational attributes and reviewed availability on the retained Draft.')
+    from app.shopify_comparison import record
+    record(product,plan,row if remote_id else None)
     from app.shopify_publication import has_reviewed_changes
     token = drafts.serializer().dumps(reviewed) if plan["classification"] != "no_change" and not plan["blockers"] and (not remote_id or scope=='inventory' or has_reviewed_changes(plan)) else None
     return plan,token
@@ -798,8 +801,16 @@ def confirm(reviewed, adapter=None):
             if local_plan(product)["digest"]!=plan["digest"] or drafts.configuration().fingerprint()!=plan["config_digest"]:
                 raise ShopifyError("Source/configuration changed during variable execution; retained successful stages remain, no further write allowed.")
         row = drafts.matching_identity(plan["store_id"],product)
-        from app.shopify_variable_readback import reconciled_completion_review
+        from app.shopify_variable_readback import attribute_review_only, reconciled_attribute_review, reconciled_completion_review
         reconciled_completion = reconciled_completion_review(row,reviewed)
+        reconciled_attributes = reconciled_attribute_review(row,reviewed)
+        if row and row.state == 'attribute_review_required':
+            from app.shopify_capacity import background
+            from app.manual_publishing import executing_lease
+            if background() and not executing_lease():
+                raise ShopifyError('Reconciled attributes require fresh manual approval; no automatic write is allowed.')
+            if reconciled_attributes and not attribute_review_only(drafts.evidence(row),plan):
+                raise ShopifyError('Reconciled attribute scope changed; no write was attempted.')
         if reconciled_completion:
             from app.shopify_capacity import background
             from app.manual_publishing import executing_lease
@@ -892,6 +903,11 @@ def confirm(reviewed, adapter=None):
                 from app.shopify_variable_readback import begin,complete
                 begin(row,data,'base')
                 return complete(row,adapter,allow_writes=True)
+            if reconciled_attributes:
+                data['reconciled_attribute_update'] = {'original_operation':previous['operation_id'], 'operation':lease.id}
+                drafts.save(row,data)
+                attempted=True
+                return finish_registration_tail(row,data,config,adapter)
             metadata,_=drafts.update_inputs(dict(plan,variant_id="unused"))
             if len(metadata)>1:
                 fresh()
@@ -1014,14 +1030,15 @@ def confirm(reviewed, adapter=None):
 def finish_registration_tail(row,data,config,adapter):
     from app.shopify_registration_checkpoint import apply
     apply(row,data,config,adapter,'variable')
-    from app.shopify_customisations import apply as apply_customisations
-    apply_customisations(row,data,config,adapter)
-    from app.shopify_dimension_metadata import apply as apply_dimensions
-    apply_dimensions(row,data,config,adapter)
-    from app.shopify_eu_identifier import apply as apply_eu_identifier
-    apply_eu_identifier(row,data,config,adapter)
-    from app.shopify_item_cost import apply as apply_item_cost
-    apply_item_cost(row,data,config,adapter)
+    if data.get('reconciled_attribute_update', {}).get('operation') != row.operation_id:
+        from app.shopify_customisations import apply as apply_customisations
+        apply_customisations(row,data,config,adapter)
+        from app.shopify_dimension_metadata import apply as apply_dimensions
+        apply_dimensions(row,data,config,adapter)
+        from app.shopify_eu_identifier import apply as apply_eu_identifier
+        apply_eu_identifier(row,data,config,adapter)
+        from app.shopify_item_cost import apply as apply_item_cost
+        apply_item_cost(row,data,config,adapter)
     from app.shopify_variable_readback import begin,complete
     begin(row,data,'base')
     return complete(row,adapter,allow_writes=True)

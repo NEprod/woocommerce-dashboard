@@ -146,6 +146,80 @@ def reconciled_completion_review(row,reviewed):
         and _completion_checkpoint(data,op.id)=='completion')
 
 
+def reconciled_attribute_review(row, reviewed):
+    """Accept only a later, identity-bound read of an interrupted Draft creation."""
+    if (not row or reviewed.get('mode') != 'variable' or reviewed.get('classification') != 'update'
+            or reviewed.get('scope') != 'full' or row.id != reviewed.get('identity_id')
+            or row.product_id != reviewed.get('product_id') or row.store_id != reviewed.get('store_id')
+            or not row.shopify_product_id or row.shopify_product_id != reviewed.get('remote_id')
+            or row.state != 'attribute_review_required' or row.verification_state != 'base_verified'):
+        return False
+    op = db.session.get(CatalogueOperation, row.operation_id)
+    if (not op or op.operation_type != 'shopify_draft_publish' or op.status != 'partial'
+            or op.recovery_state != 'review_required' or not op.finished_at):
+        return False
+    data = drafts.evidence(row)
+    proof = data.get('verification') or {}
+    failure = data.get('failure_diagnostic') or {}
+    old_plan = data.get('plan') or {}
+    try:
+        checked_after_stop = datetime.fromisoformat(proof.get('checked_at')) > op.finished_at
+    except (TypeError, ValueError):
+        return False
+    return (checked_after_stop and data.get('kind') == 'variable' and data.get('observed_status') == 'DRAFT'
+            and data.get('stage') == 'attribute_review_required' and data.get('create_attempted') is True
+            # Initial creation also sets update_attempted when it joins a collection.
+            and old_plan.get('classification') == 'create' and not old_plan.get('remote_id')
+            and 'product_create' in data.get('completed_steps', ())
+            and proof.get('operation_id') == failure.get('operation_id') == op.id
+            and failure.get('stage') == 'attribute_registration' and proof.get('attributes') == 'remaining_review'
+            and all(proof.get(k) == 'verified' for k in ('identity', 'fields', 'media', 'memberships'))
+            and old_plan.get('digest') == row.reviewed_digest and old_plan.get('store_id') == row.store_id
+            and old_plan.get('config_digest') == reviewed.get('config_digest')
+            and reviewed.get('identity_digest') == drafts.digest(data)
+            # This stop precedes these writes. Do not subsume any other recovery.
+            and not any(data.get(k) for k in ('verification_wait', 'attribute_assignment_attempt',
+                'publication_update', 'package_assignments', 'variant_native', 'native_dimensions',
+                'eu_identifier_attempt', 'item_cost_attempt', 'customisation_update', 'inventory_update', 'sale_transition'))
+            and all(value.get('state') == 'verified' for value in data.get('dimension_definitions', {}).values())
+            and (not data.get('storefront_configuration') or data['storefront_configuration'].get('state') == 'verified'))
+
+
+def attribute_review_only(data, plan):
+    """Recheck the rebuilt signed plan before entering just the remaining tail."""
+    def intent(entries):
+        return [{k: entry[k] for k in ('key', 'name', 'role', 'public', 'terms')} for entry in entries]
+
+    attributes = plan.get('attributes', [])
+    old = data['plan']
+    publication = plan.get('publication') or {}
+    media = plan['media_actions']
+    native = plan['native']
+    if (plan['actual_status'] != 'DRAFT' or intent(attributes) != intent(old['attributes'])
+            or not any(a['changed'] for a in attributes)
+            or any(a['changed'] and 'attribute:'+a['key'] in data.get('completed_steps', ()) for a in attributes)
+            or publication and (not publication.get('read_complete') or publication.get('blockers'))
+            or any(v['action'] == 'Create' for v in plan['variants'])
+            or {v['identity']:v.get('remote_id') for v in plan['variants']} !=
+               {key:v['id'] for key,v in data['variant_maps'].items()}
+            or plan['images'] != old['images'] or media['ids'] != [m['id'] for m in data['created_media']]
+            or media['alt'] or media['reorder']
+            or any(c['action'] in {'Join','Create & Join'} for c in plan['collections'])
+            or any(p.get('action') == 'assign' for p in plan.get('optional_packages', ()))
+            or native['enabled'] and any(not p.get('unconfigured') for p in native['variants'].values())):
+        return False
+    allowed = set()
+    for attr in attributes:
+        if not attr['changed']:
+            continue
+        allowed.update(('attributes.'+attr['name'], 'attribute_registration.'+attr['key']))
+        for item in attr['resources']:
+            for change in item.get('settings_changes', ()):
+                allowed.add('attribute_access.'+item['source'] if change['key'] == 'storefront' else
+                    'attribute_capability.'+item['source']+'.'+change['key'])
+    return all(not f['changed'] or f.get('publication_only') or f['field'] in allowed for f in plan['fields'])
+
+
 def _transient(exc):
     return isinstance(exc,(ReadbackLag,BackgroundYield)) or isinstance(exc,ShopifyError) and (
         exc.category in {'network','invalid_response'} or isinstance(exc,ShopifySnapshotChanged) and exc.changed==['updatedAt'])

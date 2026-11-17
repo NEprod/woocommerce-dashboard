@@ -373,6 +373,112 @@ def test_variable_layouts_preserve_product_variants_inventory_and_images(variabl
     assert drafts.preview(variable_world[0],adapter)[0]['classification']=='no_change'
 
 
+def test_reconciled_attribute_stop_admits_signed_review_on_retained_draft(variable_world,registry,monkeypatch):
+    from app import manual_publishing as manual
+    from app.models import CatalogueOperation
+    from app.shopify_capacity import RequestNotSent
+    from test_manual_publishing_worker import accepted, products_badge, step
+    from test_shopify_markets import MarketMixin
+    from test_shopify_publication_sales import VariableAcceptanceAdapter
+    from test_variable_creation_recovery import RealPagedVariable, large_variable, finish_uploads, assert_complete
+
+    monkeypatch.setenv('TLC_SCHEDULER_READY_AT','99999999999')
+    informational(registry)
+    class Adapter(MarketMixin,RealPagedVariable,CapabilitiesAdapter):
+        def __init__(self):
+            super().__init__()
+            self.resources={}; self.attr_values={}; self.resource_failure=None
+            self.patches=[]; self.eligible={key:True for key in attrs.CAPABILITY_LABELS}
+            self.memberships.clear()
+            self.market_rows=self.market_rows[:1]  # UK only, same availability as the development Draft
+            self.stop_on_settings=True
+            self.defer_once=True
+        def test_connection(self,config):
+            shop=super().test_connection(config)
+            shop['scopes']+=list(attrs.READ_SCOPES|attrs.WRITE_SCOPES)
+            return shop
+        def update_attribute_access(self,*args):
+            if self.stop_on_settings:
+                raise ShopifyError('Original registration did not acknowledge an update')
+            if self.defer_once:
+                self.defer_once=False
+                raise RequestNotSent('Recovery worker deferred before dispatch')
+            return CapabilitiesAdapter.update_attribute_access(self,*args)
+        def set_publication(self,config,product_id,pid,publish):
+            if pid in {'gid://shopify/Publication/2','gid://shopify/Publication/3'}:
+                return VariableAcceptanceAdapter.set_publication(self,config,product_id,pid,publish)
+            return super().set_publication(config,product_id,pid,publish)
+
+    product=large_variable(variable_world)
+    source=variable_world[1]
+    approved={**json.loads(source.read_text()),'live':True,'shopify_channels':{'online-store':True,'shop':True,'pos':True},
+              'categories':['Cards']}
+    source.write_text(json.dumps(approved))
+    monkeypatch.setattr(attrs,'assigned',lambda _:[{
+        'key':'attr-occasion','name':'Occasion','role':'filter','public':True,
+        'terms':[{'key':'term-birthday','name':'Birthday','aliases':[],'state':'active'}],
+    }])
+    adapter=Adapter()
+    row=finish_uploads(product,adapter)
+    original=db.session.get(CatalogueOperation,row.operation_id)
+    original_id, remote_id=original.id,row.shopify_product_id
+    historical=(original.status,original.recovery_state,original.error,original.finished_at)
+    assert historical[:2]==('partial','review_required') and row.state=='uncertain'
+    assert drafts.evidence(row)['failure_diagnostic']['stage']=='attribute_registration'
+    field_mapping=ShopifyAttributeIdentity.query.filter_by(state='uncertain').one()
+    field_id=field_mapping.remote_id
+    attrs.reconcile(field_mapping,adapter,drafts.configuration())
+    drafts.reconcile(row,adapter=adapter)
+    assert row.state=='attribute_review_required' and row.verification_state=='base_verified'
+    prior=drafts.evidence(row)
+    assert prior['update_attempted'] is True  # original Create already joined Cards
+    assert any(s.startswith('join:') for s in prior['completed_steps'])
+    original_summary=json.loads(original.scope)['operation_summary']
+    original_variants=copy.deepcopy(prior['variant_maps'])
+    original_media=copy.deepcopy(adapter.remote['media'])
+
+    source.write_text(json.dumps({**approved,'description':'An unrelated change must not be executed by recovery.'}))
+    plan,token=drafts.preview(product,adapter)
+    assert token is None and any('only the remaining informational' in error for error in plan['blockers'])
+    source.write_text(json.dumps(approved))
+    _,token=drafts.preview(product,adapter)
+    reviewed=drafts.serializer().loads(token)
+    for unsafe in ({'remote_id':'gid://shopify/Product/999'}, {'identity_digest':'stale'}, {'scope':'inventory'}):
+        with pytest.raises(ShopifyError,match='no new Shopify write'):
+            manual.require_no_prior_recovery(product.id,{**reviewed,**unsafe})
+    # Even a matching signed identity must not override another pending mutation.
+    conflict={**prior,'package_assignments':{'old':{'state':'uncertain'}}}
+    drafts.save(row,conflict)
+    with pytest.raises(ShopifyError,match='no new Shopify write'):
+        manual.require_no_prior_recovery(product.id,{**reviewed,'identity_digest':drafts.digest(conflict)})
+    drafts.save(row,prior)
+
+    before=list(adapter.calls)
+    adapter.stop_on_settings=False
+    new_op,_=accepted(variable_world,adapter)
+    assert adapter.calls.count('attribute_access_update')==before.count('attribute_access_update')
+    step(adapter)
+    assert db.session.get(CatalogueOperation,new_op).status=='pending' and not adapter.patches
+    for _ in range(6):
+        if db.session.get(CatalogueOperation,new_op).finished_at:
+            break
+        step(adapter,owner='replacement-recovery-worker')
+    receipt=db.session.get(CatalogueOperation,new_op)
+    assert (receipt.status,receipt.recovery_state)==('succeeded','none'),receipt.error
+    finished=drafts.evidence(row)
+    assert finished['reconciled_attribute_update']=={'original_operation':original_id,'operation':new_op}
+    assert_complete(product,row,adapter)
+    assert row.shopify_product_id==remote_id and finished['variant_maps']==original_variants
+    assert adapter.remote['media']==original_media and field_mapping.remote_id==field_id
+    assert len(adapter.patches)==1 and adapter.calls.count('attribute_assignment_write')==1
+    assert not {'product_update','variants_create','variants_update','binary_upload','product_create','attribute_field_create'}.intersection(adapter.calls[len(before):])
+    assert adapter.remote['status']=='ACTIVE' and adapter.memberships=={f'gid://shopify/Publication/{i}' for i in (1,2,3)}
+    assert adapter.market_context(drafts.configuration(),remote_id,['GB'])['c0'] is True
+    assert products_badge(product)['label']=='Up to Date'
+    assert (original.status,original.recovery_state,original.error,original.finished_at)==historical
+    assert json.loads(original.scope)['operation_summary']==original_summary
+
+
 @pytest.mark.parametrize('boundary',['before_dispatch','after_ack','uncertain'])
 def test_manual_53_image_registration_restart(variable_world,registry,monkeypatch,boundary):
     from app.models import CatalogueOperation, Product, ShopifyProductIdentity

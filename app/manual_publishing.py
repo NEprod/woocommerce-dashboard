@@ -38,10 +38,11 @@ def require_no_prior_recovery(product_id, reviewed):
     operations = [db.session.get(CatalogueOperation, row.operation_id) for row in identities if row.operation_id]
     if ((job and job.state == 'recovery_required') or any(
             op and op.recovery_state not in {None, 'none'} for op in operations)):
-        from app.shopify_variable_readback import reconciled_completion_review
+        from app.shopify_variable_readback import reconciled_attribute_review, reconciled_completion_review
         if (len(identities)==1 and reviewed.get('product_id')==product_id
                 and (not job or job.state!='recovery_required' or job.operation_id==identities[0].operation_id)
-                and reconciled_completion_review(identities[0],reviewed)):
+                and (reconciled_completion_review(identities[0],reviewed)
+                     or reconciled_attribute_review(identities[0],reviewed))):
             return  # Old history retained; only a new signed review of the same Draft can proceed.
         raise ShopifyError('Existing Recovery Required blocks this new update; no new Shopify write was attempted. '
             'Inspect the original operation and unresolved package evidence before separately authorised recovery.')
