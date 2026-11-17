@@ -296,6 +296,82 @@ def test_legacy_store_rows_block_managed_startup(backup):
         guard.verify_startup(backup / "instance", env, verify_product=lambda _: pytest.fail("remote"))
 
 
+def test_migrated_dev_restarts_after_publishing_and_a_failed_status_read(backup, tmp_path, monkeypatch):
+    from app import shopify_drafts, shopify_status
+    from app.models import CatalogueOperation, ShopifyProductComparison, ShopifyPublishingEvent
+
+    destination = tmp_path / "published-dev"
+    review = run(backup)
+    result = run(backup, destination=destination, approval=review["review_digest"])
+    assert result["staged"], result
+    env = env_for(destination, result["storage_id"])
+    instance = destination / "instance"
+    assert guard.verify_startup(instance, env, verify_product=mocked)
+
+    path = instance / "site.db"
+    fixture = Flask("published_dev")
+    fixture.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + str(path)
+    db.init_app(fixture)
+    monkeypatch.setattr(shopify_drafts, "configuration", lambda: ShopifyConfiguration(guard.DEV_DOMAIN, TOKEN))
+    now = datetime(2026, 11, 17)
+    operation = "e" * 32
+    remote = "gid://shopify/Product/1234567"
+    receipts = json.dumps({"variant_maps": {"EX-1-A": {"id": FIXED}}, "completed_steps": ["product_create"]})
+    with fixture.app_context():
+        db.session.add(CatalogueOperation(id=operation, operation_type="shopify_draft_publish",
+            status="succeeded", started_at=now, finished_at=now, products_succeeded=1))
+        db.session.flush()
+        db.session.add_all([
+            ShopifyProductIdentity(product_id=12, source_identity=REL, sku="EX-1", store_id=guard.DEV_SHOP,
+                store_domain=guard.DEV_DOMAIN, store_key=shopify_drafts.digest({"id": guard.DEV_SHOP}),
+                shopify_product_id=remote, state="verified", verification_state="verified", operation_id=operation,
+                reviewed_digest="fixture", media_evidence_json=receipts, verified_at=now),
+            ShopifyProductComparison(store_id=guard.DEV_SHOP, source_identity=REL, summary_json="{}", compared_at=now),
+            ShopifyPublishingEvent(id="fixture-published", operation_id=operation, product_id=12,
+                event_type="verified_success", trigger="manual", local_revision="fixture", occurred_at=now, receipt_json=receipts),
+            ShopifyOrder(store_id=guard.DEV_SHOP, remote_id="gid://shopify/Order/4321", name="dev fixture",
+                api_version="2026-10", financial_status="PAID", fulfillment_status="UNFULFILLED", currency="GBP",
+                created_at=now, updated_at=now, email=PRIVATE, test=True, total=3, money_json="{}", shipping_json="{}",
+                quantity=1, outstanding_quantity=1),
+        ])
+        db.session.commit()
+        shopify_status.mark_failure(db.session.get(Product, 12), None, "Fixture read could not complete.")
+        marker = ShopifyProductComparison.query.filter(ShopifyProductComparison.store_id != guard.DEV_SHOP).one()
+        assert marker.store_id == "unverified:" + shopify_drafts.configuration().fingerprint()
+        db.session.remove()
+        db.engine.dispose()
+
+    before = path.read_bytes()
+    assert guard.verify_startup(instance, env, verify_product=mocked)
+    assert path.read_bytes() == before  # Includes IDs, receipts, orders, and the staged inventory ledger.
+    assert json.loads((destination / "catalogue/Prints/product_info.json").read_bytes())["production"]
+
+
+@pytest.mark.parametrize("table,key,changes", [
+    ("shopify_product_comparison", guard.LIVE_SHOP, {}),
+    ("shopify_product_comparison", "unverified:bad", {}),
+    ("shopify_product_comparison", "unverified:" + "a" * 64, {"config": "b" * 64}),
+    ("shopify_product_comparison", "unverified:" + "a" * 64, {"classification": "no_change"}),
+    ("shopify_product_comparison", "unverified:" + "a" * 64, {"remote_id": "gid://shopify/Product/678"}),
+    ("shopify_product_identity", "unverified:" + "a" * 64, {}),
+    ("shopify_order", guard.LIVE_SHOP, {}),
+])
+def test_store_audit_rejects_foreign_or_misplaced_store_keys(storage, table, key, changes):
+    root, env = storage
+    path = root / "instance/site.db"
+    diagnostic = dict(version=1, config="a" * 64, classification="unavailable", failures=1, retry_after="2026-11-17T09:30:00",
+                      refresh_failure={"at": "2026-11-17T09:29:30", "message": "Fixture unavailable"}, failure_local=None)
+    with closing(sqlite3.connect(path)) as con, con:
+        con.execute(f"CREATE TABLE {table} (store_id TEXT NOT NULL, summary_json TEXT NOT NULL)")
+        if table == "shopify_product_comparison":
+            con.execute(f"INSERT INTO {table} VALUES (?, ?)", ("unverified:" + "a" * 64, json.dumps(diagnostic)))
+        con.execute(f"INSERT INTO {table} VALUES (?, ?)", (key, json.dumps(diagnostic | changes)))
+    with pytest.raises(guard.DeploymentError, match="another store") as error:
+        guard.verify_startup(root / "instance", env, verify_product=lambda _: pytest.fail("remote"))
+    assert f"{table}.store_id" in str(error.value)
+    assert key not in str(error.value)
+
+
 def test_interrupted_copy_cannot_start_as_legacy(backup, tmp_path, monkeypatch):
     from app import development_migration
     audit = run(backup)

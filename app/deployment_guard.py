@@ -138,6 +138,29 @@ def validate_storage(owner, roots):
             raise DeploymentError("Managed storage resolves to overlapping host mounts.")
 
 
+def _local_comparison_failure(key, raw):
+    """A status-read failure is local retry state, not a remote identity."""
+    match = re.fullmatch(r"unverified:([0-9a-f]{64})", key) if isinstance(key, str) else None
+    if not match or not isinstance(raw, str) or len(raw) > 32768:
+        return False
+    try:
+        data = json.loads(raw)
+    except (ValueError, RecursionError):
+        return False
+    if not isinstance(data, dict) or set(data) != {
+        "version", "config", "classification", "failures", "retry_after", "refresh_failure", "failure_local"
+    }:
+        return False  # Never exempt a row carrying remote state or comparison evidence.
+    failure = data["refresh_failure"]
+    local = data["failure_local"]
+    return (data["version"] == 1 and data["config"] == match[1] and data["classification"] == "unavailable"
+        and type(data["failures"]) is int and 1 <= data["failures"] <= 6
+        and isinstance(data["retry_after"], str)
+        and (local is None or isinstance(local, str) and re.fullmatch(r"[0-9a-f]{64}", local) is not None)
+        and isinstance(failure, dict) and {"at", "message"} <= failure.keys() <= {"at", "message", "kind"}
+        and all(isinstance(value, str) for value in failure.values()))
+
+
 def audit_database(owner, path):
     if not path.exists():
         return
@@ -147,10 +170,16 @@ def audit_database(owner, path):
             con.execute("PRAGMA trusted_schema=OFF")
             tables = {r[0] for r in con.execute("SELECT name FROM sqlite_schema WHERE type='table'")}
             for table, column in STORE_COLUMNS.items():
-                if table in tables and con.execute(
-                        f"SELECT 1 FROM {table} WHERE {column} IS NOT NULL AND {column} != ? LIMIT 1",
-                        (owner.shop,)).fetchone():
-                    raise DeploymentError("Database contains Shopify references from another store; migration is required.")
+                if table not in tables:
+                    continue
+                outside_store = f"FROM {table} WHERE {column} IS NOT NULL AND {column} != ?"
+                if table == "shopify_product_comparison":
+                    mismatch = any(not _local_comparison_failure(key, summary) for key, summary in con.execute(
+                        f"SELECT {column}, summary_json {outside_store}", (owner.shop,)))
+                else:
+                    mismatch = con.execute(f"SELECT 1 {outside_store} LIMIT 1", (owner.shop,)).fetchone()
+                if mismatch:
+                    raise DeploymentError(f"Database contains Shopify references from another store in {table}.{column}; migration is required.")
     except sqlite3.Error:
         raise DeploymentError("Managed database identity could not be checked before startup.") from None
 
