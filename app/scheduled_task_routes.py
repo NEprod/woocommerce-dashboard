@@ -1,6 +1,6 @@
 """Administrator-only task settings, durable queue acceptance and read-only history."""
 import json
-from flask import Blueprint, abort, request, jsonify, render_template, redirect, url_for
+from flask import Blueprint, abort, request, jsonify, render_template, redirect, url_for, current_app
 from flask_login import login_required, current_user
 from flask_wtf import FlaskForm
 from app import db
@@ -76,12 +76,23 @@ def run_detail(run_id):
     run=db.session.get(ScheduledTaskRun,run_id)
     if not run:abort(404)
     data=json.loads(run.data_json)
+    from app.operation_reporting import task_interpretation
+    from app.operations_views import local_time
+    terminal=run.state in {'completed','partially_completed','failed','interrupted','cancelled'}
+    report=task_interpretation(run)
+    phase=data.get('phase') or data.get('stage') or {
+        'queued':'Waiting for execution', 'running':'Executing — latest saved checkpoint',
+        'paused':'Deferred — waiting for the next execution window'}.get(run.state,report['label'])
+    context=dict(runs=[run],detail=data,definition=service.definition(run.task_key),
+        reports={run.id:report},page=None,local_time=local_time)
     if request.accept_mimetypes.best=="application/json":
+        # Render only the report fragment. Do not execute layout context
+        # processors, catalogue projections, task claiming or remote reads.
+        fragment=current_app.jinja_env.get_template('includes/_scheduled_task_report.html').render(**context)
         return jsonify(id=run.id,state=run.state,counts=data.get("counts",{}),reason=data.get("reason"),
+            terminal=terminal,status_label=report['label'],phase=phase,report_html=fragment,
             error=run.error,diagnostic=data.get('diagnostic'),auth_requests=data.get('auth_requests',0),
             errors=data.get('errors', []),
             order_results={k:data.get('orders_'+k,0) for k in ('created','updated','unchanged','stale')},
             outstanding=data.get('pending_orders',len(data.get("queue",[]))),items=data.get("items",[]),request_profile=data.get('request_profile')),200,{"Cache-Control":"no-store"}
-    from app.operation_reporting import task_interpretation
-    from app.operations_views import local_time
-    return render_template("scheduled_task_history.html",runs=[run],detail=data,definition=service.definition(run.task_key),reports={run.id:task_interpretation(run)},page=None,local_time=local_time)
+    return render_template("scheduled_task_history.html",**context,live_terminal=terminal,live_phase=phase)

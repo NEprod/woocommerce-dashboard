@@ -29,16 +29,14 @@
     if (polling) return;
     polling = true; button.disabled = true;
     try {
-      let task = await fetchTask(button.dataset.runUrl, {});
-      // Only an explicit Run Now gets a finite progress window; no periodic page worker.
-      for (let i = 0; task.run_id && i < 12; i += 1) {
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        if (document.hidden) break;
-        task = await refresh();
-      }
-      if (task.run_id) feedback.textContent += " Background work continues; use Refresh activity or View History.";
+      const task = await fetchTask(button.dataset.runUrl, {});
+      if (!task.history_url) throw new Error("Run accepted. Open task history to inspect its saved progress; do not submit again.");
+      // Follow the accepted run, never a later run of the same task. The shared
+      // run page observes persisted progress without another start request.
+      window.location.assign(task.history_url);
+      return;
     } catch (error) { feedback.textContent = error.message; }
-    finally { polling = false; button.disabled = false; }
+    polling = false; button.disabled = false;
   });
   panel.querySelector("[data-task-settings]")?.addEventListener("submit", async event => {
     event.preventDefault();
