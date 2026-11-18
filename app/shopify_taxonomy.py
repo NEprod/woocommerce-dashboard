@@ -157,13 +157,54 @@ def membership_plan(product, store, remote_id, config, adapter):
 
 def register_required(row, data, config, adapter):
     """Called only after signed product approval, under its existing operation lease."""
-    from app.shopify_drafts import save, digest, payload_result
+    from app.shopify_drafts import save, payload_result
     from app.shopify_comparison import mapping_digest
+    from app.shopify_capacity import BackgroundYield
+    from app.shopify_continuation import effect
     for item in data["plan"].get("collections", []):
         proposal = item.get("registration")
-        if not proposal:
+        if not proposal or 'register:'+item['key'] in data.get('completed_steps',()):
             continue
         existing = mapping(row.store_id, item["key"])
+        if data.get('continuation'):
+            name = 'collection_create:'+item['key']
+            mapped = existing
+            if mapped:
+                old = json.loads(mapped.evidence_json)
+                if (mapped.operation_id != row.operation_id or mapped.state != 'creating'
+                        or old != proposal or bool(mapped.remote_id) != (name in data.get('completed_steps',()))):
+                    raise ShopifyError('Retained collection reservation is not bound to the current operation.')
+            else:
+                fresh, _ = review_mapping(item['key'],'create',adapter=adapter)
+                for key in ('source','mode','store_id','config','remote_id','standard','candidates','remote_digest','row_digest','row_state'):
+                    if fresh[key] != proposal[key]:
+                        raise ShopifyError('Collection source or candidates changed; no Create attempted.')
+                mapped = ShopifyCollectionIdentity(store_id=row.store_id,source_key=item['key'],state='creating',
+                    operation_id=row.operation_id,evidence_json=encode(proposal))
+                db.session.add(mapped)
+            try:
+                if not mapped.remote_id:
+                    data['stage'] = 'required_collection_create'
+                    def create():
+                        return adapter.create_collection(config,{'title':item['name'],'handle':item['slug'],
+                            'metafields':[{'namespace':'tlc_dashboard','key':'collection_attempt','type':'single_line_text_field','value':proposal['nonce']}]})
+                    def acknowledge(response):
+                        value = payload_result(response,'collectionCreate')
+                        mapped.remote_id = _gid((value.get('collection') or {}).get('id'),'Collection')
+                    effect(row,data,name,create,acknowledge)
+                remote = validate_collection(adapter.collection_state(config,mapped.remote_id),mapped.remote_id)
+                if (remote.get('metafield') or {}).get('value') != proposal['nonce']:
+                    raise ShopifyError('Collection acknowledgement failed independent correlation readback.')
+                mapped.state='verified';mapped.evidence_json=encode({**proposal,'verified_remote':mapped.remote_id})
+                item.update(remote_id=mapped.remote_id,mapping_state='verified',mapping_fingerprint=mapping_digest(mapped),action='Join')
+                data.setdefault('completed_steps',[]).append('register:'+item['key'])
+                save(row,data)
+            except BackgroundYield:
+                raise  # in-flight marker blocks replay; acknowledged IDs resume with reads
+            except Exception:
+                db.session.rollback();mapped.state='uncertain';save(row,data)
+                raise
+            continue
         if existing:
             raise ShopifyError("Required collection changed/reserved after review. Reconcile or rebuild, never duplicate Create.")
         fresh, _ = review_mapping(item["key"], "create", adapter=adapter)
@@ -331,7 +372,8 @@ def join_reviewed(row, data, config, adapter):
     from app.models import Product
     register_required(row, data, config, adapter)
     for item in data["plan"].get("collections", []):
-        if item["action"] != "Join":
+        step = 'join:'+item['key']
+        if item["action"] != "Join" or step in data.get('completed_steps',()):
             continue
         if (local_plan(db.session.get(Product, row.product_id))["digest"] != data["plan"]["digest"]
                 or configuration().fingerprint() != data["plan"]["config_digest"]):
@@ -342,10 +384,12 @@ def join_reviewed(row, data, config, adapter):
         remote = validate_collection(adapter.collection_state(config, item["remote_id"], row.shopify_product_id), item["remote_id"])
         if not remote["hasProduct"]:
             data.update(stage="collection_membership", update_attempted=True)
-            save(row, data, "updating")
-            payload_result(adapter.join_collection(config, item["remote_id"], row.shopify_product_id), "collectionAddProducts")
-        data.setdefault("completed_steps", []).append("join:" + item["key"])
-        save(row, data)
+            from app.shopify_continuation import effect
+            effect(row,data,step,lambda:adapter.join_collection(config,item['remote_id'],row.shopify_product_id),
+                lambda result:payload_result(result,'collectionAddProducts'),state='updating')
+        else:
+            from app.shopify_drafts import completed_step
+            completed_step(row,data,step)
 
 
 def verify_memberships(plan, config, adapter, product_id):

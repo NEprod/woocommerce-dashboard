@@ -116,6 +116,8 @@ def apply(row, data, config, adapter):
     contract = plan.get('eu_identifier')
     if not contract or all(v['before'] is contract['desired'] for v in contract['targets']):
         return
+    if 'eu_identifier_update' in data.get('completed_steps',()):
+        return
     if _manual_sync_requires_review():
         raise ShopifyError(MANUAL)
     product = db.session.get(Product, row.product_id)
@@ -138,16 +140,16 @@ def apply(row, data, config, adapter):
         return
     data['stage'] = 'eu_identifier_update'
     data['eu_identifier_attempt'] = {'operation_id': row.operation_id, 'state': 'pending', 'variants': changed}
-    drafts.save(row, data, 'updating')
-    result = adapter.write_eu_identifier(config, row.shopify_product_id, changed, desired)
-    payload = drafts.payload_result(result, 'productVariantsBulkUpdate')
-    returned = payload.get('productVariants')
-    if (payload.get('userErrors') != [] or not isinstance(returned, list) or len(returned) != len(changed)
-            or any(not isinstance(v, dict) or v.get('id') not in changed for v in returned)
-            or {v['id'] for v in returned} != set(changed)):
-        raise ShopifyError('Shopify Y081 mutation evidence is incomplete. Reconcile using reads only; no write retry.')
-    data['eu_identifier_attempt']['state'] = 'acknowledged'
-    drafts.completed_step(row, data, 'eu_identifier_update')
+    from app.shopify_continuation import effect
+    def accept(result):
+        payload = drafts.payload_result(result,'productVariantsBulkUpdate')
+        returned = payload.get('productVariants')
+        if (payload.get('userErrors') != [] or not isinstance(returned, list) or len(returned) != len(changed)
+                or any(not isinstance(v, dict) or v.get('id') not in changed for v in returned)
+                or {v['id'] for v in returned} != set(changed)):
+            raise ShopifyError('Shopify Y081 mutation evidence is incomplete. Reconcile using reads only; no write retry.')
+        data['eu_identifier_attempt']['state'] = 'acknowledged'
+    effect(row,data,'eu_identifier_update',lambda:adapter.write_eu_identifier(config,row.shopify_product_id,changed,desired),accept,state='updating')
 
 
 def verify(row, data, config, adapter):

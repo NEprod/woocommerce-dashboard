@@ -29,10 +29,14 @@ GID, app ID and development-plan flag before Flask can migrate SQLite or start
 workers. Later product and Promotions requests are bound to the verified
 configuration. Deployment startup does **not** run Orders catch-up; the
 operator can independently test manual reads. With automation off only
-explicitly queued manual work is claimed. Managed Phase B rejects legacy
-photo, Orders gateway, Woo, Discord-webhook, and manually pinned Online Store
-publication settings. Do not enroll existing production until those services
-have a separately verified configuration and migration plan.
+explicitly queued manual work is claimed. Managed Phase B still rejects the
+legacy Orders gateway, Woo, Discord-webhook, and manually pinned Online Store
+publication settings. The optional photo client accepts only its complete
+existing configuration and requires matching authenticated shop/path evidence
+before use. Configure and test a separate development Worker, private R2
+binding and app proxy as described in [private customer photos](CUSTOMER_PHOTOS.md).
+Do not enrol existing production without a separately verified migration and
+integration plan.
 
 Optional Promotions settings are the existing `TLC_PROMOTIONS_DEV_*` values
 from [PROMOTIONS.md](PROMOTIONS.md), including the private PEM mounted

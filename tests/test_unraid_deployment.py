@@ -12,7 +12,7 @@ from config import Config
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = ROOT / "unraid" / "my-woocommerce-dashboard.xml"
+TEMPLATE = ROOT / "unraid" / "my-tlcdashboard-production.xml"
 STATIC_ROOT = ROOT / "app" / "static"
 
 
@@ -47,8 +47,8 @@ def _configs(root):
 def test_unraid_template_has_safe_supported_contract():
     root = ET.parse(TEMPLATE).getroot()
     assert root.tag == "Container"
-    assert root.findtext("Name") == "WooCommerce Dashboard"
-    assert root.findtext("Repository") == "neprod/woocommerce-dashboard:0.2.3"
+    assert root.findtext("Name") == "TLCDashboard-Production"
+    assert root.findtext("Repository") == "neprod/woocommerce-dashboard:latest"
     assert root.findtext("Registry") == (
         "https://hub.docker.com/r/neprod/woocommerce-dashboard"
     )
@@ -60,19 +60,19 @@ def test_unraid_template_has_safe_supported_contract():
     )
 
     configs = _configs(root)
-    assert configs["WebUI Port"].attrib == {
+    port = configs["WebUI Port"].attrib
+    assert {k: v for k, v in port.items() if k != "Description"} == {
         "Name": "WebUI Port",
         "Target": "7485",
         "Default": "7485",
         "Mode": "tcp",
-        "Description": "WooCommerce Dashboard web interface.",
         "Type": "Port",
         "Display": "always",
         "Required": "true",
         "Mask": "false",
     }
     expected_paths = {
-        "Application Data": ("/app/instance", "/mnt/user/appdata/woocommerce-dashboard/instance"),
+        "Application Data": ("/app/instance", ""),
         "Product Catalogue": ("/catalogue", ""),
         "Generated Output": ("/output", ""),
     }
@@ -100,7 +100,8 @@ def test_unraid_template_has_safe_supported_contract():
         assert configs_by_target[target].attrib["Mask"] == "true"
     xml_text = TEMPLATE.read_text(encoding="utf-8")
     assert "/Users/" not in xml_text
-    assert "/mnt/user/appdata/woocommerce-dashboard/instance" in xml_text
+    assert "/mnt/cache/appdata/woocommerce-dashboard-dev" not in xml_text
+    assert "09_Development_Products" not in xml_text
     assert "discord.com/api/webhooks" not in xml_text
 
 

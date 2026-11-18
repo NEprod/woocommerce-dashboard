@@ -272,7 +272,7 @@ Only run the correction after stopping the container and confirming the exact ap
 
 ## Unraid deployment boundary
 
-An Unraid deployment should pull the immutable `0.2.3` tag, set `PUID=99`, `PGID=100`, and `UMASK=002`, map persistent appdata to `/app/instance`, map catalogue/output shares explicitly, inject secrets at runtime, retain one worker, and verify backups before enabling scans. The reusable template and full instructions are in [Unraid Installation](UNRAID.md).
+An Unraid deployment should pull an approved immutable tag, set `PUID=99`, `PGID=100`, and `UMASK=002`, map persistent appdata to `/app/instance`, map catalogue/output shares explicitly, inject secrets at runtime, retain one Gunicorn worker and the image-managed scheduler, and verify backups before enabling scans. See the separate repository templates and update instructions in [Unraid Installation](UNRAID.md). The historical `0.2.3` release is not a managed deployment image.
 
 The Phase 1 image supplies both target architectures, but publication does not replace deployment-specific backup, mount, secret, and operational validation.
 

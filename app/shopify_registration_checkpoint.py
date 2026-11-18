@@ -15,7 +15,7 @@ def pending(row):
     data = drafts.evidence(row)
     mark = data.get('registration_checkpoint') or {}
     tail = mark.get('tail')
-    if not tail:
+    if not tail or data.get('continuation') or data.get('dispatch'):
         return False
     operation = db.session.get(CatalogueOperation, row.operation_id)
     return (tail in {'variable', 'simple_create', 'simple_update'}
@@ -32,6 +32,8 @@ def apply(row, data, config, adapter, tail):
     plan = data['plan']
     if not any(a['changed'] for a in plan.get('attributes', ())):
         return
+    if data.get('continuation'):
+        return attributes(row,data,config,adapter)
     lease = executing_lease()
     if lease and lease.id == row.operation_id and not pending(row):
         data['registration_checkpoint'] = binding(row, tail)

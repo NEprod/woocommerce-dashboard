@@ -580,6 +580,14 @@ def _native_apply(row,data,config,adapter,operation_id):
             drafts.save(row,data)
             continue
         before = nodes[mapping["id"]]["inventoryItem"]["measurement"]["packedDimensions"]
+        previous = proofs.get(key,{})
+        if (data.get('continuation') and previous.get('operation_id')==operation_id
+                and previous.get('state') in {'acknowledged','verified'}):
+            if previous.get('inventory_id')!=mapping['inventory_id'] or previous.get('desired')!=target['desired'] or not native.equal(before,target['desired']):
+                raise ShopifyError('Acknowledged per-variant dimensions differ in readback; no write replay.')
+            previous.update(state='verified',observed=before,checked_at=drafts.now().isoformat())
+            drafts.save(row,data)
+            continue
         if not can_write and not native.equal(before,target["desired"]):
             proofs[key]={"state":"blocked","message":"Missing write_inventory; no native write attempted.","desired":target["desired"]}
             drafts.save(row,data); continue
@@ -592,24 +600,38 @@ def _native_apply(row,data,config,adapter,operation_id):
             proof['prior_verified']={k:proofs[key][k] for k in ('desired','observed','checked_at','inventory_id') if k in proofs[key]}
         proof['measurement_source']='authored_packed_size'
         proofs[key] = proof
+        from app.shopify_capacity import BackgroundYield, RequestNotSent
+        if data.get('continuation') and proof['state']=='pending':
+            data['dispatch']='native:'+mapping['inventory_id']
         drafts.save(row,data)  # durable per-inventory reservation BEFORE mutation
         try:
             if proof["state"] == "pending":
-                payload = adapter.write_packed(config,mapping["inventory_id"],target["desired"])
+                try:
+                    payload = adapter.write_packed(config,mapping['inventory_id'],target['desired'])
+                except RequestNotSent:
+                    if data.get('continuation'):
+                        data.pop('dispatch');proof['state']='not_sent';drafts.save(row,data)
+                    raise
                 value = payload.get("inventoryItemUpdate") or {}
                 if value.get("userErrors") and value.get("inventoryItem") is None:
                     proof.update(state="blocked",message="Shopify rejected packed dimensions; correct values/access and rebuild Review.")
+                    data.pop('dispatch',None)
                     drafts.save(row,data); continue
                 if value.get("userErrors") or (value.get("inventoryItem") or {}).get("id") != mapping["inventory_id"]:
                     raise ShopifyError("Native mutation receipt is incomplete; reconcile without retry.")
+                if data.get('continuation'):
+                    data.pop('dispatch');proof['state']='acknowledged';drafts.save(row,data)
             observed = adapter.read_packed_inventory(config,mapping["inventory_id"])
             if (not isinstance(observed,dict) or observed.get("id") != mapping["inventory_id"] or observed.get("sku") != wanted["sku"]
                     or not native.equal(observed["measurement"]["packedDimensions"],target["desired"])):
                 raise ShopifyError("Per-variant packed dimensions are not independently verified; reconcile without retry.")
             proof.update(state="verified",observed=observed["measurement"]["packedDimensions"],checked_at=drafts.now().isoformat())
         except ShopifyNativeWriteRejected as exc:
+            data.pop('dispatch',None)
             proof.update(state="blocked",message=str(exc))
-        except Exception:
+        except Exception as exc:
+            if isinstance(exc,BackgroundYield) and data.get('continuation'):
+                raise
             proof.update(state="uncertain",message="Native outcome is uncertain; inspect the exact retained InventoryItem and reconcile using reads only.")
             drafts.save(row,data)
             return "uncertain"  # do not continue writes after uncertainty
@@ -780,6 +802,7 @@ def complete_deferred_availability(row,adapter):
 
 
 def confirm(reviewed, adapter=None):
+    from app.shopify_continuation import begin as checkpoint_begin
     adapter = adapter or ShopifyAdapter()
     product = db.session.get(Product,reviewed["product_id"])
     if not product or product.product_type != "variable":
@@ -797,9 +820,6 @@ def confirm(reviewed, adapter=None):
         if resuming and plan.get('creation_resume')!=reviewed.get('creation_resume'):
             raise ShopifyError('Retained creation scope changed after recovery Review; no write attempted.')
         config = drafts.configuration()
-        def fresh():
-            if local_plan(product)["digest"]!=plan["digest"] or drafts.configuration().fingerprint()!=plan["config_digest"]:
-                raise ShopifyError("Source/configuration changed during variable execution; retained successful stages remain, no further write allowed.")
         row = drafts.matching_identity(plan["store_id"],product)
         from app.shopify_variable_readback import attribute_review_only, reconciled_attribute_review, reconciled_completion_review
         reconciled_completion = reconciled_completion_review(row,reviewed)
@@ -851,44 +871,18 @@ def confirm(reviewed, adapter=None):
                 row = ShopifyProductIdentity(product_id=product.id,source_identity=product.source_relpath,sku=product.sku,
                     store_key=plan["store_key"],store_id=plan["store_id"],store_domain=config.domain,
                     operation_id=lease.id,reviewed_digest=plan["digest"],state="pending",verification_state="unverified",media_evidence_json=drafts.encode(data))
-                db.session.add(row); db.session.commit()  # SQLite constraints reserve before remote writes
+                db.session.add(row)
             else:
                 if row.product_id is None: row.product_id=product.id
                 row.operation_id,row.reviewed_digest=lease.id,plan["digest"]
-                drafts.save(row,data,"pending")
-            uploads=drafts.upload_gallery(product,row,data,plan,config,adapter)
-            drafts.completed_step(row,data,"staged_uploads")
-            drafts.completed_step(row,data,"original_image_uploads")
-            if local_plan(product)["digest"]!=plan["digest"]:
-                raise ShopifyError("Local source changed during uploads; no product Create attempted.")
-            data.update(stage="product_create",create_attempted=True)
-            drafts.save(row,data,"creating"); attempted=True
-            payload=dict(plan["managed"]["product"],status="DRAFT",handle=plan["handle"],productOptions=plan["options"])
-            payload["metafields"]=[{"namespace":"tlc_dashboard","key":"publish_attempt","type":"single_line_text_field","value":plan["nonce"]},*payload.get("metafields",[])]
-            response=adapter.create_variable(config,payload,uploads)
-            created=(response.get("productCreate") or {}).get("product")
-            if isinstance(created,dict) and created.get("id"):
-                row.shopify_product_id=_gid(created["id"],"Product")
-                data["created_media"]=(created.get("media") or {}).get("nodes",[])
-                drafts.save(row,data,"created")
-            drafts.payload_result(response,"productCreate")
-            if not row.shopify_product_id:
-                raise ShopifyError("Product create receipt is incomplete; resolve the retained correlation, never Create again.")
-            drafts.completed_step(row,data,"product_create")
-            remote=adapter.read_variable(config,row.shopify_product_id,plan["managed"]["namespace"])
-            if getattr(adapter,'snapshot_restarts',None):data['gallery_snapshot_restarts']=(data.get('gallery_snapshot_restarts',[])+copy.deepcopy(adapter.snapshot_restarts))[-6:]
-            nodes=remote_identity(row,data,remote)
-            first=plan["variants"][0]
-            if len(nodes)!=1 or nodes[0]["selectedOptions"]!=first["options"] or nodes[0]["sku"]:
-                raise ShopifyError("New product's initial option variant is unexpected; no variant is deleted or adopted blindly.")
-            first["remote_id"],first["inventory_id"]=nodes[0]["id"],nodes[0]["inventoryItem"]["id"]
-            first["action"]="Update"
-            # Reserve its exact initial GIDs before setting the reviewed SKU.
-            data["variant_creates_attempted"].append(first["identity"])
+            checkpoint_begin(row,data,'variable_create',commit=False)
+            drafts.save(row,data,'pending')
         else:
             previous={"data":copy.deepcopy(drafts.evidence(row)),"operation_id":row.operation_id,"reviewed_digest":row.reviewed_digest,
                 'state':row.state,'verification_state':row.verification_state}
             data=drafts.evidence(row)
+            data.pop('continuation',None)
+            data.pop('dispatch',None)
             if resuming:
                 data['creation_resume_from']={'operation_id':row.operation_id,'stage':data.get('stage'),'completed_steps':data.get('completed_steps',[])}
                 for receipt,mid in zip(data['media'],plan['creation_resume']['media_ids']):receipt['id']=mid
@@ -896,6 +890,10 @@ def confirm(reviewed, adapter=None):
             data.update(plan=plan,stage="reviewed_update",update_attempted=True,completed_steps=[],publication_review_operation_id=lease.id,
                 variant_write_acknowledgements=[],variant_ack_before_sku={})
             row.operation_id,row.reviewed_digest,row.verification_state=lease.id,plan["digest"],"unverified"
+            if reconciled_attributes:
+                data['reconciled_attribute_update'] = {'original_operation':previous['operation_id'], 'operation':lease.id}
+            checkpoint_begin(row,data,'variable_completion' if reconciled_completion else
+                'variable_tail' if reconciled_attributes else 'variable_update',commit=False)
             drafts.save(row,data,"updating")
             if reconciled_completion:
                 # Apply only the signed availability and eligible packed dimensions.
@@ -904,77 +902,13 @@ def confirm(reviewed, adapter=None):
                 begin(row,data,'base')
                 return complete(row,adapter,allow_writes=True)
             if reconciled_attributes:
-                data['reconciled_attribute_update'] = {'original_operation':previous['operation_id'], 'operation':lease.id}
-                drafts.save(row,data)
                 attempted=True
                 return finish_registration_tail(row,data,config,adapter)
-            metadata,_=drafts.update_inputs(dict(plan,variant_id="unused"))
-            if len(metadata)>1:
-                fresh()
-                data["stage"]="product_update"; drafts.save(row,data); attempted=True
-                drafts.payload_result(adapter.update_simple_product(config,metadata),"productUpdate")
-                drafts.completed_step(row,data,"product_update")
-            actions=plan["media_actions"]
-            if actions["alt"]:
-                fresh()
-                data["stage"]="media_alt"; drafts.save(row,data); attempted=True
-                drafts.payload_result(adapter.update_media_alt(config,actions["alt"]),"fileUpdate")
-                drafts.completed_step(row,data,"media_alt")
-            if actions["reorder"]:
-                fresh()
-                data["stage"]="media_order"; drafts.save(row,data); attempted=True
-                payload=drafts.payload_result(adapter.reorder_media(config,row.shopify_product_id,actions["ids"]),"productReorderMedia")
-                data["reorder_job"]=(payload.get("job") or {}).get("id")
-                drafts.completed_step(row,data,"media_order")
-            data["created_media"]=[{"id":i} for i in actions["ids"]]
-            drafts.save(row,data)
-        if len(data["created_media"])!=len(plan["images"]):
-            raise ShopifyError("Creation media receipts are missing/incomplete; inspect the retained mapping, no upload retry.")
-        if creating:
-            for receipt,created in zip(data["media"],data["created_media"]):
-                receipt["id"]=_gid(created["id"],"MediaImage")
-        media={r["source"]:r["id"] for r in data["media"]}
-        updates, additions = [], []
-        changed = {f.get("variant_identity") for f in plan["fields"] if f["changed"]}
-        for wanted in plan["variants"]:
-            if wanted["action"]=="Create":
-                additions.append({**_payload(wanted,media),"optionValues":[{"optionName":o["name"],"name":o["value"]} for o in wanted["options"]]})
-            elif creating:
-                updates.append(dict(_payload(wanted,media),id=wanted["remote_id"]))
-            elif wanted["identity"] in changed:
-                leaves={f["leaf"] for f in plan["fields"] if f.get("variant_identity")==wanted["identity"] and f["changed"]}
-                full=_payload(wanted,media)
-                patch={"id":wanted["remote_id"]}
-                for key in ("price","compareAtPrice","mediaId","inventoryPolicy"):
-                    if key in leaves and key in full: patch[key]=full[key]
-                inventory={k:value for k,value in full["inventoryItem"].items() if k in leaves or k=="measurement" and "weight" in leaves}
-                if inventory: patch["inventoryItem"]=inventory
-                meta=[m for m in full.get("metafields",[]) if "dimensions."+m["key"].removeprefix("product_") in leaves]
-                if meta: patch["metafields"]=meta
-                if len(patch)>1: updates.append(patch)
-        if updates:
-            fresh()
-            data["stage"]="variant_update"; drafts.save(row,data); attempted=True
-            payload=drafts.payload_result(adapter.update_variants(config,row.shopify_product_id,updates),"productVariantsBulkUpdate")
-            from app.shopify_variable_readback import acknowledge
-            acknowledge(row,data,payload,[v for v in plan['variants'] if v.get('remote_id') in {u['id'] for u in updates}], 'variant_update')
-        if additions:
-            fresh()
-            data["variant_creates_attempted"] += [v["identity"] for v in plan["variants"] if v["action"]=="Create"]
-            data["stage"]="variant_create"; drafts.save(row,data); attempted=True
-            payload=drafts.payload_result(adapter.create_variants(config,row.shopify_product_id,additions),"productVariantsBulkCreate")
-            from app.shopify_variable_readback import acknowledge
-            acknowledge(row,data,payload,[v for v in plan['variants'] if v['action']=='Create'],'variant_create')
-        from app.shopify_taxonomy import join_reviewed
-        join_reviewed(row,data,config,adapter)
-        if any(a["changed"] for a in plan.get("attributes",[])):
-            attempted=True
-        if (plan.get('customisations') or {}).get('changed'):
-            attempted=True
-        if any(s['changed'] for s in (plan.get('dimension_metadata') or {}).get('definitions', [])):
-            attempted=True
-        return finish_registration_tail(row,data,config,adapter)
-    except drafts.GalleryPending:
+        attempted = not creating
+        return run_variable_checkpoint(row,data,config,adapter,creating=creating)
+    except drafts.GalleryPending as exc:
+        if data.get('continuation'):
+            drafts.defer_upload(row,data,exc)
         data['upload_no_progress'] = data.get('upload_no_progress',0)+1 if len(data.get('upload_inputs',[]))==data.get('upload_start_count') else 0
         data.update(stage='gallery_uploading', error=None)
         drafts.save(row,data,'uploading')
@@ -985,10 +919,13 @@ def confirm(reviewed, adapter=None):
     except Exception as exc:
         db.session.rollback()
         from app.shopify_capacity import BackgroundYield
+        from app.shopify_continuation import defer_read_failure, pending
         from app.shopify_registration_checkpoint import pending as registration_pending
         from app.shopify_variable_readback import pending as verification_pending
-        if isinstance(exc,BackgroundYield) and row and row.operation_id==lease.id and (registration_pending(row) or verification_pending(row)):
+        if isinstance(exc,BackgroundYield) and row and row.operation_id==lease.id and (pending(row) or registration_pending(row) or verification_pending(row)):
             raise  # Lost fence while saving a safe checkpoint; the replacement worker owns it.
+        if row and row.operation_id==lease.id:
+            defer_read_failure(row,exc)
         if isinstance(exc, BackgroundYield) and not attempted and (not row or row.operation_id != lease.id):
             # A read-only preflight yield is owned by the existing task runner.
             # Do not terminalise/notify an operation which will resume there.
@@ -1003,6 +940,9 @@ def confirm(reviewed, adapter=None):
             if package_attempted(retained,lease.id):attempted=True
             if retained.get('eu_identifier_attempt', {}).get('operation_id') == lease.id:attempted=True
             if retained.get('item_cost_attempt', {}).get('operation_id') == lease.id:attempted=True
+            if row.operation_id == lease.id and (retained.get('create_attempted') or retained.get('dispatch')
+                    or retained.get('continuation') and retained.get('upload_attempt',{}).get('state')=='pending'):
+                attempted=True
             if not attempted and creating is False and previous:
                 row.operation_id,row.reviewed_digest,row.verification_state=previous["operation_id"],previous["reviewed_digest"],previous['verification_state']
                 drafts.save(row,previous["data"],previous['state'])
@@ -1014,6 +954,8 @@ def confirm(reviewed, adapter=None):
             diagnostic=data.get('failure_diagnostic') or {}
             diagnostic=diagnostic if diagnostic.get('operation_id')==lease.id else drafts.failure_diagnostic(
                 exc,'variable_readback.'+phase if phase else data.get('stage'),lease.id)
+            if data.get('dispatch') or data.get('upload_attempt',{}).get('state')=='pending':
+                diagnostic['mutation_outcome']='unacknowledged'
             data['failure_diagnostic']=diagnostic
             data["error"] = sanitize_operation_error(exc) if isinstance(exc,ShopifyError) else (
                 'Variable operation interrupted at '+diagnostic['stage']+' ('+diagnostic['category']+'). '
@@ -1027,18 +969,123 @@ def confirm(reviewed, adapter=None):
         raise
 
 
+def run_variable_checkpoint(row,data,config,adapter,*,creating):
+    from app.shopify_continuation import effect
+    from app.shopify_variable_readback import acknowledge
+    from app.shopify_taxonomy import join_reviewed
+    plan = data['plan']
+    completed = data['completed_steps']
+    product = db.session.get(Product,row.product_id)
+    def fresh():
+        if local_plan(product)['digest']!=plan['digest'] or drafts.configuration().fingerprint()!=plan['config_digest']:
+            raise ShopifyError('Source/configuration changed; no further variable write authorised.')
+
+    if creating and 'product_create' not in completed:
+        if data.get('continuation') and row.state != 'pending':
+            drafts.save(row,data,'pending')
+        uploads = drafts.upload_gallery(product,row,data,plan,config,adapter)
+        drafts.completed_step(row,data,'staged_uploads')
+        drafts.completed_step(row,data,'original_image_uploads')
+        drafts.require_absent_sku(adapter,config,plan['sku'])
+        fresh()
+        if row.shopify_product_id:
+            raise ShopifyError('Retained Product Create is not fully acknowledged; no Create replay.')
+        data.update(stage='product_create',create_attempted=True)
+        payload = dict(plan['managed']['product'],status='DRAFT',handle=plan['handle'],productOptions=plan['options'])
+        payload['metafields'] = [{'namespace':'tlc_dashboard','key':'publish_attempt','type':'single_line_text_field','value':plan['nonce']},
+            *payload.get('metafields', [])]
+        def accept(result):
+            created = drafts.payload_result(result,'productCreate').get('product') or {}
+            row.shopify_product_id = _gid(created.get('id'),'Product')
+            data['created_media'] = (created.get('media') or {}).get('nodes',[])
+            row.state = 'created'
+        effect(row,data,'product_create',lambda:adapter.create_variable(config,payload,uploads),accept,state='creating')
+    if creating and 'initial_variant_identity' not in completed:
+        remote = adapter.read_variable(config,row.shopify_product_id,plan['managed']['namespace'])
+        if getattr(adapter,'snapshot_restarts',None):
+            data['gallery_snapshot_restarts'] = (data.get('gallery_snapshot_restarts',[])+copy.deepcopy(adapter.snapshot_restarts))[-6:]
+        nodes = remote_identity(row,data,remote)
+        first = plan['variants'][0]
+        if len(nodes)!=1 or nodes[0]['selectedOptions']!=first['options'] or nodes[0]['sku']:
+            raise ShopifyError('New product initial option variant is unexpected; no variant is adopted blindly.')
+        first.update(remote_id=nodes[0]['id'],inventory_id=nodes[0]['inventoryItem']['id'],action='Update')
+        data['variant_creates_attempted'].append(first['identity'])
+        drafts.completed_step(row,data,'initial_variant_identity')
+    if not creating:
+        metadata,_ = drafts.update_inputs(dict(plan,variant_id='unused'))
+        actions = plan['media_actions']
+        for stage,needed,invoke,key in (
+            ('product_update',len(metadata)>1,lambda:adapter.update_simple_product(config,metadata),'productUpdate'),
+            ('media_alt',actions['alt'],lambda:adapter.update_media_alt(config,actions['alt']),'fileUpdate'),
+            ('media_order',actions['reorder'],lambda:adapter.reorder_media(config,row.shopify_product_id,actions['ids']),'productReorderMedia')):
+            if not needed or stage in completed:
+                continue
+            fresh()
+            data['stage'] = stage
+            def accept(result):
+                payload = drafts.payload_result(result,key)
+                if key == 'productReorderMedia':
+                    data['reorder_job'] = (payload.get('job') or {}).get('id')
+            effect(row,data,stage,invoke,accept)
+        data['created_media'] = [{'id':i} for i in actions['ids']]
+        drafts.save(row,data)
+    if len(data["created_media"])!=len(plan["images"]):
+        raise ShopifyError("Creation media receipts are missing/incomplete; inspect the retained mapping, no upload retry.")
+    if creating:
+        for receipt,created in zip(data["media"],data["created_media"]):
+            receipt["id"]=_gid(created["id"],"MediaImage")
+    media={r["source"]:r["id"] for r in data["media"]}
+    updates, additions = [], []
+    changed = {f.get("variant_identity") for f in plan["fields"] if f["changed"]}
+    for wanted in plan["variants"]:
+        if wanted["action"]=="Create":
+            additions.append({**_payload(wanted,media),"optionValues":[{"optionName":o["name"],"name":o["value"]} for o in wanted["options"]]})
+        elif creating:
+            updates.append(dict(_payload(wanted,media),id=wanted["remote_id"]))
+        elif wanted["identity"] in changed:
+            leaves={f["leaf"] for f in plan["fields"] if f.get("variant_identity")==wanted["identity"] and f["changed"]}
+            full=_payload(wanted,media)
+            patch={"id":wanted["remote_id"]}
+            for key in ("price","compareAtPrice","mediaId","inventoryPolicy"):
+                if key in leaves and key in full: patch[key]=full[key]
+            inventory={k:value for k,value in full["inventoryItem"].items() if k in leaves or k=="measurement" and "weight" in leaves}
+            if inventory: patch["inventoryItem"]=inventory
+            meta=[m for m in full.get("metafields",[]) if "dimensions."+m["key"].removeprefix("product_") in leaves]
+            if meta: patch["metafields"]=meta
+            if len(patch)>1: updates.append(patch)
+
+    if updates and 'variant_update' not in completed:
+        fresh()
+        data['stage'] = 'variant_update'
+        def accept(result):
+            payload = drafts.payload_result(result,'productVariantsBulkUpdate')
+            acknowledge(row,data,payload,[v for v in plan['variants'] if v.get('remote_id') in {u['id'] for u in updates}],
+                        'variant_update',commit=False)
+        effect(row,data,'variant_update',lambda:adapter.update_variants(config,row.shopify_product_id,updates),accept)
+    if additions and 'variant_create' not in completed:
+        fresh()
+        targets = [v for v in plan['variants'] if v['action']=='Create']
+        data['variant_creates_attempted'] = list(dict.fromkeys(data['variant_creates_attempted']+[v['identity'] for v in targets]))
+        data['stage'] = 'variant_create'
+        def accept(result):
+            payload = drafts.payload_result(result,'productVariantsBulkCreate')
+            acknowledge(row,data,payload,targets,'variant_create',commit=False)
+        effect(row,data,'variant_create',lambda:adapter.create_variants(config,row.shopify_product_id,additions),accept)
+    join_reviewed(row,data,config,adapter)
+    return finish_registration_tail(row,data,config,adapter)
+
+
 def finish_registration_tail(row,data,config,adapter):
     from app.shopify_registration_checkpoint import apply
     apply(row,data,config,adapter,'variable')
     if data.get('reconciled_attribute_update', {}).get('operation') != row.operation_id:
         from app.shopify_customisations import apply as apply_customisations
-        apply_customisations(row,data,config,adapter)
         from app.shopify_dimension_metadata import apply as apply_dimensions
-        apply_dimensions(row,data,config,adapter)
         from app.shopify_eu_identifier import apply as apply_eu_identifier
-        apply_eu_identifier(row,data,config,adapter)
         from app.shopify_item_cost import apply as apply_item_cost
-        apply_item_cost(row,data,config,adapter)
+        for name, step in zip(('customisations','dimension_definitions','y081','item_cost'),
+                              (apply_customisations,apply_dimensions,apply_eu_identifier,apply_item_cost)):
+            drafts.run_phase(row,data,'tail:'+name,lambda:step(row,data,config,adapter))
     from app.shopify_variable_readback import begin,complete
     begin(row,data,'base')
     return complete(row,adapter,allow_writes=True)

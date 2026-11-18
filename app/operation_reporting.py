@@ -58,6 +58,9 @@ def interpretation(row):
         execution = 'processing'
     if known_processing:
         execution, recovery = 'processing', False
+    if (execution == 'pending' and not recovery and row.operation_type=='shopify_draft_publish'
+            and scope.get('worker_deferral',{}).get('deferral') in {'readback_pending','upload_slice'}):
+        execution = 'processing'
     # Only explicit new evidence permits a corrected historical interpretation.
     entries = summary.get('warning_entries') or []
     from app.utils.scan_runner import scan_finding_severity

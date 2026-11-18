@@ -19,7 +19,7 @@ def _verified_base(verification,operation_id):
         and all(verification.get(k)=='verified' for k in ('identity','fields','media','memberships','attributes')))
 
 
-def acknowledge(row,data,payload,wanted,stage):
+def acknowledge(row,data,payload,wanted,stage,*,commit=True):
     nodes=payload.get('productVariants')
     if not isinstance(nodes,list):raise ShopifyError('Variant acknowledgement missing returned identities; retain recovery, never replay.')
     mappings={};ids=set()
@@ -38,12 +38,13 @@ def acknowledge(row,data,payload,wanted,stage):
     data.setdefault('variant_maps',{}).update(mappings)
     data.setdefault('variant_write_acknowledgements',[]).append({'operation_id':row.operation_id,'stage':stage,
         'at':drafts.now().isoformat(),'variants':copy.deepcopy(mappings)})
-    drafts.completed_step(row,data,stage)  # acknowledgement AND mappings in the same fenced commit
+    if commit:
+        drafts.completed_step(row,data,stage)  # acknowledgement AND mappings in the same fenced commit
 
 
 def pending(row):
     data=drafts.evidence(row);w=data.get('verification_wait') or {};op=db.session.get(CatalogueOperation,row.operation_id)
-    return bool(data.get('kind')=='variable' and w.get('operation_id')==row.operation_id
+    return bool(not data.get('dispatch') and data.get('kind')=='variable' and w.get('operation_id')==row.operation_id
         and w.get('source_digest')==row.reviewed_digest==data.get('plan',{}).get('digest')
         and op and op.recovery_state in {None,'none'} and op.status in {'running','pending','partial'}
         and ((row.state=='processing' and w.get('state') in {'pending','waiting_authority'})
@@ -109,7 +110,10 @@ def _completion_checkpoint(data,operation_id):
     """A completion preflight can yield; a reserved mutation cannot be replayed."""
     # Native/package continuation has its own evidence requirements. Do not
     # restart those writers if this operation reserved or handled an item.
-    if any(proof.get('operation_id')==operation_id or proof.get('state') in {'pending','uncertain'}
+    if data.get('dispatch'):
+        return None
+    resumable = (data.get('continuation') or {}).get('operation')==operation_id
+    if any((not resumable and proof.get('operation_id')==operation_id) or proof.get('state') in {'pending','uncertain'}
            for key in ('variant_native','package_assignments') for proof in (data.get(key) or {}).values()):
         return None
     proof=data.get('publication_update') or {}
@@ -119,6 +123,8 @@ def _completion_checkpoint(data,operation_id):
             and proof.get('plan')==data['plan'].get('publication')):
         if proof.get('state')=='pending':return 'publication'  # read acknowledgement only
         if proof.get('state')=='verified':return 'completion'  # writer will skip already verified publication
+    if resumable and proof.get('operation_id')==operation_id and proof.get('unified') and proof.get('state')=='pending' and proof.get('plan')==data['plan'].get('publication'):
+        return 'completion'  # individually acknowledged prefix; resume only unsent availability actions
     return None
 
 
@@ -324,7 +330,9 @@ def complete(row,adapter,*,allow_writes=False):
             db.session.rollback();data=drafts.evidence(row);w=data['verification_wait']
             if pending(row):
                 if w['state']=='writing':begin(row,data,_completion_checkpoint(data,row.operation_id))
-                return _pause(row,data,exc)
+                from app.shopify_capacity import diagnostic
+                data['verification_wait']['last_deferral'] = diagnostic(exc)
+                return _pause(row,data,diagnostic(exc)['deferral'],count=False)
         elif data['verification_wait'].get('state') in {'pending','waiting_authority','completed'} and _transient(exc):
             return _pause(row,data,exc)
         # Preserve the latest COMMITTED acknowledgement/readback on every error,

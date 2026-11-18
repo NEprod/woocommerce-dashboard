@@ -200,7 +200,7 @@ def test_legacy_installation_not_forced_back_through_setup(configured):
 
 def test_generic_deployment_contract():
     root = Path(__file__).resolve().parents[1]
-    entries = ET.parse(root / "unraid/my-woocommerce-dashboard.xml").getroot().findall("Config")
+    entries = ET.parse(root / "unraid/my-tlcdashboard-production.xml").getroot().findall("Config")
     targets = [e.attrib["Target"] for e in entries]
     for target in ("/intake", "/catalogue", "/output", "/taxonomy", "PRODUCT_FOLDER", "OUTPUT_FOLDER", "URL_PREFIX", "TAXONOMY_ROOT"):
         assert targets.count(target) == 1

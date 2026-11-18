@@ -126,12 +126,21 @@ def reserve(plan):
 
 def apply(row, data, config, adapter):
     from app import shopify_drafts as drafts
+    from app.shopify_continuation import effect
     spec = data['plan'].get('customisations')
     if not spec or not spec['changed']: return
     if spec['value_changed']:
         check_photo_service(spec['desired'], config.domain, row.store_id, config.api_version)
     current = snapshot(adapter, config, row.shopify_product_id)
-    if current != spec['before']:
+    steps = data.get('completed_steps',())
+    if 'customer_value' in steps:
+        verify(row,data,config,adapter)
+        return
+    definition_sent = 'customer_definition' in steps
+    prior = data.get('storefront_configuration') or {}
+    if (not definition_sent and current != spec['before'] or definition_sent and
+            (not current['definition'] or current['definition']['id'] != prior.get('definition_id')
+             or current['definition']['access'] != spec['access'] or current['value'] != spec['before']['value'])):
         raise ShopifyError('Customer configuration/definition changed after Review; no unreviewed overwrite is allowed.')
     proof = data['storefront_configuration'] = {'version':1, 'state':'pending',
         'desired':spec['desired'], 'config':config.fingerprint(), 'operation_id':row.operation_id,
@@ -143,21 +152,24 @@ def apply(row, data, config, adapter):
                 or drafts.configuration().fingerprint() != config.fingerprint()
                 or desired(product) != spec['desired']):
             raise ShopifyError('Public source/configuration changed during execution. Stop and reconcile successful earlier stages before another review.')
-    if spec['definition_changed']:
+    if spec['definition_changed'] and not definition_sent:
         fresh()
         data['stage'] = 'customisation_definition'
-        drafts.save(row, data)  # committed before the external request, including on Create
-        if current['definition']:
-            response = adapter.update_attribute_access(config, 'field', current['definition']['id'],
-                {'namespace':NAMESPACE,'key':KEY,'access':spec['access']})
-            drafts.payload_result(response, 'metafieldDefinitionUpdate')
-        else:
-            response = adapter.create_attribute_resource(config, 'field', {
+        def invoke():
+            if current['definition']:
+                return adapter.update_attribute_access(config,'field',current['definition']['id'],
+                    {'namespace':NAMESPACE,'key':KEY,'access':spec['access']})
+            return adapter.create_attribute_resource(config,'field',{
                 'name':'TLC customer customisations','namespace':NAMESPACE,'key':KEY,'type':'json',
                 'ownerType':'PRODUCT','access':spec['access']})
-            drafts.payload_result(response, 'metafieldDefinitionCreate')
+        def accept(response):
+            from app.shopify_connection import _gid
+            payload = drafts.payload_result(response,'metafieldDefinitionUpdate' if current['definition'] else 'metafieldDefinitionCreate')
+            proof['definition_id'] = current['definition']['id'] if current['definition'] else _gid(
+                (payload.get('createdDefinition') or {}).get('id'),'MetafieldDefinition')
+        effect(row,data,'customer_definition',invoke,accept)
         field = _definition(adapter, config)
-        if not field or field['access'] != spec['access']:
+        if not field or field['access'] != spec['access'] or field['id'] != proof['definition_id']:
             raise ShopifyError('Customer configuration definition readback differs; reconcile without retry.')
         proof['definition_id'], proof['namespace'] = field['id'], field['namespace']
         drafts.save(row, data)
@@ -165,11 +177,9 @@ def apply(row, data, config, adapter):
         fresh()
         proof['value_attempted'] = True
         data['stage'] = 'customisation_configuration'
-        drafts.save(row, data)
-        response = adapter.set_attributes(config, [{'ownerId':row.shopify_product_id,
-            'namespace':NAMESPACE, 'key':KEY, 'type':'json', 'value':canonical(spec['desired']),
-            'compareDigest':(current['value'] or {}).get('compareDigest')}])
-        drafts.payload_result(response, 'metafieldsSet')
+        effect(row,data,'customer_value',lambda:adapter.set_attributes(config,[{'ownerId':row.shopify_product_id,
+            'namespace':NAMESPACE,'key':KEY,'type':'json','value':canonical(spec['desired']),
+            'compareDigest':(current['value'] or {}).get('compareDigest')}]),lambda response:drafts.payload_result(response,'metafieldsSet'))
     verify(row, data, config, adapter)
 
 
@@ -262,7 +272,11 @@ def confirm(reviewed, adapter=None):
         drafts.save(row, data, 'updating')
         from app.shopify_comparison import invalidate
         invalidate(row.store_id, row.source_identity)
-        scoped = {**data, 'plan':plan}
+        # The retained full-product operation may already have acknowledged a
+        # customer value. That checkpoint cannot satisfy a new scoped approval.
+        scoped = {**data, 'plan':plan, 'completed_steps':[]}
+        scoped.pop('continuation', None)
+        scoped.pop('dispatch', None)
         attempted = True
         apply(row, scoped, drafts.configuration(), adapter)
         # Preserve the original full-product plan and its identities/media evidence.

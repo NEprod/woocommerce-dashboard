@@ -446,7 +446,11 @@ def operation_context(operation_type: str, scope=None):
 def recover_interrupted_operations() -> int:
     rows = CatalogueOperation.query.filter_by(status="running").all()
     from app.utils.operation_live import scope_dict
-    rows=[row for row in rows if not scope_dict(row).get('manual_review')]
+    from app.models import ShopifyProductIdentity
+    from app.shopify_continuation import pending as publish_checkpoint
+    rows=[row for row in rows if not scope_dict(row).get('manual_review') and not (
+        row.operation_type=='shopify_draft_publish' and scope_dict(row).get('automatic_publishing')
+        and publish_checkpoint(ShopifyProductIdentity.query.filter_by(operation_id=row.id).one_or_none(),'publisher'))]
     if not rows:
         return 0
     finished_at = _utcnow()

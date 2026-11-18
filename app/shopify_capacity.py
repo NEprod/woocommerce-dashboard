@@ -16,9 +16,23 @@ _background = ContextVar("shopify_background", default=None)
 class BackgroundYield(RuntimeError):
     """Local scheduling deferral, NOT a failed Shopify verification."""
 
+    def __init__(self,message,*,code=None):
+        super().__init__(message)
+        self.code = code
+
 
 class RequestNotSent(BackgroundYield):
     """The transport's pre-request gate declined this exact request."""
+
+
+def diagnostic(error):
+    allowed = {'time_budget','request_budget','capacity','interactive_priority','capacity_storage',
+               'ownership','operation_slot','authority','upload_slice','readback_pending','worker_reclaim','shopify_read_failure'}
+    code = getattr(error,'code',None)
+    result = {'deferral':code if code in allowed else 'unknown',
+              'request_not_sent':isinstance(error,RequestNotSent)}
+    result.update(getattr(error,'slice_counts',{}))
+    return result
 
 
 def now():
@@ -32,12 +46,17 @@ def background():
 
 @contextmanager
 def background_work(guard, *, fence=None, requests=120, seconds=120, price_transitions=False, publisher_authority=None, publishing_context=None):
-    state = {"guard": guard, "fence":fence or guard, "remaining": requests, "deadline": monotonic()+seconds, "requests": 0, "throttled": 0,
+    started = monotonic()
+    state = {"guard": guard, "fence":fence or guard, "remaining": requests, "deadline": started+seconds, "requests": 0, "throttled": 0,
              "price_transitions":price_transitions, "publisher_authority":publisher_authority,
              "publishing_context":publishing_context}
     token = _background.set(state)
     try:
         yield state
+    except BackgroundYield as exc:
+        if not hasattr(exc,'slice_counts'):
+            exc.slice_counts = {'requests': state['requests'], 'elapsed_ms': round(max(0,monotonic()-started)*1000)}
+        raise
     finally:
         _background.reset(token)
 
@@ -80,6 +99,8 @@ def before(config, *, writing=False, query=None):
             signal_priority(2 if writing else 1)
         return
     guard_owner()
+    if state.get('capacity_storage_deferred'):
+        raise BackgroundYield('Shared capacity storage is unavailable; continue at the next slice.',code='capacity_storage')
     if writing:
         from app.shopify_connection import PRICE_QUERY, VARIANTS_UPDATE
         permitted = state.get('price_transitions') is True and query in {PRICE_QUERY,VARIANTS_UPDATE}
@@ -88,13 +109,15 @@ def before(config, *, writing=False, query=None):
             permitted = True
     else: permitted = True
     if not permitted:
-        raise BackgroundYield("Background Shopify mutations are forbidden.")
-    if state["remaining"] <= 0 or monotonic() >= state["deadline"]:
-        raise BackgroundYield("Bounded API/time budget reached; outstanding products retained.")
+        raise BackgroundYield("Background Shopify mutations are forbidden.",code='authority')
+    if state["remaining"] <= 0:
+        raise BackgroundYield("Bounded API request budget reached; outstanding products retained.",code='request_budget')
+    if monotonic() >= state["deadline"]:
+        raise BackgroundYield("Bounded time budget reached; outstanding products retained.",code='time_budget')
     row = db.session.get(ShopifyApiCapacity, config.fingerprint(), populate_existing=True)
     if row:
         if row.priority_until and row.priority_until > now():
-            raise BackgroundYield("Yielding to interactive publishing/manual verification.")
+            raise BackgroundYield("Yielding to interactive publishing/manual verification.",code='interactive_priority')
         if row.observed_at and row.available is not None and row.restore_rate is not None:
             available = row.available + max(0, (now()-row.observed_at).total_seconds())*row.restore_rate
             if row.maximum is not None:
@@ -102,12 +125,12 @@ def before(config, *, writing=False, query=None):
             cost=max(1,row.requested_cost or 1)
             reserve=min(100,max(0,(row.maximum-cost)/2),row.maximum*.1) if row.maximum is not None else 100
             if available < cost+reserve:
-                raise BackgroundYield("Shopify capacity reserved for interactive work; resume after restoration.")
+                raise BackgroundYield("Shopify capacity reserved for interactive work; resume after restoration.",code='capacity')
     state["remaining"] -= 1
     state["requests"] += 1
 
 
-def observed(config, cost, *, throttled=False):
+def observed(config, cost, *, throttled=False, writing=False):
     state = background()
     if state and throttled:
         state["throttled"] += 1
@@ -127,5 +150,10 @@ def observed(config, cost, *, throttled=False):
         with db.engine.begin() as conn:
             conn.execute(insert(table).values(key=config.fingerprint(), **values).on_conflict_do_update(index_elements=[table.c.key], set_=values))
     except SQLAlchemyError:
-        if state:raise BackgroundYield("Shared capacity persistence unavailable; background work deferred.") from None
+        if state and writing:
+            # A metrics write must not discard a received mutation response.
+            # The owner still has to validate and durably acknowledge it.
+            state['capacity_storage_deferred'] = True
+            return
+        if state:raise BackgroundYield("Shared capacity persistence unavailable; background work deferred.",code='capacity_storage') from None
         current_app.logger.warning("Shared Shopify capacity observation unavailable; remote receipt preserved.")

@@ -606,7 +606,7 @@ class ShopifyAdapter:
         except BackgroundYield as exc:
             # Only this gate proves no product request was dispatched. A yield
             # from response/capacity handling must never be given this meaning.
-            raise RequestNotSent(str(exc)) from None
+            raise RequestNotSent(str(exc),code=exc.code) from None
         if api_version is not None and (api_version != "2027-01" or query not in VERSIONED_QUERIES):
             raise ShopifyError("Only packed-dimension and EU identifier operations may use the release-candidate API.")
         version = api_version or config.api_version
@@ -657,7 +657,7 @@ class ShopifyAdapter:
                 throttled=isinstance(errors,list) and any(isinstance(e,dict) and (e.get("extensions") or {}).get("code")=="THROTTLED" for e in errors)
                 self._note_request(query,version,response.status_code,cost,throttled=throttled)
                 from app.shopify_capacity import observed
-                observed(config, cost, throttled=throttled)
+                observed(config, cost, throttled=throttled, writing=writing)
                 if data.get("errors"):
                     errors = data["errors"]
                     if isinstance(errors, list) and any(isinstance(e, dict) and
@@ -1082,8 +1082,11 @@ class ShopifyAdapter:
         """Upload only to a validated staged target, without the Admin API token."""
         from app.deployment_guard import product_transport
         product_transport(configuration, writing=True)
-        from app.shopify_capacity import before
-        before(configuration, writing=True)
+        from app.shopify_capacity import BackgroundYield, RequestNotSent, before
+        try:
+            before(configuration, writing=True)
+        except BackgroundYield as exc:
+            raise RequestNotSent(str(exc),code=exc.code) from None
         config = configuration.validated()
         def safe_url(value):
             try:

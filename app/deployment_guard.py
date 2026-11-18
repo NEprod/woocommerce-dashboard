@@ -198,12 +198,17 @@ def verify_startup(instance, env, *, verify_product=None, verify_promotions=None
                 raise ValueError()
         except (ValueError, OSError):
             raise DeploymentError("Managed storage contains legacy commerce settings; stage a clean copy.") from None
-    # Ancillary services are deliberately unsupported for managed Phase B deployments.
-    # Do not let a copied URL/token initiate traffic (even a health probe).
+    # Keep the Phase B fence around copied ancillary service settings. Photos
+    # are a separate opt-in: only the real dashboard fields are allowed, and
+    # the photo client independently verifies the expected shop before use.
     if any(v for k, v in env.items() if k.startswith((
-            "TLC_PHOTO_", "SHOPIFY_ORDERS_WEBHOOK_", "WOO_", "DISCORD_WEBHOOK"))
+            "SHOPIFY_ORDERS_WEBHOOK_", "WOO_", "DISCORD_WEBHOOK"))
             or k == "SHOPIFY_ONLINE_STORE_PUBLICATION_ID"):
-        raise DeploymentError("Managed startup requires legacy photo, webhook, Woo, Discord and publication overrides unset.")
+        raise DeploymentError("Managed startup requires legacy webhook, Woo, Discord and publication overrides unset.")
+    from app.customer_photos import ENV_KEYS as PHOTO_KEYS, parse_settings as photo_settings
+    if (any(v for k, v in env.items() if k.startswith("TLC_PHOTO_") and k not in PHOTO_KEYS)
+            or any(env.get(k) for k in PHOTO_KEYS) and not photo_settings(env)[0]):
+        raise DeploymentError("Managed customer photos require a valid Worker HTTPS origin, token and Shopify app-proxy path, or all three unset.")
     from app.shopify_connection import ShopifyAdapter, ShopifyConfiguration, ShopifyError
     try:
         cfg = ShopifyConfiguration(env.get("SHOPIFY_STORE_DOMAIN", ""),

@@ -244,7 +244,8 @@ def _read_reviewed_publication(row, data, adapter, config, shop, plan):
         from app.shopify_markets import check_reviewed
         before = plan['observed']['memberships']
         after = remote['memberships']
-        unmanaged = (set(before) | set(after)) - {action['id'] for action in plan['actions']}
+        managed = {action['id'] for action in [*plan['actions'],*plan['markets']['actions']]}
+        unmanaged = (set(before) | set(after)) - managed
         if any(before.get(pid, False) != after.get(pid, False) for pid in unmanaged):
             raise ShopifyError('An unmanaged sales-channel membership changed during Markets publication. Inspect retained evidence.')
         channels = discovered(adapter, config, shop)
@@ -493,6 +494,13 @@ def apply_reviewed(row,data,config,adapter):
     plan=data['plan'].get('publication') or {}
     if not plan.get('pending') or not plan.get('read_complete') or plan.get('blockers'):
         return False
+    if data.get('continuation') and complete(data):
+        return False
+    retained = data.get('publication_update') or {}
+    resuming = bool(data.get('continuation') and retained.get('operation_id')==row.operation_id
+        and retained.get('unified') and retained.get('plan')==plan and retained.get('completed'))
+    if resuming and (retained.get('state')!='pending' or data.get('dispatch')):
+        raise ShopifyError('Publication outcome is not acknowledged; no automatic replay.')
     market = plan.get('markets')
     if market:
         from app.shopify_capacity import background
@@ -506,16 +514,37 @@ def apply_reviewed(row,data,config,adapter):
         shop = adapter.test_connection(config)
         if shop['shop_id'] != row.store_id or config.fingerprint() != plan['config']:
             raise ShopifyError('Shopify store/configuration changed before Markets publication.')
-        check_reviewed(row, data, plan, adapter, config, shop, discovered(adapter, config, shop))
-    if plan.get('new_product'):
+        if not resuming:
+            check_reviewed(row, data, plan, adapter, config, shop, discovered(adapter, config, shop))
+        else:
+            from app.shopify_markets import KEY, read as read_markets, topology
+            if topology(adapter,config,shop,plan['intent'][KEY],discovered(adapter,config,shop)) != market['topology']:
+                raise ShopifyError('Market topology changed during publishing; no further write authorised.')
+            observed = read_markets(row,data,adapter,config,market['topology'],online_before=False,context=False)
+            if any(observed['memberships'][a['id']] != a['after' if 'publication.'+a['id'] in retained['completed'] else 'before']
+                   for a in market['actions']):
+                raise ShopifyError('Market membership differs from the acknowledged prefix; no further write authorised.')
+    if resuming:
+        current = read(row,data,adapter,config)
+        expected_status = plan['intent']['status'] if 'publication.status' in retained['completed'] else plan['observed']['status']
+        expected = dict(plan['observed']['memberships'])
+        for action in plan['actions']:
+            if 'publication.'+action['id'] in retained['completed']:
+                expected[action['id']] = action['after']
+        market_ids = {a['id'] for a in market['actions']} if market else set()
+        if current['status'] != expected_status or ({k for k,v in current['memberships'].items() if v} - market_ids
+                != {k for k,v in expected.items() if v} - market_ids):
+            raise ShopifyError('Channel membership differs from the acknowledged prefix; no further write authorised.')
+    if plan.get('new_product') and not resuming:
         if row.state!='verified' or row.verification_state!='verified': return False
         actual=read(row,data,adapter,config)
         if actual['status']!='DRAFT': raise ShopifyError('Newly created draft changed status before reviewed availability; reconcile before another write.')
         if plan['intent']['status']=='ACTIVE' and any(value and pid not in {a['id'] for a in plan['actions']} for pid,value in actual['memberships'].items()):
             raise ShopifyError('New Draft has unreviewed assigned channels. Retain the Draft and reconcile, then review actual availability before activation.')
     data['publication_review_operation_id']=row.operation_id
-    data['publication_update']={'state':'pending','unified':True,'plan':copy.deepcopy(plan),
-        'operation_id':row.operation_id,'completed':[]}
+    if not resuming:
+        data['publication_update']={'state':'pending','unified':True,'plan':copy.deepcopy(plan),
+            'operation_id':row.operation_id,'completed':[]}
     # Unknown/dropped channels never turn into unpublish requests. Unpublish
     # before lowering status; activate before explicitly publishing a channel.
     actions=[('publication.'+a['id'],a) for a in plan['actions'] if a['changed'] and not a['after']]
@@ -527,6 +556,8 @@ def apply_reviewed(row,data,config,adapter):
     from time import monotonic
     deadline=monotonic()+60
     for field,action in actions:
+        if field in data['publication_update']['completed']:
+            continue
         product=db.session.get(Product,row.product_id)
         if monotonic()>deadline or drafts.local_plan(product)['digest']!=data['plan']['digest'] or config.fingerprint()!=drafts.configuration().fingerprint():
             raise ShopifyError('Publication source/configuration or deadline changed; reconcile retained stages before another write.')
@@ -539,15 +570,16 @@ def apply_reviewed(row,data,config,adapter):
         data['stage']='publication_update'
         data['publication_update']['attempted']=field
         data['update_attempted']=True
-        drafts.save(row,data,'updating')
-        if field=='publication.status':
-            result=adapter.update_simple_product(config,{'id':row.shopify_product_id,'status':action['after']})
-            drafts.payload_result(result,'productUpdate')
-        else:
-            result=adapter.set_publication(config,row.shopify_product_id,action['id'],action['after'])
-            drafts.payload_result(result,'publishablePublish' if action['after'] else 'publishableUnpublish')
-        data['publication_update']['completed'].append(field)
-        drafts.completed_step(row,data,field)
+        from app.shopify_continuation import effect
+        def dispatch():
+            if field=='publication.status':
+                return adapter.update_simple_product(config,{'id':row.shopify_product_id,'status':action['after']})
+            return adapter.set_publication(config,row.shopify_product_id,action['id'],action['after'])
+        def accept(result):
+            drafts.payload_result(result,'productUpdate' if field=='publication.status' else
+                'publishablePublish' if action['after'] else 'publishableUnpublish')
+            data['publication_update']['completed'].append(field)
+        effect(row,data,field,dispatch,accept,state='updating')
     verify(row,data,adapter,settle_markets=bool(market and actions))
     return True
 

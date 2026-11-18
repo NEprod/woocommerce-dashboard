@@ -2264,7 +2264,7 @@ must reuse shared components. No redesign or vendor CSS rewrite.
 
 Names remain: local `woocommerce-dashboard`, GitHub `NEprod/woocommerce-dashboard`,
 Docker `neprod/woocommerce-dashboard`, Compose service `app`/container
-`woocommerce-dashboard`, Unraid `my-woocommerce-dashboard.xml`, appdata
+`woocommerce-dashboard`, the repository [Unraid templates](UNRAID.md), appdata
 `/mnt/user/appdata/woocommerce-dashboard/instance`, template/image/support/raw URLs,
 brand filenames/page titles/footer, Discord default name and branding assertions.
 No tracked CI workflow directory was found; audit any external build automation,

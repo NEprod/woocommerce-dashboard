@@ -79,10 +79,17 @@ def apply(row, data, config, adapter):
     metadata = plan.get('dimension_metadata')
     if not metadata or not any(s['changed'] for s in metadata['definitions']):
         return
+    from app.shopify_continuation import effect
+    proof = data.setdefault('dimension_definitions',{})
     current = read(plan, config, adapter)
     for entry in metadata['definitions']:
         spec, before = entry['spec'], entry['before']
-        if current[spec['ownerType'] + '.' + spec['key']] != before:
+        key = spec['ownerType'] + '.' + spec['key']
+        if 'dimension:'+key in data.get('completed_steps',()):
+            _verify_entry(entry,current[key],proof[key])
+            proof[key].update(state='verified',id=current[key]['id'],checked_at=drafts.now().isoformat())
+            drafts.save(row,data)
+        elif current[key] != before:
             raise ShopifyError('Finished-size definition changed since Review. Rebuild Review; no unreviewed replacement.')
     for entry in metadata['definitions']:
         if not entry['changed']:
@@ -96,20 +103,20 @@ def apply(row, data, config, adapter):
             raise ShopifyError('Source/configuration changed during finished-size publication; reconcile before further writes.')
         spec, before = entry['spec'], entry['before']
         key = spec['ownerType'] + '.' + spec['key']
+        if 'dimension:'+key in data.get('completed_steps',()):
+            continue
         data['stage'] = 'finished_dimension_definition'
-        proof = data.setdefault('dimension_definitions', {})
-        proof[key] = {'state': 'pending', 'before_id': before['id'] if before else None}
-        drafts.save(row, data)
-        if before:
-            patch = {k: spec[k] for k in ('ownerType', 'namespace', 'key', 'access')}
-            response = adapter.update_dimension_definition(config, patch)
-            drafts.payload_result(response, 'metafieldDefinitionUpdate')
-        else:
-            response = adapter.create_attribute_resource(config, 'field', spec)
-            payload = drafts.payload_result(response, 'metafieldDefinitionCreate')
-            # Retain the returned identity before independently reading it.
-            proof[key]['id'] = _gid((payload.get('createdDefinition') or {}).get('id'), 'MetafieldDefinition')
-            drafts.save(row, data)
+        proof[key] = {'state': 'pending', 'before_id': before['id'] if before else None,
+                      'operation_id': row.operation_id}
+        def invoke():
+            if before:
+                return adapter.update_dimension_definition(config,{k:spec[k] for k in ('ownerType','namespace','key','access')})
+            return adapter.create_attribute_resource(config,'field',spec)
+        def accept(response):
+            payload = drafts.payload_result(response,'metafieldDefinitionUpdate' if before else 'metafieldDefinitionCreate')
+            proof[key].update(state='acknowledged',id=before['id'] if before else
+                _gid((payload.get('createdDefinition') or {}).get('id'),'MetafieldDefinition'))
+        effect(row,data,'dimension:'+key,invoke,accept)
         observed = read(plan, config, adapter)[key]
         _verify_entry(entry, observed, proof[key])
         proof[key].update(state='verified', id=observed['id'], checked_at=drafts.now().isoformat())

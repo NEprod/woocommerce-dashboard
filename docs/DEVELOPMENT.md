@@ -18,7 +18,7 @@ Use placeholder/fabricated directories and keep `DISCORD_ENABLED=false`. Applica
 python -m compileall app tests
 pytest
 docker build -t neprod/woocommerce-dashboard:development .
-python -c "import xml.etree.ElementTree as ET; ET.parse('unraid/my-woocommerce-dashboard.xml')"
+python -m pytest tests/test_unraid_develop_template.py
 ```
 
 Migration tests construct a frozen, synthetic Phase 0 database in a temporary directory. They must cover fresh initialization, adoption, repeated upgrade, backup, injected failure, restore, and post-restore use. Never substitute a local or archived database. Operational procedures are in [Database Migrations](MIGRATIONS.md).

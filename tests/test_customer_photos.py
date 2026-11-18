@@ -124,3 +124,69 @@ def test_projection_reuses_existing_definition_and_health_gate(orders_app,monkey
     fake['ready']=False
     with pytest.raises(ShopifyError,match='not ready'):check_photo_service(spec,'fictional.myshopify.com',STORE)
     check_photo_service(public_configuration(before),'fictional.myshopify.com',STORE)
+
+
+@pytest.mark.parametrize('problem', ['other_shop', 'other_path', 'unavailable', 'disabled'])
+def test_managed_photo_mismatch_never_transmits_order_details(orders_app,monkeypatch,problem):
+    from app.deployment_guard import Identity
+
+    app,_=orders_app
+    domain='development-fixture.myshopify.com'
+    owner=Identity('development','a'*32,domain,STORE,'gid://shopify/App/1')
+    app.config['TLC_DEPLOYMENT_PROOF']=(owner,'fixture-only',None)
+    if problem!='disabled':
+        app.config.update(CFG)
+    observed=[]
+
+    def worker(endpoint, data=None, *, download=False):
+        observed.append(endpoint)
+        assert endpoint=='health' and data is None and not download
+        if problem=='unavailable': raise photos.Unavailable()
+        return {'ready':True, 'shop':domain, 'path':CFG['TLC_PHOTO_PROXY_PATH'], 'store':STORE} | {
+            'other_shop':{'shop':'other-fixture.myshopify.com','store':'gid://shopify/Shop/999'},
+            'other_path':{'path':'/apps/different'},
+        }.get(problem,{})
+
+    monkeypatch.setattr(photos,'_request',worker)
+    raw,lines=fixture_order()
+    assert service.persist(STORE,raw,lines)
+    db.session.commit()
+    saved=ShopifyOrder.query.one()
+    assert all(not json.loads(line.personalisation_json).get('photo_verified') for line in saved.lines)
+    if problem=='disabled':
+        assert not observed
+    else:
+        assert observed==['health']
+    with pytest.raises(photos.Unavailable):
+        photos.download(saved,saved.lines[0],REFS[0])
+    assert observed==([] if problem=='disabled' else ['health','health'])
+
+
+@pytest.mark.parametrize('role', ['development','production'])
+def test_managed_photo_binding_and_staff_download_require_local_and_worker_shop(orders_app,monkeypatch,role):
+    from app.deployment_guard import Identity
+
+    app,_=orders_app
+    domain=role+'-fixture.myshopify.com'
+    app.config.update(CFG)
+    app.config['TLC_DEPLOYMENT_PROOF']=(Identity(role,'a'*32,domain,STORE,'gid://shopify/App/1'),'fixture-only',None)
+    observed=[]
+
+    def worker(endpoint, data=None, *, download=False):
+        observed.append(endpoint)
+        if endpoint=='health':
+            return {'ready':True,'shop':domain,'store':STORE,'path':CFG['TLC_PHOTO_PROXY_PATH']}
+        assert data['shop']==STORE and data['order']==ORDER
+        return (b'fixture', 'image/png') if download else {'accepted':REFS}
+
+    monkeypatch.setattr(photos,'_request',worker)
+    raw,lines=fixture_order()
+    other='gid://shopify/Shop/999'
+    assert photos.bind_order(other,raw,lines)==lines
+    assert not observed
+    assert service.persist(STORE,raw,lines)
+    db.session.commit()
+    saved=ShopifyOrder.query.one()
+    route=f'/orders/{saved.id}/lines/{saved.lines[0].id}/photo/reference'
+    assert client(app).get(route).data==b'fixture'
+    assert observed==['health','bind','health','photo']

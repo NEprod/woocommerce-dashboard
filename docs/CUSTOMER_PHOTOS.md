@@ -64,6 +64,18 @@ cart/checkout compatibility.
 
 ## 3. Configure Unraid
 
+The migration's original Phase B guard rejected all photo settings so copied
+service URLs and credentials could not send traffic from a newly detached
+container. Managed photo support now admits only the three existing dashboard
+settings below, as an all-or-none configuration. Keep the deployment guard.
+Use distinct Worker origins, separate private R2 buckets, independently
+installed Shopify app proxies and independent tokens/signing keys for each
+environment. The dashboard checks the authenticated Worker shop and path; the
+Worker response cannot certify bucket separation, so verify the actual R2
+binding before enabling the feature. Do not deploy the checked-in example
+over an existing Worker or change an existing bucket, signing key or proxy
+simply to update the dashboard image.
+
 Manually install the verified immutable Docker tag, retaining current mounts,
 appdata and automation settings. There is no schema migration. Supply:
 
@@ -71,9 +83,18 @@ appdata and automation settings. There is no schema migration. Supply:
 - `TLC_PHOTO_WORKER_TOKEN`: the same value as Worker `DASHBOARD_UPLOAD_TOKEN`.
 - `TLC_PHOTO_PROXY_PATH`: the actual installed storefront proxy path.
 
+Supply all three in Unraid before starting the managed container, or leave all
+three blank. Partial or malformed configuration stops managed startup with a
+non-secret error; a Worker outage or shop mismatch does not stop the dashboard.
 Without these settings, a successful signed proxy probe, private R2 access
 and the correct Shopify shop/scopes, changed photo definitions cannot publish.
-Existing non-photo configurations do not call the Worker. Do not remove only
+In managed mode, photo binding and download also check the existing
+`/private/health` shop/path proof before sending any Orders identifiers. A
+stale seven-day proxy probe, Worker outage or mismatch leaves Orders import
+working, but affected photos are unverified or temporarily unavailable;
+refresh the signed probe and use the existing Orders Sync Now if needed.
+This requires no replacement Worker or new routes. Existing non-photo
+configurations do not call the Worker. Do not remove only
 the theme app block or roll its asset back while leaving enabled required photo
 fields offered for sale. Disable photo definitions through the existing reviewed
 workflow first. Roll back Docker independently to the previous immutable

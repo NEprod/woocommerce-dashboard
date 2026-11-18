@@ -31,6 +31,10 @@ def create_app(*, recover=None):
             raise DeploymentError("Managed SQLite must reside in the marked instance directory.")
     app.config["TLC_DEPLOYMENT_PROOF"] = verify_startup(app.instance_path, os.environ)
     if app.config["TLC_DEPLOYMENT_PROOF"]:
+        from .customer_photos import ENV_KEYS as PHOTO_KEYS
+        # Use the exact startup-owned settings just validated by the guard;
+        # never fall back to another environment or to an import-time value.
+        app.config.update({key: os.environ.get(key, "") for key in PHOTO_KEYS})
         app.config.update(SHOPIFY_ORDERS_STARTUP_ENABLED=False,
                           SESSION_COOKIE_SECURE=True,
                           SESSION_COOKIE_NAME="tlc_" + app.config["TLC_DEPLOYMENT_PROOF"][0].environment)

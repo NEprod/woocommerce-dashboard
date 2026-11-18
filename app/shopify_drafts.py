@@ -322,10 +322,12 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
             from app.shopify_optional_packages import attach as attach_packages
             attach_packages(product, result, row, config, shop)
             from app.shopify_publication import annotate
-            if row.state == "creation_review_required":
+            if row.state == "creation_review_required" and not evidence(row).get('legacy_availability_readback'):
                 result["warnings"].append("Finish the remaining reviewed work on the retained Shopify Draft. Availability is deferred until a separate review after verification. No new product or image upload.")
             else:
                 annotate(product,result,row,config,shop,adapter)
+                if row.state=='creation_review_required' and not _availability_only(result):
+                    result['blockers'].append('Retained Draft recovery can only change reviewed availability. Resolve changed content or incomplete channel evidence separately.')
         if result["classification"] == "update":
             mode = SIMPLE_RESUME if row.state == "creation_review_required" else "update"
             token = serializer().dumps({"mode": mode, "scope":scope, **{key: result[key] for key in (
@@ -456,6 +458,7 @@ def upload_pending(row):
     plan = data.get('plan') or {}
     uploads = data.get('upload_inputs')
     return (data.get('create_attempted') is False and isinstance(uploads, list)
+        and not data.get('dispatch')
         and 0 <= len(uploads) <= len(plan.get('images', [])) and plan.get('digest') == row.reviewed_digest
         and data.get('upload_attempt', {}).get('state') != 'pending'
         and all(isinstance(u, dict) and u.get('source') == image['source'] and u.get('sha256') == image['sha256']
@@ -468,7 +471,7 @@ def upload_gallery(product, row, data, plan, config, adapter):
     Only resource URLs (not signed upload parameters) persist. A timeout is not
     an acknowledgement and never becomes this safe continuation state.
     """
-    from app.shopify_capacity import background
+    from app.shopify_capacity import RequestNotSent, background
     from time import monotonic
     uploads = data.setdefault('upload_inputs', [])
     if data.get('upload_no_progress', 0) >= 3:
@@ -496,7 +499,15 @@ def upload_gallery(product, row, data, plan, config, adapter):
         batch=batch[:batches[number-1]-len(uploads)]
         data.update(upload_batch_number=number,stage='upload_batch_prepared')
         save(row,data)
-        targets = stage_gallery(adapter, config, batch)
+        if data.get('continuation'):
+            data['dispatch']='upload_targets';save(row,data)
+        try:
+            targets = stage_gallery(adapter, config, batch)
+        except RequestNotSent:
+            if data.get('continuation'):
+                data.pop('dispatch');save(row,data)
+            raise
+        data.pop('dispatch',None)
         data['stage']='upload_batch_started';save(row,data)
         used = {u['input']['originalSource'] for u in uploads}
         resources = [t.get('resourceUrl') for t in targets if isinstance(t,dict)]
@@ -513,7 +524,12 @@ def upload_gallery(product, row, data, plan, config, adapter):
             # NOT a known completed upload and requires explicit review.
             data['upload_attempt'] = {'source': image['source'], 'state': 'pending'}
             save(row, data)
-            adapter.upload_image(config, target, image, content)
+            try:
+                adapter.upload_image(config, target, image, content)
+            except RequestNotSent:
+                if data.get('continuation'):
+                    data.pop('upload_attempt');save(row,data)
+                raise
             value = {'originalSource': target['resourceUrl'], 'mediaContentType': 'IMAGE', 'alt': image['alt']}
             uploads.append({'source': image['source'], 'sha256': image['sha256'], 'input': value})
             data['media'].append({'source': image['source'], 'filename': filename, 'sha256': image['sha256'], 'upload': 'completed'})
@@ -639,57 +655,24 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
             if row.product_id is None:
                 row.product_id=product.id  # reviewed stable source/SKU, not a remote-ID adoption
             row.operation_id, row.reviewed_digest, row.verification_state = lease.id, plan["digest"], "unverified"
-        save(row, data, "pending")  # Durable uniqueness reservation BEFORE any mutation.
+        from app.shopify_continuation import begin
+        begin(row,data,'simple_create',commit=False)
+        save(row, data, "pending")  # Uniqueness and the checkpoint share this commit.
         from app.shopify_comparison import invalidate
         invalidate(row.store_id, row.source_identity)
     except Exception as exc:
         db.session.rollback()
+        from app.shopify_capacity import BackgroundYield
+        if isinstance(exc,BackgroundYield):
+            raise  # No remote mutation takes place in the identity reservation block.
         message = str(exc) if isinstance(exc, ShopifyError) else "Shopify identity is reserved. Review its retained attempt before creating another draft."
         finish_catalogue_operation(lease.id, status="failed", error=message)
         raise ShopifyError(message) from None
     try:
-        data["stage"] = "staged_uploads"
-        save(row, data)
-        media_inputs = upload_gallery(product, row, data, plan, config, adapter)
-        completed_step(row,data,"staged_uploads")
-        completed_step(row,data,"original_image_uploads")
-        # Recheck source after potentially slow uploads; no stale product create.
-        if local_plan(product)["digest"] != plan["digest"]:
-            raise ShopifyError("Local product changed during uploads. Product creation was not attempted.")
-        data.update(stage="product_create", create_attempted=True)
-        save(row, data, "creating")
-        product_input = dict(plan["managed"]["product"])
-        # The independent attempt metafield remains the durable correlation,
-        # including when an explicitly reviewed authored handle is used.
-        product_input.update(status="DRAFT", handle=plan["handle"], metafields=[
-            {"namespace": "tlc_dashboard", "key": "publish_attempt", "type": "single_line_text_field", "value": plan["nonce"]},
-            *plan["managed"]["product"].get("metafields", [])])
-        response = adapter.create_draft(config, product_input, media_inputs)
-        created = (response.get("productCreate") or {}).get("product")
-        if isinstance(created, dict) and created.get("id"):
-            row.shopify_product_id = _gid(created["id"], "Product")
-            data["created_media"] = (created.get("media") or {}).get("nodes", [])
-            save(row, data, "created")
-        payload_result(response, "productCreate")
-        completed_step(row,data,"product_create")
-        if not row.shopify_product_id:
-            raise ShopifyError("Product creation returned no trusted ID; reconcile the recorded handle.")
-        variants = (created.get("variants") or {}).get("nodes", [])
-        if len(variants) != 1:
-            raise ShopifyError("Created draft did not return exactly one Simple variant. Reconcile in Shopify Admin.")
-        variant_id = _gid(variants[0]["id"], "ProductVariant")
-        data["variant_id"] = variant_id
-        data["stage"] = "variant_update"
-        save(row, data)
-        payload_result(adapter.update_simple_variant(config, row.shopify_product_id,
-            {"id": variant_id, **plan["managed"]["variant"]}), "productVariantsBulkUpdate")
-        completed_step(row,data,"variant_update")
-        data["stage"] = "independent_readback"
-        save(row, data)
-        from app.shopify_taxonomy import join_reviewed
-        join_reviewed(row, data, config, adapter)
-        return finish_registration_tail(row,data,config,adapter,updating=False)
+        return run_simple_checkpoint(row,data,config,adapter,updating=False)
     except GalleryPending as exc:
+        if data.get('continuation'):
+            defer_upload(row,data,exc)
         data['upload_no_progress'] = data.get('upload_no_progress',0)+1 if len(data.get('upload_inputs',[]))==data.get('upload_start_count') else 0
         data.update(stage='gallery_uploading', error=None)
         save(row, data, 'uploading')
@@ -702,21 +685,113 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
         db.session.rollback()
         row = db.session.get(ShopifyProductIdentity, row.id)
         from app.shopify_capacity import BackgroundYield
+        from app.shopify_continuation import defer_read_failure, pending
         from app.shopify_registration_checkpoint import pending as registration_pending
-        if isinstance(exc, BackgroundYield) and registration_pending(row):
+        if isinstance(exc, BackgroundYield) and (pending(row) or registration_pending(row)):
             raise
+        defer_read_failure(row,exc)
         data = evidence(row)
         message = str(exc) if isinstance(exc, ShopifyError) else "Draft execution failed unexpectedly. Retained identity requires explicit reconciliation."
         data["error"] = message
         diagnostic = failure_diagnostic(exc, getattr(exc,'finalisation_stage',None) or data.get('stage'), lease.id)
+        unacknowledged = bool(data.get('dispatch') or data.get('upload_attempt',{}).get('state')=='pending')
+        if unacknowledged:
+            diagnostic['mutation_outcome']='unacknowledged'
         data['failure_diagnostic'] = diagnostic
-        data['stage'] = 'recovery_required' if data['create_attempted'] else 'failed_before_create'
-        save(row, data, "uncertain" if data["create_attempted"] else "failed_before_create")
-        finish_catalogue_operation(lease.id, status="partial" if data["create_attempted"] else "failed", products_attempted=1,
-            products_failed=1, error=message, recovery_state="review_required" if data["create_attempted"] else "none",
+        # Preserve the legacy request's staged-only failure policy. The worker
+        # has a durable continuation and must not make this upload replayable.
+        needs_recovery = data['create_attempted'] or (data.get('continuation') and unacknowledged)
+        data['stage'] = 'recovery_required' if needs_recovery else 'failed_before_create'
+        save(row, data, 'uncertain' if needs_recovery else 'failed_before_create')
+        finish_catalogue_operation(lease.id, status='partial' if needs_recovery else 'failed', products_attempted=1,
+            products_failed=1, error=message, recovery_state='review_required' if needs_recovery else 'none',
             operation_summary={"identity_id": row.id, "stage": diagnostic['stage'], "state": row.state,
                 "create_attempted": data["create_attempted"], "diagnostic": diagnostic})
         return row
+
+
+def run_simple_checkpoint(row,data,config,adapter,*,updating):
+    from app.shopify_continuation import effect
+    from app.shopify_taxonomy import join_reviewed
+    plan = data['plan']
+    completed = data.setdefault('completed_steps', [])
+    product = db.session.get(Product,row.product_id)
+    if data.get('legacy_availability_completion') == row.operation_id:
+        from app.shopify_publication import apply_reviewed, complete
+        run_phase(row,data,'availability',lambda:apply_reviewed(row,data,config,adapter))
+        apply_simple_readback(row,data,adapter.read_simple(config,row.shopify_product_id,plan['managed']['namespace']),adapter)
+        if not complete(data) or row.state!='verified':
+            raise ShopifyError('Retained Draft availability was not completely verified.')
+        finish_catalogue_operation(row.operation_id,status='succeeded',recovery_state='none',products_attempted=1,products_succeeded=1,
+            operation_summary={'identity_id':row.id,'mode':'update','stage':'verified','scope':'availability_only'})
+        return row
+    if not updating and 'product_create' not in completed:
+        if data.get('continuation') and row.state != 'pending':
+            save(row,data,'pending')  # staged-upload transport expects a reserved, uncreated identity
+        data['stage'] = 'staged_uploads'
+        media_inputs = upload_gallery(product,row,data,plan,config,adapter)
+        completed_step(row,data,'staged_uploads')
+        completed_step(row,data,'original_image_uploads')
+        require_absent_sku(adapter,config,plan['sku'])
+        if local_plan(product)['digest'] != plan['digest']:
+            raise ShopifyError('Local product changed during uploads; no product Create attempted.')
+        if data.get('create_attempted') and row.shopify_product_id:
+            raise ShopifyError('Retained Create identity is not fully acknowledged; no Create replay.')
+        product_input = dict(plan['managed']['product'],status='DRAFT',handle=plan['handle'])
+        product_input['metafields'] = [
+            {'namespace':'tlc_dashboard','key':'publish_attempt','type':'single_line_text_field','value':plan['nonce']},
+            *product_input.get('metafields', [])]
+
+        def accept(result):
+            created = payload_result(result,'productCreate').get('product') or {}
+            variants = (created.get('variants') or {}).get('nodes', [])
+            if len(variants) != 1:
+                raise ShopifyError('Created draft did not return exactly one Simple variant; no Create replay.')
+            row.shopify_product_id = _gid(created.get('id'),'Product')
+            data['created_media'] = (created.get('media') or {}).get('nodes', [])
+            data['variant_id'] = _gid(variants[0].get('id'),'ProductVariant')
+            row.state = 'created'
+
+        data.update(stage='product_create', create_attempted=True)
+        effect(row,data,'product_create',lambda:adapter.create_draft(config,product_input,media_inputs),accept,state='creating')
+    if not updating and 'variant_update' not in completed:
+        data['stage'] = 'variant_update'
+        effect(row,data,'variant_update',lambda:adapter.update_simple_variant(config,row.shopify_product_id,
+            {'id':data['variant_id'], **plan['managed']['variant']}),
+            lambda result:payload_result(result,'productVariantsBulkUpdate'))
+    if updating:
+        product_input, variant_input = update_inputs(plan)
+        actions = plan['media_actions']
+        steps = [
+            ('product_update', len(product_input)>1, lambda:adapter.update_simple_product(config,product_input), 'productUpdate'),
+            ('variant_update', len(variant_input)>1, lambda:adapter.update_simple_variant(config,row.shopify_product_id,variant_input), 'productVariantsBulkUpdate'),
+            ('media_alt', actions['alt'], lambda:adapter.update_media_alt(config,actions['alt']), 'fileUpdate'),
+            ('media_order', actions['reorder'], lambda:adapter.reorder_media(config,row.shopify_product_id,actions['ids']), 'productReorderMedia')]
+        for stage, needed, call, payload in steps:
+            if not needed or stage in completed:
+                continue
+            if local_plan(product)['digest'] != plan['digest'] or configuration().fingerprint() != plan['config_digest']:
+                raise ShopifyError('Local source/configuration changed during execution. Review retained evidence before any further write.')
+            data.update(stage=stage,update_attempted=True)
+
+            def accept(result):
+                if payload == 'productReorderMedia' and (result.get(payload) or {}).get('mediaUserErrors'):
+                    raise ShopifyError('Shopify rejected gallery order; inspect the retained review.')
+                result = payload_result(result,payload)
+                if payload == 'productReorderMedia':
+                    data['reorder_job'] = _gid((result.get('job') or {}).get('id'),'Job')
+
+            effect(row,data,stage,call,accept,state='updating')
+    join_reviewed(row,data,config,adapter)
+    return finish_registration_tail(row,data,config,adapter,updating=updating)
+
+
+def defer_upload(row,data,exc):
+    from app.shopify_capacity import BackgroundYield
+    data['upload_no_progress'] = data.get('upload_no_progress',0)+1 if len(data.get('upload_inputs',[]))==data.get('upload_start_count') else 0
+    data.update(stage='gallery_uploading',error=None)
+    save(row,data,'uploading')
+    raise BackgroundYield(str(exc),code='upload_slice') from None
 
 
 def failure_diagnostic(error, stage, operation_id):
@@ -734,8 +809,14 @@ def failure_diagnostic(error, stage, operation_id):
             'config_digest', 'digest', 'inventory_id', 'variant_id', 'shipping_package_id', 'native', 'plan'}:
         reason += ' Key: ' + error.args[0]
     category = 'BackgroundYield' if isinstance(error, BackgroundYield) else type(error).__name__
-    return {'operation_id': operation_id, 'category': redact_diagnostic(category, limit=80),
+    diagnostic = {'operation_id': operation_id, 'category': redact_diagnostic(category, limit=80),
         'stage': redact_diagnostic(stage or 'unknown', limit=100), 'reason': reason}
+    from app.shopify_capacity import diagnostic as yield_diagnostic
+    if isinstance(error, BackgroundYield):
+        diagnostic.update(yield_diagnostic(error))
+    elif isinstance(error,ShopifyError) and error.category in {'network','rate_limited','authentication','access_denied','schema','invalid_response'}:
+        diagnostic['api_failure'] = error.category
+    return diagnostic
 
 
 def finish_registration_tail(row,data,config,adapter,*,updating):
@@ -747,18 +828,26 @@ def finish_registration_tail(row,data,config,adapter,*,updating):
     from app.shopify_dimension_metadata import apply as apply_dimensions
     from app.shopify_eu_identifier import apply as apply_eu_identifier
     from app.shopify_item_cost import apply as apply_item_cost
-    for step in (apply_customisations,apply_dimensions,apply_eu_identifier,apply_item_cost):
-        step(row,data,config,adapter)
+    for name, step in zip(('customisations','dimension_definitions','y081','item_cost'),
+                          (apply_customisations,apply_dimensions,apply_eu_identifier,apply_item_cost)):
+        run_phase(row,data,'tail:'+name,lambda:step(row,data,config,adapter))
     from app.shopify_publication import apply_reviewed, complete as publication_complete
     def read():
         return adapter.read_simple(config,row.shopify_product_id,plan["managed"]["namespace"])
-    if updating:
-        apply_reviewed(row,data,config,adapter)
-        apply_simple_readback(row,data,read(),adapter)
-    else:
+    def verify():
         apply_readback(row,data,read(),adapter)
-        if apply_reviewed(row,data,config,adapter):
-            apply_readback(row,data,read(),adapter)
+        if data.get('continuation') and row.state == 'processing':
+            from app.shopify_capacity import BackgroundYield
+            raise BackgroundYield('Acknowledged media is still processing.',code='readback_pending')
+    if updating:
+        run_phase(row,data,'availability',lambda:apply_reviewed(row,data,config,adapter))
+        verify()
+    else:
+        run_phase(row,data,'simple_base',verify)
+        if plan.get('publication',{}).get('pending'):
+            run_phase(row,data,'availability',lambda:apply_reviewed(row,data,config,adapter))
+            if publication_complete(data):
+                verify()
     state=row.state
     from app.shopify_native_dimensions import after_publish
     from app.shopify_package_assignments import apply as apply_packages
@@ -769,6 +858,12 @@ def finish_registration_tail(row,data,config,adapter,*,updating):
         package_state=apply_packages(row,adapter,row.operation_id)
         stage='operation_finalisation'
         retained=evidence(row)
+        if (retained.get('continuation') and row.state=='verified'
+                and native_state in {'disabled','verified','unconfigured'} and package_state in {'none','accepted'}
+                and (native_state=='verified' or package_state=='accepted')):
+            apply_readback(row,retained,read(),adapter)  # bind comparison to the final receipt, never replay these writes
+            retained=evidence(row)
+            state=row.state
         summary={'identity_id':row.id,'stage':retained['stage'],'native_dimensions':native_state,'package_assignment':package_state}
         if updating:
             summary.update(mode='update',completed_steps=retained.get('completed_steps',[]))
@@ -785,6 +880,16 @@ def finish_registration_tail(row,data,config,adapter,*,updating):
         exc.finalisation_stage=stage
         raise
     return row
+
+
+def run_phase(row,data,name,call):
+    """The phase may contain multiple separately acknowledged effects."""
+    if name in data.get('completed_steps', []):
+        return
+    result = call()
+    if data.get('continuation'):
+        completed_step(row,data,name)
+    return result
 
 
 def apply_readback(row, data, remote, adapter=None, *, allow_attribute_review=False):
@@ -1040,71 +1145,58 @@ def confirm_update(reviewed, adapter=None):
             raise ShopifyError("The reviewed update is no longer current. Generate a fresh Preview.")
         data = evidence(row)
         data.pop("reorder_job", None)
+        data.pop('continuation',None)
+        data.pop('dispatch',None)
         data["completed_steps"] = []
         data["previous_verified"] = {"operation_id": row.operation_id, "reviewed_digest": row.reviewed_digest,
             "verified_at": row.verified_at.isoformat() if row.verified_at else None, "plan": data["plan"],
             "publication_review_operation_id":data.get('publication_review_operation_id')}
         data.update(plan=plan, stage="update_pending", update_attempted=False, publication_review_operation_id=lease.id,
             variant_id=plan["variant_id"], inventory_item_id=plan["inventory_item_id"])
+        if recovering_creation and data.get('legacy_availability_readback'):
+            if not _availability_only(plan):
+                raise ShopifyError('Retained Draft recovery permits only reviewed availability.')
+            data['legacy_availability_completion'] = lease.id
         row.operation_id, row.reviewed_digest, row.verification_state = lease.id, plan["digest"], "unverified"
+        from app.shopify_continuation import begin
+        begin(row,data,'simple_update',commit=False)
         save(row, data, "pending")
         from app.shopify_comparison import invalidate
         invalidate(row.store_id, row.source_identity)
         config = configuration()
-        product_input, variant_input = update_inputs(plan)
-        steps = []
-        if len(product_input) > 1:
-            steps.append(("product_update", lambda: adapter.update_simple_product(config, product_input), "productUpdate"))
-        if len(variant_input) > 1:
-            steps.append(("variant_update", lambda: adapter.update_simple_variant(config, row.shopify_product_id, variant_input), "productVariantsBulkUpdate"))
-        if plan["media_actions"]["alt"]:
-            steps.append(("media_alt", lambda: adapter.update_media_alt(config, plan["media_actions"]["alt"]), "fileUpdate"))
-        if plan["media_actions"]["reorder"]:
-            steps.append(("media_order", lambda: adapter.reorder_media(config, row.shopify_product_id, plan["media_actions"]["ids"]), "productReorderMedia"))
-        for stage, call, payload in steps:
-            if local_plan(product)["digest"] != plan["digest"] or configuration().fingerprint() != plan["config_digest"]:
-                raise ShopifyError("Local source/configuration changed during execution. Review retained evidence before any further write.")
-            data.update(stage=stage, update_attempted=True)
-            save(row, data, "updating")  # durable BEFORE every mutation
-            attempted = True
-            result = call()
-            if payload == "productReorderMedia" and (result.get(payload) or {}).get("mediaUserErrors"):
-                raise ShopifyError("Shopify rejected gallery order. Reconcile the retained update.")
-            result = payload_result(result, payload)
-            if payload == "productReorderMedia":
-                job = (result.get("job") or {}).get("id")
-                data["reorder_job"] = _gid(job, "Job")
-            data.setdefault("completed_steps", []).append(stage)
-            save(row, data)
-        from app.shopify_taxonomy import join_reviewed
-        if any(i["action"] in {"Join","Create & Join"} for i in plan["collections"]):
-            attempted = True
-        join_reviewed(row, data, config, adapter)
-        if (any(a["changed"] for a in plan.get("attributes", []))
-                or (plan.get('customisations') or {}).get('changed')
-                or any(s['changed'] for s in (plan.get('dimension_metadata') or {}).get('definitions', []))):
-            attempted = True
-        return finish_registration_tail(row,data,config,adapter,updating=True)
+        return run_simple_checkpoint(row,data,config,adapter,updating=True)
     except Exception as exc:
         db.session.rollback()
         from app.shopify_capacity import BackgroundYield
+        from app.shopify_continuation import defer_read_failure, pending
         from app.shopify_registration_checkpoint import pending as registration_pending
-        if isinstance(exc, BackgroundYield) and row.operation_id == lease.id and registration_pending(row):
+        if isinstance(exc, BackgroundYield) and row.operation_id == lease.id and (pending(row) or registration_pending(row)):
             raise
+        if row.operation_id==lease.id:
+            defer_read_failure(row,exc)
         if isinstance(exc, BackgroundYield) and not attempted and row.operation_id != lease.id:
             # Preflight has not reserved this identity or attempted a mutation.
             # Let the existing task owner defer the same signed operation.
             raise
         message = str(exc) if isinstance(exc, ShopifyError) else "Update failed with uncertain evidence. Reconcile before another write."
+        from app.models import ShopifyAttributeIdentity, ShopifyCollectionIdentity
         from app.shopify_package_assignments import attempted as package_attempted
         retained = evidence(row)
         attempted = attempted or package_attempted(retained,lease.id) or (
             row.operation_id == lease.id and (retained.get('update_attempted') is True
+                or retained.get('dispatch')
+                or any(retained.get(k) for k in ('attribute_assignment_attempt','registration_checkpoint'))
+                or any(model.query.filter_by(store_id=row.store_id, operation_id=lease.id).first() is not None
+                       for model in (ShopifyAttributeIdentity, ShopifyCollectionIdentity))
+                or (retained.get('storefront_configuration') or {}).get('operation_id') == lease.id
+                or any(p.get('operation_id') == lease.id for p in retained.get('dimension_definitions', {}).values())
                 or retained.get('eu_identifier_attempt', {}).get('operation_id') == lease.id
                 or retained.get('item_cost_attempt', {}).get('operation_id') == lease.id))
         if (evidence(row).get('publication_update') or {}).get('operation_id') == lease.id:
             attempted=True
         diagnostic = failure_diagnostic(exc, getattr(exc,'finalisation_stage',None) or evidence(row).get('stage'), lease.id)
+        if retained.get('dispatch'):
+            diagnostic['mutation_outcome']='unacknowledged'
         if attempted:
             row = db.session.get(ShopifyProductIdentity, row.id)
             data = evidence(row)
@@ -1169,8 +1261,12 @@ def require_simple_creation_review(row, product_id, reviewed):
             or row.store_id != reviewed.get("store_id") or reviewed.get("scope") != "full"):
         raise ShopifyError("The signed draft recovery no longer matches the retained identity. No write was attempted.")
     data = evidence(row)
+    availability = data.get('legacy_availability_readback') or {}
+    proved_availability = (availability.get('operation') == row.operation_id
+        and availability.get('digest') == reviewed.get('digest') == row.reviewed_digest
+        and availability.get('remote') == row.shopify_product_id and data.get('observed_status')=='DRAFT')
     if (reviewed.get("identity_digest") != digest(data) or not data.get("creation_remaining_review")
-            or not _stopped_simple_create_at_attributes(row, data, {"status": data.get("observed_status")})):
+            or not (proved_availability or _stopped_simple_create_at_attributes(row,data,{'status':data.get('observed_status')}))):
         raise ShopifyError("Retained draft recovery evidence changed. Reconcile and generate a fresh Review; no write was attempted.")
     from app.shopify_package_assignments import guard as package_guard
     package_guard(data)
@@ -1179,10 +1275,35 @@ def require_simple_creation_review(row, product_id, reviewed):
         raise ShopifyError("An unresolved packed-dimension write still requires its own recovery; no write was attempted.")
 
 
+def _availability_only(plan):
+    from app.shopify_publication import has_metadata_changes
+    availability = plan.get('publication',{})
+    return (plan.get('actual_status')=='DRAFT' and availability.get('pending') and availability.get('read_complete')
+        and not availability.get('blockers') and not has_metadata_changes(plan)
+        and not any(e.get('action')=='assign' for e in plan.get('optional_packages',[])))
+
+
+def _legacy_verified_draft_stop(row,data,remote):
+    op = db.session.get(CatalogueOperation,row.operation_id)
+    plan = data['plan']; failure = data.get('failure_diagnostic') or {}
+    checked = data.get('verification') or {}
+    return (row.state in {'uncertain','creation_review_required'} and row.shopify_product_id and op
+        and op.operation_type=='shopify_draft_publish' and op.status=='partial' and op.recovery_state=='review_required'
+        and not data.get('continuation') and not data.get('dispatch') and plan.get('classification')=='create'
+        and data.get('create_attempted') is True and remote.get('status')=='DRAFT'
+        and {'product_create','variant_update'} <= set(data.get('completed_steps',()))
+        and failure.get('category')=='BackgroundYield' and failure.get('stage')=='verified'
+        and failure.get('operation_id')==checked.get('operation_id')==row.operation_id
+        and all(checked.get(k)=='verified' for k in ('identity','fields','media','memberships','attributes'))
+        and bool(plan.get('publication',{}).get('pending'))
+        and not any(data.get(k) for k in ('publication_update','native_dimensions','package_assignments','attribute_assignment_attempt')))
+
+
 def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_review=False):
     from app.shopify_package_assignments import guard as package_guard
     package_guard(data)
     plan = data["plan"]
+    availability_only = allow_attribute_review and _legacy_verified_draft_stop(row,data,remote)
     from app.shopify_publication import expected_status
     if remote.get('status') != expected_status(data):
         raise ShopifyError('Product status changed during metadata operation; reconcile the reviewed state before another write.')
@@ -1222,6 +1343,9 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
     data["verification"]["attributes"]="remaining_review" if remaining else "verified"
     unsent_tail = allow_attribute_review and _stopped_simple_create_at_attributes(row, data, remote)
     deferred = []
+    if availability_only:
+        deferred.append('reviewed availability')
+        data['legacy_availability_readback'] = {'operation':row.operation_id,'digest':row.reviewed_digest,'remote':row.shopify_product_id}
     from app.shopify_customisations import snapshot as read_customisations, verify as verify_customisations
     customisations = plan.get("customisations") or {}
     if unsent_tail and customisations.get("changed") and read_customisations(
@@ -1319,6 +1443,9 @@ def reconcile(row, candidate_id=None, adapter=None, approval=None):
 
 
 def finalize_processing(row, adapter=None, *, force=True):
+    from app.shopify_continuation import pending as shared_checkpoint
+    if shared_checkpoint(row):
+        return row  # Only the originating publisher owns advancing this receipt.
     from app.shopify_variable_readback import pending,complete
     if pending(row):
         return complete(row,adapter or ShopifyAdapter(),allow_writes=False)

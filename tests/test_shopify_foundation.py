@@ -310,7 +310,7 @@ def test_docker_examples_expose_optional_shopify_configuration():
     root = Path(__file__).resolve().parents[1]
     compose = (root / "compose.yaml").read_text()
     env = (root / ".env.example").read_text()
-    template = ET.parse(root / "unraid/my-woocommerce-dashboard.xml").getroot()
+    template = ET.parse(root / "unraid/my-tlcdashboard-production.xml").getroot()
     entries = {entry.get("Target"): entry for entry in template.findall("Config")}
     for key in config.ENV_KEYS:
         assert f'{key}: "${{{key}:-}}"' in compose and f"{key}=" in env

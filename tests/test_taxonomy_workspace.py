@@ -308,7 +308,7 @@ def test_unified_vocabulary_and_responsive_semantics(registry_app):
 
 
 def test_optional_taxonomy_deployment_contract():
-    root = ET.parse("unraid/my-woocommerce-dashboard.xml").getroot()
+    root = ET.parse("unraid/my-tlcdashboard-production.xml").getroot()
     configs = {c.attrib["Target"]:c for c in root.findall("Config")}
     assert configs["/taxonomy"].attrib["Required"] == "false"
     assert configs["/taxonomy"].attrib["Default"] == ""
@@ -516,7 +516,7 @@ def test_deployment_artifact_not_an_application_default():
     assert 'deployment/examples' not in dockerfile + entrypoint
     assert 'registry.json' not in dockerfile + entrypoint
     assert not (project / 'app/resources/taxonomy/registry.json').exists()
-    configs = {row.attrib['Target']: row for row in ET.parse(project / 'unraid/my-woocommerce-dashboard.xml').getroot().findall('Config')}
+    configs = {row.attrib['Target']: row for row in ET.parse(project / 'unraid/my-tlcdashboard-production.xml').getroot().findall('Config')}
     assert configs['/taxonomy'].attrib['Default'] == ''
     assert configs['/taxonomy'].attrib['Required'] == 'false'
     assert configs['TAXONOMY_ROOT'].text == '/taxonomy'

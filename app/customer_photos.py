@@ -12,24 +12,28 @@ REF = re.compile(r'tlcp1_[a-f0-9]{64}')
 ID = re.compile(r'[a-z][a-z0-9_]{0,63}')
 REVISION = re.compile(r'[a-f0-9]{64}')
 MIMES = {'image/jpeg':'jpg','image/png':'png','image/webp':'webp'}
+ENV_KEYS = ('TLC_PHOTO_WORKER_URL', 'TLC_PHOTO_WORKER_TOKEN', 'TLC_PHOTO_PROXY_PATH')
 
 
 class Unavailable(RuntimeError):
     pass
 
 
-def settings():
-    cfg = current_app.config
-    origin, secret, path = (cfg.get('TLC_PHOTO_'+key,'') for key in ('WORKER_URL','WORKER_TOKEN','PROXY_PATH'))
+def parse_settings(cfg):
+    origin, secret, path = (cfg.get(key, '') for key in ENV_KEYS)
     if not all(isinstance(v,str) for v in (origin,secret,path)): return None,None
     try: target = urlsplit(origin)
     except ValueError: return None,None
-    if (target.scheme == 'https' and re.fullmatch(r'[a-z0-9][a-z0-9.-]*',target.netloc)
+    if (origin == 'https://' + target.netloc and re.fullmatch(r'[a-z0-9][a-z0-9.-]*',target.netloc)
             and not any((target.path,target.query,target.fragment))
             and re.fullmatch(r'/(apps|a|community|tools)/[a-z0-9-]+',path)
             and re.fullmatch(r'[A-Za-z0-9_-]{32,128}',secret)):
         return {'origin':origin,'path':path},secret
     return None,None
+
+
+def settings():
+    return parse_settings(current_app.config)
 
 
 def _request(endpoint, data=None, *, download=False):
@@ -61,11 +65,23 @@ def _request(endpoint, data=None, *, download=False):
 
 
 def ready(shop, store):
+    proof = current_app.config.get('TLC_DEPLOYMENT_PROOF')
+    if proof and (shop, store) != (proof[0].domain, proof[0].shop):
+        raise Unavailable()
     public,_ = settings()
     if not public: raise Unavailable()
     evidence = _request('health')
-    if evidence != {'ready':True,'shop':shop,'store':store,'path':public['path']}:
+    if (not isinstance(evidence, dict) or evidence.get('ready') is not True
+            or evidence != {'ready':True,'shop':shop,'store':store,'path':public['path']}):
         raise Unavailable()
+
+
+def _managed_order_service(store):
+    proof = current_app.config.get('TLC_DEPLOYMENT_PROOF')
+    if proof:
+        # Establish the Worker/shop identity before sending an order, line,
+        # cart hash or reference. The legacy client retains its old behaviour.
+        ready(proof[0].domain, store)
 
 
 def cart_digest(value):
@@ -117,6 +133,7 @@ def bind_order(store_id, order, lines, previous=()):
                           'product':line['product_id'].rsplit('/',1)[-1],'variant':line['variant_id'].rsplit('/',1)[-1]})
     if 0<len(items)<=10 and settings()[0]:
         try:
+            _managed_order_service(store_id)
             response=_request('bind',{'shop':store_id,'order':order['remote_id'],'cart':order['_photo_cart'],'items':items})
             accepted=response.get('accepted') if isinstance(response,dict) else None
             if (isinstance(accepted,list) and all(isinstance(r,str) and r in owners for r in accepted)
@@ -130,4 +147,5 @@ def bind_order(store_id, order, lines, previous=()):
 
 
 def download(order,line,ref):
+    _managed_order_service(order.store_id)
     return _request('photo',{'shop':order.store_id,'order':order.remote_id,'line':line.remote_id,'ref':ref},download=True)

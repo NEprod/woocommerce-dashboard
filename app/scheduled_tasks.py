@@ -162,7 +162,7 @@ def renew(key, run_id, owner):
             ScheduledTask.active_run_id==run_id,ScheduledTask.owner==owner,ScheduledTask.lease_until>stamp
         ).values(lease_until=stamp+LEASE)).rowcount
     if changed != 1:
-        raise BackgroundYield("Scheduled execution ownership expired or changed; old worker cannot save evidence.")
+        raise BackgroundYield("Scheduled execution ownership expired or changed; old worker cannot save evidence.",code='ownership')
 
 
 def claim(owner, *, manual_only=False):
@@ -191,6 +191,7 @@ def claim(owner, *, manual_only=False):
     data=json.loads(run.data_json)
     if previous_owner:
         data["restarts"]=data.get("restarts",0)+1
+        data['last_reclaim'] = {'deferral':'worker_reclaim','at':stamp.isoformat()}
         # Only abandoned read-only operations from this exact expired owner.
         for op in CatalogueOperation.query.filter_by(operation_type="shopify_status_refresh",status="running").all():
             scope=json.loads(op.scope)
@@ -219,7 +220,7 @@ def fence(key,run_id,owner):
         ScheduledTask.active_run_id==run_id,ScheduledTask.owner==owner,ScheduledTask.lease_until>stamp
     ).values(lease_until=stamp+LEASE).execution_options(autoflush=False)).rowcount
     if changed!=1:
-        db.session.rollback();raise BackgroundYield("Execution owner changed before evidence commit.")
+        db.session.rollback();raise BackgroundYield("Execution owner changed before evidence commit.",code='ownership')
 
 
 def save_progress(key,run_id,owner,data,*,pause=False,terminal=None,error=None,resume_seconds=None):
@@ -241,7 +242,7 @@ def save_progress(key,run_id,owner,data,*,pause=False,terminal=None,error=None,r
     changed=db.session.execute(update(ScheduledTask).where(ScheduledTask.key==key,ScheduledTask.active_run_id==run_id,
         ScheduledTask.owner==owner,ScheduledTask.lease_until>stamp).values(**values)).rowcount
     if changed!=1:
-        db.session.rollback();raise BackgroundYield("Task ownership lost before progress commit.")
+        db.session.rollback();raise BackgroundYield("Task ownership lost before progress commit.",code='ownership')
     run.state=terminal or ("paused" if pause else "running")
     run.data_json=encoded(data);run.error=sanitize_operation_error(error) if error else None
     db.session.commit();db.session.expire_all()

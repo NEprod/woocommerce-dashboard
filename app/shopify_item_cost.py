@@ -126,27 +126,36 @@ def apply(row, data, config, adapter):
         raise ShopifyError('Source costs or Shopify configuration changed after Review. Rebuild Review before writing cost.')
     targets = _targets(data)
     observed = _read(adapter, config, row.shopify_product_id, plan['nonce'], [vid for _, vid, _ in targets])
+    from app.shopify_continuation import effect
+    proof = data.get('item_cost_attempt') or {}
+    if proof.get('operation_id') != row.operation_id:
+        proof = {'operation_id':row.operation_id,'items':{}}
     changed = []
     for t, vid, iid in targets:
         found, value = observed[vid]
+        previous = proof['items'].get(t['sku'],{})
+        if previous.get('state') in {'acknowledged','verified'}:
+            if previous.get('id') != found or previous.get('variant') != vid or value is None or Decimal(value) != Decimal(t['value']):
+                raise ShopifyError('An acknowledged Cost per item write differs at readback; no repeat.')
+            continue
         if (iid and found != iid) or (t['id'] and value != t['before']):
             raise ShopifyError('Shopify cost or inventory identity changed since Review for ' + t['sku'] + '. Rebuild Review.')
         if value is None or Decimal(value) != Decimal(t['value']):
             changed.append((t, vid, found))
     if not changed:
         return
-    proof = data['item_cost_attempt'] = {'operation_id': row.operation_id, 'items': {}}
+    data['item_cost_attempt'] = proof
     for t, vid, iid in changed:
         if t['key'] is None:
             data['inventory_item_id'] = iid
         data['stage'] = 'item_cost_update'
         stamp = proof['items'][t['sku']] = {'variant': vid, 'id': iid, 'state': 'pending'}
-        drafts.save(row, data, 'updating')
-        payload = drafts.payload_result(adapter.write_item_cost(config, iid, t['value']), 'inventoryItemUpdate')
-        if payload.get('userErrors') != [] or (payload.get('inventoryItem') or {}).get('id') != iid:
-            raise ShopifyError('Shopify Cost per item mutation evidence is incomplete. Reconcile with reads; do not retry blindly.')
-        stamp['state'] = 'acknowledged'
-        drafts.save(row, data)
+        def accept(response):
+            payload = drafts.payload_result(response,'inventoryItemUpdate')
+            if payload.get('userErrors') != [] or (payload.get('inventoryItem') or {}).get('id') != iid:
+                raise ShopifyError('Shopify Cost per item mutation evidence is incomplete. Reconcile with reads; do not retry blindly.')
+            stamp['state'] = 'acknowledged'
+        effect(row,data,'cost:'+iid,lambda:adapter.write_item_cost(config,iid,t['value']),accept,state='updating')
     drafts.completed_step(row, data, 'item_cost_update')
 
 

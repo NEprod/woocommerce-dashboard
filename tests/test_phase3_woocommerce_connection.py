@@ -750,7 +750,7 @@ def test_settings_and_unraid_are_safe_and_environment_only(woo_app):
     assert "Woo writes" in html and "Only through separately reviewed publishing and Taxonomy Sync" in html
     assert "never from this health page" in html
     assert KEY not in html and SECRET not in html
-    xml = (ROOT / "unraid" / "my-woocommerce-dashboard.xml").read_text()
+    xml = (ROOT / "unraid" / "my-tlcdashboard-production.xml").read_text()
     for variable in ("WOO_STORE_URL", "WOO_CONSUMER_KEY", "WOO_CONSUMER_SECRET"):
         assert f'Target="{variable}"' in xml
     assert xml.count('Mask="true"') >= 3

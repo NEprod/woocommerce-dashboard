@@ -281,7 +281,8 @@ def test_new_variable_draft_completion_yield_preserves_receipt(variable_world,mo
         task=db.session.get(ScheduledTask,KEY)
         task.lease_until=drafts.now()-timedelta(seconds=1);db.session.commit()
     else:
-        assert wait['state']=='pending' and op.status=='pending' and 'Bounded API/time budget' in wait['last_reason']
+        assert wait['state']=='pending' and op.status=='pending'
+        assert wait['last_deferral']['deferral']=='time_budget'
     if boundary in {'completion','restart'}:
         assert not proof.get('publication_update') and adapter.remote['status']=='DRAFT'
     else:

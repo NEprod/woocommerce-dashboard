@@ -558,6 +558,9 @@ def event_trigger(job):
 def processing_readback(row):
     """Only the executor's known accepted media-processing state, never uncertainty."""
     data = drafts.evidence(row)
+    from app.shopify_continuation import pending as checkpoint
+    if checkpoint(row,'publisher'):return True
+    if data.get('dispatch'):return False
     from app.shopify_variable_readback import pending
     if pending(row):return True
     return bool(row.state == 'processing' and row.verification_state == 'processing' and row.shopify_product_id
@@ -601,6 +604,13 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None, schedul
         job.state, job.error = 'attention', 'Product source/identity is absent or changed; inspect the catalogue.'
         fence(); db.session.commit()
         return 'attention'
+    from app.shopify_continuation import live_manual, pending as checkpoint
+    # A parked manual task no longer holds a scheduler lease, but its signed
+    # operation still owns the mutation lane. Check before reads or queue changes.
+    for op in CatalogueOperation.query.filter(CatalogueOperation.operation_type=='shopify_draft_publish',
+            CatalogueOperation.status.in_({'running','pending'})):
+        if live_manual(op) and json.loads(op.scope).get('product_id') == product.id:
+            return 'deferred'
     legacy_reason = None
     if scheduled and policy().enabled and job.state in {'paused', 'attention'}:
         # Reopen only the retired policy holds, not unrelated validation or
@@ -644,6 +654,25 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None, schedul
         return job.state
     if candidates:
         row = candidates[0]
+        if live_manual(db.session.get(CatalogueOperation,row.operation_id)):
+            return 'deferred'  # Includes legacy manual receipts parked between commits.
+    resume_checkpoint = checkpoint(row,'publisher')
+
+    def stop_obsolete_checkpoint(reason, *, claimed=False):
+        # A revoked checkpoint must neither write under new authority nor stay
+        # pending forever and hold the durable catalogue slot. Keep its exact
+        # acknowledgements and send the product to explicit, read-only review.
+        op = db.session.get(CatalogueOperation,row.operation_id)
+        op.status, op.finished_at, op.recovery_state = 'interrupted', drafts.now(), 'review_required'
+        op.error = reason
+        row.state, row.verification_state = 'uncertain', 'unverified'
+        if claimed:
+            _settle_job(job,owner=owner,revision=revision,state='recovery_required',operation_id=op.id,error=reason,fence=fence)
+        else:
+            job.state, job.operation_id, job.error = 'recovery_required', op.id, reason
+            fence(); db.session.commit()
+        return 'recovery_required'
+
     # Use exactly the catalogue's persisted status rules. No JSON/gallery walk
     # for idle matching/blocked products; source guards belong to executable work.
     from app.catalogue_views import saved_states
@@ -691,7 +720,12 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None, schedul
     selection['current_revision'] = current_revision
     if current_revision != job.requested_revision:
         selection.update(outcome='scan_required', write_attempted=False)
+        if resume_checkpoint:
+            return stop_obsolete_checkpoint('Local source changed after the approved scan; no retained write resumed. Review the existing Shopify evidence.')
         return _needs_attention(job, product, 'Local source changed after its completed scan. Run its collection update before publication.', fence=fence, selection=selection)
+    original = json.loads(db.session.get(CatalogueOperation,row.operation_id).scope)['automatic_publishing'] if resume_checkpoint else None
+    if original and (original.get('revision') != job.requested_revision or original.get('product_id') != product.id):
+        return stop_obsolete_checkpoint('A different product revision is now queued; no retained write resumed.')
     from app.shopify_publication import intent
     authored = product_document(product)
     wanted = intent(authored)
@@ -727,17 +761,21 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None, schedul
     try:
         initial_authority = authority(job, config)
     except (BackgroundYield, ValueError):
+        if resume_checkpoint:
+            return stop_obsolete_checkpoint('Original publishing authority is no longer valid; no retained write resumed.', claimed=True)
         _settle_job(job, owner=owner, revision=revision, state='paused', error='Automatic publishing is paused or not authorised.', fence=fence)
         return 'paused'
     epoch = initial_authority.get('revision')
+    if original and original.get('authority') != initial_authority:
+        return stop_obsolete_checkpoint('Original publishing authority changed; no retained write resumed.', claimed=True)
 
     def write_guard():
         guard()
         proof = authority(job, drafts.configuration(), expected_policy=epoch)
-        if proof.get('store_id') and proof['store_id'] != initial_authority.get('store_id'):
-            raise BackgroundYield('Publishing store changed; no further write permitted.')
+        if proof != initial_authority:
+            raise BackgroundYield('Publishing authority changed; no further write permitted.',code='authority')
         if job.owner != owner or job.running_revision != revision:
-            raise BackgroundYield('Publishing product ownership changed.')
+            raise BackgroundYield('Publishing product ownership changed.',code='ownership')
 
     context = {'product_id': product.id, 'revision': revision, 'trigger': event_trigger(job),
                'authority': initial_authority, 'owner': owner}
@@ -749,6 +787,13 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None, schedul
         with background_work(guard, fence=fence, requests=180, seconds=110,
                              publisher_authority=write_guard, publishing_context=context) as budget:
             write_guard()
+            if resume_checkpoint:
+                from app.shopify_continuation import resume
+                row = resume(row,adapter,lane='publisher')
+                from app.shopify_notifications import complete
+                state = 'verified' if complete(row,drafts.evidence(row)) else 'retry' if processing_readback(row) else 'recovery_required'
+                _settle_job(job,owner=owner,revision=revision,state=state,operation_id=row.operation_id,fence=fence)
+                return state
             if row and processing_readback(row):
                 proof = drafts.evidence(row)
                 polls = proof.get('automatic_readback_attempts', 0) if proof.get('automatic_readback_operation') == row.operation_id else 0
@@ -841,9 +886,16 @@ def publish_one(job, *, owner, guard, fence, adapter=None, metrics=None, schedul
         db.session.rollback(); db.session.refresh(job)
         _settle_job(job, owner=owner, revision=revision, state='pending', error='Another catalogue operation owns the slot; queued work retained.', fence=fence)
         return 'deferred'
-    except BackgroundYield:
+    except BackgroundYield as exc:
         db.session.rollback()
-        # The task owner decides recovery after expiry; an old worker cannot finalize.
+        candidate = ShopifyProductIdentity.query.filter_by(product_id=product.id).one_or_none()
+        if checkpoint(candidate,'publisher'):
+            from app.shopify_capacity import diagnostic
+            op = db.session.get(CatalogueOperation,candidate.operation_id)
+            scope = json.loads(op.scope);scope['worker_deferral'] = diagnostic(exc);op.scope=json.dumps(scope)
+            op.status='pending';op.finished_at=None
+            _settle_job(job,owner=owner,revision=revision,state='retry',operation_id=op.id,fence=fence)
+            return 'retry'
         raise
     except (ShopifyError, ValueError, OSError, RuntimeError) as exc:
         db.session.rollback(); guard(); db.session.refresh(job)
@@ -914,7 +966,7 @@ def recover_jobs(owner, *, guard=lambda: None, fence=lambda: None):
                 if context.get('revision') == job.running_revision and context.get('owner') == job.owner:
                     if candidate.status == 'succeeded' and identity.state == 'verified':
                         completed = candidate
-                    elif candidate.status in {'running', 'pending'} or candidate.recovery_state not in {None, 'none'} and not pending_media:
+                    elif (candidate.status in {'running', 'pending'} or candidate.recovery_state not in {None, 'none'}) and not pending_media:
                         unsafe = True
         if unsafe:
             job.state, job.error = 'recovery_required', 'Interrupted publishing retains uncertain evidence; inspect its original receipt.'
@@ -1038,8 +1090,10 @@ def run_slice(run_id, owner, *, adapter=None):
             # publishing. Blocked/uncertain targets must not imply all published.
             tasks.save_progress(KEY, run_id, owner, data,
                 terminal='partially_completed' if data['counts']['attention'] else 'completed')
-    except BackgroundYield:
+    except BackgroundYield as exc:
         db.session.rollback()
+        from app.shopify_capacity import diagnostic
+        data['last_deferral'] = diagnostic(exc)
         try:
             tasks.save_progress(KEY, run_id, owner, data, pause=True)
         except BackgroundYield:

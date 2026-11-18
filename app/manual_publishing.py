@@ -93,12 +93,12 @@ def resume(lease):
     """Take the normal global operation slot without inserting another receipt."""
     from app.utils import operation_control as control
     if not control._catalogue_lock.acquire(blocking=False):
-        raise BackgroundYield('Another local catalogue operation owns the execution slot.')
+        raise BackgroundYield('Another local catalogue operation owns the execution slot.',code='operation_slot')
     try:
         other = CatalogueOperation.query.filter(CatalogueOperation.id != lease.id,
             CatalogueOperation.operation_type.in_(control.ALLOWED_OPERATION_TYPES),
             CatalogueOperation.status.in_({'running','pending'})).first()
-        if other: raise BackgroundYield('Another durable catalogue operation is active.')
+        if other: raise BackgroundYield('Another durable catalogue operation is active.',code='operation_slot')
         with control._state_lock:
             control._active_operation={'id':lease.id,'operation_type':'shopify_draft_publish','started_at':drafts.now().isoformat()}
     except Exception:
@@ -149,9 +149,13 @@ def run_slice(run_id, owner, *, adapter=None):
         package_correction = reviewed.get('mode') == 'package_correction'
         from app.shopify_registration_checkpoint import pending as registration_pending
         from app.shopify_variable_readback import pending as verification_pending
+        from app.shopify_continuation import pending as checkpoint
+        checkpointed = checkpoint(identity,'manual')
         registration = registration_pending(identity)
+        if identity and not package_correction and drafts.evidence(identity).get('dispatch'):
+            raise ShopifyError('A reserved Shopify request has no durable acknowledgement; no write replay is authorised.')
         if (identity and not package_correction and identity.state not in {'uploading','processing','verified','scoped_verified'}
-                and not registration and not verification_pending(identity)):
+                and not registration and not checkpointed and not verification_pending(identity)):
             proof=drafts.evidence(identity)
             candidate=SimpleNamespace(state='uploading',shopify_product_id=identity.shopify_product_id,
                 reviewed_digest=identity.reviewed_digest,media_evidence_json=identity.media_evidence_json)
@@ -176,6 +180,10 @@ def run_slice(run_id, owner, *, adapter=None):
             if package_correction:
                 authority()
                 identity=drafts.execute_reviewed(reviewed,adapter,expected_product_id=product.id)
+            elif checkpointed:
+                authority()
+                from app.shopify_continuation import resume as resume_checkpoint
+                identity=resume_checkpoint(identity,adapter,lane='manual')
             elif registration:
                 authority()
                 from app.shopify_registration_checkpoint import resume as resume_registration
@@ -245,22 +253,26 @@ def run_slice(run_id, owner, *, adapter=None):
             fence();db.session.commit()
             return tasks.save_progress(KEY,run_id,owner,data,terminal='completed')
         raise ShopifyError(op.error or (drafts.evidence(identity).get('error') if identity else None) or 'Publishing was not completely verified. Inspect its receipt before any retry.')
-    except BackgroundYield:
+    except BackgroundYield as exc:
         db.session.rollback()
+        from app.shopify_capacity import diagnostic
+        data['last_deferral'] = diagnostic(exc)
         if lease:
             op=db.session.get(CatalogueOperation,lease.id)
             if op.status in {'running','pending'}:
-                scope=json.loads(op.scope);scope['manual_review']['state']='waiting';op.scope=json.dumps(scope)
+                scope=json.loads(op.scope);scope['manual_review']['state']='waiting';scope['worker_deferral']=data['last_deferral'];op.scope=json.dumps(scope)
                 op.status='pending';op.finished_at=None;op.error=None
-                update(op,stage='worker_deferred',message='Worker deferred before continuing; retained approval and receipts remain protected. No failed mutation is inferred.',status='waiting')
+                stage = {'upload_slice':'waiting_for_next_batch','readback_pending':'verification_pending'}.get(exc.code,'worker_deferred')
+                update(op,stage=stage,message='Worker deferred before continuing; retained approval and receipts remain protected. No failed mutation is inferred.',status='waiting')
                 fence();db.session.commit()
-        return tasks.save_progress(KEY,run_id,owner,data,pause=True)
+        return tasks.save_progress(KEY,run_id,owner,data,pause=True,resume_seconds=1 if exc.code=='upload_slice' else 15)
     except Exception as exc:
         db.session.rollback()
         if lease:
             op=db.session.get(CatalogueOperation,lease.id);scope=json.loads(op.scope)
             identity=ShopifyProductIdentity.query.filter_by(operation_id=op.id).first()
             uncertain=bool(identity and (drafts.evidence(identity).get('create_attempted') or
+                drafts.evidence(identity).get('dispatch') or
                 drafts.evidence(identity).get('registration_checkpoint') or
                 drafts.evidence(identity).get('upload_attempt',{}).get('state')=='pending' or identity.state not in {'pending','uploading','failed_before_create'}))
             scope['manual_review']['state']='recovery_required' if uncertain else 'failed';op.scope=json.dumps(scope)
@@ -271,10 +283,12 @@ def run_slice(run_id, owner, *, adapter=None):
                 retained=drafts.evidence(identity);retained['verification_wait']['state']='recovery_required'
                 retained['error']=sanitize_operation_error(exc);identity.verification_state='unverified'
                 drafts.save(identity,retained,'uncertain')
-            elif uncertain and identity and registration:
+            elif uncertain and identity and (registration or drafts.evidence(identity).get('dispatch')):
                 retained=drafts.evidence(identity)
                 retained['error']=sanitize_operation_error(exc)
                 retained['failure_diagnostic']=drafts.failure_diagnostic(exc,retained.get('stage'),op.id)
+                if retained.get('dispatch'):
+                    retained['failure_diagnostic']['mutation_outcome']='unacknowledged'
                 drafts.save(identity,retained,'uncertain')
             finish_catalogue_operation(op.id,status='partial' if uncertain else 'failed',recovery_state='review_required' if uncertain else 'none',error=str(exc),products_attempted=1,products_failed=0 if acknowledged else 1)
         return tasks.save_progress(KEY,run_id,owner,data,terminal='failed',error=str(exc))

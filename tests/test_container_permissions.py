@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ENTRYPOINT = ROOT / "docker" / "entrypoint.sh"
 DOCKERFILE = ROOT / "Dockerfile"
 COMPOSE = ROOT / "compose.yaml"
-UNRAID_TEMPLATE = ROOT / "unraid" / "my-woocommerce-dashboard.xml"
+UNRAID_TEMPLATE = ROOT / "unraid" / "my-tlcdashboard-production.xml"
 
 
 def _validate_config(**overrides):
@@ -94,7 +94,7 @@ def test_compose_and_unraid_template_expose_consumed_permission_variables():
     root = ET.parse(UNRAID_TEMPLATE).getroot()
     configs = {node.attrib["Name"]: node for node in root.findall("Config")}
 
-    assert root.findtext("Repository") == "neprod/woocommerce-dashboard:0.2.3"
+    assert root.findtext("Repository") == "neprod/woocommerce-dashboard:latest"
     expected = {"PUID": "99", "PGID": "100", "UMASK": "002"}
     for name, default in expected.items():
         node = configs[name]

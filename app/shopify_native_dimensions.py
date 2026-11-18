@@ -221,6 +221,15 @@ def apply_reviewed(row, plan, adapter, *, operation_id=None):
     if desired(product)["desired"] != plan["desired"] or config.fingerprint() != plan["config"]:
         raise ShopifyError("Native source/configuration changed. Rebuild the reviewed operation; no native write attempted.")
     inventory_id, before = identity_read(row, adapter, config)
+    receipt = drafts.evidence(row)
+    prior = receipt.get('native_dimensions') or {}
+    acknowledged = (receipt.get('continuation') and prior.get('operation_id')==operation_id
+        and prior.get('state') in {'acknowledged','verified'} and prior.get('plan')==plan)
+    if acknowledged:
+        if inventory_id != prior['inventory_id'] or not equal(before,plan['desired']):
+            raise ShopifyError('Acknowledged packed dimensions differ in readback; no write replay.')
+        persist(row,{**prior,'state':'verified','observed':before,'checked_at':drafts.now().isoformat()})
+        return 'verified'
     if plan.get("inventory_id") and (inventory_id != plan["inventory_id"] or before != plan["before"]):
         raise ShopifyError("Native inventory identity/measurements changed since review; no native write attempted.")
     if equal(before, plan["desired"]):
@@ -237,16 +246,31 @@ def apply_reviewed(row, plan, adapter, *, operation_id=None):
     if previous.get('state')=='verified':
         attempt['prior_verified']={k:previous[k] for k in ('observed','checked_at','inventory_id') if k in previous}
         attempt['prior_verified']['used_product_dimensions']=(previous.get('plan') or {}).get('use_product_dimensions',False)
-    persist(row, attempt)  # durable BEFORE the single, never-retried mutation
+    from app.shopify_capacity import BackgroundYield, RequestNotSent
+    if receipt.get('continuation'):
+        receipt.update(native_dimensions=attempt,dispatch='native:'+inventory_id)
+        drafts.save(row,receipt)
+    else:
+        persist(row, attempt)  # durable BEFORE the single, never-retried mutation
     try:
-        response = adapter.write_packed(config, inventory_id, plan["desired"])
+        try:
+            response = adapter.write_packed(config, inventory_id, plan["desired"])
+        except RequestNotSent:
+            if not receipt.get('continuation'):
+                raise
+            receipt.pop('dispatch');attempt['state']='not_sent';drafts.save(row,receipt)
+            raise
         payload = response.get("inventoryItemUpdate")
         if isinstance(payload, dict) and payload.get("userErrors") and payload.get("inventoryItem") is None:
             attempt.update(state="blocked", message="Shopify rejected native dimensions. Inspect values/permissions, then build a new review; no automatic retry.")
+            if receipt.get('continuation'):
+                receipt.pop('dispatch');drafts.save(row,receipt)
             persist(row, attempt)
             return "blocked"
         if not isinstance(payload, dict) or payload.get("userErrors") or (payload.get("inventoryItem") or {}).get("id") != inventory_id:
             raise ShopifyError("Native mutation receipt is incomplete; reconcile before retry.")
+        if receipt.get('continuation'):
+            receipt.pop('dispatch');attempt['state']='acknowledged';drafts.save(row,receipt)
         _, after = identity_read(row, adapter, config)
         if not equal(after, plan["desired"]):
             raise ShopifyError("Native packed dimensions are not independently verified; reconcile before retry.")
@@ -255,9 +279,13 @@ def apply_reviewed(row, plan, adapter, *, operation_id=None):
         return "verified"
     except ShopifyNativeWriteRejected as exc:
         attempt.update(state="blocked", message=str(exc))
+        if receipt.get('continuation'):
+            receipt.pop('dispatch',None);drafts.save(row,receipt)
         persist(row, attempt)
         return "blocked"
     except Exception as exc:
+        if isinstance(exc,BackgroundYield) and receipt.get('continuation'):
+            raise  # a retained dispatch, if any, prevents resume
         attempt.update(state="uncertain", message=str(exc) if isinstance(exc, ShopifyError) else "Native write outcome is uncertain; reconcile before any retry.")
         persist(row, attempt)
         return "uncertain"

@@ -22,7 +22,7 @@ from config import Config
 
 
 ROOT = Path(__file__).resolve().parents[1]
-UNRAID = ROOT / "unraid" / "my-woocommerce-dashboard.xml"
+UNRAID = ROOT / "unraid" / "my-tlcdashboard-production.xml"
 
 
 def _image(path, colour=(40, 130, 90)):

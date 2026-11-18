@@ -149,9 +149,20 @@ def submit(row,data,entry,mapping,config,adapter,operation_id,source_revision):
             'operation_id':operation_id,'api_version':'2026-10','independently_verified':False}
     data.setdefault('package_assignments',{})[key]=proof;data['stage']='package_assignment'
     row.state='updating';row.verification_state='unverified'
+    from app.shopify_capacity import BackgroundYield, RequestNotSent
+    if data.get('continuation'):
+        data['dispatch']='package:'+inventory
     persist(row,data,key,proof)  # committed BEFORE Shopify, independently visible to workers
     try:
-        response=adapter.assign_package(config,inventory,entry['shipping_package_id'])
+        try:
+            response=adapter.assign_package(config,inventory,entry['shipping_package_id'])
+        except RequestNotSent:
+            if not data.get('continuation'):
+                raise
+            data.pop('dispatch');proof['state']='not_sent'
+            row.state='verified';row.verification_state='verified'
+            persist(row,data,key,proof)
+            raise
         payload=response.get('inventoryItemUpdate')
         if isinstance(payload,dict) and isinstance(payload.get('userErrors'),list) and payload['userErrors']:
             from app.utils.redaction import redact_diagnostic
@@ -162,13 +173,17 @@ def submit(row,data,entry,mapping,config,adapter,operation_id,source_revision):
             proof.update(state='rejected',errors=errors,
                 message='Shopify rejected the package input. Inspect the retained safe errors; no automatic retry.')
             row.state='verified';row.verification_state='verified'
+            data.pop('dispatch',None)
             persist(row,data,key,proof);return 'blocked'
         if not isinstance(payload,dict) or payload.get('userErrors')!=[] or (payload.get('inventoryItem') or {}).get('id')!=inventory:
             raise ShopifyError('Incomplete package mutation acknowledgement.')
         proof.update(state='accepted',acknowledged_at=drafts.now().isoformat(),message='Shopify accepted this input. Assigned package is not independently readable.')
+        data.pop('dispatch',None)
         persist(row,data,key,proof)
         drafts.completed_step(row,data,'package_assignment_accepted')
     except Exception as error:
+        if isinstance(error,BackgroundYield) and data.get('continuation'):
+            raise
         definite=isinstance(error,ShopifyError) and error.category=='authentication'
         proof.update(state='rejected' if definite else 'uncertain',message='Shopify rejected authentication before the assignment.' if definite else
             'Assignment outcome uncertain; no automatic replay or false readback verification. Inspect the exact variant in Shopify Admin.')
