@@ -23,11 +23,11 @@ from app.commerce_config import shopify_settings
 from app.customisations import CustomisationDefinitionError
 from app.catalogue_images import product_image_diagnostics, _source_context
 from app.models import Product, ShopifyProductIdentity, CatalogueOperation
-from app.shopify_connection import ShopifyAdapter, ShopifyConfiguration, ShopifyError, _gid
+from app.shopify_connection import ShopifyAdapter, ShopifyConfiguration, ShopifyError, ShopifyReadinessFinding, _gid
 from app.utils.operation_control import acquire_catalogue_operation, finish_catalogue_operation
 from app import shopify_simple_fields as fields
 
-MAX_IMAGE = 10 * 1024 * 1024
+MAX_IMAGE = 19_000_000  # Decimal bytes; below Shopify's 20 MB product-media ceiling.
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024  # A bounded upload slice, not the whole gallery.
 MAX_IMAGE_PIXELS = 20_000_000
 MAX_IMAGES = 250  # Complete Shopify image gallery; transport/evidence byte bounds still apply.
@@ -105,16 +105,16 @@ def source_bytes(product, reference):
             if not stat.S_ISREG(info.st_mode):
                 raise ValueError()
             if info.st_size > MAX_IMAGE:
-                raise ShopifyError(f'Image "{name}" is {info.st_size:,} bytes; the TLC individual-file upload limit is {MAX_IMAGE:,} bytes (10 MiB). Batching cannot fix an oversized individual file; no image was changed.')
+                raise ShopifyReadinessFinding(f'Image "{name}" is {info.st_size:,} bytes; the TLC individual-file upload limit is {MAX_IMAGE:,} bytes (19 MB decimal). Batching cannot fix an oversized individual file; no image was changed.', code='image_size')
             content = stream.read(MAX_IMAGE + 1)
         if len(content) > MAX_IMAGE:
-            raise ShopifyError(f'Image "{name}" exceeds the TLC 10 MiB individual-file upload limit; no image was changed.')
+            raise ShopifyReadinessFinding(f'Image "{name}" supplied at least {len(content):,} bytes; the TLC individual-file upload limit is {MAX_IMAGE:,} bytes (19 MB decimal). No image was changed.', code='image_size')
         with Image.open(io.BytesIO(content)) as image:
             mime, suffixes = {"PNG": ("image/png", {".png"}), "JPEG": ("image/jpeg", {".jpg", ".jpeg"}),
                               "WEBP": ("image/webp", {".webp"})}[image.format]
             width, height = image.size
             if width * height > MAX_IMAGE_PIXELS or max(width, height) > 100 * min(width, height):
-                raise ShopifyError(f'Image "{name}" is {width} × {height} pixels; the supported Shopify MediaImage API requires at most 20 megapixels and an aspect ratio within 100:1. No image was resized or compressed.')
+                raise ShopifyReadinessFinding(f'Image "{name}" is {width} × {height} pixels; the supported Shopify MediaImage API requires at most 20 megapixels and an aspect ratio within 100:1. No image was resized or compressed.', code='image_dimensions')
             image.verify()
         if path.suffix.lower() not in suffixes:
             raise ValueError()
@@ -426,7 +426,7 @@ def upload_batch(images, *, count=UPLOAD_BATCH, byte_limit=MAX_UPLOAD_BYTES):
     for image in images:
         amount = image.get('size')
         if type(amount) is not int or not 0 < amount <= MAX_IMAGE:
-            raise ShopifyError(f'Image "{image.get("filename", "Unknown image")}" has an invalid or oversized individual-file byte count. Rebuild the review from its original file.')
+            raise ShopifyReadinessFinding(f'Image "{image.get("filename", "Unknown image")}" has individual-file size {amount!r} bytes; the permitted maximum is {MAX_IMAGE:,} bytes. Rebuild the review from its original file.', code='image_size')
         if len(batch) >= count or size + amount > byte_limit:
             break
         batch.append(image)

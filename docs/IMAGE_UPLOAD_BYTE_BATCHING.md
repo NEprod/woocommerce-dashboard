@@ -19,8 +19,9 @@ a time, retaining metadata rather than the entire gallery in memory.
 The unchanged **30 MiB budget now applies per acknowledged upload slice**, together
 with the existing maximum twenty files. A prefix is selected using both limits;
 once either is reached, the existing durable `GalleryPending` continuation is used.
-No global safety limit is increased. An individual file still cannot exceed the
-existing TLC 10 MiB transport bound, which is stricter than Shopify's file ceiling.
+The individual-file bound is now **19,000,000 bytes (19 MB decimal)**, below
+Shopify's 20 MB API ceiling. The independent 30 MiB combined slice bound is unchanged:
+two 19 MB originals require separate slices. Customer-photo limits are unchanged.
 Original PNG/JPEG/WebP validation remains; API resolution/aspect-ratio checks are
 explicit (20 megapixels, at most 100:1), with filename and actual size/dimensions
 in actionable errors. No original is compressed, resized, skipped or reordered.
@@ -126,7 +127,7 @@ all below 31,457,280 bytes (30 MiB). A fresh-process manual test reported peak R
 previews and mocked publication—not an upload-only memory measurement. No
 production/Unraid memory claim is inferred. Application plans retain image
 metadata/hashes, not a whole-gallery binary buffer; each original read is still
-bounded by the unchanged 10 MiB individual-file limit.
+bounded by the 19,000,000-byte individual-file limit.
 
 The two-worker, network-disabled Docker upgrade/restart smoke passed with actual
 candidate code and disposable `/app/instance`/catalogue mounts. Five approximately

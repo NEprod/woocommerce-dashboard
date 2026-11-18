@@ -201,7 +201,8 @@ def test_unsupported_resolution_is_identified_without_resizing(world):
 
 def test_batch_prefix_never_reorders_or_treats_unknown_size_as_zero():
     images = [{'filename': str(i), 'size': drafts.MAX_IMAGE} for i in range(5)]
-    assert drafts.upload_batch(images) == images[:3]
+    assert drafts.upload_batch(images) == images[:drafts.MAX_UPLOAD_BYTES // drafts.MAX_IMAGE]
+    assert sum(image['size'] for image in drafts.upload_batch(images)) <= 30 * 1024 * 1024
     for size in (None, 0, -1, True, drafts.MAX_IMAGE + 1):
         with pytest.raises(ShopifyError, match='individual-file'):
             drafts.upload_batch([{'filename': 'invalid.png', 'size': size}])

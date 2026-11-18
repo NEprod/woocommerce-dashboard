@@ -33,7 +33,9 @@ def queue():
     identities = {}
     for row in ShopifyProductIdentity.query.filter(ShopifyProductIdentity.product_id.in_(ids)):
         identities.setdefault(row.product_id, []).append(row)
-    operations = {op.id: op for op in CatalogueOperation.query.filter(CatalogueOperation.id.in_([j.operation_id for j in page.items if j.operation_id]))}
+    operation_ids = {j.operation_id for j in page.items if j.operation_id}
+    operation_ids.update(row.operation_id for links in identities.values() for row in links if row.operation_id)
+    operations = {op.id: op for op in CatalogueOperation.query.filter(CatalogueOperation.id.in_(operation_ids))}
     collections = {c.id: c for c in Collection.query.filter(Collection.id.in_([p.collection_id for p in products.values() if p.collection_id]))}
     rows = []
     for job in page.items:
@@ -53,11 +55,18 @@ def queue():
         settlement = no_changes_settlement(job)
         settled = bool(settlement and states[product.id]['state'] == 'no_change')
         operation = operations.get(job.operation_id)
+        manual = operations.get(identity.operation_id) if identity else None
+        manual = manual if (manual and manual.status == 'succeeded' and manual.recovery_state in {None, 'none'}
+            and document(manual.scope).get('manual_review', {}).get('state') == 'completed') else None
+        manual_match = bool(manual and states[product.id]['state'] == 'no_change')
+        readiness = states[product.id] if states[product.id]['state'] in {'attention', 'unavailable', 'recovery_required'} else None
         collection = collections.get(product.collection_id)
         rows.append({'job': job, 'product': product, 'title': view.get('display_title') or product.title,
             'intended': intended, 'actual': actual or 'Not verified', 'operation': operation,
             'no_changes': settled, 'draft_paused': intended == 'Draft',
-            'settlement_label': 'No Changes' if settled else states[product.id]['label'] if settlement else None,
+            'manual_operation': manual, 'manual_match': manual_match,
+            'readiness': readiness,
+            'settlement_label': readiness['label'] if readiness else states[product.id]['label'] if manual_match else 'No Changes' if settled else states[product.id]['label'] if settlement else None,
             'collection': collection, 'scan_required': not settled and intended != 'Draft' and (job.requested_revision == 'unscanned' or 'scan' in (job.error or '').lower()),
             'source': collection.source_relpath if collection else None})
     return {'rows': rows, 'page': page, 'filters': {'state': state, 'trigger': trigger, 'q': q}}

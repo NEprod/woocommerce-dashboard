@@ -541,6 +541,15 @@ def activity():
     for key in keys:
         task=tasks.get(key)
         if not task: continue
+        if key == KEY:
+            from app.reconciliation_reporting import attention
+            current = attention()
+            if current:
+                values.append(current)
+            elif task.active_run_id:
+                values.append({'key':key,'run_id':task.active_run_id,'attention':False,
+                    'label':definition(key)['name']+' — '+task.state.replace('_',' '),'reason':None})
+            continue
         run=runs.get(key)
         data=json.loads(run.data_json) if run else {}
         real_issue=bool(run and (run.state=='failed' or run.error or
