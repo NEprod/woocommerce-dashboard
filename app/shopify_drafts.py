@@ -1,6 +1,7 @@
 """Single Simple draft proof of concept, independent of Woo publishing."""
 import hashlib
 import base64
+import copy
 import io
 import json
 import os
@@ -233,10 +234,10 @@ def require_absent_sku(adapter, config, sku):
         raise ShopifyReadinessFinding('Existing Shopify SKU candidate found. Reconciliation review is required; never create a duplicate or adopt by title. First-time mapping without a retained identity needs a separately supported linking workflow.', code='reconciliation')
 
 
-def preview(product, adapter=None, *, context=None, scope="full"):
+def preview(product, adapter=None, *, context=None, scope="full", settle_queue=True):
     started = now().isoformat()
     try:
-        return _preview(product, adapter, context=context, scope=scope, started=started)
+        return _preview(product, adapter, context=context, scope=scope, started=started, settle_queue=settle_queue)
     except CustomisationDefinitionError as exc:
         from app.shopify_connection import ShopifyReadinessFinding
         from app.shopify_comparison import failed
@@ -248,7 +249,7 @@ def preview(product, adapter=None, *, context=None, scope="full"):
         raise
 
 
-def _preview(product, adapter=None, *, context=None, scope="full", started=None):
+def _preview(product, adapter=None, *, context=None, scope="full", started=None, settle_queue=True):
     if scope == 'customisations':
         from app.shopify_customisations import preview as customisation_preview
         return customisation_preview(product, adapter)
@@ -282,7 +283,10 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
         raise ShopifyError("Recovery required for native packed dimensions. Open the native dimension review and reconcile using reads only; normal product/media verification is retained.")
     if row:
         from app.shopify_package_assignments import guard as package_guard
-        package_guard(evidence(row))
+        retained = evidence(row)
+        package_guard(retained)
+        if scope == "full" and row.state == "creation_review_required" and retained.get("legacy_availability_readback"):
+            return legacy_availability_preview(product, row, retained, plan, config, shop, adapter)
     from app.models import ShopifyProductComparison
     previous_comparison = ShopifyProductComparison.query.filter_by(store_id=shop["shop_id"], source_identity=product.source_relpath).first()
     if previous_comparison and json.loads(previous_comparison.summary_json).get("conflicting_changes"):
@@ -322,12 +326,10 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
             from app.shopify_optional_packages import attach as attach_packages
             attach_packages(product, result, row, config, shop)
             from app.shopify_publication import annotate
-            if row.state == "creation_review_required" and not evidence(row).get('legacy_availability_readback'):
+            if row.state == "creation_review_required":
                 result["warnings"].append("Finish the remaining reviewed work on the retained Shopify Draft. Availability is deferred until a separate review after verification. No new product or image upload.")
             else:
                 annotate(product,result,row,config,shop,adapter)
-                if row.state=='creation_review_required' and not _availability_only(result):
-                    result['blockers'].append('Retained Draft recovery can only change reviewed availability. Resolve changed content or incomplete channel evidence separately.')
         if result["classification"] == "update":
             mode = SIMPLE_RESUME if row.state == "creation_review_required" else "update"
             token = serializer().dumps({"mode": mode, "scope":scope, **{key: result[key] for key in (
@@ -340,7 +342,7 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None)
         elif row.state == "creation_review_required" and result["classification"] == "no_change":
             result["blockers"].append("No reviewed changes remain; complete read-only identity reconciliation before claiming final publishing verification.")
         from app.shopify_comparison import record
-        record(product, result, row)
+        record(product, result, row, settle_queue=settle_queue)
         from app.shopify_publication import has_reviewed_changes
         return result, token if not result["blockers"] and (scope=='inventory' or has_reviewed_changes(result)) else None
     require_absent_sku(adapter, config, plan["sku"])
@@ -717,11 +719,27 @@ def run_simple_checkpoint(row,data,config,adapter,*,updating):
     completed = data.setdefault('completed_steps', [])
     product = db.session.get(Product,row.product_id)
     if data.get('legacy_availability_completion') == row.operation_id:
-        from app.shopify_publication import apply_reviewed, complete
-        run_phase(row,data,'availability',lambda:apply_reviewed(row,data,config,adapter))
-        apply_simple_readback(row,data,adapter.read_simple(config,row.shopify_product_id,plan['managed']['namespace']),adapter)
+        from app.shopify_publication import apply_reviewed, complete, discovered, read
+        def availability():
+            reviewed = plan['publication']
+            if not data.get('publication_update', {}).get('completed'):
+                shop = adapter.test_connection(config)
+                if (shop['shop_id'] != row.store_id or discovered(adapter, config, shop) != reviewed['channels']
+                        or read(row, data, adapter, config) != reviewed['observed']):
+                    raise ShopifyError('Channel evidence changed after the availability review. No write is authorised.')
+            apply_reviewed(row, data, config, adapter)
+        run_phase(row,data,'availability',availability)
+        run_phase(row,data,'availability_content_readback',lambda:apply_simple_readback(
+            row,data,adapter.read_simple(config,row.shopify_product_id,plan['managed']['namespace']),adapter))
         if not complete(data) or row.state!='verified':
             raise ShopifyError('Retained Draft availability was not completely verified.')
+        # The retained (old) content established safe recovery, not equality
+        # with today's source. Refresh the actual pending changes separately.
+        try:
+            preview(product, adapter, settle_queue=False)
+        except ShopifyError:
+            pass  # Missing unrelated comparison evidence cannot undo verified availability.
+        _release_legacy_availability_hold(row, data)
         finish_catalogue_operation(row.operation_id,status='succeeded',recovery_state='none',products_attempted=1,products_succeeded=1,
             operation_summary={'identity_id':row.id,'mode':'update','stage':'verified','scope':'availability_only'})
         return row
@@ -1141,7 +1159,7 @@ def confirm_update(reviewed, adapter=None):
         for key in ("digest", "identity_id", "remote_id", "store_id", "domain", "config_digest", "remote_digest", "identity_digest", "taxonomy_review_digest"):
             if plan.get(key) != reviewed.get(key):
                 raise ShopifyError("Source/configuration/remote state changed since review. Generate a fresh Preview; no update was attempted.")
-        if plan["classification"] != "update":
+        if plan["classification"] != "update" or plan["scope"] != reviewed.get("scope", "full"):
             raise ShopifyError("The reviewed update is no longer current. Generate a fresh Preview.")
         data = evidence(row)
         data.pop("reorder_job", None)
@@ -1153,8 +1171,8 @@ def confirm_update(reviewed, adapter=None):
             "publication_review_operation_id":data.get('publication_review_operation_id')}
         data.update(plan=plan, stage="update_pending", update_attempted=False, publication_review_operation_id=lease.id,
             variant_id=plan["variant_id"], inventory_item_id=plan["inventory_item_id"])
-        if recovering_creation and data.get('legacy_availability_readback'):
-            if not _availability_only(plan):
+        if plan["scope"] == "availability_only":
+            if not recovering_creation or not _legacy_availability_evidence(row, recovery_evidence) or not _availability_only(plan):
                 raise ShopifyError('Retained Draft recovery permits only reviewed availability.')
             data['legacy_availability_completion'] = lease.id
         row.operation_id, row.reviewed_digest, row.verification_state = lease.id, plan["digest"], "unverified"
@@ -1258,15 +1276,14 @@ def require_simple_creation_review(row, product_id, reviewed):
     if (not row or row.product_id != product_id or row.id != reviewed.get("identity_id")
             or row.state != "creation_review_required" or row.verification_state != "base_verified"
             or not row.shopify_product_id or row.shopify_product_id != reviewed.get("remote_id")
-            or row.store_id != reviewed.get("store_id") or reviewed.get("scope") != "full"):
+            or row.store_id != reviewed.get("store_id")):
         raise ShopifyError("The signed draft recovery no longer matches the retained identity. No write was attempted.")
     data = evidence(row)
-    availability = data.get('legacy_availability_readback') or {}
-    proved_availability = (availability.get('operation') == row.operation_id
-        and availability.get('digest') == reviewed.get('digest') == row.reviewed_digest
-        and availability.get('remote') == row.shopify_product_id and data.get('observed_status')=='DRAFT')
+    proved_availability = (reviewed.get('scope') == 'availability_only'
+                           and _legacy_availability_evidence(row, data))
     if (reviewed.get("identity_digest") != digest(data) or not data.get("creation_remaining_review")
-            or not (proved_availability or _stopped_simple_create_at_attributes(row,data,{'status':data.get('observed_status')}))):
+            or not (proved_availability or reviewed.get('scope') == 'full'
+                    and _stopped_simple_create_at_attributes(row,data,{'status':data.get('observed_status')}))):
         raise ShopifyError("Retained draft recovery evidence changed. Reconcile and generate a fresh Review; no write was attempted.")
     from app.shopify_package_assignments import guard as package_guard
     package_guard(data)
@@ -1276,11 +1293,76 @@ def require_simple_creation_review(row, product_id, reviewed):
 
 
 def _availability_only(plan):
-    from app.shopify_publication import has_metadata_changes
     availability = plan.get('publication',{})
-    return (plan.get('actual_status')=='DRAFT' and availability.get('pending') and availability.get('read_complete')
-        and not availability.get('blockers') and not has_metadata_changes(plan)
-        and not any(e.get('action')=='assign' for e in plan.get('optional_packages',[])))
+    return (plan.get('scope') == 'availability_only' and plan.get('actual_status') == 'DRAFT'
+            and availability.get('observed', {}).get('status') == 'DRAFT'
+            and availability.get('intent', {}).get('status') == 'ACTIVE'
+            and availability.get('pending') and availability.get('read_complete')
+            and not availability.get('blockers') and all(f.get('publication_only') for f in plan['fields']))
+
+
+def _legacy_availability_evidence(row, data):
+    proof = data.get('legacy_availability_readback') or {}
+    return (row.verification_state == 'base_verified'
+            and proof == {'operation':row.operation_id, 'digest':row.reviewed_digest, 'remote':row.shopify_product_id}
+            and data.get('observed_status') == 'DRAFT'
+            and _legacy_verified_draft_stop(row, data, {'status':'DRAFT'}))
+
+
+def legacy_availability_preview(product, row, data, local, config, shop, adapter):
+    """Compare current availability against retained, already verified content."""
+    if not _legacy_availability_evidence(row, data):
+        raise ShopifyError('The retained Draft no longer has conclusive recovery evidence. Reconcile before reviewing availability.')
+    from app.shopify_publication import annotate, online_store_target
+    from app.shopify_taxonomy import verify_memberships
+    from app.shopify_attributes import verify as verify_attributes
+    plan = copy.deepcopy(data['plan'])
+    remote = adapter.read_simple(config, row.shopify_product_id, plan['managed']['namespace'])
+    variant = simple_identity(row, data, remote)
+    reviewed_body = plan['managed']['product']['descriptionHtml']
+    _, media_rows = media_review(plan, data, remote)
+    retained_fields = fields.field_rows(
+        {**plan['managed'], 'product':{**plan['managed']['product'], 'handle':plan['handle']}}, remote)
+    if (remote['status'] != 'DRAFT' or any(f['changed'] for f in retained_fields + media_rows)
+            or any(m.get('status') != 'READY' for m in remote['media']['nodes'])):
+        raise ShopifyError('The existing Shopify Draft differs from its verified receipt. Reconcile before reviewing availability.')
+    verify_memberships(plan, config, adapter, row.shopify_product_id)
+    verify_attributes(plan, config, adapter, row.shopify_product_id)
+    plan.pop('publication', None)  # Fresh reads, never carry availability over from the old create.
+    plan.update(scope='availability_only', classification='no_change', fields=[], blockers=[], warnings=[],
+        intent=local['intent'], digest=local['digest'], identity_id=row.id, identity_digest=digest(data),
+        remote_id=row.shopify_product_id, remote_digest=digest(remote), actual_status=remote['status'],
+        domain=config.domain, config_digest=config.fingerprint(), variant_id=variant['id'],
+        inventory_item_id=variant['inventoryItem']['id'], taxonomy_review_digest=digest({'legacy':row.operation_id}),
+        deferred_description=reviewed_body != local['managed']['product']['descriptionHtml'])
+    annotate(product, plan, row, config, shop, adapter)
+    publication = plan.get('publication') or {}
+    if not _availability_only(plan):
+        plan['blockers'].append(publication.get('reason') or 'Complete, eligible Draft activation and destination evidence is required.')
+    elif (online_store_target(publication['intent'], publication['channels'], publication['observed'])[1]
+          and not publication.get('markets')):
+        plan['blockers'].append('Fresh Shopify Markets evidence is required for Online Store activation.')
+    if plan['blockers']:
+        return plan, None
+    signed = {key: plan[key] for key in ('scope','product_id','digest','identity_id','remote_id','store_id',
+        'domain','config_digest','remote_digest','identity_digest','taxonomy_review_digest')}
+    return plan, serializer().dumps({'mode':SIMPLE_RESUME, **signed})
+
+
+def _release_legacy_availability_hold(row, data):
+    """Only clear an idle queue hold belonging to this exact historical receipt."""
+    from sqlalchemy import update
+    from app.models import ShopifyPublishJob
+    from app.shopify_capacity import fence_owner, guard_owner
+    guard_owner()
+    fence_owner()
+    db.session.execute(update(ShopifyPublishJob).where(
+        ShopifyPublishJob.product_id == row.product_id, ShopifyPublishJob.source_identity == row.source_identity,
+        ShopifyPublishJob.operation_id == data['legacy_availability_readback']['operation'],
+        ShopifyPublishJob.state == 'recovery_required', ShopifyPublishJob.owner.is_(None)
+    ).values(state='paused', priority=0, manual_actor_id=None, manual_revision=None, manual_config=None, view_pending=True,
+             error='Draft availability verified. Review any remaining content separately.'))
+    db.session.commit()
 
 
 def _legacy_verified_draft_stop(row,data,remote):
@@ -1412,7 +1494,7 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
     data["stage"] = review_state if ready and partial else "verified" if ready else "media_reordering" if observed != expected else "media_processing"
     data.pop("error", None)
     save(row, data, review_state if ready and partial else "verified" if ready else "processing")
-    if ready and not partial:
+    if ready and not partial and plan.get('scope') != 'availability_only':
         from app.shopify_comparison import record
         product = db.session.get(Product, row.product_id)
         if product:

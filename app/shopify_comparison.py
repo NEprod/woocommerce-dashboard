@@ -104,7 +104,7 @@ def identity_revision(identity):
         identity.operation_id, identity.shopify_product_id]) if identity else None
 
 
-def record(product, plan, identity=None, *, post_write=False):
+def record(product, plan, identity=None, *, post_write=False, settle_queue=True):
     from app.shopify_capacity import guard_owner
     guard_owner()
     from app.shopify_drafts import now, digest
@@ -228,7 +228,8 @@ def record(product, plan, identity=None, *, post_write=False):
     from app.catalogue_views import invalidate as invalidate_view
     invalidate_view(product_id=product.id)
     from app.automatic_publishing import observe_comparison
-    observe_comparison(product, plan, expected_revision=expected_local, complete=not incomplete)
+    if settle_queue:
+        observe_comparison(product, plan, expected_revision=expected_local, complete=not incomplete)
     db.session.commit()
 
 

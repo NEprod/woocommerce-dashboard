@@ -483,9 +483,11 @@ def test_market_then_activation_then_channel_resume_without_replay(world,mode):
 
 def test_legacy_verified_simple_draft_requires_fresh_availability_only_review(world,monkeypatch):
     from app import shopify_continuation as checkpoint, shopify_publication as publication
+    from test_shopify_markets import MarketAdapter
 
     change(world,live=True,shopify_channels={'online-store':True})
-    adapter = AcceptanceAdapter()
+    adapter = MarketAdapter()
+    adapter.memberships.clear()
     old,_ = accepted(world,adapter)
     with monkeypatch.context() as legacy:
         legacy.setattr(checkpoint,'begin',lambda *args,**kw:False)
@@ -501,12 +503,8 @@ def test_legacy_verified_simple_draft_requires_fresh_availability_only_review(wo
     assert row.state=='creation_review_required' and row.verification_state=='base_verified'
     assert not any('write' in c or 'create' in c or 'upload' in c for c in adapter.calls[len(prior):])
     historical = db.session.get(CatalogueOperation,old).scope
-    path = world[2]; original = path.read_text()
-    change(world,description='A new change cannot ride the recovery approval')
-    _,token = drafts.preview(world[0],adapter)
-    assert token is None
-    path.write_text(original)
-    fresh,_ = accepted(world,adapter)
+    fresh, token = accepted(world,adapter)
+    assert drafts.serializer().loads(token)['scope'] == 'availability_only'
     assert fresh!=old
     step(adapter)
     assert row.shopify_product_id==gid and row.state=='verified'
