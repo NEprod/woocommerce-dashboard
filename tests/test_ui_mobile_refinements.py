@@ -29,11 +29,22 @@ def test_workspace_and_review_keep_real_tables_and_local_scroll():
     assert 'operator-table-scroll.js' in workspace and 'operator-table-scroll.js' in review
     assert "document.addEventListener('tlc:review-ready', wrapTables)" in scroll
     assert "table.parentElement.classList.contains('operator-table-scroll')" in scroll
+    css = read('app/static/assets/css/custom.css')
+    assert '.workspace-card-body > .operator-table-scroll { width: calc(100% + 2 * var(--space-7));' in css
+    assert '.workspace-card-body > .operator-table-scroll { width: calc(100% + 2 * var(--space-5));' in css
+    assert '.operator-workspace .operator-table-scroll .table > :is(thead, tbody) > tr { border-bottom: var(--border-subtle); }' in css
+    assert '.operator-workspace .metadata-comparison { overflow-x: auto;' in css
+    assert '.operator-workspace .metadata-comparison-head { display: grid; background: var(--color-brand-forest);' in css
 
 
 def test_simple_comparison_open_by_default_but_large_variable_remains_collapsible():
     review = read('app/templates/shopify_drafts.html')
+    scroll = read('app/static/assets/js/operator-table-scroll.js')
     assert "plan.kind != 'variable' or review_display.matching|length <= 20" in review
+    assert 'Status, sales channels and Markets|Collections & standard category' in scroll
+    assert 'Attributes and definitions|Packages|Deferred fields|Already Matching' in scroll
+    assert 'variantGroups <= 4 && count <= 10' in scroll
+    assert "group.closest('.operator-help')" in scroll
     assert 'data-review-group="{{ owner }}"' in review
     assert 'name="acknowledge" value="yes" required' in review
     assert 'name="review" value="{{ token }}"' in review

@@ -1542,9 +1542,20 @@ a.metric-card:hover, a.products-stat-card:hover, a.dashboard-stat-card:hover { b
 
 /* One table layout at every viewport; each collection/comparison owns its scroll. */
 .products-desktop-table, .operator-table-scroll, .variation-list { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-inline: contain; }
+.metadata-editor-main .guided-field :is(input:not([type="checkbox"]), select) { box-sizing: border-box; min-height: var(--control-height); }
+.metadata-editor-main .btn { min-height: var(--control-height); }
 .products-desktop-table { scrollbar-gutter: stable; }
-.operator-table-scroll { margin-block: var(--space-3); }
+.operator-table-scroll { width: 100%; margin: 0; padding: 0; }
+.operator-workspace .workspace-card-body > .operator-table-scroll { width: calc(100% + 2 * var(--space-7)); max-width: none; margin-inline: calc(-1 * var(--space-7)); }
+.operator-workspace .operator-table-scroll .table { border-collapse: collapse; border-spacing: 0; }
+.operator-workspace .operator-table-scroll .table > :is(thead, tbody) > tr { border-bottom: var(--border-subtle); }
+.operator-workspace .operator-table-scroll .table > :is(thead, tbody) > tr > * { border-bottom: 0; }
 .operator-workspace .operator-table-scroll .table > thead th { background: var(--color-brand-forest); color: var(--color-text-inverse); }
+.operator-workspace .metadata-comparison { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; overscroll-behavior-inline: contain; }
+.operator-workspace .metadata-comparison-head, .operator-workspace .metadata-comparison-row { min-width: 800px; grid-template-columns: minmax(150px, .8fr) repeat(3, minmax(180px, 1fr)); gap: var(--space-4); padding: 14px 16px; }
+.operator-workspace .metadata-comparison-head { display: grid; background: var(--color-brand-forest); color: var(--color-text-inverse); }
+.operator-workspace .metadata-comparison-row { display: grid; border-top: 0; border-bottom: var(--border-subtle); }
+.operator-workspace .metadata-comparison-row > span::before { content: none; display: none; }
 .operator-workspace .operator-table-scroll .table { width: 100%; }
 @media (max-width: 991.98px) {
   .products-desktop-table .product-column-headings, .products-desktop-table .product-row { min-width: 920px; }
@@ -1560,6 +1571,8 @@ a.metric-card:hover, a.products-stat-card:hover, a.dashboard-stat-card:hover { b
   .operator-workspace .operator-table-scroll .operator-effective-table { min-width: 560px; }
 }
 @media (max-width: 767.98px) {
+  .operator-workspace .workspace-card-body > .operator-table-scroll { width: calc(100% + 2 * var(--space-5)); margin-inline: calc(-1 * var(--space-5)); }
+  .metadata-editor-main .guided-field :is(input:not([type="checkbox"]), select), .metadata-editor-main .btn { min-height: 48px; }
   .products-mobile-cards { display: none; }
   .products-desktop-table { display: block; }
   .collection-group-header { max-width: 100%; }
