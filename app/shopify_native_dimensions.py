@@ -393,10 +393,33 @@ def reconcile(row, adapter=None):
         raise
 
 
+def comparison_evidence(row, compared):
+    """Replace only an obsolete pre-create plan with its exact verified receipt.
+
+    Also supports historical summaries without changing them on GET. Never
+    borrow proof for another target/identity or override a newer comparison.
+    """
+    if not row or not compared or compared.get('classification') != 'create_stage':
+        return compared
+    data = drafts.evidence(row)
+    proof = data.get('native_dimensions') or {}
+    if (row.state != 'verified' or row.verification_state != 'verified'
+            or proof.get('state') != 'verified' or proof.get('plan') != compared
+            or compared.get('product_id') != row.product_id or compared.get('source') != row.source_identity
+            or compared.get('sku') != row.sku
+            or compared.get('store_id') != row.store_id or compared.get('config') != drafts.configuration().fingerprint()
+            or not proof.get('inventory_id') or proof['inventory_id'] != data.get('inventory_item_id')
+            or not proof.get('checked_at') or not equal(proof.get('observed'), compared.get('desired'))):
+        return compared
+    return proof
+
+
 def local_status(product, row=None, compared=None):
     wanted = desired(product)
     retained = drafts.evidence(row).get("native_dimensions", {}) if row else {}
-    value = retained if retained.get("state") in {"pending", "uncertain"} else compared or retained
+    obsolete = compared and compared.get('classification') == 'create_stage'
+    value = retained if retained.get("state") in {"pending", "uncertain"} or (
+        obsolete and retained.get('state') == 'blocked') else comparison_evidence(row, compared) or retained
     plan = value.get("plan", value)
     state = value.get("state") or ("verified" if plan.get("classification") == "no_change" else "update")
     from app.shopify_comparison import recent, MAX_AGE

@@ -143,6 +143,10 @@ def record(product, plan, identity=None, *, post_write=False, settle_queue=True)
     prior = json.loads(row.summary_json) if row.summary_json else {}
     # A diagnostic for a failed required attribute read is not successful
     # comparison evidence. Keep its previous success checkpoint, if any.
+    if post_write and identity:
+        from app.shopify_native_dimensions import comparison_evidence
+        # Rebind the derived index, never the signed plan or retained receipt.
+        plan = {**plan, 'native': comparison_evidence(identity, plan.get('native'))}
     failures = missing_evidence(plan)
     read_failed = bool(failures)
     native = plan.get('native') or {}

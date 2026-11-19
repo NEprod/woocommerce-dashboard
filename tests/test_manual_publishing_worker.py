@@ -120,7 +120,7 @@ def test_manual_simple_completion_refreshes_only_its_saved_badge(world, monkeypa
     assert op.status == ('partial' if mode == 'uncertain' else 'succeeded'), op.error
     badge = products_badge(product)
     label = {'drift': 'Update Available', 'incomplete': 'Verification Unavailable',
-        'uncertain': 'Recovery Required', 'projection_failure': 'Update Available'}.get(mode, 'Up to Date')
+        'uncertain': 'Recovery Required', 'projection_failure': 'Status refresh pending'}.get(mode, 'Up to Date')
     assert badge['label'] == label, badge
     assert captured == ([] if mode == 'uncertain' else [product.id])
     saved = db.session.get(ShopifyPublishJob, job.product_id, populate_existing=True)

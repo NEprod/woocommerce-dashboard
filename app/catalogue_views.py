@@ -36,29 +36,65 @@ def saved_read_view(function):
 
 
 def context_digest():
-    """One registry snapshot and bounded mapping reads, never product folders."""
+    """Shared policy/configuration only; remote mappings are product-bound."""
     if has_request_context() and hasattr(g, '_catalogue_context'):
         return g._catalogue_context
     from app.taxonomy_registry import load_configured_registry
-    from app.models import ShopifyCollectionIdentity, ShopifyAttributeIdentity
     registry = load_configured_registry()
-    from app.shopify_comparison import mapping_digest, attribute_mapping_digest
     try: config = drafts.configuration().fingerprint()
     except ValueError: config = None
-    value = drafts.digest({'status_policy': 2, 'registry': registry.snapshot.digest if registry.available else registry.status,
-        'config': config,
-        'collections': sorted((r.store_id, r.source_key, mapping_digest(r)) for r in ShopifyCollectionIdentity.query.all()),
-        'attributes': sorted((r.store_id, r.source_key, attribute_mapping_digest(r)) for r in ShopifyAttributeIdentity.query.all())})
+    value = drafts.digest({'status_policy': 3, 'registry': registry.snapshot.digest if registry.available else registry.status,
+        'config': config})
     if has_request_context(): g._catalogue_context = value
     return value
 
 
+def product_contexts(products, *, context=None):
+    """Batch persisted comparison dependencies, including missing mappings.
+
+    No source walks, remote reads or writes. An unrelated new mapping cannot
+    invalidate equality, but changing/removing a used mapping always does.
+    """
+    from sqlalchemy import tuple_
+    from app.models import ShopifyProductComparison, ShopifyCollectionIdentity, ShopifyAttributeIdentity
+    from app.shopify_comparison import mapping_digest, attribute_mapping_digest
+    products = list(products)
+    base = context if context is not None else context_digest()
+    dependencies = {p.source_relpath: {'mappings': set(), 'attribute_mappings': set()} for p in products}
+    for comparison in ShopifyProductComparison.query.filter(
+            ShopifyProductComparison.source_identity.in_(list(dependencies))).all():
+        data = json.loads(comparison.summary_json)
+        for kind in ('mappings', 'attribute_mappings'):
+            dependencies[comparison.source_identity][kind].update((comparison.store_id, key) for key in data.get(kind, {}))
+    snapshots = {}
+    for kind, model, fingerprint in (('mappings', ShopifyCollectionIdentity, mapping_digest),
+                                    ('attribute_mappings', ShopifyAttributeIdentity, attribute_mapping_digest)):
+        keys = sorted({key for dependency in dependencies.values() for key in dependency[kind]})
+        rows = {}
+        for offset in range(0, len(keys), 200):
+            rows.update({(r.store_id, r.source_key): r for r in model.query.filter(
+                tuple_(model.store_id, model.source_key).in_(keys[offset:offset + 200])).all()})
+        snapshots[kind] = {key: fingerprint(rows.get(key)) for key in keys}
+    return {p.id: drafts.digest({'context': base, **{kind: sorted(
+        (store, key, snapshots[kind][(store, key)]) for store, key in dependencies[p.source_relpath][kind])
+        for kind in snapshots}}) for p in products}
+
+
 def refresh_context():
-    """Worker-only invalidation after registry/connection/mapping changes."""
+    """Existing view worker invalidates only changed product dependencies."""
     value = context_digest()
-    db.session.execute(update(ShopifyPublishJob).where(ShopifyPublishJob.view_pending.is_(False),
-        or_(func.json_extract(ShopifyPublishJob.view_json, '$.context').is_(None),
-            func.json_extract(ShopifyPublishJob.view_json, '$.context') != value)).values(view_pending=True))
+    after = 0
+    while True:
+        products = Product.query.join(ShopifyPublishJob, ShopifyPublishJob.product_id == Product.id).filter(
+            ShopifyPublishJob.view_pending.is_(False), Product.id > after).order_by(Product.id).limit(50).all()
+        if not products:
+            break
+        for product_id, expected in product_contexts(products, context=value).items():
+            db.session.execute(update(ShopifyPublishJob).where(ShopifyPublishJob.product_id == product_id,
+                ShopifyPublishJob.view_pending.is_(False), or_(
+                    func.json_extract(ShopifyPublishJob.view_json, '$.context').is_(None),
+                    func.json_extract(ShopifyPublishJob.view_json, '$.context') != expected)).values(view_pending=True))
+        after = products[-1].id
     db.session.commit()
 
 
@@ -110,7 +146,7 @@ def attention_check(job):
     comparisons = ShopifyProductComparison.query.filter_by(source_identity=job.source_identity).all()
     operation = db.session.get(CatalogueOperation, job.operation_id) if job.operation_id else None
     return drafts.digest({'revision': job.requested_revision, 'generation': job.generation, 'error': job.error,
-        'context': context_digest(),
+        'context': product_contexts([db.session.get(Product, job.product_id)])[job.product_id],
         'identities': sorted((r.id, r.state, r.verification_state, r.media_evidence_json, r.shopify_product_id,
                               r.operation_id) for r in identities),
         'comparisons': sorted((r.id, r.summary_json) for r in comparisons),
@@ -162,7 +198,7 @@ def capture(product, *, scan_operation=None, context=None, settle_queue=True):
         try: config = drafts.configuration().fingerprint()
         except ValueError: config = None
         data = {'version': 1, 'authored': authored, 'display_title': title, 'state': state, 'config': config,
-            'context': context or context_digest()}
+            'context': product_contexts([product], context=context)[product.id]}
         previous = json.loads(job.view_json or '{}')
         proof = previous.get('checkpoint_validation')
         if proof and proof.get('revision') == expected: data['checkpoint_validation'] = proof
@@ -216,7 +252,7 @@ def invalidate(*, product_id=None, source=None, all_products=False):
 def saved_states(products, *, url_builder=None):
     url_builder = url_builder or url_for
     products = list(products)
-    current_context = context_digest()
+    contexts = product_contexts(products)
     jobs = jobs_for(products)
     rows = ShopifyProductIdentity.query.filter(ShopifyProductIdentity.product_id.in_([p.id for p in products])).all()
     active_operations = {op_id for op_id, in db.session.query(CatalogueOperation.id).filter(
@@ -226,6 +262,7 @@ def saved_states(products, *, url_builder=None):
     except ValueError: config = None
     result = {}
     for product in products:
+        current_context = contexts[product.id]
         job = jobs.get(product.id)
         try: saved = json.loads(job.view_json) if job and job.view_json else {}
         except (ValueError, TypeError): saved = {}
@@ -279,11 +316,13 @@ def saved_states(products, *, url_builder=None):
             elif (job.verified_revision != job.requested_revision and job.requested_revision != 'unscanned'
                     and not compared_matching and not (view_current and state['state'] == 'update')
                     and state['state'] not in {'attention', 'unavailable', 'local_changes'}):
-                state.update(state='update' if identities else 'create', label='Update Needed' if identities else 'Needs Creating',
-                    message='Scanned local changes are pending.' if job.state != 'paused' else 'Draft metadata is paused; accumulated local changes remain pending.')
+                state.update(state='local_changes' if identities else 'create',
+                    label='Status refresh pending' if identities else 'Needs Creating',
+                    message='Queue revisions differ; a current comparison is required before claiming a Shopify difference.' if identities else
+                            'Scanned local creation is pending; remote duplicate checks remain required.')
             if (job.view_pending or job.view_revision != job.requested_revision or saved.get('config') != config
                     or saved.get('context') != current_context):
-                if state['state'] == 'no_change':
+                if state['state'] in {'no_change', 'update'}:
                     state.update(state='local_changes', label='Status refresh pending', message='Current saved status requires refresh; no new remote equality is claimed.')
             timestamp = state.get('compared_at') or state.get('verified_at')
             try:
