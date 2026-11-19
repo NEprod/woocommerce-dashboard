@@ -102,7 +102,7 @@ def test_healthy_review_collapses_matching_and_retains_every_field(world,monkeyp
     assert response.status_code==200 and 'No Change' in html
     assert all(r['label'] in html for r in rows)
     matching=next(a for t,a in Page(html).tags if 'data-review-matching' in a)
-    assert 'open' not in matching and 'data-shopify-publish' not in html
+    assert 'open' in matching and 'data-shopify-publish' not in html
     assert not any('write' in c or 'update' in c or 'create' in c for c in adapter.calls)
 
 

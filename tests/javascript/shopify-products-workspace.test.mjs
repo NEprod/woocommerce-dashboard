@@ -55,22 +55,22 @@ test("Create Override navigates directly without a creation request or scan", as
   assert.equal(calls[0][0], "/api/edit_products");
 });
 
-test("desktop and mobile render Shopify actions without Woo or remote discovery", async () => {
+test("one scrollable Products row renders Shopify actions without Woo or remote discovery", async () => {
   const {browser, calls} = await render();
   const nodes = all(browser);
-  assert.equal(nodes.filter(n => n.textContent === "Review Shopify Changes").length, 2);
-  assert.equal(nodes.filter(n => n.textContent === "Update Available").length, 2);
-  assert.equal(nodes.filter(n => n.className === "shopify-list-status").length, 2);
-  assert.equal(nodes.filter(n => String(n.textContent).includes("2 changes")).length, 2);
-  assert.equal(nodes.filter(n => n.textContent === "Product tools & history").length, 2);
-  assert.equal(nodes.filter(n => n.className === "product-mobile-card").length, 1);
+  assert.equal(nodes.filter(n => n.textContent === "Review Shopify Changes").length, 1);
+  assert.equal(nodes.filter(n => n.textContent === "Update Available").length, 1);
+  assert.equal(nodes.filter(n => n.className === "shopify-list-status").length, 1);
+  assert.equal(nodes.filter(n => String(n.textContent).includes("2 changes")).length, 1);
+  assert.equal(nodes.filter(n => n.textContent === "Product tools & history").length, 1);
+  assert.equal(nodes.filter(n => n.className === "product-mobile-card").length, 0);
   assert.equal(nodes.some(n => String(n.textContent).includes("Woo state")), false);
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], "/api/edit_products");
   assert.equal(calls[0][1].method, undefined);
 });
 
-test("selection deduplicates desktop/mobile and prepares individual reviews only", async () => {
+test("selection prepares individual reviews only", async () => {
   const {browser, calls} = await render();
   browser.querySelector("[data-shopify-select-visible]").events.click();
   assert.equal(browser.querySelector("[data-shopify-selection-count]").textContent, 1);
@@ -97,14 +97,14 @@ test("Products navigation renders saved evidence without starting status checks"
   assert.equal(calls.some(([url]) => url === "/api/shopify/status"), false);
 });
 
-test("explicit manual refresh still updates desktop and mobile", async () => {
+test("explicit manual refresh updates the shared table", async () => {
   const {browser, calls} = await render(true);
   await browser.querySelector("[data-shopify-refresh-visible]").events.click();
   assert.equal(calls[1][0], "/api/shopify/status");
   assert.equal(calls[1][1].headers["X-CSRFToken"], "fictional_csrf");
   assert.deepEqual(JSON.parse(calls[1][1].body), {ids: [1], force: true});
-  assert.equal(all(browser).filter(n => n.textContent === "Up to Date").length, 2);
-  assert.equal(all(browser).filter(n => n.className === "catalogue-pill is-shopify-success").length, 2);
+  assert.equal(all(browser).filter(n => n.textContent === "Up to Date").length, 1);
+  assert.equal(all(browser).filter(n => n.className === "catalogue-pill is-shopify-success").length, 1);
   assert.match(browser.querySelector("[data-shopify-refresh-progress]").textContent, /No store writes/);
 });
 
@@ -113,14 +113,14 @@ test("compact seven-column rows keep technical evidence collapsed and intent onc
   const nodes=all(browser);
   const row=nodes.find(n=>n.className==="product-row");
   assert.equal(row.children.length,7);
-  assert.equal(nodes.filter(n=>n.textContent==="Shopify Draft · Intended Draft").length,2);
+  assert.equal(nodes.filter(n=>n.textContent==="Shopify Draft · Intended Draft").length,1);
   assert.equal(nodes.filter(n=>(n.className || "").startsWith("catalogue-pill is-intent-")).length,0);
   for (const status of nodes.filter(n=>n.className==="shopify-list-status")) {
     assert.equal(status.children.length,3);
     assert.equal(status.children[2].tag,"details");
     assert.equal(status.children[2].attrs.open,undefined);
   }
-  assert.equal(nodes.filter(n=>n.textContent==="4 variations").length,2);
+  assert.equal(nodes.filter(n=>n.textContent==="4 variations").length,1);
   assert.equal(calls.length,1);
 });
 
@@ -139,8 +139,8 @@ for (const [state,meaning] of Object.entries({no_change:"success",update:"warnin
     const {browser}=await render(false,state);
     const nodes=all(browser);
     const badges=nodes.filter(n=>n.className===`catalogue-pill is-shopify-${meaning}`);
-    assert.equal(badges.length,2);
+    assert.equal(badges.length,1);
     assert.ok(badges.every(n=>n.textContent));
-    if(state==="processing") assert.equal(nodes.filter(n=>n.className==="shopify-activity" && n.attrs["aria-hidden"]==="true").length,2);
+    if(state==="processing") assert.equal(nodes.filter(n=>n.className==="shopify-activity" && n.attrs["aria-hidden"]==="true").length,1);
   });
 }

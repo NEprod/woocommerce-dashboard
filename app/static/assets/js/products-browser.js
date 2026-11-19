@@ -365,15 +365,10 @@
       columns.appendChild(cell);
     });
     desktop.appendChild(columns);
-    const mobile = document.createElement("div");
-    mobile.className = "products-mobile-cards";
-    mobile.dataset.mobileProductCards = "";
     group.products.forEach(function (product) {
       desktop.appendChild(desktopProduct(product));
-      mobile.appendChild(mobileProduct(product));
     });
     body.appendChild(desktop);
-    body.appendChild(mobile);
     article.appendChild(body);
     return article;
   }
