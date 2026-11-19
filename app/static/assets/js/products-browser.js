@@ -61,13 +61,24 @@
     node.appendChild(text("small", "shopify-status-context", `Shopify ${actual} · Intended ${intent}`));
     const details = text("details", "shopify-row-evidence", "");
     details.appendChild(text("summary", "", "Status details"));
-    details.appendChild(text("p", "", state.compared_at ? `Compared ${formatDate(state.compared_at)} · ${state.change_count} changes` : state.verified_at ? `Verified ${formatDate(state.verified_at)}` : "Not compared"));
-    if (state.revision_checked_at) details.appendChild(text("p", "", `Revision checked ${formatDate(state.revision_checked_at)}`));
-    if (state.native) details.appendChild(text("p", "", `Packed dimensions: ${state.native.state}. ${state.native.message || ""}`));
-    details.appendChild(text("p", "", `Online Store: ${state.publication || "Not verified"}`));
-    if (state.change_summary?.length) details.appendChild(text("p", "", state.change_summary.join(" · ")));
-    if (state.message) details.appendChild(text("p", "", state.message));
-    if (state.remote_id) details.appendChild(text("code", "", state.remote_id));
+    details.appendChild(text("p", "", state.compared_at ? `Compared ${formatDate(state.compared_at)} · ${state.change_count || 0} changes` : state.verified_at ? `Verified ${formatDate(state.verified_at)}` : "Not yet compared"));
+    const scanRequired = state.label === 'Scan Required';
+    const reason = scanRequired ? 'Local source differs from its completed scan. Review a local update scan before publishing.'
+      : state.evidence_stale ? 'Saved evidence is due for a read-only check; this alone is not a product difference.'
+      : state.state === 'no_change' ? 'Managed fields match the saved Shopify readback.'
+      : state.state === 'local_changes' ? 'A current comparison is pending. No Shopify difference has been confirmed.'
+      : state.state === 'update' ? 'Saved comparison found managed changes. Review & Sync shows the exact differences before approval.'
+      : state.state === 'create' ? 'Prepare a first-creation review. Fresh Shopify identity and duplicate checks remain required.'
+      : state.message || 'Open the product evidence to review readiness.';
+    details.appendChild(text('p', '', reason.length > 240 ? reason.slice(0,237) + '…' : reason));
+    if (scanRequired) {
+      details.appendChild(text('small', 'shopify-status-context', product.source_reference || product.collection || 'Local source unavailable'));
+      if (product.scan_review_url) {
+        const scan = text('a','btn btn-sm btn-outline-primary','Review local update scan'); scan.href=product.scan_review_url; details.appendChild(scan);
+      } else details.appendChild(text('p','','Source cannot be safely scanned from this view. Open the product to inspect its metadata owner.'));
+    }
+    const evidence = state.identity_url || product.view_url;
+    if (evidence) { const link=text('a','','Full evidence & history'); link.href=evidence; details.appendChild(link); }
     node.appendChild(details);
     return node;
   }
@@ -155,9 +166,10 @@
       input.addEventListener("change", function () { selectReview(product, input.checked); });
       selection.appendChild(input);
       actions.appendChild(selection);
-      const primary = product.shopify.state === "create" ? "Create on Shopify" : product.shopify.state === "recovery_required" ? "Resolve Issue" : "Review Shopify Changes";
+      const scanFirst = product.shopify.label === 'Scan Required' && product.scan_review_url;
+      const primary = scanFirst ? 'Review local update scan' : product.shopify.state === "create" ? "Create on Shopify" : product.shopify.state === "recovery_required" ? "Resolve Issue" : "Review Shopify Changes";
       const review = text("a", "btn btn-sm btn-primary product-primary-action", primary);
-      review.href = product.shopify.review_url;
+      review.href = scanFirst || product.shopify.review_url;
       actions.appendChild(review);
     }
     const secondary = document.createElement("details");

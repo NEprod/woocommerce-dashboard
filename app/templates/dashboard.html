@@ -6,7 +6,7 @@
   <div>
     <p class="eyebrow">Catalogue overview</p>
     <h1 class="page-title">Dashboard</h1>
-    <p class="page-lede">Current health, scanner state, and recent changes from the local catalogue projection.</p>
+    <p class="page-lede">Orders, local catalogue health and the work that needs your attention.</p>
   </div>
   <p class="dashboard-generated">Updated {{ dashboard.generated_at.strftime('%d %b %Y, %H:%M') }} UTC</p>
 </header>
@@ -18,20 +18,26 @@
     ('box', 'Parent products', dashboard.summary.products, url_for('main.products')),
     ('chart', 'Variations', dashboard.summary.variations, url_for('main.products', type='variable')),
     ('box', 'Active in Catalogue', dashboard.summary.active_products, url_for('main.products', status='active')),
-    ('scanner', 'Missing products', dashboard.summary.missing_products, url_for('main.products', status='missing')),
     ('file', 'Products with overrides', dashboard.summary.overrides, url_for('main.products', source='override'))
   ] %}
   {% for icon_name, label, value, destination in cards %}
   <a class="dashboard-stat-card" href="{{ destination }}">
     <span class="dashboard-stat-icon">{{ icon(icon_name) }}</span>
-    <div><p>{{ label }}</p><strong>{{ value }}</strong></div>
+    <div><p>{{ label }}</p><strong>{{ value }}</strong>{% if label == 'Collections' %}<small>TLC local collections</small>{% elif label == 'Parent products' %}<small>Local · {{ dashboard.shopify_links.parents if dashboard.shopify_links else 'Not verified' }} Shopify linked</small>{% elif label == 'Variations' %}<small>Local · {{ dashboard.shopify_links.variants if dashboard.shopify_links else 'Not verified' }} Shopify linked</small>{% endif %}</div>
   </a>
   {% endfor %}
 </section>
 <p class="dashboard-summary-note">Active in Catalogue is the local scanned catalogue lifecycle state, not verified Shopify storefront publication.</p>
 
-<section class="operational-panel"><h2>Shopify Synchronisation</h2><p>Separate from local catalogue availability. {{ dashboard.issue_data.counts.shopify }} products need review or a fresh check; {{ dashboard.issue_data.counts.recovery }} retained recovery cases require safe inspection. Initial pages use saved evidence only, not live verification.</p><p>First connection to an existing shop? Discover the catalogue and inspect exact SKU/variant evidence. Unlinked candidates need reconciliation, not duplicate creation. Existing Identity / History supports recovery of retained mappings; first-time adoption without a retained identity needs a separate linking workflow. Discovery alone never links products or proves the whole store reconciled.</p><div class="panel-actions"><a class="btn btn-primary" href="{{ url_for('main.operation_issues_page', category='shopify') }}">Review Shopify findings</a><a class="btn btn-ghost" href="{{ url_for('commerce.discovery') }}">Read-only discovery</a><a class="btn btn-ghost" href="{{ url_for('main.products') }}">Open Products</a><a class="btn btn-ghost" href="{{ url_for('commerce.settings') }}">Shopify connection</a></div></section>
-<p class="dashboard-summary-note">{{ dashboard.issue_data.shopify_state }}</p>
+<details class="operator-help">
+  <summary>Shopify linked catalogue · saved verification</summary>
+  {% if dashboard.shopify_links %}
+  <p>{{ dashboard.shopify_links.parents }} verified linked parents: {{ dashboard.shopify_links.draft }} Draft · {{ dashboard.shopify_links.active }} Active · {{ dashboard.shopify_links.other }} without a retained lifecycle status.</p>
+  <p>{{ dashboard.shopify_links.published }} have verified publication to their reviewed selected channels. {{ dashboard.shopify_links.unverified_parents }} parents and {{ dashboard.shopify_links.unverified_variants }} variations remain unverified or unlinked, not necessarily uncreated.</p>
+  {% else %}<p>A verified store identity is required for store-bound link counts.</p>{% endif %}
+  <p>Active does not mean published to Online Store. Review channel-specific availability in each product’s saved evidence. Counts use local retained verification; this page makes no Shopify requests.</p>
+  <div class="page-actions"><a href="{{ url_for('commerce.settings') }}">Shopify connection</a><a href="{{ url_for('commerce.discovery') }}">Read-only discovery</a><a href="{{ url_for('main.operation_issues_page', category='shopify') }}">Shopify findings</a></div>
+</details>
 <section class="dashboard-feature-grid" aria-label="Catalogue and scanner health">
   <article class="feature-panel catalogue-health-panel" aria-labelledby="catalogue-health-title">
     <div class="dashboard-panel-heading">
@@ -45,7 +51,8 @@
         <progress value="{{ dashboard.health.active_items }}" max="{{ dashboard.health.total_items }}">{{ dashboard.health.availability_percent }}%</progress>
         <dl class="dark-metric-list">
           <div><dt>Active catalogue items</dt><dd>{{ dashboard.health.active_items }}</dd></div>
-          <div><dt>Missing catalogue items</dt><dd>{{ dashboard.health.missing_items }}</dd></div>
+          <div><dt><a href="{{ url_for('main.products', status='missing') }}">Parents missing from local source</a></dt><dd>{{ dashboard.summary.missing_products }}</dd></div>
+          <div><dt>Variations missing from local source</dt><dd>{{ dashboard.summary.missing_variations }}</dd></div>
           <div><dt>Total projected</dt><dd>{{ dashboard.health.total_items }}</dd></div>
         </dl>
       </div>

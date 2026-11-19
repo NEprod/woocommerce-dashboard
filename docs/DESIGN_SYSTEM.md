@@ -1,5 +1,9 @@
 # WooCommerce Dashboard Design System
 
+Batch 1 implementation and operator contracts are tracked in
+[UI_OPERATOR_REGISTER.md](UI_OPERATOR_REGISTER.md). Use that register alongside
+these shared visual tokens when auditing subsequent pages.
+
 ## TLCDashboard transition note — 2026-10-12
 
 TLCDashboard is the intended TLC application identity; existing visible branding

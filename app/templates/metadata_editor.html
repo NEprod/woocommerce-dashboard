@@ -2,6 +2,8 @@
 {% from 'includes/icons.html' import icon %}
 {% set product = workspace.product %}
 {% set is_shared = workspace.kind == 'shared' %}
+{% set editor_sections = [('basic-information-title','General'),('publishing-title','Publishing'),('pricing-title','Pricing'),('production-title','Production & Costing'),('categories-tags-title','Organisation'),('ranges-title','Storefront Collections'),('seo-title','SEO'),('attributes-title','Variations & attributes'),('image-attributes-title','Images'),('modifiers-title','Modifiers'),('shipping-title','Product dimensions'),('customs-title','Origin & customs'),('packaging-title','Shipping'),('customisations-title','Customisations'),('advanced-fields-title','Advanced')] %}
+{% macro shared_acknowledgement(location) %}{% if is_shared and workspace.affected_total > 1 %}<label class="metadata-shared-confirmation" for="shared-ack-{{ location }}"><input id="shared-ack-{{ location }}" type="checkbox" data-acknowledge-shared><span>I confirm this saves shared data affecting up to {{ workspace.affected_total }} products; child overrides remain intact.</span></label>{% endif %}{% endmacro %}
 {% block title %}{{ 'Edit Collection Metadata' if is_shared else 'Edit Product Override' }}{% endblock %}
 {% macro extra_field(key, label, helper, choices=None, inputmode=None, pattern=None, maxlength=None) %}
 <div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}>
@@ -43,7 +45,7 @@
 {% endif %}
 
 <nav class="metadata-section-nav" aria-label="Editor sections">
-{% for id, name in [('basic-information-title','General'),('publishing-title','Publishing'),('pricing-title','Pricing'),('production-title','Production & Costing'),('attributes-title','Variations & attributes'),('image-attributes-title','Images'),('categories-tags-title','Organisation'),('shipping-title','Shipping'),('seo-title','SEO'),('customisations-title','Customisations'),('advanced-fields-title','Advanced')] %}<a href="#{{ id }}">{{ name }}</a>{% endfor %}
+{% for id, name in editor_sections %}<a href="#{{ id }}">{{ name }}</a>{% endfor %}
 </nav>
 <div class="metadata-owner-actions">
 <span data-save-state role="status" aria-live="polite">Saved</span>
@@ -67,7 +69,7 @@
             ('description','Full description','Main Shopify description. SEO copy is separate; no automatic substitution.')
           ] %}
           {% if is_shared or key not in ['sku_prefix','collection_type'] %}
-          <div class="guided-field" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}>
+          <div class="guided-field{% if key in ['short_description','description'] %} editor-field-wide{% endif %}" data-field-wrapper="{{ key }}" {% if not is_shared %}data-override-field="{{ key }}"{% endif %}>
             <div class="guided-field-label"><label for="metadata-{{ key }}">{{ label }}</label>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="{{ key }}" {% if key in workspace.override.data %}checked{% endif %}><span>Override this value</span></label>{% endif %}</div>
             {% if key == 'collection_type' %}<select id="metadata-{{ key }}" data-field="{{ key }}" {% if key in workspace.authored.data %}disabled{% endif %}><option value="">Select a collection type</option><option>Simple</option><option>Variable Collection</option><option>Single Variable</option></select>{% elif key in ['short_description','description'] %}<textarea id="metadata-{{ key }}" data-field="{{ key }}" rows="3"></textarea>{% else %}<input id="metadata-{{ key }}" data-field="{{ key }}" type="text" {% if key == "sku_prefix" and key in workspace.authored.data %}readonly{% endif %}>{% endif %}
             <p class="field-helper" id="metadata-{{ key }}-helper">{{ helper }}{% if key == 'title' %} Folder fallback: {{ workspace.title_preview.product_folder if workspace.title_preview.single_scope or not is_shared else workspace.title_preview.collection_folder }}.{% elif not is_shared %} <span data-inherited-value="{{ key }}"></span>{% endif %}</p><p class="field-error" data-field-error="{{ key }}" hidden></p>
@@ -78,14 +80,14 @@
         <p class="field-helper" role="status" aria-live="polite"><strong>{{ 'Example child’s resolved Shopify title' if is_shared and not workspace.title_preview.single_scope else 'Resolved Shopify title' }}:</strong> <span data-title-preview>{{ workspace.title_preview.title or 'Unavailable' }}</span><span data-title-preview-status> · Saved local metadata; not a Shopify write.</span></p>
       </section>
 
-      <section class="editor-workspace-section" aria-labelledby="publishing-title"><header><h2 id="publishing-title">Publishing</h2><p>Actual cached Shopify state: {{ workspace.shopify.remote_status }}. A save first updates local JSON and its collection projection. If automatic publishing is explicitly enabled, scanned Live changes are queued; otherwise use Review &amp; Sync.</p></header>
+      <section class="editor-workspace-section" aria-labelledby="publishing-title"><header><h2 id="publishing-title">Publishing</h2><p>Save locally, then review status, channels and Markets. Saving does not publish.</p></header>
         {% include 'includes/_publishing_capabilities.html' %}
         {{ extra_field('shopify_status','Desired Shopify status','Draft is not public. Active status and channel publication are separate. Explicit status edits keep legacy live intent consistent; resetting the product override restores inherited intent.', [('DRAFT','Draft'),('ACTIVE','Active'),('ARCHIVED','Archived')]) }}
         {{ sale_datetime('shopify_release_at','Optional scheduled Live release') }}
-        <p class="field-helper">Keep this product Draft until release. The saved date is checked every five minutes after startup grace; publication requires automatic publishing authority. Clear an enabled product override to cancel its inherited release; disable the override to inherit again.</p>
+        <p class="field-helper">Scheduled release requires separately granted store-bound publishing authority.</p><details class="operator-help"><summary>Release timing and inheritance</summary><p>Keep this product Draft until release. The saved date is checked every five minutes after startup grace; publication requires automatic publishing authority. Clear an enabled product override to cancel its inherited release; disable the override to inherit again. The date controls retain explicit GMT/BST handling.</p></details>
         <div class="guided-field" data-field-wrapper="shopify_channels"><div class="guided-field-label"><strong>Sales-channel intent</strong>{% if not is_shared %}<label class="override-switch"><input type="checkbox" data-override-toggle="shopify_channels" {% if 'shopify_channels' in workspace.override.data %}checked{% endif %}>Override channel-intent object</label>{% endif %}</div><div data-channel-choices></div><button type="button" class="btn btn-outline-primary" data-discover-channels>Discover available Shopify channels (read-only)</button><p class="field-helper">Only discovered eligible channels are selectable. Unmanaged is not unpublished. Channel handles, not remote GIDs, are authored; mappings stay operational. A product override replaces this intent object. Unchanged remote memberships are preserved.</p></div>
-        <details class="guided-field" data-market-editor>
-          <summary>Markets</summary>
+        <section class="guided-field editor-markets" data-market-editor aria-labelledby="markets-title">
+          <h3 id="markets-title">Markets</h3>
           {% if is_shared %}
           <p class="field-helper">United Kingdom is included by default for Live Online Store products. Select additional markets or uncheck a saved selection to remove it from this collection and the products that inherit it. Save changes locally; apply availability changes only through Review &amp; Sync.</p>
           {% else %}
@@ -95,7 +97,7 @@
           <p class="field-helper" data-market-feedback role="status"></p>
           <button type="button" class="btn btn-outline-primary" data-discover-markets>Load Shopify markets (read-only)</button>
           <p class="field-helper">No additional selections means UK only. International restrictions require a Shopify catalogue for each market that needs product exclusions.</p>
-        </details>
+        </section>
         <p class="field-helper">New Drafts remain local. Linked Draft metadata pauses until Live; changing a linked Live product to Draft queues a priority status-only transition. Review &amp; Sync and acknowledged Sync Now remain available.</p>
       </section>
       <section class="editor-workspace-section" aria-labelledby="pricing-title">
@@ -209,7 +211,7 @@
         </div>
       </section>
 
-      <section class="editor-workspace-section"><div class="editor-field-grid">
+      <section class="editor-workspace-section" aria-labelledby="customs-title"><header><h2 id="customs-title">Country of Origin &amp; Customs</h2></header><div class="editor-field-grid">
         {{ extra_field('country_of_origin','Country of origin','Uppercase ISO code, only when accurate. No automatic GB assignment.') }}
         {{ extra_field('customs_description','Customs Description','Short factual goods description for Royal Mail only. Up to 50 characters. Blank clears this value; never sent to Shopify.', maxlength=50) }}
         {{ extra_field('harmonized_system_code','HS Code','Harmonised System customs classification code used for international shipping. Enter 6–13 digits.', inputmode='numeric', pattern='[0-9]{6,13}', maxlength=13) }}
@@ -227,7 +229,7 @@
       {% include 'packaging/_product.html' %}
       {% include 'includes/_customisation_designer.html' %}
       <section class="editor-workspace-section advanced-fields-section" aria-labelledby="advanced-fields-title">
-        <header><h2 id="advanced-fields-title">Advanced</h2><p>Unknown, internal and historical fields remain preserved. Customisation remains definitions only. Scheduled prices require separate explicit per-product authorisation; there are no customer forms, uploads or proof workflows here.</p></header>
+        <header><h2 id="advanced-fields-title">Advanced</h2><p>Inspect authoritative JSON, including preserved internal and historical fields. Customer-field definitions are not customer answers. Publishing and scheduled prices require separate approval.</p></header>
         <button class="btn btn-outline-primary" type="button" data-open-advanced>Inspect / edit authored JSON</button>
         <details><summary>Authored, inherited and effective values</summary><div class="compact-comparison-list">{% for row in workspace.comparison %}<div><strong>{{ row.label }}</strong><span>{{ row.state }} · Effective {{ row.resolved_display }}</span></div>{% endfor %}</div></details>
       </section>
@@ -243,6 +245,18 @@
   </div>
 
   <aside class="metadata-editor-sidebar">
+    <section class="side-summary-card editor-save-controls" aria-label="Editing actions">
+      <h2>{{ workspace.collection_display_name if is_shared else product.sku }}</h2>
+      <p>{{ workspace.affected_total ~ ' affected products' if is_shared else 'Product-only override' }}</p>
+      <p data-save-state role="status" aria-live="polite">Saved</p>
+      <p class="field-helper" data-validation-state role="status">{{ 'Saved source valid' if workspace.authored.validation.valid else 'Source needs validation' }}</p>
+      {{ shared_acknowledgement('desktop') }}
+      <div class="page-actions"><button class="btn btn-outline-primary" type="button" data-validate-metadata>Validate</button><button class="btn btn-primary" type="button" data-save-metadata>Save Metadata</button></div>
+      <nav class="metadata-section-nav" aria-label="Editing sidebar sections">{% for id, name in editor_sections %}<a href="#{{ id }}">{{ name }}</a>{% endfor %}</nav>
+      <p class="field-helper">Save updates local metadata only. Review &amp; Sync remains a separate approval.</p>
+      {% if workspace.revision %}<div id="metadata-local-scan"><button class="btn btn-outline-primary" type="button" data-retry-local-scan>Run local update scan</button><p class="field-helper">Refreshes this source’s collection using existing identities. Shared scope requires acknowledgement. No Shopify sync.</p></div>{% endif %}
+      <a href="{{ url_for('commerce.drafts', product_id=product.id) }}">Review &amp; Sync</a>
+    </section>
     <section class="side-summary-card"><h2>Publishing context</h2><p>Saving preserves sparse overrides and inheritance. Viewing never adopts the explicit variation contract.</p><p>Shopify: {{ workspace.shopify.label }} · {{ workspace.shopify.remote_status }} (retained evidence)</p><p>{{ workspace.shopify.message }}</p><p>{{ workspace.local_save.message }}</p><dl><div><dt>Last local update</dt><dd>{{ product.local_updated_at or 'Not recorded' }}</dd></div></dl><a class="btn btn-sm btn-outline-primary" href="{{ url_for('commerce.drafts', product_id=product.id) }}">Review Shopify Changes</a><p>Saving locally never publishes. Complete ingestion before reviewing Shopify.</p></section>
     <section class="side-summary-card"><div class="side-summary-heading"><span>{{ icon('file') }}</span><div><h2>Metadata Source</h2><span class="catalogue-pill is-{{ 'shared' if is_shared else 'override' }}">{{ 'Collection metadata' if is_shared else 'Product override' }}</span></div></div><dl><div><dt>Collection</dt><dd>{{ workspace.collection_display_name }}</dd></div><div><dt>Shared product title</dt><dd>{{ workspace.shared_product_title or 'Not set' }}</dd></div><div><dt>Source file</dt><dd><code>{{ workspace.authored.reference or 'Not registered' }}</code></dd></div><div><dt>Scope</dt><dd>{{ workspace.affected_total ~ ' products' if is_shared else 'This product only' }}</dd></div><div><dt>Current state</dt><dd>{{ 'Unsaved draft — no source write or scan yet' if workspace.authored.draft else 'Available' if workspace.authored.exists else 'Unavailable' }}</dd></div></dl></section>
     <section class="side-summary-card"><div class="side-summary-heading"><span>{{ icon('check') }}</span><div><h2>Validation</h2><span class="catalogue-pill is-{{ 'active' if workspace.authored.validation.valid else 'missing' }}">{{ 'Valid' if workspace.authored.validation.valid else 'Needs attention' }}</span></div></div><p>Validation uses the existing product_info.json schema and field inventory.</p><a href="{{ url_for('main.metadata_reference') }}">Metadata reference</a></section>
@@ -254,8 +268,7 @@
   </aside>
 </div>
 
-{% if is_shared and workspace.affected_total > 1 %}<label class="metadata-shared-confirmation"><input type="checkbox" data-acknowledge-shared> I confirm this saves shared data affecting up to {{ workspace.affected_total }} products; child overrides remain intact.</label>{% endif %}
-<div class="metadata-mobile-savebar"><span data-save-state>Saved</span><button class="btn btn-primary" type="button" data-save-metadata>Save Metadata</button></div>
+<div class="metadata-mobile-savebar">{{ shared_acknowledgement('mobile') }}<span data-save-state role="status" aria-live="polite">Saved</span><button class="btn btn-outline-light" type="button" data-validate-metadata>Validate</button><button class="btn btn-primary" type="button" data-save-metadata>Save Metadata</button></div>
 {% include 'includes/_scan_modal.html' %}
 {% include 'includes/_sale_review_modal.html' %}
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from flask import g, has_request_context, url_for
+from flask import current_app, g, has_request_context, url_for
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -137,6 +137,62 @@ def _operation_view(operation):
             or operation.recovery_state not in {None, "none"}
         ),
     }
+
+
+def verified_catalogue_links():
+    """Last verified local identity evidence, never a remote count or creation plan."""
+    import json
+    from app.models import ShopifyProductIdentity
+    proof = current_app.config.get('TLC_DEPLOYMENT_PROOF')
+    if not proof:
+        return None
+    products = dict(db.session.query(Product.id, Product.source_relpath).all())
+    variants = {(v.product_id, v.source_identity, v.sku): v.id for v in db.session.query(
+        Variation.id, Variation.product_id, Variation.source_identity, Variation.sku).all()}
+    by_product = {}
+    for row in ShopifyProductIdentity.query.filter_by(store_id=proof[0].shop).all():
+        by_product.setdefault(row.product_id, []).append(row)
+    result = dict(parents=0, variants=0, draft=0, active=0, other=0, published=0)
+    linked_variants = set()
+    for product_id, rows in by_product.items():
+        source = products.get(product_id)
+        if len(rows) != 1 or not source:
+            continue
+        row = rows[0]
+        if (row.state != 'verified' or row.verification_state != 'verified' or not row.verified_at
+                or not row.shopify_product_id or row.source_identity != source):
+            continue
+        try:
+            data = json.loads(row.media_evidence_json)
+            if not isinstance(data, dict):
+                continue
+        except (ValueError, TypeError):
+            continue
+        result['parents'] += 1
+        publication = data.get('publication_update') or {}
+        if not isinstance(publication, dict):
+            publication = {}
+        observed = publication.get('observed') or {}
+        if not isinstance(observed, dict):
+            observed = {}
+        status = str(observed.get('status') or data.get('observed_status') or '').lower()
+        result[status if status in {'draft', 'active'} else 'other'] += 1
+        plan = publication.get('plan') if isinstance(publication.get('plan'), dict) else {}
+        intent = plan.get('intent') if isinstance(plan.get('intent'), dict) else {}
+        channels = intent.get('channels') if isinstance(intent.get('channels'), dict) else {}
+        if (publication.get('state') == 'verified' and status == 'active'
+                and any(value is True for value in channels.values())):
+            result['published'] += 1
+        mappings = data.get('variant_maps') if isinstance(data.get('variant_maps'), dict) else {}
+        for source, mapping in mappings.items():
+            if isinstance(mapping, dict) and str(mapping.get('id', '')).startswith('gid://shopify/ProductVariant/'):
+                local = variants.get((product_id, source, mapping.get('sku')))
+                if local:
+                    linked_variants.add(local)
+    result['variants'] = len(linked_variants)
+    result['unverified_parents'] = len(products) - result['parents']
+    result['unverified_variants'] = len(variants) - result['variants']
+    return result
 
 
 @registry_read_view
@@ -319,6 +375,7 @@ def build_dashboard_data():
         'attention_links': [dict(key=key, label=label, unit=unit, count=issue_data['counts'][key],
             destination=url_for('main.operation_issues_page', category=key))
             for key,(label,unit) in CATEGORIES.items() if key != 'information'],
+        "shopify_links": verified_catalogue_links(),
         "recent_operations": recent_operations,
         "recent_products": recent_products,
         "woo_status": "Not configured",

@@ -3,11 +3,28 @@ import json
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from sqlalchemy import func, or_
+from flask import current_app
 from app import db
 from app.models import ShopifyOrder, ShopifyOrderLine, ShopifyOrderSync, ScheduledTask
 from app.shopify_orders import KEY
 
 UK = ZoneInfo('Europe/London')
+
+
+def test_orders_default():
+    """Only authenticated managed startup proof can select the dev default."""
+    proof = current_app.config.get('TLC_DEPLOYMENT_PROOF')
+    if not proof:
+        return False
+    from app.deployment_guard import DEV_DOMAIN, DEV_SHOP
+    owner = proof[0]
+    return (owner.environment == 'development' and owner.domain == DEV_DOMAIN
+            and owner.shop == DEV_SHOP)
+
+
+def include_test_orders(args):
+    selected = args.get('include_test')
+    return selected == '1' if selected in {'0', '1'} else test_orders_default()
 
 
 def uk_time(value):

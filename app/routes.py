@@ -298,9 +298,9 @@ def dashboard():
         return redirect(url_for("main.login"))
     if onboarding.pending():
         return redirect(url_for("main.initial_settings"))
-    from app.orders_workspace import overview
+    from app.orders_workspace import overview, include_test_orders
     response=current_app.make_response(render_template("dashboard.html", dashboard=build_dashboard_data(),
-        orders_overview=overview(include_test=request.args.get('include_test')=='1') if current_user.is_admin else None))
+        orders_overview=overview(include_test=include_test_orders(request.args)) if current_user.is_admin else None))
     response.headers['Cache-Control']='no-store, private'
     return response
 
@@ -347,7 +347,7 @@ def api_products():
     payload["filter"] = (
         {
             "key": issue_key,
-            "label": METADATA_ISSUE_DEFINITIONS[issue_key]["label"],
+            "label": "Needs attention: description, images or SEO metadata" if issue_key == "all" else METADATA_ISSUE_DEFINITIONS[issue_key]["label"],
         }
         if issue_key
         else None

@@ -249,7 +249,7 @@ def test_dashboard_route_renders_real_sections_without_unsupported_claims(
         "Fictional Card",
         "CARD-001",
         "67%",
-        "Shopify Synchronisation",
+        "Shopify linked catalogue",
         "No saved non-test orders yet",
         "Orders today (UK)",
     ):
@@ -267,6 +267,8 @@ def test_dashboard_route_renders_real_sections_without_unsupported_claims(
 
     assert 'aria-labelledby="catalogue-health-title"' in html
     assert 'aria-labelledby="scanner-activity-title"' in html
+    assert '<h2>Shopify Synchronisation</h2>' not in html
+    assert '/settings/commerce' in html and '/shopify/discovery' in html
     assert '<table' in html
     assert '<th scope="col"' in html
 

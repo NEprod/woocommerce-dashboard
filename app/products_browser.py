@@ -235,6 +235,11 @@ def _product_view(product, variation_count, shopify):
             else None
         ),
     }
+    # Navigation only. The editor revalidates ownership/revision, requires shared
+    # acknowledgement, and invokes the existing collection-scoped local scan.
+    row['scan_review_url'] = ((row['edit_url'] or row['collection_edit_url']) + '#metadata-local-scan'
+        if product.catalogue_status == 'active' and (row['edit_url'] or row['collection_edit_url']) else None)
+    row['source_reference'] = product.source_relpath or (product.collection.source_relpath if product.collection else '')
     return row
 
 

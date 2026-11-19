@@ -170,7 +170,9 @@ test('actual Product Override serializer marks package choice dirty and reversio
   const source=fs.readFileSync(new URL('../../app/static/assets/js/metadata-editor.js',import.meta.url),'utf8');
   const extract=(fn,end)=>source.slice(source.indexOf('  function '+fn+'('),source.indexOf('  function '+end+'('));
   const original={title:'Anniversary Level Complete',future:{keep:true}};
+  const validationState={textContent:''};
   const context=vm.createContext({authored:original,originalDocument:structuredClone(original),structuredClone,
+    document:{querySelectorAll:()=>[validationState]},
     initialValues:{},window:{},knownFields:new Set(['packaging']),customisationDesigner:null,packagingDesigner:editor,finishedDesigner:null,marketEditor:null,
     guided:{querySelectorAll:()=>[]},overrideEnabled:()=>false,isShared:false,explicitVariation:false,
     attributeValues:()=>({}),modifierValues:()=>({}),listValues:()=>[],channelValues:()=>({}),activeMode:'guided',saveStates:[]});
@@ -178,6 +180,7 @@ test('actual Product Override serializer marks package choice dirty and reversio
   context.initialValues=structuredClone(vm.runInContext('guidedValues()',context));
   editor.selectPackage('c5-mailer');
   vm.runInContext('setDirty(true)',context);assert.equal(context.dirty,true);
+  assert.equal(validationState.textContent,'Draft changed — validate before saving');
   const document=plain(vm.runInContext('guidedDocument()',context));
   assert.deepEqual(document,{...original,packaging:{selected_package_id:'c5-mailer',assignment_kind:'manual'}});
   context.after=document;

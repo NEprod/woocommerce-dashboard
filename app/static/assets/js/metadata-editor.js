@@ -14,6 +14,10 @@
   const feedback = document.querySelector("[data-metadata-feedback]");
   const saveButtons = Array.from(document.querySelectorAll("[data-save-metadata]"));
   const saveStates = Array.from(document.querySelectorAll("[data-save-state]"));
+  const acknowledgements = Array.from(document.querySelectorAll("[data-acknowledge-shared]"));
+  acknowledgements.forEach(control => control.addEventListener("change", () => {
+    acknowledgements.forEach(other => { other.checked = control.checked; });
+  }));
   const isShared = boot.kind === "shared";
   const knownFields = new Set([
     "collection_type", "title", "sku_prefix", "price", "sale_price",
@@ -326,6 +330,7 @@
     if (value && activeMode === 'guided') value = JSON.stringify(guidedDocument()) !== JSON.stringify(originalDocument);
     dirty = value;
     saveStates.forEach((node) => { node.textContent = value ? "Unsaved changes" : "Saved"; });
+    if (value) document.querySelectorAll('[data-validation-state]').forEach(node => { node.textContent = 'Draft changed — validate before saving'; });
     window.TLCSaleEditor?.refresh();
   }
 
@@ -927,6 +932,7 @@
       }
     });
     const count = (errors || []).length;
+    document.querySelectorAll('[data-validation-state]').forEach(node => { node.textContent = `${count} validation issues`; });
     showFeedback("error", "Validation blocked this save", `${count} ${count === 1 ? "issue needs" : "issues need"} attention. Your entered data has been retained.`);
   }
 
@@ -939,6 +945,7 @@
     }
     clearErrors();
     showTitlePreview(payload.title_preview);
+    document.querySelectorAll('[data-validation-state]').forEach(node => { node.textContent = payload.warnings?.length ? 'Valid with warnings — review below' : 'Draft validated'; });
     showFeedback(payload.warnings?.length ? "warning" : "success", "Validation complete", payload.warnings?.length ? `${payload.warnings.length} documented warning(s) remain. No authored values were changed.` : "No blocking metadata issues were found.");
     return payload;
   }
@@ -1067,11 +1074,15 @@
 
   async function retryScan() {
     if (busy) return;
+    if (dirty) return showFeedback('warning', 'Unsaved changes', 'Save or reload your draft before running a local scan. Your entered values have been retained.');
+    if (!boot.can_save) return showFeedback('error', 'Read-only source', 'Restore the authorised metadata owner and reload.');
+    const acknowledgement = document.querySelector('[data-acknowledge-shared]');
+    if (acknowledgement && !acknowledgement.checked) return showFeedback('warning', 'Confirm shared scope', 'Confirm the affected shared products before scanning.');
     setBusy(true);
     try {
       const response = await fetch(boot.save_url, { method: "POST", headers: {
         "Content-Type": "application/json", "X-CSRFToken": document.querySelector('meta[name="csrf-token"]')?.content || "" },
-        body: JSON.stringify({kind: boot.kind, data: {}, revision: boot.revision, retry_scan: true, acknowledge_shared: true}) });
+        body: JSON.stringify({kind: boot.kind, data: {}, revision: boot.revision, retry_scan: true, acknowledge_shared: !!acknowledgement?.checked}) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || "Reload the editor and inspect scanner history.");
       boot.revision = payload.revision;
@@ -1216,10 +1227,21 @@
     if (value) validateDocument(value);
   }));
   saveButtons.forEach((button) => button.addEventListener("click", save));
+  document.querySelector('[data-retry-local-scan]')?.addEventListener('click', retryScan);
+  // Highlight only: native anchor scrolling and browser history stay unchanged.
+  if (typeof IntersectionObserver === 'function') {
+    const sectionLinks = document.querySelectorAll('.metadata-section-nav a');
+    const sections = new IntersectionObserver(entries => {
+      const current = entries.find(entry => entry.isIntersecting);
+      if (!current) return;
+      sectionLinks.forEach(link => {
+        if (link.getAttribute('href') === '#' + current.target.id) link.setAttribute('aria-current', 'location');
+        else link.removeAttribute('aria-current');
+      });
+    }, {rootMargin: '-5% 0px -70% 0px'});
+    root.querySelectorAll('.editor-workspace-section h2[id]').forEach(heading => sections.observe(heading));
+  }
   guided.querySelector("[data-discover-channels]")?.addEventListener("click", discoverChannels);
-  marketEditor?.addEventListener("toggle", () => {
-    if (marketEditor.open && !marketsLoaded) discoverMarkets();
-  });
   marketEditor?.querySelector("[data-discover-markets]").addEventListener("click", discoverMarkets);
   marketEditor?.querySelector("[data-market-choices]").addEventListener("change", () => {
     if(isShared){ marketsEdited=true; renderMarkets(marketValues()); }
