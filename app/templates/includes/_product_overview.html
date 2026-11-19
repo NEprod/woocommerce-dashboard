@@ -1,0 +1,47 @@
+{% set meanings = {'no_change':'success','update':'warning','local_changes':'info','create':'info','processing':'info','attention':'warning','recovery_required':'danger','unknown':'neutral','unavailable':'neutral'} %}
+<section class="workspace-card operator-workspace operator-overview" data-local-shopify="{{ shopify.product_id }}" aria-labelledby="product-overview-title" {% if current_user.is_admin %}data-shopify-detail data-product-id="{{ shopify.product_id }}" data-status-url="{{ url_for('commerce.refresh_status') }}" data-csrf="{{ csrf_token() }}"{% endif %}>
+  <header class="workspace-card-header operator-section-header"><div><p class="eyebrow">Product overview</p><h1 id="product-overview-title">{{ workspace.title }}</h1><p>{{ product.sku }} · {{ product.product_type|title }} · {{ workspace.collection_display_name }}</p></div><span class="catalogue-pill is-shopify-{{ meanings.get(shopify.state, 'warning') }}" data-local-shopify-badge><span data-local-shopify-label>{{ shopify.label }}</span></span></header>
+  <div class="workspace-card-body">
+    <div class="operator-product-summary">
+      <div class="operator-product-thumbnail">{% if workspace.primary_preview and workspace.primary_preview.preview_url %}<img src="{{ workspace.primary_preview.preview_url }}" alt="{{ workspace.primary_preview.alt_text or workspace.title }}">{% else %}<span aria-hidden="true">{{ icon('box') }}</span>{% endif %}</div>
+      <dl class="product-key-facts">
+        <div><dt>Effective price</dt><dd>{% include 'includes/_local_pricing.html' %}</dd></div>
+        <div><dt>Local catalogue</dt><dd>{{ product.catalogue_status|title }}</dd></div>
+        <div><dt>Intended publishing</dt><dd>{{ workspace.publishing_intent.label }}</dd></div>
+        <div><dt>Shopify · saved evidence</dt><dd>{{ shopify.remote_status }}</dd></div>
+        <div><dt>Online Store</dt><dd>{{ shopify.publication }}</dd></div>
+        <div><dt>Last successful verification</dt><dd>{{ local_time(shopify.verified_at) if shopify.verified_at else 'Not yet verified' }}</dd></div>
+      </dl>
+    </div>
+    {% if workspace.primary_preview and workspace.primary_preview.variation_fallback %}<p class="field-helper">Parent preview uses a variation image.</p>{% endif %}
+    {% if publisher_authority %}<p class="operator-eligibility"><strong>Automatic publishing:</strong> {{ publisher_authority.explanation }}</p>{% endif %}
+    {% if shopify.state == 'recovery_required' %}<div class="operator-warning" role="status"><h2>Shopify recovery required</h2><p>A previous operation could not be fully verified. Reconcile its retained evidence before another write; do not create a second product.</p>{% if current_user.is_admin and shopify.identity_url %}<a class="btn btn-primary" href="{{ shopify.identity_url }}">Resolve Shopify Recovery</a>{% endif %}</div>{% endif %}
+    {% for issue in collection_issue_links %}<div class="operator-warning"><h2>Collection needs attention — {{ issue.label }}</h2><p>Shopify has not verified this required mapping. Inspect and reconcile it before publishing.</p>{% if current_user.is_admin %}<a class="btn btn-outline-primary" href="{{ issue.url }}">View Collection Issue</a>{% endif %}</div>{% endfor %}
+    {% for blocker in shopify.blockers %}<p class="operator-warning">{{ blocker }}</p>{% endfor %}
+    {% if shopify.state in ['attention','unavailable','unknown','local_changes','processing'] %}<p data-local-shopify-message role="status">{{ shopify.message }}</p>{% endif %}
+    <div class="page-actions" aria-label="Product actions">
+      {% if current_user.is_admin and shopify.review_url %}<a class="btn btn-primary" href="{{ shopify.review_url }}">Review &amp; Sync</a>{% endif %}
+      {% if product.collection_id %}<a class="btn btn-outline-primary" href="{{ url_for('main.collection_detail',collection_id=product.collection_id) }}">View Collection</a><a class="btn btn-outline-primary" href="{{ url_for('main.collection_metadata_edit',collection_id=product.collection_id) }}">Edit Collection Metadata</a>{% endif %}
+      {% if workspace.can_override %}<a class="btn btn-outline-primary" href="{{ url_for('main.product_edit',product_id=product.id,label='override') }}">{{ 'Edit Product Override' if workspace.override.exists else 'Create Override' }}</a>{% endif %}
+    </div>
+    <div class="page-actions" aria-label="Shopify inspection actions">
+      {% if shopify.shopify_url %}<a class="btn btn-ghost" href="{{ shopify.shopify_url }}" target="_blank" rel="noopener noreferrer">View Shopify Product</a>{% endif %}
+      {% if shopify.review_url and current_user.is_admin %}<button type="button" class="btn btn-ghost" data-shopify-detail-refresh>Refresh Product</button>{% endif %}
+      {% if shopify.identity_url %}<a class="btn btn-ghost" href="{{ shopify.identity_url }}">Identity &amp; History</a>{% endif %}
+    </div><p class="field-helper" data-shopify-detail-progress role="status"></p>
+    <div class="operator-overview-tools"><details class="operator-help"><summary>Additional actions and authorisations</summary>
+      {% if current_user.is_admin %}<form method="post" action="{{ url_for('publishing.sync_now',product_id=product.id) }}" class="operator-warning"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="check-row"><input type="checkbox" name="acknowledged" value="yes" required> Publish this product's latest scanned Live changes now</label><button class="btn btn-outline-primary">Sync Now</button><p class="field-helper">This authorises a Shopify write through the existing publisher, not a read-only refresh.</p></form>{% endif %}
+      <div class="page-actions">{% if current_user.is_admin and shopify.review_url %}<a class="btn btn-outline-primary" href="{{ url_for('commerce.sale_review',product_id=product.id) }}">Scheduled Sale Controls</a>{% endif %}{% if current_user.is_admin and shopify.remote_id and product.product_type == 'simple' %}<a class="btn btn-outline-primary" href="{{ url_for('commerce.package_correction',product_id=product.id) }}">Correct Saved Package</a>{% endif %}{% if current_user.is_admin and shopify.can_delete %}<a class="btn btn-outline-danger" href="{{ url_for('commerce.delete_shopify_product',product_id=product.id) }}">Delete from Shopify</a>{% elif current_user.is_admin and shopify.remote_id %}<p>Delete unavailable until full identity and operation verification succeeds.</p>{% endif %}</div><p class="field-helper">Package correction and deletion have their own separate reviews. Local catalogue, BOMs and inventory are retained.</p>
+    </details>
+
+    <details class="operator-help"><summary>Technical Details / Publishing Evidence</summary>
+      <p>{{ shopify.message }}</p><p>Compared {{ shopify.compared_at or 'Not yet compared' }} · {{ shopify.change_count }} changes. Revision checked {{ shopify.revision_checked_at or 'Not retained' }}.</p><p>{{ shopify.remote_id or 'Remote existence not verified' }}</p>
+      <p>Collection metadata: <code>{{ workspace.shared.reference or 'Not registered' }}</code>. Product override: <code>{{ workspace.override.reference if workspace.override.exists else 'No override' }}</code>.</p>
+      <p>Resolved live value: {{ workspace.publishing_intent.value_text }} · {{ workspace.publishing_intent.source }} · {{ workspace.publishing_intent.inheritance }}.</p>
+      {% if shopify.native %}<h3>Packed dimensions · {{ shopify.native.state|title }}</h3><p>{{ shopify.native.message }}</p>{% if current_user.is_admin and product.product_type == 'simple' %}<a href="{{ url_for('commerce.native_dimensions',product_id=product.id) }}">Review packed dimensions</a>{% endif %}{% endif %}
+      {% if shopify.change_summary %}<p>{{ shopify.change_summary|join(' · ') }}</p>{% endif %}
+      {% include 'includes/_publisher_authority.html' %}{% include 'includes/_publishing_capabilities.html' %}
+    </details>
+    <details class="operator-help"><summary>Page Help — what do these actions do?</summary><dl><dt>Refresh Product</dt><dd>Read Shopify and refresh this product’s saved comparison. No product write or local scan.</dd><dt>Review &amp; Sync</dt><dd>Build a read-only preview, then explicitly approve only its signed changes.</dd><dt>Edit metadata / override</dt><dd>Edit local JSON through the existing editor. Shared saves affect inheriting siblings and require acknowledgement.</dd><dt>Identity &amp; History / Recovery</dt><dd>Inspect retained evidence. Reconciliation is a separate explicit action; opening the page never retries a write.</dd></dl></details></div>
+  </div>
+</section>

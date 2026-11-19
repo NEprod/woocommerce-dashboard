@@ -80,7 +80,11 @@
   document.addEventListener('visibilitychange',()=>{ if (document.hidden) pause(); else if (dialog.open && pending && !stopped) { paused=false; poll(); } });
   root.addEventListener('pagehide',pause);
   root.addEventListener('pageshow',()=>{ if (dialog.open && pending && !stopped && !document.hidden) { paused=false; poll(); } });
-  document.querySelectorAll('[data-shopify-publish]').forEach(form => form.addEventListener('submit',async event => {
+  const boundForms = new WeakSet();
+  const bindReviewForms = () => document.querySelectorAll('[data-shopify-publish]').forEach(form => {
+    if (boundForms.has(form)) return;
+    boundForms.add(form);
+    form.addEventListener('submit',async event => {
     if (!form.checkValidity()) return;
     event.preventDefault();
     if (submitted) return;
@@ -92,7 +96,10 @@
     timer=root.setTimeout(poll,500);
     try { show(await readJson(await fetch(confirmationUrl(form,location.href),{method:'POST',body,credentials:'same-origin',headers:{Accept:'application/json'}}))); }
     catch (error) { message.textContent = 'Confirmation response unavailable: '+error.message+' Inspect the recorded operation; no write is resubmitted.'; back.hidden=false; }
-  }));
+    });
+  });
+  bindReviewForms();
+  document.addEventListener('tlc:review-ready', bindReviewForms);
   try { pending = JSON.parse(sessionStorage.getItem(key)); } catch (_) { pending = null; }
   if (pending) { submitted = true; open(); poll(); }
 })(typeof window === 'undefined' ? globalThis : window);

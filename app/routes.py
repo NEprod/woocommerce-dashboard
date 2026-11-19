@@ -427,8 +427,13 @@ def product_detail(product_id):
     if shopify["intent_value"] is None:
         workspace["publishing_intent"].update(source="Not authored or invalid", inheritance="Resolution required")
     from app.operations_views import product_authority, local_time
+    from app.product_presentation import source_label, readable, resolved_value, product_issue_links
+    authority = product_authority(product.id)
     return render_template("product_detail.html", workspace=workspace, shopify=shopify,
-        publisher_authority=product_authority(product.id), local_time=local_time)
+        publisher_authority=authority, local_time=local_time,
+        source_label=source_label, readable=readable, resolved_value=resolved_value,
+        collection_issue_links=product_issue_links(product, [shopify.get('message'),
+            *(shopify.get('blockers') or []), authority['explanation'] if authority else None]))
 
 
 def _relationship_payload():

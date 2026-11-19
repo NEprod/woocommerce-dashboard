@@ -134,6 +134,66 @@ catch-up; do not enable automatic publishing or change webhook configuration.
 References: [Shopify protected customer data](https://shopify.dev/docs/apps/launch/protected-customer-data),
 [scope approval and the 60-day order window](https://shopify.dev/docs/apps/build/authentication-authorization/manage-access-scopes).
 
+## Batch 2 — Product Workspace, Review & Sync, Identity & Recovery
+
+Presentation only. Product/collection authority, scan scope, signed approvals,
+Shopify requests, worker ownership/checkpoints, recovery decisions, database schema
+and JSON resolution are unchanged. See [UI_BATCH2_VALIDATION.md](UI_BATCH2_VALIDATION.md)
+for the exact implementation, action map, tests and screenshot index.
+
+- Put breadcrumbs first, then one forest-headed overview containing title,
+  thumbnail, SKU/type/collection, pricing, local lifecycle, intended versus actual
+  Shopify state and the last successful verification. Keep automatic eligibility
+  concise; its full original evidence remains in Technical Details.
+- Use Inherited, Overridden, Mixed sources and Derived source labels. A title
+  assembled from folder identity is not falsely labelled entirely inherited;
+  merged structures are not falsely labelled a replacement. Show effective values
+  by default, retaining every original field in Full Source Comparison. Price
+  display never rounds a higher-precision authored value to conceal it.
+- Group local categories, storefront collections, and variation/informational
+  attributes separately. Assignment editing and registry authoring remain distinct.
+- Keep Review & Sync primary. Refresh Product is a Shopify-read comparison, not a
+  scan. Sync Now remains a separately acknowledged write under Additional Actions.
+  Sale, package correction and deletion retain their own review/confirmation paths.
+- Review tables use Field / Current Shopify / Proposed Value / Action / Status.
+  Show blockers and proposed changes before notices, matching fields and technical
+  evidence. Group variant rows by owner. Matching rows start collapsed; expanding
+  them never changes approval scope. Every original resource/capability setting,
+  media reference and field remains in the full technical evidence disclosure.
+- Auto-preview invokes only the original CSRF-protected `action=preview` form for
+  a scoped active Simple/Variable product. It never submits `review`, `acknowledge`
+  or Confirm. No new endpoint or publishing/recovery algorithm was introduced.
+  Unresolved/ambiguous retained attempts and an existing browser publishing receipt
+  pause automatic preview. The manual preview and recovery actions remain available.
+- Show loading immediately. Replace only the returned review region, not the page
+  header or advanced-scope selections. Interrupted rebuilds keep the old approval
+  disabled and require an explicit rebuild; connection loss is not a Shopify
+  mutation failure and is never automatically retried. The existing signed-token
+  freshness checks still decide whether confirmation is valid.
+- Recovery opens with the actual retained state and the explicit next action.
+  Shopify IDs, operation handles and raw evidence are in technical disclosures.
+  Candidate ID entry, optional media-adoption acknowledgement, missing-variant
+  review and any separately approved continuation retain their exact form fields.
+  No reconciliation starts on page load. Media needing explicit mapping approval
+  remains open for inspection; existing verification is never silently upgraded.
+- Link collection issues only to their exact existing `source` selector and
+  `#individual-mapping`. Link product history only to real operation IDs. Preserve
+  product context on workspace/review/recovery return links.
+
+Responsive checks use the same Batch 1 tokens, review tables and native controls.
+Temporary synthetic fixtures block external transport and every execution action.
+Actual development/production Shopify acceptance is not inferred from these tests.
+Native Safari/physical iPhone acceptance remains an operator check where browser
+automation is unavailable or interrupted. Do not expand later page audits here.
+
+### Remaining audit items
+
+Collections/Relationships/Intake list pages, Orders diagnostics, Production
+Operations, Shipping Packages and administration remain separate later batches.
+Existing baseline migration expectations, taxonomy VM setup and independently
+reproduced legacy status/relationship-test failures are documented, not corrected
+by this UI-only batch. No release is authorised by this register.
+
 ## Later audits and acceptance
 
 Next pages: Collections, Relationships, Catalogue Intake, Orders diagnostics,

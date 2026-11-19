@@ -2,83 +2,14 @@
 {% from 'includes/icons.html' import icon %}
 {% block title %}{{ workspace.title }}{% endblock %}
 {% block content %}
-{% include 'includes/shopify_product_state.html' %}
 {% set product = workspace.product %}
-{% include 'includes/_publisher_authority.html' %}
-<nav class="workspace-breadcrumb" aria-label="Breadcrumb">
-  <a href="{{ url_for('main.products') }}">Catalogue</a><span aria-hidden="true">/</span><span>Products</span><span aria-hidden="true">/</span><span aria-current="page">{{ workspace.title }}</span>
-</nav>
-
-<header class="page-header metadata-page-header">
-  <div>
-    <p class="eyebrow">Resolved catalogue workspace</p>
-    <h1 class="page-title">{{ workspace.title }}</h1>
-    <p class="page-lede">Review the read-only scanner projection, its authoritative metadata sources, and product-owned images.</p>
-  </div>
-  <div class="page-actions">
-    {% if current_user.is_admin %}<form method="post" action="{{ url_for('publishing.sync_now',product_id=product.id) }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label><input type="checkbox" name="acknowledged" value="yes" required> Publish this product's latest scanned Live changes now</label>
-      <button class="btn btn-outline-primary">Sync Now</button>
-    </form>{% endif %}
-    {% if product.collection_id %}<a class="btn btn-outline-primary" href="{{ url_for('main.collection_detail', collection_id=product.collection_id) }}">View Collection</a><a class="btn btn-outline-primary" href="{{ url_for('main.collection_metadata_edit', collection_id=product.collection_id) }}">Edit Collection Metadata</a>{% endif %}
-    {% if workspace.can_override and workspace.override.exists %}
-    <a class="btn btn-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='override') }}">Edit Product Override</a>
-    {% elif workspace.can_override %}
-    <a class="btn btn-primary" href="{{ url_for('main.product_edit', product_id=product.id, label='override') }}">Create Override</a>
-    {% endif %}
-  </div>
-</header>
-
-<section class="product-detail-hero" aria-label="Parent product summary">
-  <article class="product-identity-card">
-    <div class="product-detail-primary-image">
-      {% if workspace.primary_preview and workspace.primary_preview.preview_url %}
-      <img src="{{ workspace.primary_preview.preview_url }}" alt="{{ workspace.primary_preview.alt_text or workspace.title }}" loading="eager">
-      {% else %}<span class="product-image-fallback" aria-hidden="true">{{ icon('box') }}</span>{% endif %}
-    </div>
-    <div class="product-identity-copy">
-      <span class="catalogue-pill is-{{ product.catalogue_status }}">Catalogue state: {{ product.catalogue_status|title }}</span>
-      <p class="product-context-label">Parent product</p>
-      {% if workspace.primary_preview and workspace.primary_preview.variation_fallback %}<span class="catalogue-pill is-shared">Parent fallback from variation</span>{% endif %}
-      <h2>{{ workspace.title }}</h2>
-      <code>{{ product.sku }}</code>
-      <dl class="product-key-facts">
-        <div><dt>Type</dt><dd>{{ product.product_type|title }}</dd></div>
-        <div><dt>Collection</dt><dd>{% if product.collection %}<a href="{{ url_for('main.collection_detail', collection_id=product.collection.id) }}">{{ workspace.collection_display_name }}</a>{% else %}Unassigned{% endif %}</dd></div>
-        <div><dt>Variations</dt><dd>{{ workspace.variation_pagination.total }}</dd></div>
-        <div><dt>Price</dt><dd>{% include 'includes/_local_pricing.html' %}</dd></div>
-        <div><dt>Updated</dt><dd>{{ product.local_updated_at.strftime('%d %b %Y, %H:%M') if product.local_updated_at else 'Not recorded' }}</dd></div>
-        <div><dt>Catalogue state</dt><dd>{{ product.catalogue_status|title }}</dd></div>
-        <div><dt>Publishing intent</dt><dd><span class="catalogue-pill is-intent-{{ workspace.publishing_intent.state }}">{{ workspace.publishing_intent.label }}</span></dd></div>
-        <div><dt>Resolved live value</dt><dd><code>{{ workspace.publishing_intent.value_text }}</code></dd></div>
-        <div><dt>Publishing intent source</dt><dd>{{ workspace.publishing_intent.source }}</dd></div>
-        <div><dt>Inheritance</dt><dd>{{ workspace.publishing_intent.inheritance }}</dd></div>
-      </dl>
-      <p class="publishing-intent-note">Authored intent is separate from actual Shopify status and channel publication. Scanned Live changes use explicitly enabled automatic publishing, acknowledged Sync Now or signed Review &amp; Sync; all retain readback and recovery safeguards.</p>
-      {% include 'includes/_publishing_capabilities.html' %}
-    </div>
-  </article>
-
-  <aside class="metadata-provenance-panel" aria-labelledby="metadata-provenance-title">
-    <div class="dark-panel-heading"><span>{{ icon('file') }}</span><div><p class="eyebrow">Metadata ownership</p><h2 id="metadata-provenance-title">Source and resolution</h2></div></div>
-    <div class="provenance-source-row">
-      <span>Collection metadata</span><strong>{{ workspace.shared.reference or 'Not registered' }}</strong><small>Shared default for products in this collection.</small>
-    </div>
-    <div class="provenance-source-row">
-      <span>Product override</span><strong>{{ workspace.override.reference if workspace.override.exists else 'No override' }}</strong><small>{% if workspace.override.exists %}Intentional differences for this product.{% else %}Resolved values currently inherit collection metadata.{% endif %}</small>
-    </div>
-    <div class="provenance-legend" aria-label="Value source legend">
-      <span class="catalogue-pill is-shared">Inherited value</span>
-      <span class="catalogue-pill is-override">Override value</span>
-      <span class="catalogue-pill is-neutral">Resolved value</span>
-    </div>
-  </aside>
-</section>
+<nav class="workspace-breadcrumb" aria-label="Breadcrumb"><a href="{{ url_for('main.products') }}">Catalogue</a><span aria-hidden="true">/</span><a href="{{ url_for('main.products') }}">Products</a><span aria-hidden="true">/</span><span aria-current="page">{{ product.sku }}</span></nav>
+<div class="operator-workspace" data-product-workspace>
+{% include 'includes/_product_overview.html' %}
 
 <section class="workspace-card" aria-labelledby="local-taxonomy-title">
   <header class="workspace-card-header"><h2 id="local-taxonomy-title">Local taxonomy assignments</h2></header><div class="workspace-card-body">
-  <p>{{ 'Explicit variation designation preserved. Shopify variable publishing is deferred.' if workspace.taxonomy.explicit else 'Legacy attribute interpretation preserved.' }}</p>
+  <details class="operator-help"><summary>Taxonomy interpretation</summary><p>{{ 'Explicit variation designation preserved.' if workspace.taxonomy.explicit else 'Legacy attribute interpretation preserved.' }} Local definitions and Shopify publication are separate.</p></details>
   {% set missing_drivers = namespace(found=false) %}
   {% for attribute in workspace.taxonomy.attributes %}{% if attribute.variation %}
     {% if not attribute.definition %}{% set missing_drivers.found = true %}{% endif %}
@@ -89,25 +20,19 @@
   <a class="btn btn-secondary" href="{{ url_for('taxonomy.variation_proposal', product_id=product.id) }}">Review &amp; add variation taxonomy</a>
   {% endif %}
   {% if workspace.taxonomy.error %}<p role="alert">{{ workspace.taxonomy.error }}</p>{% endif %}
-  <ul>{% for category in workspace.taxonomy.categories %}<li>{{ category.value }} — {{ 'Registered' if category.definition else 'Legacy · Not in taxonomy registry' }}</li>{% endfor %}</ul>
-  <ul>{% for attribute in workspace.taxonomy.attributes %}<li><strong>{{ attribute.name }}</strong> · {{ 'Variation-driving' if attribute.variation else 'Informational' }} · {{ 'Registered' if attribute.definition else 'Legacy' }}<ul>{% for term in attribute.terms %}<li>{{ term.value }} — {{ 'Registered' if term.definition else 'Legacy · Not in taxonomy registry' }}</li>{% endfor %}</ul></li>{% endfor %}</ul>
-  <p>Edit assignments through Collection Metadata or Product Override. Scanning never adds definitions to the registry.</p>
-  <h3>Storefront Collections</h3><ul>{% for item in workspace.taxonomy.storefront_collections %}<li>{{ item.value }} · {{ 'Registered' if item.definition else 'Legacy · Not in taxonomy registry' }}</li>{% else %}<li>No Storefront Collections assigned.</li>{% endfor %}</ul></div>
+  <div class="operator-taxonomy-groups"><section><h3>Browsing categories</h3><ul>{% for category in workspace.taxonomy.categories %}<li>{{ category.value }} — {{ 'Registered' if category.definition else 'Legacy · Not in taxonomy registry' }}</li>{% else %}<li>No categories assigned.</li>{% endfor %}</ul></section>
+  <section><h3>Storefront Collections</h3><ul>{% for item in workspace.taxonomy.storefront_collections %}<li>{{ item.value }} · {{ 'Registered' if item.definition else 'Legacy · Not in taxonomy registry' }}</li>{% else %}<li>No Storefront Collections assigned.</li>{% endfor %}</ul></section></div>
+  <h3>Variation and informational attributes</h3>{% for attribute in workspace.taxonomy.attributes %}<article class="operator-taxonomy-assignment"><strong>{{ attribute.name }}</strong> · {{ 'Variation-driving' if attribute.variation else 'Informational' }} · {{ 'Registered' if attribute.definition else 'Legacy' }}<div class="provenance-legend">{% for term in attribute.terms %}<span class="catalogue-pill is-{{ 'neutral' if term.definition else 'warning' }}">{{ term.value }} · {{ 'Registered' if term.definition else 'Legacy · Not in taxonomy registry' }}</span>{% endfor %}</div></article>{% else %}<p>No attributes assigned.</p>{% endfor %}
+  <div class="page-actions">{% if product.collection_id %}<a href="{{ url_for('main.collection_metadata_edit',collection_id=product.collection_id) }}#attributes-title">Edit shared assignments</a>{% endif %}{% if workspace.can_override %}<a href="{{ url_for('main.product_edit',product_id=product.id,label='override') }}#attributes-title">Edit product assignments</a>{% endif %}</div><p class="field-helper">Registry authoring and product assignment remain separate.</p></div>
 </section>
 
 <section class="workspace-card" aria-labelledby="resolved-metadata-title">
   <header class="workspace-card-header"><div><p class="eyebrow">Read-only scanner result</p><h2 id="resolved-metadata-title">Resolved metadata</h2></div><span class="catalogue-pill is-neutral">{{ workspace.comparison|length }} fields</span></header>
-  <div class="metadata-comparison" role="table" aria-label="Collection, override and resolved metadata">
-    <div class="metadata-comparison-head" role="row"><span role="columnheader">Field</span><span role="columnheader">Collection value</span><span role="columnheader">Product override</span><span role="columnheader">Resolved value</span></div>
-    {% for row in workspace.comparison %}
-    <div class="metadata-comparison-row" role="row">
-      <strong role="rowheader">{{ row.label }}</strong>
-      <span role="cell">{{ row.collection_display }}</span>
-      <span role="cell" class="value-state is-{{ row.state }}">{{ row.override_display }}</span>
-      <span role="cell">{{ row.resolved_display }}</span>
-    </div>
-    {% endfor %}
-  </div>
+  <div class="workspace-card-body">
+  <div class="provenance-legend"><span class="catalogue-pill is-shared">Inherited</span><span class="catalogue-pill is-override">Overridden</span><span class="catalogue-pill is-neutral">Mixed sources / Derived</span><span class="field-helper">Complete source details remain below.</span></div>
+  <table class="table operator-effective-table shopify-review-table"><thead><tr><th>Field</th><th>Resolved Value</th><th>Source</th></tr></thead><tbody>{% for row in workspace.comparison %}<tr><th scope="row">{{ row.label }}</th><td data-label="Resolved Value">{% set value=resolved_value(row) %}{% if value|length > 240 %}<details><summary>{{ value[:160] }}…</summary><div class="text-break">{{ value }}</div></details>{% else %}{{ value }}{% endif %}</td><td data-label="Source"><span class="catalogue-pill is-{{ 'shared' if source_label(row) == 'Inherited' else 'override' if source_label(row) == 'Overridden' else 'neutral' }}">{{ source_label(row) }}</span></td></tr>{% endfor %}</tbody></table>
+  <details class="operator-help"><summary>Full Source Comparison · {{ workspace.comparison|length }} fields</summary>
+  <div class="metadata-comparison" role="table" aria-label="Collection, override and resolved metadata"><div class="metadata-comparison-head" role="row"><span role="columnheader">Field</span><span role="columnheader">Collection value</span><span role="columnheader">Product override</span><span role="columnheader">Resolved value</span></div>{% for row in workspace.comparison %}<div class="metadata-comparison-row" role="row"><strong role="rowheader">{{ row.label }}</strong><span role="cell">{{ row.collection_display }}</span><span role="cell" class="value-state is-{{ row.state }}">{{ row.override_display }}</span><span role="cell">{{ row.resolved_display }}</span></div>{% endfor %}</div></details></div>
 </section>
 
 <section class="workspace-card" aria-labelledby="parent-gallery-title">
@@ -159,7 +84,7 @@
   data-mutual-confirm-url="{{ url_for('main.api_mutual_cross_sell_confirm') }}"
   data-csrf-token="{{ csrf_token() }}">
   <header class="workspace-card-header">
-    <div><p class="eyebrow">Local merchandising source of truth</p><h2 id="relationships-title">Product Relationships</h2><p>Stable local SKU relationships are retained. Shopify relationship publication is deferred.</p><span class="catalogue-pill is-neutral">{{ workspace.relationships.source_label }}</span>{% if workspace.relationships.source == 'legacy' %}<p class="text-muted">These values come from resolved legacy metadata. The first intentional save writes the ordered product-specific relationship contract.</p>{% endif %}</div>
+    <div><p class="eyebrow">Local merchandising source of truth</p><h2 id="relationships-title">Product Relationships</h2><p>Local cross-sells and upsells. Review changes before saving.</p><span class="catalogue-pill is-neutral">{{ workspace.relationships.source_label }}</span>{% if workspace.relationships.source == 'legacy' %}<p class="text-muted">These values come from resolved legacy metadata. The first intentional save writes the ordered product-specific relationship contract.</p>{% endif %}</div>
     <button class="btn btn-dark" type="button" data-open-relationship-picker>Add related products</button>
   </header>
   <div class="relationship-columns">
@@ -207,8 +132,9 @@
 
 <section class="workspace-card" aria-labelledby="operations-title">
   <header class="workspace-card-header"><div><p class="eyebrow">Local catalogue activity</p><h2 id="operations-title">Recent relevant operations</h2></div></header>
-  {% if workspace.operations %}<ol class="operation-history-list">{% for operation in workspace.operations %}<li><span class="catalogue-pill is-{{ 'active' if operation.status == 'succeeded' else operation.status }}">{{ operation.status|replace('_', ' ')|title }}</span><div><strong>{{ operation.type|replace('_', ' ')|title }}</strong><small>{{ operation.started_at.strftime('%d %b %Y, %H:%M') if operation.started_at else 'Time not recorded' }}</small></div></li>{% endfor %}</ol>{% else %}<p class="text-muted">No product-specific operation history is recorded.</p>{% endif %}
+  {% if workspace.operations %}<ol class="operation-history-list">{% for operation in workspace.operations %}<li><span class="catalogue-pill is-{{ 'active' if operation.status == 'succeeded' else operation.status }}">{{ operation.status|replace('_', ' ')|title }}</span><div><a href="{{ url_for('main.operation_detail',operation_id=operation.id) }}"><strong>{{ operation.type|replace('_', ' ')|title }}</strong></a><small>{{ operation.started_at.strftime('%d %b %Y, %H:%M') if operation.started_at else 'Time not recorded' }}</small></div></li>{% endfor %}</ol>{% else %}<p class="text-muted">No product-specific operation history is recorded.</p>{% endif %}
 </section>
+</div>
 {% endblock %}
 
 {% block javascripts %}

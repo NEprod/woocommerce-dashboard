@@ -443,6 +443,41 @@ a:hover { color: var(--color-brand-forest-hover); }
 .operator-help[open] summary::before { content: '−'; }
 .operator-help p { max-width: 90ch; }
 .operator-warning { padding: var(--space-4); border-left: 3px solid var(--color-warning); background: var(--color-warning-soft); color: var(--color-warning-ink); border-radius: var(--radius-input); }
+/* Batch 2 reuses the operator cards, review tables and existing source colours. */
+.operator-workspace { min-width: 0; }
+.operator-workspace .workspace-card { overflow: hidden; }
+.operator-workspace .workspace-card-header, .operator-section-header { background: var(--color-brand-forest); color: var(--color-text-inverse); }
+.operator-workspace .workspace-card-header :where(h1,h2,p,.eyebrow), .operator-section-header :where(h1,h2,p,.eyebrow) { color: inherit; }
+.operator-workspace .workspace-card-header .text-muted { color: var(--color-text-inverse) !important; }
+.operator-section-header h1 { margin: 0; font-size: clamp(21px,2.4vw,30px); line-height: 1.25; }
+.operator-section-header p { margin: var(--space-2) 0 0; font-size: 13px; }
+.operator-product-summary { display: grid; grid-template-columns: 116px minmax(0,1fr); align-items: start; gap: var(--space-6); }
+.operator-product-thumbnail { aspect-ratio: 1; border: var(--border-default); border-radius: var(--radius-input); overflow: hidden; background: var(--color-surface-secondary); }
+.operator-product-thumbnail img { width: 100%; height: 100%; object-fit: contain; }
+.operator-product-summary .product-key-facts { margin: 0; grid-template-columns: repeat(3,minmax(0,1fr)); }
+.operator-overview > .workspace-card-header, .operator-overview > .workspace-card-body { padding: var(--space-5); }
+.operator-overview-tools { display: flex; flex-wrap: wrap; column-gap: var(--space-6); }
+.operator-overview-tools > details { margin: 0; font-size: 12px; }
+.operator-overview-tools > details[open] { flex-basis: 100%; }
+.operator-taxonomy-groups { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,240px),1fr)); gap: var(--space-5); }
+.operator-taxonomy-assignment { padding-block: var(--space-3); border-bottom: var(--border-subtle); }
+.operator-taxonomy-assignment .provenance-legend { margin-top: var(--space-2); }
+.operator-workspace :where(h1,h2,h3,p,dd,code,summary) { overflow-wrap: anywhere; }
+.operator-workspace .operator-warning { margin-block: var(--space-4); }
+.operator-workspace .operator-warning :where(h2,h3) { font-size: 16px; margin: 0 0 var(--space-2); }
+.operator-workspace .operator-warning p { margin-block: var(--space-3); }
+.operator-workspace .page-actions { margin-block: var(--space-4); }
+.operator-workspace details > summary { cursor: pointer; padding-block: var(--space-3); min-height: var(--control-height); font-weight: 650; }
+.operator-workspace details details { margin-left: var(--space-3); }
+.operator-workspace .table thead th { background: var(--color-brand-forest); color: var(--color-text-inverse); }
+.operator-workspace .shopify-review-table { min-width: 0; }
+.operator-workspace pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
+.operator-workspace form :where(input:not([type="checkbox"]):not([type="hidden"]),select) { max-width: 100%; min-height: var(--control-height); }
+.operator-workspace .check-row { display: flex; align-items: flex-start; gap: var(--space-3); margin-block: var(--space-4); }
+.operator-workspace input[type="checkbox"] { width: 20px; height: 20px; min-height: 20px; flex: 0 0 20px; margin-top: 2px; accent-color: var(--color-brand-forest); }
+.operator-workspace [aria-busy="true"] { opacity: .7; }
+@media(max-width:1100px) { .operator-product-summary .product-key-facts { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:600px) { .operator-product-summary { grid-template-columns: 72px minmax(0,1fr); gap: var(--space-4); } .operator-product-summary .product-key-facts { grid-template-columns: minmax(0,1fr); } .operator-workspace .workspace-card-header { flex-wrap: wrap; padding: var(--space-5); } .operator-workspace details details { margin-left: 0; } }
 .orders-overview { padding: var(--space-6); margin-bottom: var(--space-6); }
 .orders-overview .dashboard-stats { grid-template-columns: repeat(3,minmax(0,1fr)); }
 .orders-overview .dashboard-stat-card { box-shadow: none; background: var(--color-surface-secondary); }
