@@ -421,7 +421,7 @@ def test_dashboard_styles_define_responsive_feature_and_empty_states():
         ".scanner-activity-panel",
         ".dashboard-support-grid",
         ".recent-products",
-        ".dashboard-mobile-products",
+        ".dashboard-recent-products-table",
     ):
         assert selector in stylesheet
     assert "@media (max-width: 767.98px)" in stylesheet

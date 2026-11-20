@@ -268,7 +268,14 @@
   </aside>
 </div>
 
-<div class="metadata-mobile-savebar">{{ shared_acknowledgement('mobile') }}<span data-save-state role="status" aria-live="polite">Saved</span><button class="btn btn-outline-light" type="button" data-validate-metadata>Validate</button><button class="btn btn-primary" type="button" data-save-metadata>Save Metadata</button></div>
+<div class="metadata-mobile-savebar"{% if current_user.is_admin and workspace.shopify.review_url and (not is_shared or workspace.affected_total == 1) %} data-shopify-detail data-product-id="{{ product.id }}" data-status-url="{{ url_for('commerce.refresh_status') }}" data-csrf="{{ csrf_token() }}"{% endif %}>
+  {{ shared_acknowledgement('mobile') }}
+  <span class="metadata-mobile-save-state" data-save-state role="status" aria-live="polite">Saved</span><span class="metadata-mobile-refresh-progress" data-shopify-detail-progress role="status" aria-live="polite"></span>
+  <div class="metadata-mobile-actions"><button class="btn btn-outline-light" type="button" data-validate-metadata>Validate</button><button class="btn btn-primary" type="button" data-save-metadata>Save Metadata</button>
+    {% if is_shared and workspace.affected_total != 1 %}<a class="btn btn-outline-light" href="{{ url_for('main.collection_detail', collection_id=product.collection_id) }}">Choose Product</a>
+    {% elif current_user.is_admin and workspace.shopify.review_url %}<button class="btn btn-outline-light" type="button" data-shopify-detail-refresh>Refresh Product</button><a class="btn btn-outline-light" href="{{ url_for('commerce.drafts', product_id=product.id) }}">Review Shopify Changes</a>{% endif %}
+  </div>
+</div>
 {% include 'includes/_scan_modal.html' %}
 {% include 'includes/_sale_review_modal.html' %}
 
@@ -309,4 +316,4 @@
 {% endblock %}
 
 {% block stylesheets %}<link rel="stylesheet" href="{{ url_for('static', filename='assets/css/metadata-taxonomy.css') }}">{% endblock %}
-{% block javascripts %}{% include 'packaging/_modal.html' %}<script src="{{ url_for('static', filename='assets/js/packaging.js') }}"></script><script src="{{ url_for('static', filename='assets/js/customisation-designer.js') }}"></script><script src="{{ url_for('static', filename='assets/js/sale-editor.js') }}"></script><script src="{{ url_for('static', filename='assets/js/product-bom.js') }}"></script><script src="{{ url_for('static', filename='assets/js/metadata-editor.js') }}"></script>{% endblock %}
+{% block javascripts %}{% include 'packaging/_modal.html' %}<script src="{{ url_for('static', filename='assets/js/packaging.js') }}"></script><script src="{{ url_for('static', filename='assets/js/customisation-designer.js') }}"></script><script src="{{ url_for('static', filename='assets/js/sale-editor.js') }}"></script><script src="{{ url_for('static', filename='assets/js/product-bom.js') }}"></script><script src="{{ url_for('static', filename='assets/js/metadata-editor.js') }}"></script><script src="{{ url_for('static', filename='assets/js/shopify-detail-status.js') }}"></script>{% endblock %}

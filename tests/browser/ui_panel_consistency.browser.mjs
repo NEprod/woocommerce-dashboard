@@ -75,10 +75,46 @@ try {
         if (name === 'phone') assert.ok(measure.tableRegion.scroll > measure.tableRegion.client, `phone: ${label} table must scroll locally`);
         if (label === 'workspace') assert.equal(await page.locator('#resolved-metadata-title').evaluate(el => el.closest('.table-panel').querySelector('.provenance-legend') === null), true);
       }
+      if (label === 'dashboard') {
+        assert.ok(measure.tableRegion, `${name}: recent products table missing`);
+        assert.ok(Math.abs(measure.tableRegion.left - measure.panel.left) <= 2, `${name}: recent products table inset`);
+        assert.ok(Math.abs(measure.rowWidth - measure.table.width) <= 2, `${name}: recent products separators inset`);
+        if (name === 'phone') assert.ok(measure.tableRegion.scroll > measure.tableRegion.client, 'phone: recent products must scroll locally');
+      }
       if (label.endsWith('editor')) assert.equal(await page.locator('#pricing-title').evaluate(el => el.closest('.table-panel').querySelector(':scope > .table-panel-header') === el.closest('header')), true);
+      if (label.endsWith('editor')) {
+        for (const heading of ['#packaging-title', '#customisations-title']) {
+          const section = page.locator(heading).locator('xpath=ancestor::section[1]');
+          assert.equal(await section.evaluate(el => el.classList.contains('table-panel') && el.querySelector(':scope > .table-panel-header') !== null), true, `${name}/${label}: ${heading} must use shared panel`);
+          assert.equal(await section.locator('> .table-panel-header').evaluate(el => getComputedStyle(el).backgroundColor), metrics.dashboard.headerColour, `${name}/${label}: ${heading} header colour`);
+        }
+        const controls = await page.evaluate(() => {
+          const input = document.querySelector('#metadata-price');
+          const select = document.querySelector('#metadata-shopify_status');
+          return {input: input?.getBoundingClientRect().height, select: select?.getBoundingClientRect().height};
+        });
+        assert.ok(Math.abs(controls.input - controls.select) <= 2, `${name}/${label}: editor input and select heights differ ${JSON.stringify(controls)}`);
+        if (name === 'desktop') assert.equal(await page.locator('.editor-save-controls .metadata-section-nav').evaluate(el => getComputedStyle(el).overflowY), 'visible', `${label}: sidebar navigation has an internal scrollbar`);
+        if (name === 'phone') {
+          assert.equal(await page.locator('.metadata-mobile-savebar [data-validate-metadata]').count(), 1);
+          assert.equal(await page.locator('.metadata-mobile-savebar [data-save-metadata]').count(), 1);
+          assert.equal(await page.locator('.metadata-editor-sidebar > .side-summary-card:nth-child(2)').evaluate(el => el.getBoundingClientRect().top < document.querySelector('.metadata-editor-main').getBoundingClientRect().top), true, `${label}: publishing context must be in mobile page flow`);
+          if (label === 'shared-editor') assert.equal(await page.locator('.metadata-mobile-savebar').getByText('Choose Product').count(), 1);
+          if (label === 'override-editor') {
+            assert.equal(await page.locator('.metadata-mobile-savebar [data-shopify-detail-refresh]').count(), 1);
+            assert.equal(await page.locator('.metadata-mobile-savebar').getByText('Review Shopify Changes').count(), 1);
+          }
+        }
+      }
       metrics[label] = measure;
       await page.locator(label === 'review' ? '[data-review-plan] .operator-table-scroll' : selector).scrollIntoViewIfNeeded();
       await page.screenshot({path: `${output}/${name}-${label}.png`});
+      if (name === 'phone' && label.endsWith('editor')) {
+        for (const [sectionName, heading] of [['shipping', '#packaging-title'], ['customisations', '#customisations-title']]) {
+          await page.locator(heading).scrollIntoViewIfNeeded();
+          await page.screenshot({path: `${output}/${name}-${label}-${sectionName}.png`});
+        }
+      }
       if (label === 'review') {
         if (name === 'phone') await page.locator('.mobile-bottom-nav').evaluate(el => { el.style.visibility = 'hidden'; });
         await page.locator('[data-review-plan] .operator-table-scroll').screenshot({path: `${output}/${name}-review-table.png`});
