@@ -4,9 +4,9 @@
 {% set groups = [
  ('Catalogue','box', [('Products','main.products',['main.products','main.edit_products','main.product_edit','main.product_detail','commerce.drafts','commerce.draft_identity']),('Collections','main.collections',['main.collections','main.collection_detail','main.collection_metadata_edit']),('Relationships','main.relationships',['main.relationships']),('Catalogue Intake','main.image_preparation',['main.image_preparation']),('Local Taxonomy','taxonomy.index',['taxonomy.'])]),
  ('Shopify','plug', [('Orders','orders.index',['orders.']),('Promotions & Discounts','promotions.index',['promotions.']),('Discovery','commerce.discovery',['commerce.discovery'])]),
+ ('Operations','box', [('Production & Operations','inventory.home',['inventory.']),('Shipping Packages','packaging.index',['packaging.'])]),
  ('Settings','settings', [('Main Settings','main.settings',['main.settings','main.metadata_reference']),('Scheduled Tasks','tasks.index',['tasks.index','publishing.index']),('Connections','commerce.settings',['commerce.settings','main.woocommerce*'])]),
- ('System','history', [('System Status','main.system_status',['main.system_status','main.operation_issues_page']),('Scanner','main.scanner',['main.scanner','main.initial_scan_page']),('Tasks','tasks.overview',['tasks.overview','publishing.queue']),('Event History','main.operations',['main.operations','main.operation_detail','tasks.history','tasks.run_detail','publishing.events','publishing.event_detail'])]),
- ('Operations','box', [('Production & Operations','inventory.home',['inventory.']),('Shipping Packages','packaging.index',['packaging.'])])
+ ('System','history', [('System Status','main.system_status',['main.system_status','main.operation_issues_page']),('Scanner','main.scanner',['main.scanner','main.initial_scan_page']),('Tasks','tasks.overview',['tasks.overview','publishing.queue']),('Event History','main.operations',['main.operations','main.operation_detail','tasks.history','tasks.run_detail','publishing.events','publishing.event_detail'])])
 ] %}
 {% macro navigation() %}
 <a class="sidebar-link {{ 'is-active' if request.endpoint == 'main.dashboard' }}" href="{{ url_for('main.dashboard') }}"{% if request.endpoint == 'main.dashboard' %} aria-current="page"{% endif %} title="Dashboard">{{ icon('dashboard') }}<span class="sidebar-label">Dashboard</span></a>

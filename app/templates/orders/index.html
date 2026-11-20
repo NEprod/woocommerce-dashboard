@@ -3,8 +3,8 @@
 {% block content %}
 <header class="page-header"><div><p class="eyebrow">Shopify · Read only</p><h1 class="page-title">Orders</h1><p>Saved purchases and their original personalisations. Shopify remains authoritative for payment and fulfilment.</p></div>
 <form method="post" action="{{ url_for('orders.sync_now') }}">{{ form.hidden_tag() }}<button class="btn btn-primary">Sync Now</button><details><summary>Repair recent history</summary><p>Read the configured recent window again without deleting saved orders.</p><button class="btn btn-ghost" name="rescan" value="recent">Reconcile recent history</button></details></form></header>
-<section class="app-card order-sync" data-order-sync data-status-url="{{ url_for('orders.status') }}" data-active="{{ 'true' if sync.run_id else 'false' }}">
-<h2 data-order-sync-label>{{ sync.label }}</h2><p data-order-sync-message>{{ sync.message }}</p>
+<section class="table-panel order-sync" data-order-sync data-status-url="{{ url_for('orders.status') }}" data-active="{{ 'true' if sync.run_id else 'false' }}">
+<header class="table-panel-header"><h2 data-order-sync-label>{{ sync.label }}</h2></header><div class="workspace-card-body"><p data-order-sync-message>{{ sync.message }}</p>
 <p>Last complete sync: <span data-order-sync-time>{{ sync.last_successful|order_uk_time }}</span> · {{ sync.imported_orders }} saved orders</p>
 <p>Startup catch-up: {{ sync.last_startup|order_uk_time }} · Manual sync: {{ sync.last_manual|order_uk_time }}</p>
 <p>Webhook received: {{ sync.webhook_received|order_uk_time }} · Processed: {{ sync.webhook_processed|order_uk_time }} · {{ sync.webhook_pending }} pending · {{ sync.webhook_incomplete }} need reconciliation.</p>
@@ -12,7 +12,7 @@
 {% if sync.webhook_error %}<p class="alert alert-warning">{{ sync.webhook_error }}</p>{% endif %}
 {% if sync.webhook_incomplete %}<p class="alert alert-warning">Some authenticated events could not safely replace a complete order. Use Sync Now, or Repair recent history for older events. No automatic Orders API fetch was made.</p>{% endif %}
 {% if sync.error_category %}<p>Failure: {{ sync.error_category|replace('_',' ') }} · Phase: {{ sync.error_phase }}</p>{% endif %}
-<div class="panel-actions"><a href="{{ url_for('tasks.index',task='shopify_orders') }}">Sync activity</a><a href="{{ url_for('tasks.history',key='shopify_orders') }}">Import history</a><a href="{{ url_for('commerce.settings') }}">Shopify connection</a><a href="{{ url_for('orders.index',**filters) }}">Refresh local list</a></div><p data-order-sync-feedback role="status" aria-live="polite"></p>
+<div class="panel-actions"><a href="{{ url_for('tasks.index',task='shopify_orders') }}">Sync activity</a><a href="{{ url_for('tasks.history',key='shopify_orders') }}">Import history</a><a href="{{ url_for('commerce.settings') }}">Shopify connection</a><a href="{{ url_for('orders.index',**filters) }}">Refresh local list</a></div><p data-order-sync-feedback role="status" aria-live="polite"></p></div>
 </section>
 <form class="app-card orders-filters" method="get" aria-label="Filter orders">
 <label>Order number or SKU<input class="form-control" name="q" value="{{ filters.q }}" maxlength="100" type="search"></label>
@@ -22,7 +22,7 @@
 <label>Personalisation<select class="form-select" name="personalised"><option value="">All</option><option value="yes" {% if filters.personalised=='yes' %}selected{% endif %}>Personalised</option></select></label><button class="btn btn-primary">Filter</button><a href="{{ url_for('orders.index') }}">Clear</a>
 </form>
 {% if orders %}
-<section class="app-card"><div class="table-responsive"><table class="table orders-table"><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Fulfilment</th><th>Items</th></tr></thead><tbody>
+<section class="table-panel"><header class="table-panel-header"><h2>Saved orders</h2></header><div class="table-responsive"><table class="table orders-table"><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Fulfilment</th><th>Items</th></tr></thead><tbody>
 {% for order in orders %}<tr><td data-label="Order"><a href="{{ url_for('orders.detail',order_id=order.id) }}"><strong>{{ order.name }}</strong></a><small>{{ order.created_at|order_uk_time }}</small>{% if order.test %}<span class="status-pill is-warning">Test order</span>{% endif %}{% if order.personalised %}<span class="compact-status">Personalised</span>{% endif %}{% if order.cancelled_at %}<span class="status-pill is-warning">Cancelled</span>{% endif %}</td>
 <td data-label="Customer">{{ order.customer_name or 'Not available' }}</td><td data-label="Total">{{ order.currency }} {{ '%.2f'|format(order.total) }}</td><td data-label="Payment">{{ order.financial_status|replace('_',' ')|title }}</td><td data-label="Fulfilment">{{ order.fulfillment_status|replace('_',' ')|title }}</td><td data-label="Items">{{ order.quantity }} units<small>{{ order.outstanding_quantity }} outstanding</small></td></tr>{% endfor %}
 </tbody></table></div></section>

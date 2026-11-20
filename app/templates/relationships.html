@@ -25,20 +25,19 @@
   <button class="btn btn-light" type="submit">Apply filters</button><a class="btn btn-ghost" href="{{ url_for('main.relationships') }}">Clear</a>
 </form>
 
-<section class="relationship-browser" aria-labelledby="relationship-browser-title">
-  <header class="relationship-browser-header"><div><p class="eyebrow">Local projection</p><h2 id="relationship-browser-title">Relationship browser</h2></div><span>{{ workspace.pagination.from }}–{{ workspace.pagination.to }} of {{ workspace.pagination.total }}</span></header>
+<section class="relationship-browser table-panel" aria-labelledby="relationship-browser-title">
+  <header class="table-panel-header"><div><p class="eyebrow">Local projection</p><h2 id="relationship-browser-title">Relationship browser</h2></div><span>{{ workspace.pagination.from }}–{{ workspace.pagination.to }} of {{ workspace.pagination.total }}</span></header>
   {% if workspace['items'] %}
-  <div class="relationship-table" role="table" aria-label="Product relationship health" aria-rowcount="{{ workspace.pagination.total }}">
-    <div class="relationship-table-head" role="row"><span role="columnheader">Product</span><span role="columnheader">State</span><span role="columnheader">Cross-sells</span><span role="columnheader">Upsells</span><span role="columnheader">Health</span><span role="columnheader">Source</span><span role="columnheader">Action</span></div>
-    {% for item in workspace['items'] %}<article class="relationship-browser-row" role="row">
-      <div class="relationship-browser-product" role="cell">{% if item.thumbnail %}<img src="{{ item.thumbnail }}" alt="" loading="lazy">{% else %}<span class="product-thumbnail-fallback" aria-hidden="true">{{ item.title[:1] }}</span>{% endif %}<span><a href="{{ url_for('main.product_detail', product_id=item.id) }}"><strong>{{ item.title }}</strong><code>{{ item.sku }}</code></a><small>{{ item.collection }} · {{ item.product_type|title }}</small></span></div>
-      <div role="cell"><span class="catalogue-pill is-{{ item.catalogue_status }}">{{ item.catalogue_status|title }}</span><small>{{ item.publishing_intent }}</small></div>
-      <strong role="cell" data-label="Cross-sells">{{ item.cross_sell_count }}</strong><strong role="cell" data-label="Upsells">{{ item.upsell_count }}</strong>
-      <div role="cell" data-label="Health">{% if item.broken_count %}<span class="catalogue-pill is-missing">{{ item.broken_count }} unresolved</span>{% elif item.inactive_count %}<span class="catalogue-pill is-archived">{{ item.inactive_count }} inactive</span>{% else %}<span class="catalogue-pill is-active">Healthy</span>{% endif %}</div>
-      <div role="cell" data-label="Source"><span class="catalogue-pill is-neutral">{{ 'Explicit JSON' if item.source == 'authored' else 'Legacy-derived' if item.source == 'legacy' else 'None' }}</span><small>{{ item.updated_at.strftime('%d %b %Y, %H:%M') if item.updated_at else 'No relationship update recorded' }}</small></div>
-      <div role="cell" data-label="Action"><a class="btn btn-sm btn-outline-primary" href="{{ item.edit_url }}">Edit Relationships</a></div>
-    </article>{% endfor %}
-  </div>
+  <div class="table-responsive"><table class="table align-middle relationship-table" aria-label="Product relationship health" aria-rowcount="{{ workspace.pagination.total }}">
+    <thead><tr><th scope="col">Product</th><th scope="col">State</th><th scope="col">Cross-sells</th><th scope="col">Upsells</th><th scope="col">Health</th><th scope="col">Source</th><th scope="col">Action</th></tr></thead><tbody>
+    {% for item in workspace['items'] %}<tr class="relationship-browser-row">
+      <td><div class="relationship-browser-product">{% if item.thumbnail %}<img src="{{ item.thumbnail }}" alt="" loading="lazy">{% else %}<span class="product-thumbnail-fallback" aria-hidden="true">{{ item.title[:1] }}</span>{% endif %}<span><a href="{{ url_for('main.product_detail', product_id=item.id) }}"><strong>{{ item.title }}</strong><code>{{ item.sku }}</code></a><small>{{ item.collection }} · {{ item.product_type|title }}</small></span></div></td>
+      <td><span class="catalogue-pill is-{{ item.catalogue_status }}">{{ item.catalogue_status|title }}</span><small>{{ item.publishing_intent }}</small></td>
+      <td>{{ item.cross_sell_count }}</td><td>{{ item.upsell_count }}</td>
+      <td>{% if item.broken_count %}<span class="catalogue-pill is-missing">{{ item.broken_count }} unresolved</span>{% elif item.inactive_count %}<span class="catalogue-pill is-archived">{{ item.inactive_count }} inactive</span>{% else %}<span class="catalogue-pill is-active">Healthy</span>{% endif %}</td>
+      <td><span class="catalogue-pill is-neutral">{{ 'Explicit JSON' if item.source == 'authored' else 'Legacy-derived' if item.source == 'legacy' else 'None' }}</span><small>{{ item.updated_at.strftime('%d %b %Y, %H:%M') if item.updated_at else 'No relationship update recorded' }}</small></td>
+      <td><a class="btn btn-sm btn-outline-primary" href="{{ item.edit_url }}">Edit Relationships</a></td>
+    </tr>{% endfor %}</tbody></table></div>
   <nav class="products-pagination" aria-label="Relationship browser pages"><span>Page {{ workspace.pagination.page }} of {{ workspace.pagination.pages }}</span><div>{% if workspace.pagination.previous_url %}<a class="btn btn-sm btn-ghost" href="{{ workspace.pagination.previous_url }}">Previous</a>{% endif %}{% if workspace.pagination.next_url %}<a class="btn btn-sm btn-ghost" href="{{ workspace.pagination.next_url }}">Next</a>{% endif %}</div></nav>
   {% else %}<div class="workspace-empty"><span aria-hidden="true">{{ icon('link') }}</span><div><strong>No products match this relationship view.</strong><p>Adjust the filters or create a mutual cross-sell family.</p></div></div>{% endif %}
 </section>

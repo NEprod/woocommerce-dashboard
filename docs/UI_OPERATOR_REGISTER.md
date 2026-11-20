@@ -211,9 +211,10 @@ permission changes or Unraid actions are authorised by this register.
 Dashboard is a standalone destination. The shared desktop sidebar and mobile More
 drawer use the same accordion tree: Catalogue (Products, Collections,
 Relationships, Catalogue Intake, Local Taxonomy); Shopify (Orders, Promotions &
-Discounts, Discovery); Settings (Main Settings, Scheduled Tasks, Connections);
-System (System Status, Scanner, Tasks, Event History); and Operations (Production
-& Operations, Shipping Packages). The current section opens for deep links; opening
+Discounts, Discovery); Operations (Production & Operations, Shipping Packages);
+Settings (Main Settings, Scheduled Tasks, Connections); and System (System Status,
+Scanner, Tasks, Event History). The order is Dashboard, Catalogue, Shopify,
+Operations, Settings, System. The current section opens for deep links; opening
 another section closes it. Existing route URLs remain valid. The existing mobile
 bottom shortcuts are Dashboard, Products, Orders, Production & Operations and
 More. Production & Operations appears only to administrators, consistent with
@@ -237,3 +238,12 @@ filesystem, runtime and persisted task evidence only. It does not probe Shopify 
 load or access the host Docker socket. Git revision is embedded at image build;
 the image tag and host process/worker liveness are unavailable without a separate
 restricted integration, so the UI labels them unavailable rather than guessing.
+
+## Final visual consistency sweep
+
+The main Dashboard remains the panel and table reference. Relationship browsing,
+saved Orders and Shipping Packages now use the shared green-header panel and
+native table structure. Their rows retain column headings and scroll inside each
+table container on narrow screens; they do not become mobile cards. Discovery's
+read-only controls and saved Promotions also use the established panel wrapper.
+The mobile bottom shortcuts and all existing actions and routes remain unchanged.

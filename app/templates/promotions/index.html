@@ -1,9 +1,9 @@
 {% extends 'promotions/base.html' %}
 {% block promotions %}
 {% if not ready %}<p class="alert alert-warning">The separate development Shopify Promotions app is not configured. Definitions can be saved and reviewed locally; Shopify publishing is blocked.</p>{% endif %}
-<div class="workspace-panel">
+<section class="table-panel"><header class="table-panel-header"><h2>Saved promotions</h2></header><div class="workspace-card-body">
   {% for row,data,status,proof in rows %}
-  <article class="editor-workspace-section">
+  <article class="py-3 border-bottom">
     <h2>{{ data.name }}</h2>
     <p><strong>{{ status }}</strong> · {{ kinds[data.kind] }} · {{ data.method|title }}{% if data.code %} ({{ data.code }}){% endif %} · {{ data.targets|length }} catalogue selections</p>
     <p>{{ uk(data.starts) or 'Start not set' }} → {{ uk(data.ends) or 'No scheduled end' }} (UK time)</p>
@@ -17,7 +17,7 @@
     </div>
   </article>
   {% else %}<p>No promotions yet. Create one to choose its eligible variants, prices and schedule.</p>{% endfor %}
-</div>
+</div></section>
 {% if pagination.has_prev %}<a class="btn btn-outline-primary" href="{{ url_for('promotions.index',page=pagination.prev_num) }}">Previous</a>{% endif %}
 {% if pagination.has_next %}<a class="btn btn-outline-primary" href="{{ url_for('promotions.index',page=pagination.next_num) }}">Next</a>{% endif %}
 {% endblock %}
