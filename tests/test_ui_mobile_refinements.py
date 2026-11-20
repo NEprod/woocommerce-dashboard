@@ -30,11 +30,29 @@ def test_workspace_and_review_keep_real_tables_and_local_scroll():
     assert "document.addEventListener('tlc:review-ready', wrapTables)" in scroll
     assert "table.parentElement.classList.contains('operator-table-scroll')" in scroll
     css = read('app/static/assets/css/custom.css')
-    assert '.workspace-card-body > .operator-table-scroll { width: calc(100% + 2 * var(--space-7));' in css
-    assert '.workspace-card-body > .operator-table-scroll { width: calc(100% + 2 * var(--space-5));' in css
-    assert '.operator-workspace .operator-table-scroll .table > :is(thead, tbody) > tr { border-bottom: var(--border-subtle); }' in css
-    assert '.operator-workspace .metadata-comparison { overflow-x: auto;' in css
-    assert '.operator-workspace .metadata-comparison-head { display: grid; background: var(--color-brand-forest);' in css
+    assert 'class="workspace-card table-panel" aria-labelledby="resolved-metadata-title"' in workspace
+    assert 'class="workspace-card table-panel" data-review-plan' in review
+    assert '.workspace-card-body { --panel-body-gutter: var(--space-7);' in css
+    assert '.workspace-card-body { --panel-body-gutter: var(--space-5);' in css
+    assert '.workspace-card-body > .operator-table-scroll { width: calc(100% + 2 * var(--panel-body-gutter));' in css
+    assert '.table-panel .table > :is(thead,tbody) > tr { border-bottom: var(--border-subtle); }' in css
+    assert 'aria-label="Collection, override and resolved metadata"' in workspace
+    assert 'class="metadata-comparison"' not in workspace
+
+
+def test_dashboard_panel_is_the_shared_workspace_and_editor_pattern():
+    dashboard = read('app/templates/dashboard.html')
+    workspace = read('app/templates/product_detail.html')
+    review = read('app/templates/shopify_drafts.html')
+    editor = read('app/templates/metadata_editor.html')
+    css = read('app/static/assets/css/custom.css')
+    assert 'class="table-panel recent-products"' in dashboard
+    assert 'class="workspace-card table-panel"' in workspace and 'workspace-card-header table-panel-header' in workspace
+    assert 'class="workspace-card table-panel" data-review-plan' in review
+    assert editor.count('class="editor-workspace-section table-panel') == editor.count('class="table-panel-header"')
+    assert '.table-panel .table > :is(thead,tbody) > tr > * { border-bottom: 0; }' in css
+    assert '.operator-workspace .operator-table-scroll .table > thead th { background: var(--color-brand-forest)' not in css
+    assert '.table-panel { overflow-x: auto; }' not in css
 
 
 def test_simple_comparison_open_by_default_but_large_variable_remains_collapsible():

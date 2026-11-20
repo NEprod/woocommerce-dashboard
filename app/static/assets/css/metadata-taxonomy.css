@@ -45,9 +45,6 @@
   .metadata-mobile-savebar { bottom: calc(92px + env(safe-area-inset-bottom)); }
   .metadata-editor-main .editor-image-context article { min-width: 0; overflow-wrap: anywhere; }
 }
-[data-metadata-editor] .taxonomy-editor-section { padding: var(--space-5); }
-[data-metadata-editor] .taxonomy-editor-section > header { padding: var(--space-5); border-radius: var(--radius-card-small); background: var(--color-brand-forest); color: var(--color-text-inverse); }
-[data-metadata-editor] .taxonomy-editor-section > header p { color: var(--color-text-inverse); }
 [data-metadata-editor] .taxonomy-editor-section > header .btn { background: var(--color-surface-primary); color: var(--color-brand-text); }
 [data-metadata-editor] .attribute-editor-row { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); background: var(--color-surface-primary); }
 [data-metadata-editor] .attribute-editor-row > label { min-width: 0; display: grid; gap: var(--space-2); }
@@ -68,8 +65,6 @@
 .metadata-editor-layout :where(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea) { min-width: 0; max-width: 100%; width: 100%; min-height: var(--control-height); padding: var(--space-3) var(--space-4); border: var(--border-default); border-radius: var(--radius-input); background: var(--color-surface-primary); color: var(--color-brand-text); font: inherit; }
 .metadata-editor-layout :where(input[type="checkbox"], input[type="radio"]), .metadata-shared-confirmation input { width: 20px; height: 20px; min-height: 20px; flex: 0 0 20px; margin: 0; padding: 0; accent-color: var(--color-brand-forest); }
 .metadata-editor-layout :where(input, select, textarea, button, a):focus-visible, .metadata-mobile-savebar :focus-visible { outline: 3px solid var(--color-brand-gold); outline-offset: 3px; }
-.metadata-editor-main .editor-workspace-section > header { align-items: center; padding: var(--space-5); border-radius: var(--radius-input); background: var(--color-brand-forest); color: var(--color-text-inverse); }
-.metadata-editor-main .editor-workspace-section > header :where(h2, p) { color: inherit; }
 .metadata-editor-main .editor-workspace-section > header code { color: inherit; background: transparent; }
 .metadata-editor-main .editor-workspace-section > header .btn { background: var(--color-surface-primary); color: var(--color-brand-text); flex-shrink: 0; }
 .editor-markets { margin-top: var(--space-6); padding-top: var(--space-5); border-top: var(--border-default); }
@@ -98,8 +93,6 @@
   .metadata-mobile-savebar .btn-primary { background: var(--color-brand-gold); border-color: var(--color-brand-gold); color: var(--color-brand-text); }
   .editor-save-controls .metadata-shared-confirmation { display: none; }
   #main-content:has([data-metadata-editor]) { padding-bottom: calc(260px + env(safe-area-inset-bottom)); }
-  .metadata-editor-main .editor-workspace-section { padding: var(--space-4); }
-  .metadata-editor-main .editor-workspace-section > header { flex-wrap: wrap; }
   .metadata-section-nav { gap: var(--space-2); }
   .metadata-section-nav[aria-label="Editor sections"] { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--space-2); }
   .metadata-section-nav[aria-label="Editor sections"] a { flex: 0 0 auto; }
@@ -108,7 +101,6 @@
 @media (max-width: 767px) {
   [data-metadata-editor] .attribute-editor-row { grid-template-columns: minmax(0, 1fr); }
   [data-metadata-editor] .attribute-editor-row > label, [data-metadata-editor] .attribute-editor-row > .taxonomy-row-actions { grid-column: 1; }
-  [data-metadata-editor] .taxonomy-editor-section { padding: var(--space-4); }
   [data-metadata-editor] .taxonomy-editor-section .repeatable-row > input { grid-column: 1 / -1; }
   [data-metadata-editor] .taxonomy-editor-section .repeatable-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

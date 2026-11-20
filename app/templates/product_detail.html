@@ -7,8 +7,8 @@
 <div class="operator-workspace" data-product-workspace>
 {% include 'includes/_product_overview.html' %}
 
-<section class="workspace-card" aria-labelledby="local-taxonomy-title">
-  <header class="workspace-card-header"><h2 id="local-taxonomy-title">Local taxonomy assignments</h2></header><div class="workspace-card-body">
+<section class="workspace-card table-panel" aria-labelledby="local-taxonomy-title">
+  <header class="workspace-card-header table-panel-header"><h2 id="local-taxonomy-title">Local taxonomy assignments</h2></header><div class="workspace-card-body">
   <details class="operator-help"><summary>Taxonomy interpretation</summary><p>{{ 'Explicit variation designation preserved.' if workspace.taxonomy.explicit else 'Legacy attribute interpretation preserved.' }} Local definitions and Shopify publication are separate.</p></details>
   {% set missing_drivers = namespace(found=false) %}
   {% for attribute in workspace.taxonomy.attributes %}{% if attribute.variation %}
@@ -26,17 +26,16 @@
   <div class="page-actions">{% if product.collection_id %}<a href="{{ url_for('main.collection_metadata_edit',collection_id=product.collection_id) }}#attributes-title">Edit shared assignments</a>{% endif %}{% if workspace.can_override %}<a href="{{ url_for('main.product_edit',product_id=product.id,label='override') }}#attributes-title">Edit product assignments</a>{% endif %}</div><p class="field-helper">Registry authoring and product assignment remain separate.</p></div>
 </section>
 
-<section class="workspace-card" aria-labelledby="resolved-metadata-title">
-  <header class="workspace-card-header"><div><p class="eyebrow">Read-only scanner result</p><h2 id="resolved-metadata-title">Resolved metadata</h2></div><span class="catalogue-pill is-neutral">{{ workspace.comparison|length }} fields</span></header>
-  <div class="workspace-card-body">
-  <div class="provenance-legend"><span class="catalogue-pill is-shared">Inherited</span><span class="catalogue-pill is-override">Overridden</span><span class="catalogue-pill is-neutral">Mixed sources / Derived</span><span class="field-helper">Complete source details remain below.</span></div>
+<section class="workspace-card table-panel" aria-labelledby="resolved-metadata-title">
+  <header class="workspace-card-header table-panel-header"><div><p class="eyebrow">Read-only scanner result</p><h2 id="resolved-metadata-title">Resolved metadata</h2></div><span class="catalogue-pill is-neutral">{{ workspace.comparison|length }} fields</span></header>
   <table class="table operator-effective-table shopify-review-table"><thead><tr><th>Field</th><th>Resolved Value</th><th>Source</th></tr></thead><tbody>{% for row in workspace.comparison %}<tr><th scope="row">{{ row.label }}</th><td data-label="Resolved Value">{% set value=resolved_value(row) %}{% if value|length > 240 %}<details><summary>{{ value[:160] }}…</summary><div class="text-break">{{ value }}</div></details>{% else %}{{ value }}{% endif %}</td><td data-label="Source"><span class="catalogue-pill is-{{ 'shared' if source_label(row) == 'Inherited' else 'override' if source_label(row) == 'Overridden' else 'neutral' }}">{{ source_label(row) }}</span></td></tr>{% endfor %}</tbody></table>
+  <div class="workspace-card-body">
   <details class="operator-help"><summary>Full Source Comparison · {{ workspace.comparison|length }} fields</summary>
-  <div class="metadata-comparison" role="table" aria-label="Collection, override and resolved metadata"><div class="metadata-comparison-head" role="row"><span role="columnheader">Field</span><span role="columnheader">Collection value</span><span role="columnheader">Product override</span><span role="columnheader">Resolved value</span></div>{% for row in workspace.comparison %}<div class="metadata-comparison-row" role="row"><strong role="rowheader">{{ row.label }}</strong><span role="cell">{{ row.collection_display }}</span><span role="cell" class="value-state is-{{ row.state }}">{{ row.override_display }}</span><span role="cell">{{ row.resolved_display }}</span></div>{% endfor %}</div></details></div>
+  <table class="table shopify-review-table" aria-label="Collection, override and resolved metadata"><thead><tr><th scope="col">Field</th><th scope="col">Collection value</th><th scope="col">Product override</th><th scope="col">Resolved value</th></tr></thead><tbody>{% for row in workspace.comparison %}<tr><th scope="row">{{ row.label }}</th><td>{{ row.collection_display }}</td><td class="value-state is-{{ row.state }}">{{ row.override_display }}</td><td>{{ row.resolved_display }}</td></tr>{% endfor %}</tbody></table></details></div>
 </section>
 
-<section class="workspace-card" aria-labelledby="parent-gallery-title">
-  <header class="workspace-card-header"><div><p class="eyebrow">Product-owned source media</p><h2 id="parent-gallery-title">Parent image gallery</h2></div><span class="catalogue-pill is-neutral">{{ workspace.parent_images|length }} images</span></header>
+<section class="workspace-card table-panel" aria-labelledby="parent-gallery-title">
+  <header class="workspace-card-header table-panel-header"><div><p class="eyebrow">Product-owned source media</p><h2 id="parent-gallery-title">Parent image gallery</h2></div><span class="catalogue-pill is-neutral">{{ workspace.parent_images|length }} images</span></header>
   {% if workspace.parent_images %}
   <div class="diagnostic-gallery">
     {% for image in workspace.parent_images %}
@@ -54,8 +53,8 @@
   {% else %}<div class="workspace-empty"><span aria-hidden="true">{{ icon('alert') }}</span><div><strong>No usable parent image</strong><p>No valid parent source image or stored website URL is projected for this product.</p></div></div>{% endif %}
 </section>
 
-<section class="workspace-card" aria-labelledby="variations-title">
-  <header class="workspace-card-header"><div><p class="eyebrow">Parent and child hierarchy</p><h2 id="variations-title">Variations</h2></div>{% if product.product_type == 'variable' %}<span class="catalogue-pill is-neutral">{{ workspace.variation_pagination.total }} total</span>{% endif %}</header>
+<section class="workspace-card table-panel" aria-labelledby="variations-title">
+  <header class="workspace-card-header table-panel-header"><div><p class="eyebrow">Parent and child hierarchy</p><h2 id="variations-title">Variations</h2></div>{% if product.product_type == 'variable' %}<span class="catalogue-pill is-neutral">{{ workspace.variation_pagination.total }} total</span>{% endif %}</header>
   {% if product.product_type != 'variable' %}
   <div class="workspace-empty"><span aria-hidden="true">{{ icon('box') }}</span><div><strong>Simple product</strong><p>No variations are generated for this Simple product.</p></div></div>
   {% elif workspace.variations %}
@@ -74,7 +73,7 @@
   {% else %}<div class="workspace-empty"><span aria-hidden="true">{{ icon('alert') }}</span><div><strong>No projected variations</strong><p>This variable parent currently has no variation records.</p></div></div>{% endif %}
 </section>
 
-<section class="workspace-card relationship-workspace" aria-labelledby="relationships-title"
+<section class="workspace-card table-panel relationship-workspace" aria-labelledby="relationships-title"
   data-relationship-workspace
   data-product-id="{{ product.id }}"
   data-search-url="{{ url_for('main.api_product_relationship_search', product_id=product.id) }}"
@@ -83,7 +82,7 @@
   data-mutual-preview-url="{{ url_for('main.api_mutual_cross_sell_preview') }}"
   data-mutual-confirm-url="{{ url_for('main.api_mutual_cross_sell_confirm') }}"
   data-csrf-token="{{ csrf_token() }}">
-  <header class="workspace-card-header">
+  <header class="workspace-card-header table-panel-header">
     <div><p class="eyebrow">Local merchandising source of truth</p><h2 id="relationships-title">Product Relationships</h2><p>Local cross-sells and upsells. Review changes before saving.</p><span class="catalogue-pill is-neutral">{{ workspace.relationships.source_label }}</span>{% if workspace.relationships.source == 'legacy' %}<p class="text-muted">These values come from resolved legacy metadata. The first intentional save writes the ordered product-specific relationship contract.</p>{% endif %}</div>
     <button class="btn btn-dark" type="button" data-open-relationship-picker>Add related products</button>
   </header>
@@ -130,8 +129,8 @@
   </dialog>
 </section>
 
-<section class="workspace-card" aria-labelledby="operations-title">
-  <header class="workspace-card-header"><div><p class="eyebrow">Local catalogue activity</p><h2 id="operations-title">Recent relevant operations</h2></div></header>
+<section class="workspace-card table-panel" aria-labelledby="operations-title">
+  <header class="workspace-card-header table-panel-header"><div><p class="eyebrow">Local catalogue activity</p><h2 id="operations-title">Recent relevant operations</h2></div></header>
   {% if workspace.operations %}<ol class="operation-history-list">{% for operation in workspace.operations %}<li><span class="catalogue-pill is-{{ 'active' if operation.status == 'succeeded' else operation.status }}">{{ operation.status|replace('_', ' ')|title }}</span><div><a href="{{ url_for('main.operation_detail',operation_id=operation.id) }}"><strong>{{ operation.type|replace('_', ' ')|title }}</strong></a><small>{{ operation.started_at.strftime('%d %b %Y, %H:%M') if operation.started_at else 'Time not recorded' }}</small></div></li>{% endfor %}</ol>{% else %}<p class="text-muted">No product-specific operation history is recorded.</p>{% endif %}
 </section>
 </div>

@@ -42,7 +42,8 @@ def test_workspace_is_compact_and_retains_signed_actions_offline(world, monkeypa
     monkeypatch.setattr('app.shopify_connection.ShopifyAdapter._request',lambda *a,**k:pytest.fail('GET contacted Shopify'))
     html=client().get(f'/products/{product.id}').get_data(as_text=True)
     assert html.index('aria-label="Breadcrumb"') < html.index('Product overview') < html.index('Local taxonomy assignments')
-    assert 'Full Source Comparison' in html and 'Resolved Value' in html and 'Mixed sources / Derived' in html
+    assert 'Full Source Comparison' in html and 'Resolved Value' in html and 'Source</th>' in html
+    assert 'Mixed sources / Derived</span><span class="field-helper">' not in html
     assert html.count('data-shopify-detail-refresh')==1
     page=Page(html)
     sync=next(f for f in page.forms if f['action'].endswith('/sync-now'))
