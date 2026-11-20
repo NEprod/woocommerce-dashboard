@@ -1,0 +1,22 @@
+{% extends 'layouts/base.html' %}
+{% block title %}System Status{% endblock %}
+{% block content %}
+<nav class="workspace-breadcrumb" aria-label="Breadcrumb"><span>System</span><span aria-hidden="true">/</span><span aria-current="page">System Status</span></nav>
+<header class="page-heading"><p class="eyebrow">System · read-only health</p><h1>System Status</h1><p>Verified local facts are separated from configured, unavailable and untested services. No remote probe runs on page load.</p></header>
+<section class="table-panel"><header class="table-panel-header"><h2>Application</h2></header><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Item</th><th>Current evidence</th><th>Status</th></tr></thead><tbody>
+<tr><th scope="row">Application</th><td>TLCDashboard</td><td>{{ workspace.application }}</td></tr>
+<tr><th scope="row">Git revision</th><td><code>{{ workspace.revision }}</code></td><td>{{ 'Embedded' if workspace.revision != 'Not embedded' else 'Unavailable' }}</td></tr>
+<tr><th scope="row">Image tag</th><td>{{ workspace.image_tag }}</td><td>Unavailable</td></tr>
+<tr><th scope="row">Runtime</th><td>{{ workspace.runtime }}</td><td>Running</td></tr>
+<tr><th scope="row">Environment</th><td>{{ workspace.environment }}</td><td>{{ 'Verified' if 'Not verified' not in workspace.environment else 'Not verified' }}</td></tr>
+</tbody></table></div></section>
+<section class="table-panel"><header class="table-panel-header"><h2>Paths and storage</h2></header><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Path</th><th>Container value</th><th>Exists</th><th>Readable</th><th>Writable</th><th>Filesystem</th><th>Free space</th></tr></thead><tbody>{% for path in workspace.paths %}<tr><th scope="row">{{ path.label }}</th><td><code>{{ path.value }}</code></td><td>{{ 'Yes' if path.exists else 'No' }}</td><td>{{ 'Yes' if path.readable else 'No' }}</td><td>{{ 'Yes' if path.writable else 'No' }}</td><td>{{ path.filesystem }}</td><td>{{ '%.1f GiB'|format(path.free / 1073741824) if path.free is not none else 'Same filesystem as a row above / unavailable' }}</td></tr>{% endfor %}</tbody></table></div><p class="panel-note">Free capacity is reported once per filesystem ID, not once per mounted path. Read/write checks do not create files.</p></section>
+<section class="table-panel"><header class="table-panel-header"><h2>Application services</h2></header><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Service</th><th>Available evidence</th><th>Next step</th></tr></thead><tbody>
+<tr><th scope="row">Scheduler</th><td>{{ workspace.scheduler }}; process liveness is not verified by this page</td><td>{% if current_user.is_admin %}<a href="{{ url_for('tasks.overview') }}">Tasks</a>{% else %}Administrator access required{% endif %}</td></tr>
+<tr><th scope="row">Scanner</th><td>{{ 'Ready for an operation' if workspace.scanner.mounts_ready else 'Needs attention' }} · {{ 'Operation active' if workspace.scanner.active else 'No operation active' }}</td><td><a href="{{ url_for('main.scanner') }}">Scanner</a></td></tr>
+<tr><th scope="row">Shopify</th><td>{{ workspace.shopify }}</td><td>{% if current_user.is_admin %}<a href="{{ url_for('commerce.settings') }}">Connections</a>{% else %}Administrator access required{% endif %}</td></tr>
+<tr><th scope="row">Background worker</th><td>{{ workspace.workers }}</td><td>{% if current_user.is_admin %}<a href="{{ url_for('tasks.overview') }}">Saved task checkpoints</a>{% else %}Administrator access required{% endif %}</td></tr>
+<tr><th scope="row">Customer photo service</th><td>{{ workspace.photo }}</td><td><a href="{{ url_for('main.settings') }}">Main Settings</a></td></tr>
+</tbody></table></div></section>
+<p class="field-helper">Host Docker image tags and process state are unavailable without a separate host integration. No Docker socket, privileged mode or external request is used.</p>
+{% endblock %}

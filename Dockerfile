@@ -1,5 +1,7 @@
 FROM python:3.13-slim
 
+ARG GIT_REVISION=unavailable
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     FLASK_ENV=production \
@@ -7,6 +9,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     OUTPUT_FOLDER=/output \
     INTAKE_ROOT=/intake \
     URL_PREFIX=""
+
+# Image labels are not visible inside a container without host Docker access.
+ENV APP_GIT_REVISION=${GIT_REVISION}
 
 WORKDIR /app
 

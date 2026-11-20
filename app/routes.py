@@ -1478,7 +1478,12 @@ def operations():
         filters = parse_operation_filters(request.args)
     except ValueError as error:
         raise BadRequest(str(error)) from error
-    return render_template("operations.html", workspace=operations_browser(filters))
+    from app.task_presentation import relative, duration
+    from app.models import ScheduledTaskRun
+    from app.scheduled_tasks import definition
+    task_runs = ScheduledTaskRun.query.order_by(ScheduledTaskRun.created_at.desc()).limit(10).all() if current_user.is_admin else []
+    return render_template("operations.html", workspace=operations_browser(filters), task_runs=task_runs,
+        task_definition=definition, relative=relative, duration=duration)
 
 
 @main.route('/operations/issues')
@@ -1728,9 +1733,17 @@ def site_manager():
 @main.route("/settings")
 @login_required
 def settings():
-    from app.settings_workspace import build_settings_workspace
+    from app.settings_workspace import build_settings_workspace, configuration_inventory
 
-    return render_template("settings.html", workspace=build_settings_workspace())
+    return render_template("settings.html", workspace=build_settings_workspace(),
+        configuration_groups=configuration_inventory(show_paths=current_user.is_admin))
+
+
+@main.get('/system/status')
+@login_required
+def system_status():
+    from app.settings_workspace import system_status_workspace
+    return render_template('system_status.html', workspace=system_status_workspace(show_paths=current_user.is_admin))
 
 
 @main.route("/woocommerce")

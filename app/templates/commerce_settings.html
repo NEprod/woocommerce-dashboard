@@ -1,15 +1,16 @@
 {% extends 'layouts/base.html' %}
 {% block title %}Shopify connection{% endblock %}
 {% block content %}
-<section class="page-heading"><p class="eyebrow">Settings · Commerce</p><h1>Commerce connection</h1><p>Read-only connection and discovery. Simple draft creation is a separate reviewed workflow; no automatic migration.</p><a class="btn btn-outline-primary" href="{{ url_for('commerce.discovery') }}">Inspect Shopify catalogue</a></section>
-<section class="workspace-panel">
+<nav class="workspace-breadcrumb" aria-label="Breadcrumb"><a href="{{ url_for('main.settings') }}">Settings</a><span aria-hidden="true">/</span><span aria-current="page">Connections</span></nav>
+<section class="page-heading"><p class="eyebrow">Settings · integrations</p><h1>Connections</h1><p>Existing connection tests are explicit and read-only. Opening this page makes no Shopify request.</p><a class="btn btn-outline-primary" href="{{ url_for('commerce.discovery') }}">Inspect Shopify catalogue</a></section>
+<section class="editor-workspace-section table-panel">
+  <header class="table-panel-header"><h2>Related integration workflows</h2></header>
   <a class="btn btn-outline-primary" href="{{ url_for('commerce.drafts') }}">Review one Simple Shopify draft</a>
-  <a class="btn btn-outline-primary" href="{{ url_for('publishing.index') }}">Automatic publishing and queue</a>
-  <div class="panel-heading"><h2>TLCDashboard · Shopify</h2></div>
+  <a class="btn btn-outline-primary" href="{{ url_for('tasks.index') }}">Scheduled Tasks</a>
   <p>Shopify is the intended commerce integration. Existing legacy settings and mappings are retained for rollback; no automatic platform migration occurs.</p>
 </section>
-<section class="workspace-panel">
-  <div class="panel-heading"><h2>Shopify Admin API</h2></div>
+<section class="editor-workspace-section table-panel">
+  <header class="table-panel-header"><h2>Shopify Admin API</h2></header>
   {% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
   {% if saved %}<div class="alert alert-success" role="status">Verified Shopify configuration saved. Active platform unchanged.</div>{% endif %}
   {% if result %}<div class="alert alert-info" role="status">Read-only connection verified for {{ 'deployment-configured store' if owned else result.domain }} ({{ result.shop_id }}). API {{ result.api_version }}.
@@ -17,6 +18,7 @@
     <p>Granted scopes: {{ result.scopes|join(', ') or 'None reported' }}. Scopes are reported, not proof of future publishing support.</p></div>{% endif %}
   <p>Docker/Unraid can use the installed Dev Dashboard app's <strong>Client ID + Client Secret</strong> for automatic token acquisition/renewal on stores in the same Shopify organization. Leave the Admin API token variable blank in that mode. Otherwise use a manual <strong>Admin API access token</strong> here, not a Client ID, Client Secret or Storefront API token. Manual tokens are replaced by the operator; credentials and acquired tokens are never redisplayed.</p>
   <p>{{ 'Deployment-owned configuration; only testing is available here.' if owned else 'Saved in private (0600) instance storage. Protect the instance volume and its backups; this is not encrypted-at-rest storage.' }}</p>
+  <p>Installed store: {{ 'Deployment-bound store' if owned else form.domain.data or 'Not configured' }}. Granted scopes and connection health are shown only after the existing explicit test; no permission is inferred missing from an unrelated failure. Last successful verification is not retained by this form.</p>
   {% if has_client %}<p>Client Credentials configured. Access tokens are acquired and renewed server-side; no manual token is needed.</p>{% endif %}
   <form method="post" autocomplete="off">
     {{ form.hidden_tag() }}
@@ -26,4 +28,5 @@
     <div class="panel-actions"><button class="btn btn-outline-primary" name="action" value="test">Test connection</button>{% if not owned %}<button class="btn btn-primary" name="action" value="save">Test and save configuration</button>{% endif %}<a class="btn btn-ghost" href="{{ url_for('main.initial_settings') }}">Configuration readiness</a></div>
   </form>
 </section>
+<section class="editor-workspace-section table-panel"><header class="table-panel-header"><h2>Other configured integrations</h2></header><p>Customer photo Worker and notification configuration are listed in <a href="{{ url_for('main.settings') }}">Main Settings</a>. This page does not call those services or expose their tokens.</p></section>
 {% endblock %}

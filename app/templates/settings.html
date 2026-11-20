@@ -1,18 +1,19 @@
 {% extends 'layouts/base.html' %}
-{% block title %}Settings{% endblock %}
+{% block title %}Main Settings{% endblock %}
 {% block content %}
+<nav class="workspace-breadcrumb" aria-label="Breadcrumb"><span>Settings</span><span aria-hidden="true">/</span><span aria-current="page">Main Settings</span></nav>
 <section class="page-heading page-heading-actions">
-  <div><p class="eyebrow">System</p><h1>Settings</h1><p>Review safe runtime, storage, scanner, and integration readiness without exposing configured values.</p></div>
-  <a class="btn btn-outline-primary" href="{{ url_for('main.scanner') }}">Open Scanner</a>
+  <div><p class="eyebrow">Settings · configuration</p><h1>Main Settings</h1><p>Effective, allowlisted configuration used by this running container. This page does not edit Docker or Unraid.</p></div>
+  <a class="btn btn-outline-primary" href="{{ url_for('main.system_status') }}">System Status</a>
 </section>
 
 <div class="settings-guidance" role="note">
   <div aria-hidden="true">i</div>
-  <p><strong>Read-only configuration</strong><span>Environment and Discord changes are configured in Unraid and require a container restart. Secret values are never shown here.</span></p>
+  <p><strong>Read-only Docker configuration</strong><span>Change environment values and mounts in Unraid, then recreate/restart the container. Secrets are shown only as Configured or Missing. Existing application settings retain their own safe forms.</span></p>
 </div>
-<section class="workspace-panel"><h2>Shopify connection</h2><p>Test the installed Shopify app. Credentials remain protected and existing operational identities are preserved.</p><a class="btn btn-outline-primary" href="{{ url_for('commerce.settings') }}">Shopify connection settings</a></section>
-<section class="workspace-panel"><h2>Scheduled Tasks</h2><p>Manage persistent read-only Shopify reconciliation, intervals, progress and run history.</p><a class="btn btn-outline-primary" href="{{ url_for('tasks.index') }}">Scheduled Tasks</a></section>
-<section class="workspace-panel"><h2>Shipping Packages</h2><p>Maintain the existing TLC packages, review measurements and reconcile Shopify observations without changing checkout.</p><a class="btn btn-outline-primary" href="{{ url_for('packaging.index') }}">Shipping Packages</a></section>
+<div class="page-actions">{% if current_user.is_admin %}<a class="btn btn-outline-primary" href="{{ url_for('commerce.settings') }}">Connections</a>{% endif %}<a class="btn btn-outline-primary" href="{{ url_for('main.woocommerce') }}">WooCommerce connection</a>{% if current_user.is_admin %}<a class="btn btn-outline-primary" href="{{ url_for('tasks.index') }}">Scheduled Tasks</a>{% endif %}<a class="btn btn-outline-primary" href="{{ url_for('main.initial_settings') }}">Existing application setup</a></div>
+{% for group in configuration_groups %}<section class="table-panel settings-inventory-panel" aria-labelledby="settings-group-{{ loop.index }}"><header class="table-panel-header"><h2 id="settings-group-{{ loop.index }}">{{ group.label }}</h2></header><div class="table-responsive"><table class="table align-middle"><thead><tr><th scope="col">Setting</th><th scope="col">Effective Value</th><th scope="col">Source</th><th scope="col">Status</th><th scope="col">Where to Change</th></tr></thead><tbody>{% for item in group.rows %}<tr><th scope="row">{{ item.label }}</th><td>{{ item.value }}</td><td>{{ item.source }}</td><td><span class="status-badge {{ 'status-failed' if item.status == 'Missing' else '' }}">{{ item.status }}</span></td><td>{{ item.where }}</td></tr>{% endfor %}</tbody></table></div></section>{% endfor %}
+<p class="field-helper">This is an explicit supported-setting inventory, not a dump of every process variable. Optional integrations may be absent without stopping the core dashboard. Container and application settings remain distinct.</p>
 
 <section class="settings-summary-grid" aria-label="Configuration overview">
   <article><span>Database</span><strong>{{ 'Available' if workspace.application.database_available else 'Unavailable' }}</strong><small>Migration {{ workspace.application.migration_head }}</small></article>
@@ -39,7 +40,7 @@
     <ul class="settings-status-list">
       {% for item in workspace.storage %}<li><div><strong>{{ item.summary }}</strong>{% if item.detail %}<span>{{ item.detail }}</span>{% endif %}</div><span class="status-badge {{ 'status-healthy' if item.ok else 'status-failed' }}">{{ item.state }}</span></li>{% endfor %}
     </ul>
-    <p class="panel-note">Catalogue source, generated output, and app data remain separate mounted storage domains. No absolute path is displayed.</p>
+    <p class="panel-note">Catalogue source, generated output, and app data remain separate mounted storage domains. Detailed paths appear above for administrators only.</p>
   </section>
 
   <section class="workspace-panel panel-dark settings-panel" aria-labelledby="settings-scanner-heading">

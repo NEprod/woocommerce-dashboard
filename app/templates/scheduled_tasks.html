@@ -1,11 +1,18 @@
 {% extends 'layouts/base.html' %}
 {% block title %}Scheduled Tasks{% endblock %}
 {% block content %}
-<header class="page-heading"><h1>Scheduled Tasks</h1><p>Persisted schedules · Europe/London (GMT/BST). Local folder scanning is not scheduled.</p></header>
-{% include 'includes/_publishing_navigation.html' %}
-{% if not task %}<section class="workspace-panel"><div class="table-responsive d-none d-md-block"><table class="table shopify-review-table"><thead><tr><th>Task</th><th>Enabled / interval</th><th>Last execution / duration</th><th>Next due</th><th>State / last outcome</th><th>Actions</th></tr></thead><tbody>
-{% for row in tasks %}{% include 'includes/_scheduled_task_row.html' %}{% endfor %}
-</tbody></table></div>{% include 'includes/_scheduled_tasks_mobile.html' %}<p><a href="{{ url_for('tasks.history',key='catalogue_startup') }}">Historical local scanner activity</a> · <a href="{{ url_for('main.scanner') }}">Existing manual Scanner</a></p></section>
+<nav class="workspace-breadcrumb" aria-label="Breadcrumb"><a href="{{ url_for('main.settings') }}">Settings</a><span aria-hidden="true">/</span><span aria-current="page">Scheduled Tasks</span></nav>
+<header class="page-heading page-heading-actions"><div><p class="eyebrow">Settings · scheduling</p><h1>Scheduled Tasks</h1><p>Configure existing schedules. Execution and run history are in <a href="{{ url_for('tasks.overview') }}">System → Tasks</a>.</p></div></header>
+{% if not task %}
+<p class="metadata-scope-notice" role="note">Save each task separately. A setting is not applied until its own Save task action succeeds.</p>
+<section class="table-panel" data-task-settings-list aria-labelledby="task-settings-heading"><header class="table-panel-header"><h2 id="task-settings-heading">Task configuration</h2></header>
+<div class="table-responsive"><table class="table align-middle"><thead><tr><th scope="col">Task</th><th scope="col">Enabled</th><th scope="col">Interval</th><th scope="col">Prerequisites / validation</th><th scope="col">Save</th></tr></thead><tbody>
+{% for row in tasks %}<tr><td><strong>{{ row.name }}</strong><br><small>{{ row.description }}</small><br><a href="{{ url_for('tasks.overview') }}">View execution</a> · <a href="{{ url_for('tasks.history',key=row.key) }}">History</a></td>
+{% if row.key == 'shopify_orders' %}<td colspan="2">Startup/manual catch-up and webhooks; no recurring Orders API poll.</td><td>Configured through the existing Orders workflow.</td><td>Not editable here</td>
+{% else %}<td colspan="2"><form id="schedule-{{ row.key }}" method="post" action="{{ url_for('tasks.settings',key=row.key) }}" data-schedule-form data-task-name="{{ row.name }}" data-initial-enabled="{{ 'true' if row.enabled else 'false' }}" data-initial-interval="{{ row.interval }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="check-row"><input type="checkbox" name="enabled" value="yes" {% if row.enabled %}checked{% endif %}> Enabled</label><label class="form-label">Interval <select name="interval" class="form-select">{% for minutes in row.intervals %}<option value="{{ minutes }}" {% if row.interval == minutes %}selected{% endif %}>{{ 'Daily' if minutes == 1440 else 'Every hour' if minutes == 60 else 'Every ' ~ minutes ~ ' minutes' }}</option>{% endfor %}</select></label></form></td>
+<td>{% if row.key == 'shopify_publisher' %}<a href="{{ url_for('publishing.index') }}">Store-bound publishing authority</a>: {{ 'Granted' if publishing_policy.enabled else 'Not granted' }}. Enabling this schedule still requires that separate approval.{% else %}{{ row.error or row.reason or ('Configured' if row.enabled else 'Disabled intentionally') }}{% endif %}</td>
+<td><button class="btn btn-outline-primary btn-sm" form="schedule-{{ row.key }}" type="submit">Save task</button><span class="schedule-save-state" data-schedule-state="{{ row.key }}" role="status" aria-live="polite">Saved</span></td>{% endif %}</tr>{% endfor %}
+</tbody></table></div></section>
 {% else %}<section class="workspace-panel" data-scheduled-task data-status-url="{{ url_for('tasks.status',task=task.key) }}" data-csrf="{{ csrf_token() }}">
 <div class="panel-heading"><h2>{{ task.name }}</h2><span class="status-badge" data-task-state>{{ task.state|replace('_',' ')|title }}</span></div><p>{{ task.description }}</p>
 <div class="page-actions"><button class="btn btn-primary" type="button" data-task-run data-run-url="{{ url_for('tasks.run_now',key=task.key) }}">Run Now</button><a href="{{ url_for('tasks.history',key=task.key) }}">History</a><button class="btn btn-ghost" type="button" data-task-refresh>Refresh activity</button><a href="{{ url_for('tasks.index') }}">All tasks</a></div>
@@ -15,4 +22,4 @@
 <details><summary>Technical UTC timestamps</summary><pre>{{ task.last_started or 'Not yet' }}
 {{ task.next_due or 'Not scheduled' }}</pre></details></section>{% endif %}
 {% endblock %}
-{% block javascripts %}<script src="{{ url_for('static',filename='assets/js/scheduled-tasks.js') }}" defer></script>{% endblock %}
+{% block javascripts %}<script src="{{ url_for('static',filename='assets/js/scheduled-tasks.js') }}" defer></script><script src="{{ url_for('static',filename='assets/js/scheduled-task-settings.js') }}" defer></script>{% endblock %}

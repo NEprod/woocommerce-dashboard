@@ -22,8 +22,17 @@ def index():
     key=request.args.get('task')
     if key and key not in KEYS: abort(404)
     from app.operations_views import local_time
+    from app.automatic_publishing import policy
     return render_template("scheduled_tasks.html", task=service.snapshot(db.session.get(ScheduledTask,key)) if key else None,
-        tasks=[service.snapshot(db.session.get(ScheduledTask,k)) for k in KEYS], form=FlaskForm(), local_time=local_time)
+        tasks=[service.snapshot(db.session.get(ScheduledTask,k)) for k in KEYS], form=FlaskForm(), local_time=local_time,
+        publishing_policy=policy())
+
+
+@tasks.get('/system/tasks')
+def overview():
+    from app.task_presentation import relative, duration, interval
+    return render_template('system_tasks.html', tasks=[service.snapshot(db.session.get(ScheduledTask,k)) for k in KEYS],
+        relative=relative, duration=duration, interval=interval)
 
 
 @tasks.route("/settings/tasks/status")

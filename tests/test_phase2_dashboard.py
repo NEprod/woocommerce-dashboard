@@ -405,8 +405,71 @@ def test_settings_icon_uses_the_shared_stroked_icon_family():
     assert "<circle" in symbol and "<path" in symbol
     assert ".app-icon { width: 18px; height: 18px;" in stylesheet
     assert "stroke-width: 1.8" in stylesheet
-    assert "'Settings','main.settings','settings'" in navbar
-    assert "{{ icon(item[2]) }}" in navbar
+    assert "('Settings','settings'" in navbar
+    assert "('Main Settings','main.settings'" in navbar
+    assert "{{ icon(glyph) }}" in navbar
+    assert "{{ icon(item[2]) }}" not in navbar
+
+
+def test_reorganised_navigation_keeps_mobile_shortcuts_and_existing_routes(dashboard_client):
+    page = dashboard_client.get("/system/tasks")
+    assert page.status_code == 200
+    html = page.get_data(as_text=True)
+    assert 'class="mobile-bottom-nav"' in html
+    for label in ("Dashboard", "Products", "Orders", "Production", "More"):
+        assert f"<span>{label}</span>" in html
+    assert 'data-navigation-group="System"' in html
+    assert 'data-navigation-group="Settings"' in html
+    assert 'aria-label="Run Now — Shopify Product Reconciliation"' in html
+    for route in ("/settings", "/settings/tasks", "/settings/commerce", "/operations", "/system/status"):
+        assert dashboard_client.get(route).status_code == 200
+
+
+def test_settings_and_system_status_never_render_secret_values(dashboard_app, dashboard_client):
+    app, _database = dashboard_app
+    with app.app_context():
+        app.config["TLC_PHOTO_WORKER_URL"] = "https://secret-worker.example.invalid"
+        app.config["TLC_PHOTO_WORKER_TOKEN"] = "sensitive-photo-token"
+        app.config["TLC_PHOTO_PROXY_PATH"] = "/apps/tlc-customer-uploads"
+    for route in ("/settings", "/system/status"):
+        html = dashboard_client.get(route).get_data(as_text=True)
+        assert "sensitive-photo-token" not in html
+        assert "secret-worker.example.invalid" not in html
+        assert "Configured" in html
+
+
+def test_task_schedule_uses_independent_existing_save_handler(dashboard_app, dashboard_client):
+    from app.models import ScheduledTask
+
+    app, _database = dashboard_app
+    with app.app_context():
+        before = {row.key: (row.enabled, row.interval_minutes) for row in ScheduledTask.query.all()}
+    html = dashboard_client.get("/settings/tasks").get_data(as_text=True)
+    assert 'data-schedule-form' in html
+    assert 'Save task' in html
+    assert 'Save All Changes' not in html
+    assert 'Store-bound publishing authority' in html
+    target = "shopify_products"
+    result = dashboard_client.post(f"/settings/tasks/{target}", json={"enabled": False, "interval": 30})
+    assert result.status_code == 200
+    with app.app_context():
+        after = {row.key: (row.enabled, row.interval_minutes) for row in ScheduledTask.query.all()}
+    assert after[target] == (False, 30)
+    assert all(after[key] == value for key, value in before.items() if key != target)
+
+
+def test_task_presentation_formats_actual_schedules_and_durations():
+    from datetime import datetime, timezone
+    from app.task_presentation import duration, interval, relative
+
+    assert duration(8) == "00:08"
+    assert duration(62 * 60 + 15) == "01:02:15"
+    assert interval({"key": "shopify_publisher", "enabled": False, "interval": 60}) == "Disabled"
+    assert interval({"key": "shopify_publisher", "enabled": True, "interval": 60}) == "Every hour"
+    assert interval({"key": "shopify_orders", "enabled": False, "interval": 5}) == "Startup/manual only"
+    now = datetime(2026, 11, 20, tzinfo=timezone.utc)
+    assert relative("2026-11-19T00:00:00Z", now=now) == "1 day ago"
+    assert relative("2026-11-21T00:00:00Z", now=now, future=True) == "Tomorrow"
 
 
 def test_dashboard_styles_define_responsive_feature_and_empty_states():

@@ -32,10 +32,13 @@
       navigation.addEventListener("hidden.bs.offcanvas", function () { more.setAttribute("aria-expanded", "false"); });
     }
     if (more && !document.querySelector(".mobile-bottom-nav a[aria-current=\"page\"]")) more.classList.add("is-active");
-    document.querySelectorAll("[data-navigation-group]").forEach(function (group) {
-      const key = "navigation-group-" + group.dataset.navigationGroup;
-      try { if (!group.querySelector("[aria-current=\"page\"]") && localStorage.getItem(key) === "closed") group.open = false; } catch (_) {}
-      group.addEventListener("toggle", function () { try { localStorage.setItem(key, group.open ? "open" : "closed"); } catch (_) {} });
+    document.querySelectorAll(".sidebar-navigation, .app-offcanvas .offcanvas-body").forEach(function (menu) {
+      const groups = [...menu.querySelectorAll("[data-navigation-group]")];
+      groups.forEach(function (group) {
+        group.addEventListener("toggle", function () {
+          if (group.open) groups.forEach(function (other) { if (other !== group) other.open = false; });
+        });
+      });
     });
     const toggle = document.querySelector("[data-sidebar-toggle]");
     const frame = document.querySelector(".app-frame");
@@ -47,7 +50,6 @@
     }
     function syncToggle() {
       const expanded = !frame.classList.contains("is-sidebar-collapsed");
-      if (!expanded) document.querySelectorAll(".app-sidebar [data-navigation-group]").forEach(function (group) { group.open = true; });
       toggle.setAttribute("aria-expanded", String(expanded));
       toggle.setAttribute("aria-label", expanded ? "Collapse navigation" : "Expand navigation");
     }
@@ -56,6 +58,15 @@
       frame.classList.toggle("is-sidebar-collapsed");
       try { window.localStorage.setItem("dashboard-sidebar-collapsed", String(frame.classList.contains("is-sidebar-collapsed"))); } catch (_) {}
       syncToggle();
+    });
+    document.querySelectorAll(".app-sidebar .sidebar-group > summary").forEach(function (summary) {
+      summary.addEventListener("click", function () {
+        if (frame.classList.contains("is-sidebar-collapsed")) {
+          frame.classList.remove("is-sidebar-collapsed");
+          try { window.localStorage.setItem("dashboard-sidebar-collapsed", "false"); } catch (_) {}
+          syncToggle();
+        }
+      });
     });
   });
 })();

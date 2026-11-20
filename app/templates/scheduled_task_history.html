@@ -1,6 +1,6 @@
 {% extends 'layouts/base.html' %}
 {% block title %}Scheduled Task History{% endblock %}
-{% block content %}<header class="page-heading"><p class="eyebrow">Settings · Scheduled Tasks</p><h1>{{ definition.name }} — History</h1><a href="{{ url_for('tasks.index') }}">Back to Scheduled Tasks</a><p>Persisted history · Europe/London (GMT/BST). Existing retention remains unchanged; active work is protected.</p></header>
+{% block content %}<header class="page-heading"><p class="eyebrow">System · Event History</p><h1>{{ definition.name }} — History</h1><a href="{{ url_for('tasks.overview') }}">Back to Tasks</a><p>Persisted history · Europe/London (GMT/BST). Existing retention remains unchanged; active work is protected.</p></header>
 {% include 'includes/_publishing_navigation.html' %}
 {% if detail is not none %}
 <section class="workspace-panel" data-task-run-view data-run-id="{{ runs[0].id }}" data-status-url="{{ url_for('tasks.run_detail',run_id=runs[0].id) }}" data-terminal="{{ 'true' if live_terminal else 'false' }}">

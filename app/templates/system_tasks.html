@@ -1,0 +1,17 @@
+{% extends 'layouts/base.html' %}
+{% from 'includes/icons.html' import icon %}
+{% block title %}Tasks{% endblock %}
+{% block content %}
+<nav class="workspace-breadcrumb" aria-label="Breadcrumb"><a href="{{ url_for('main.system_status') }}">System</a><span aria-hidden="true">/</span><span aria-current="page">Tasks</span></nav>
+<header class="page-heading page-heading-actions"><div><p class="eyebrow">System · execution</p><h1>Tasks</h1><p>Current persisted schedules and outcomes. Opening this page never starts work.</p></div><a class="btn btn-outline-primary" href="{{ url_for('tasks.index') }}">Configure Scheduled Tasks</a></header>
+<section class="table-panel" aria-labelledby="system-tasks-heading"><header class="table-panel-header"><div><p class="eyebrow">Operational overview</p><h2 id="system-tasks-heading">Scheduled tasks</h2></div><a class="btn btn-outline-light btn-sm" href="{{ url_for('main.operations') }}">Event History</a></header>
+<div class="table-responsive"><table class="table align-middle"><thead><tr><th scope="col">Task</th><th scope="col">Interval</th><th scope="col">Last Execution</th><th scope="col">Last Duration</th><th scope="col">Next Execution</th><th scope="col">Run Now</th></tr></thead><tbody>
+{% for row in tasks %}<tr><td><strong>{{ row.name }}</strong><br><span class="status-badge {{ 'status-running' if row.state in ['queued','running'] else 'status-partial' if row.state in ['paused','partially_completed'] else 'status-failed' if row.state=='failed' else 'status-healthy' if row.enabled else '' }}">{{ 'Running' if row.state in ['queued','running'] else 'Attention required' if row.state in ['failed','paused','partially_completed'] else 'Enabled' if row.enabled else 'Disabled' }}</span><br><a href="{{ url_for('tasks.index',task=row.key) }}">Configure</a> · <a href="{{ url_for('tasks.history',key=row.key) }}">Run history</a></td>
+<td>{{ interval(row) }}</td>
+<td>{% if row.last_started %}<time datetime="{{ row.last_started }}" title="{{ row.last_started }} UTC">{{ relative(row.last_started) }}</time>{% else %}Not yet{% endif %}</td>
+<td><time title="{{ row.duration if row.duration is not none else 'No completed duration' }} seconds">{{ duration(row.duration) }}</time></td>
+<td>{% if row.enabled and row.key != 'shopify_orders' and row.next_due %}<time datetime="{{ row.next_due }}" title="{{ row.next_due }} UTC">{{ relative(row.next_due, future=true) }}</time>{% else %}{{ 'Disabled' if not row.enabled else 'Not scheduled' }}{% endif %}</td>
+<td><form method="post" action="{{ url_for('tasks.run_now',key=row.key) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="icon-button" type="submit" aria-label="Run Now — {{ row.name }}" title="Run Now — {{ row.name }}">{{ icon('run') }}</button></form></td></tr>{% endfor %}
+</tbody></table></div></section>
+<p class="field-helper">Run Now uses the existing authorised task handler; active work retains its current ownership and run receipt. Historical local scanner activity is <a href="{{ url_for('tasks.history',key='catalogue_startup') }}">available here</a>.</p>
+{% endblock %}

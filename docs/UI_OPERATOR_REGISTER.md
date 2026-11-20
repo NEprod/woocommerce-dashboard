@@ -205,3 +205,35 @@ regressions and real rendered desktop/tablet/phone checks. Native Safari access
 was unavailable during this run; physical iPhone Safari remains a manual gate.
 Synthetic local checks do not claim live Shopify acceptance. No release, external
 permission changes or Unraid actions are authorised by this register.
+
+## Navigation, Settings and System
+
+Dashboard is a standalone destination. The shared desktop sidebar and mobile More
+drawer use the same accordion tree: Catalogue (Products, Collections,
+Relationships, Catalogue Intake, Local Taxonomy); Shopify (Orders, Promotions &
+Discounts, Discovery); Settings (Main Settings, Scheduled Tasks, Connections);
+System (System Status, Scanner, Tasks, Event History); and Operations (Production
+& Operations, Shipping Packages). The current section opens for deep links; opening
+another section closes it. Existing route URLs remain valid. The existing mobile
+bottom shortcuts are Dashboard, Products, Orders, Production & Operations and
+More. Production & Operations appears only to administrators, consistent with
+its existing route permissions; the full navigation remains in More.
+
+System → Tasks is the operational view of persisted task state and the existing
+manual Run Now action. Settings → Scheduled Tasks changes each existing schedule
+through its original per-task handler: each task has its own Save task action and
+explicit Saved/Unsaved/Not saved feedback. There is no all-or-nothing bulk save.
+The automatic publisher still needs its separate store-bound authority. System →
+Event History displays existing catalogue receipts and links to durable task-run
+history; no records or retention policy are changed.
+
+Settings → Main Settings is a read-only allowlist of effective configuration,
+sources and change locations. Container environment/mount settings are changed in
+Unraid and require container recreation/restart; existing database-backed settings
+retain their established forms. Secrets appear only as Configured/Missing, never
+as values. Settings → Connections retains the existing explicit Shopify connection
+test and deployment-owned restrictions. System → System Status uses local path,
+filesystem, runtime and persisted task evidence only. It does not probe Shopify on
+load or access the host Docker socket. Git revision is embedded at image build;
+the image tag and host process/worker liveness are unavailable without a separate
+restricted integration, so the UI labels them unavailable rather than guessing.
