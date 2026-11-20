@@ -1,58 +1,51 @@
 {% extends 'promotions/base.html' %}
 {% block promotions %}
-<section class="editor-workspace-section table-panel">
-  <header class="table-panel-header"><h2>Review &amp; Publish: {{ d.name }}</h2></header>
-  <p>{{ kinds[d.kind] }} · {{ d.method|title }}{% if d.code %} ({{ d.code }}){% endif %} · {{ d.scope|title }} discount · {{ d.intent|title }}</p>
-  <p>UK schedule: {{ uk(d.starts) or 'Start not set' }} → {{ uk(d.ends) or 'No scheduled end' }}.</p>
-  {% if d.kind=='exact' %}<p>{% for tier in d.tiers %}Any {{ tier.qty }} for £{{ money(tier.total) }}{% if not loop.last %} · {% endif %}{% endfor %} · {{ 'Repeating sets' if d.repeat else 'One set per cart' }}.</p>
-  {% elif d.kind=='bxgy' %}<p>Buy {{ d.buy }}, get {{ d.get }} at {{ money(d.value) }}% off. Limit {{ d.limit }} sets per order.</p>
-  {% else %}<p>{{ money(d.value) ~ '%' if d.kind=='percent' else '£' ~ money(d.value) }} off; at least {{ d.minimum }} qualifying items.</p>{% endif %}
-  <p>Combines with: {% for key,value in d.combines.items() if value %}{{ key }}{% if not loop.last %}, {% endif %}{% else %}None{% endfor %}.</p>
-  <p>Included selections: {{ d.targets|length }} · Exclusions: {{ d.exclusions|default([])|length }} · Final verified qualifying variants: {{ rows|length }}.</p>
-  {% if d.targets %}<details><summary>Included collections, products and variants</summary><ul>{% for target in d.targets %}<li>{{ target.mode|title }} · {{ target.source }}{% if target.sku %} · {{ target.sku }}{% endif %}{% if target.name %} · {{ target.name }} = {{ target.value }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
-  {% if d.exclusions|default([]) %}<details open><summary>Excluded products and variants</summary><ul>{% for target in d.exclusions %}<li>{{ target.mode|title }} · {{ target.source }}{% if target.sku %} · {{ target.sku }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
-  {% if d.method=='code' %}<p>{{ d.usage or 'Unlimited' }} uses · {{ 'Once per customer' if d.once else 'Repeat use permitted' }} · {{ d.segment or 'All eligible buyers' }}.</p>{% endif %}
-  {% if error %}<p class="alert alert-warning" role="alert">{{ error }}</p>{% endif %}
-  {% if proof.published %}
-    <p>Retained Shopify discount: {{ proof.published.result.id }} · Last readback {{ uk(proof.published.checked) }} · {{ proof.published.result.status }}.</p>
-    {% if admin_url %}<a href="{{ admin_url }}" rel="noopener noreferrer">Open Shopify Discounts</a>{% endif %}
-  {% endif %}
-  {% if proof.error %}<p>{{ proof.error }}</p>{% endif %}
-  {% if plan %}
-    <p>Proposed action: <strong>{{ plan.action|replace('_',' ')|title }}</strong>. This approval is limited to the verified development app and shop.</p>
-    {% if plan.remote %}<p>Current Shopify status: {{ plan.remote.status }}. Current schedule: {{ uk(plan.remote.starts) }} → {{ uk(plan.remote.ends) or 'No end' }}.</p>{% endif %}
-    {% if plan.expected.function %}<p>Function ID: {{ plan.expected.function.id }} · UK market: {{ plan.expected.function.market }}.</p>{% endif %}
-    <p>Granted Shopify scopes: {{ plan.scopes|join(', ') }}.</p>
-    <p>Shopify resolves combinations with other discounts. Configuration readback is not a checkout test.</p>
-  {% endif %}
-</section>
-{% if rows %}
-<section class="editor-workspace-section table-panel" {% if d.kind=='exact' %}data-promotion-quote{% endif %}>
-  <header class="table-panel-header"><h2>Resolved qualifying variants ({{ rows|length }})</h2></header>
-  <div class="structured-editor-list">
-  {% for variant in rows %}
-    <div class="structured-editor-row"><strong>{{ variant.name }} · {{ variant.sku }}</strong>
-      <span>{{ variant.id }}{% for name,value in variant.options.items() %} · {{ name }} = {{ value }}{% endfor %} · Local list price £{{ variant.price }} · Local cost {{ '£' ~ money(variant.cost) if variant.cost is defined else 'unavailable' }}</span>
-      {% if d.kind=='exact' %}<label class="guided-field">Quantity in sample cart<input inputmode="numeric" value="0" data-quote-id="{{ variant.id }}" data-quote-price="{{ variant.price }}" data-quote-cost="{{ variant.cost|default('') }}"></label>{% endif %}
-    </div>
-  {% endfor %}
+<section class="table-panel">
+  <header class="table-panel-header"><h2>Saved plan: {{ d.name }}</h2></header>
+  <div class="workspace-card-body">
+    {% if d.description %}<p>{{ d.description }}</p>{% endif %}
+    <p>{{ kinds[d.kind] }} · {{ d.method|title }}{% if d.code %} ({{ d.code }}){% endif %} · {{ d.scope|title }} scope · Local {{ d.intent|title }}.</p>
+    <p>Planned dates (UK): {{ uk(d.starts) or 'Not set' }} → {{ uk(d.ends) or 'No end' }}. These dates do not schedule Shopify.</p>
+    <p>Included selections: {{ d.targets|length }} · Exclusions: {{ d.exclusions|default([])|length }} · Resolved variants: {{ rows|length }}.</p>
+    {% if error %}<p class="alert alert-warning" role="alert">Eligibility needs attention: {{ error }}</p>{% endif %}
+    {% if included_labels %}<details><summary>Included collections, products and variants</summary><ul>{% for label in included_labels %}<li>{{ label }}</li>{% endfor %}</ul></details>{% endif %}
+    {% if excluded_labels %}<details><summary>Excluded products and variants</summary><ul>{% for label in excluded_labels %}<li>{{ label }}</li>{% endfor %}</ul></details>{% endif %}
   </div>
-  {% if d.kind=='exact' %}<script type="application/json" data-quote-offer>{{ {'tiers':d.tiers,'repeat':d.repeat,'variants':rows|map(attribute='id')|list}|tojson }}</script>
-  <p data-quote-result aria-live="polite">Preview with local list prices; actual checkout prices and permitted combinations may differ.</p>{% endif %}
 </section>
-{% endif %}
-{% if plan and plan.rewards %}
-<section class="editor-workspace-section table-panel"><header class="table-panel-header"><h2>Resolved reward variants</h2></header><ul>{% for v in plan.rewards %}<li>{{ v.name }} · {{ v.sku }} · {{ v.id }}</li>{% endfor %}</ul></section>
-{% endif %}
-<div class="page-actions">
-  <a class="btn btn-outline-primary" href="{{ url_for('promotions.edit',ident=row.id) }}">Back to editor</a>
-  {% if approval %}
-  <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="approval" value="{{ approval }}"><input type="hidden" name="action" value="confirm">
-    <label class="check-row"><input type="checkbox" name="ack" value="yes" required> {{ 'I approve the reviewed change on the separate Shopify development app.' if plan.action not in ('verify','verify_disabled') else 'Save this read-only Shopify verification.' }}</label>
-    <button class="btn btn-primary">{{ 'Confirm reviewed publication' if plan.action not in ('verify','verify_disabled') else 'Save verification' }}</button>
-  </form>
-  {% elif row.state in ('pending','uncertain') %}
-  <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary" name="action" value="reconcile">Reconcile by reading Shopify</button></form>
-  {% endif %}
-</div>
+
+<section class="table-panel">
+  <header class="table-panel-header"><h2>Promotion Profitability</h2></header>
+  <div class="workspace-card-body"><p><strong>{{ 'Resolved product costs available' if estimate.bom_complete else 'Cost data incomplete' }}</strong> · Contribution after the local cost-per-item prepared for Shopify, before other costs.</p>
+    {% if estimate.missing %}<div class="alert alert-warning"><strong>Missing information</strong><ul>{% for item in estimate.missing %}<li>{{ item }}</li>{% endfor %}</ul></div>{% endif %}
+    {% if estimate.tiers|selectattr('bound_only')|list %}<p class="alert alert-warning">Some eligible ordinary totals are below their configured fixed offer. Product costs are shown, but profit and margin for those tiers are withheld rather than assuming Shopify would charge more.</p>{% endif %}
+    {% if estimate.tiers|selectattr('loss_risk')|list %}<p class="alert alert-danger"><strong>Potential loss:</strong> at least one configured tier can cost more in product costs than its offer price, before other costs.</p>{% endif %}
+  </div>
+  {% if estimate.tiers %}<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Quantity</th><th>Offer price</th><th>Normal price range</th><th>Best-case product cost</th><th>Worst-case product cost</th><th>Minimum contribution</th><th>Minimum margin</th><th>Maximum contribution</th><th>Maximum margin</th></tr></thead><tbody>
+    {% for tier in estimate.tiers %}<tr><th scope="row">{{ tier.qty }}</th><td>{{ currency(tier.offer) }}</td><td>{{ currency(tier.normal_low) }}–{{ currency(tier.normal_high) }}</td><td>{{ currency(tier.best_cost) }}</td><td>{{ currency(tier.worst_cost) }}</td><td>{{ currency(tier.worst_contribution) }}</td><td>{{ tier.worst_margin ~ '%' if tier.worst_margin is not none else 'Incomplete' }}</td><td>{{ currency(tier.best_contribution) }}</td><td>{{ tier.best_margin ~ '%' if tier.best_margin is not none else 'Incomplete' }}</td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<div class="workspace-card-body"><p>{{ 'No configured fixed-total tiers to compare.' if d.kind=='exact' else 'BOM-based bundle extrema are not yet available for this offer type; the saved definition and eligibility remain visible below.' }}</p></div>{% endif %}
+  <div class="workspace-card-body"><details><summary>Cost assumptions and interpretation</summary><ul>{% for item in estimate.assumptions %}<li>{{ item }}</li>{% endfor %}</ul><p>For each tier, the bounds use the lowest- and highest-cost eligible variant repeated to the tier quantity, matching the existing allowance for identical units. If the normal price of a set is below its offer price, Shopify must not increase the payable amount; a cost bound for that set is not a guaranteed discounted checkout outcome. A quantity-tier's repeat setting controls multiple sets per cart, not whether an individual variant may repeat.</p><p>Markup is contribution ÷ product cost; margin is contribution ÷ offer price. These are distinct and exclude costs outside the product cost-per-item.</p><ul>{% for tier in estimate.tiers %}<li>{{ tier.qty }} items: worst-case markup {{ tier.worst_markup ~ '%' if tier.worst_markup is not none else 'Incomplete' }}; best-case markup {{ tier.best_markup ~ '%' if tier.best_markup is not none else 'Incomplete' }}; discount range {{ currency(tier.discount_low) }}–{{ currency(tier.discount_high) }}{% if tier.bound_only %}. Ordinary prices below the offer may prevent the intended discount{% endif %}.</li>{% endfor %}</ul></details></div>
+</section>
+
+{% if rows %}<section class="table-panel"><header class="table-panel-header"><h2>Resolved qualifying variants ({{ rows|length }})</h2></header>
+  <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Product / variant</th><th>Local regular price</th><th>Effective product cost</th><th>Material / component lines</th><th>Packaging lines</th><th>Cost source</th></tr></thead><tbody>{% for variant in rows %}<tr><th scope="row">{{ variant.name }}<small class="d-block">{{ variant.sku }}{% for name,value in variant.options.items() %} · {{ name }} = {{ value }}{% endfor %}</small></th><td>{{ currency(variant.price_pence) }}</td><td>{{ currency(variant.costing.cost) }}</td><td>{{ currency(variant.costing.material_component) }}</td><td>{{ currency(variant.costing.packaging) if variant.costing.packaging is not none else 'Not separately identified' }}</td><td>{{ 'Calculated BOM' if variant.costing.mode=='calculated' else 'Manual cost' if variant.costing.mode=='manual' else 'Not configured' }}</td></tr>{% endfor %}</tbody></table></div>
+  <div class="workspace-card-body"><details><summary>Full BOM line breakdown</summary>{% for variant in rows %}<h3>{{ variant.sku }}</h3><ul>{% for line in variant.costing.lines %}<li>{{ line.name }} · {{ line.category }} · {{ currency(line.cost) }}{% if line.problem %} — {{ line.problem }}{% endif %}</li>{% else %}<li>No costed BOM lines.</li>{% endfor %}</ul>{% endfor %}</details></div>
+</section>{% endif %}
+
+<section class="table-panel"><header class="table-panel-header"><h2>Set up in Shopify</h2></header><div class="workspace-card-body">
+  <p>Shopify discounts are managed manually in Shopify Admin. This planner does not change Shopify checkout.</p>
+  <label class="guided-field">Copy this planning summary<textarea class="form-control" readonly rows="9">{{ d.name }} — {{ kinds[d.kind] }}
+{% if d.description %}{{ d.description }}
+{% endif %}Offer: {% if d.kind=='exact' %}{% for tier in d.tiers %}Any {{ tier.qty }} for {{ currency(tier.total) }}{% if not loop.last %}; {% endif %}{% endfor %}; {{ 'repeating sets' if d.repeat else 'one set per cart' }}{% elif d.kind=='bxgy' %}Buy {{ d.buy }}, get {{ d.get }} at {{ money(d.value) }}% off{% else %}{{ money(d.value) ~ '%' if d.kind=='percent' else '£' ~ money(d.value) }} off; minimum {{ d.minimum }}{% endif %}
+Included: {{ included_labels|join('; ') or 'None selected' }}
+{% if reward_labels %}Rewards: {{ reward_labels|join('; ') }}
+{% endif %}Excluded: {{ excluded_labels|join('; ') or 'None' }}
+Resolved qualifying SKUs: {{ rows|map(attribute='sku')|join(', ') or 'None resolved' }}
+Planned UK dates: {{ uk(d.starts) or 'no start' }} → {{ uk(d.ends) or 'no end' }}
+Combinations: {% set enabled = [] %}{% for key,value in d.combines.items() if value %}{% set _ = enabled.append(key) %}{% endfor %}{{ enabled|join(', ') or 'none' }}</textarea></label>
+  <p>Use the selections and resolved variants above when configuring the actual offer. Exact fixed-total multi-buy behaviour may differ from Shopify's native discount options; verify the intended cart totals before making it live. This page does not verify a Shopify discount.</p>
+  {% if admin_url %}<a class="btn btn-outline-primary" href="{{ admin_url }}" rel="noopener noreferrer" target="_blank">Open Shopify Admin Discounts</a>{% else %}<p>Shopify Admin link unavailable until the verified store domain and ID are configured.</p>{% endif %}
+</div></section>
+
+{% if proof.published or proof.error or proof.shopify_user_errors %}<details class="editor-workspace-section table-panel"><summary>Historical Promotions integration evidence (inactive)</summary><div class="workspace-card-body"><p>These retained receipts are historical. The planner cannot publish, retry, verify or alter the Shopify discount.</p>{% if proof.published %}<p>Previously retained discount identity: {{ proof.published.result.id }} · Last readback {{ uk(proof.published.checked) }}.</p>{% endif %}{% if proof.error %}<p>{{ proof.error }}</p>{% endif %}{% if proof.shopify_user_errors %}<ul>{% for item in proof.shopify_user_errors %}<li>{{ item.code or 'Unclassified error' }}{% if item.field %} · {{ item.field|join('.') }}{% endif %}{% if item.message %} — {{ item.message }}{% endif %}{% if item.extraInfo %} · {{ item.extraInfo }}{% endif %}</li>{% endfor %}</ul>{% endif %}</div></details>{% endif %}
+<div class="page-actions"><a class="btn btn-outline-primary" href="{{ url_for('promotions.edit',ident=row.id) }}">Edit local plan</a><a class="btn btn-outline-primary" href="{{ url_for('promotions.index') }}">All plans</a></div>
 {% endblock %}

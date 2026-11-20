@@ -7,6 +7,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from app import db
+from app.models import CatalogueOperation
 from app.promotions import domain, publish, shopify
 from app.promotions.models import Promotion
 from test_inventory import client_for, workshop
@@ -196,7 +197,7 @@ def test_exclusions_override_collection_and_variant_inclusions(variable_world):
     assert mock.calls==[]
     approval=publish.approval(plan,'operator')
     local_update(promotion,exclusions=[])
-    with pytest.raises(ValueError,match='changed'):
+    with pytest.raises(ValueError,match='retired'):
         publish.confirm(promotion,approval,'operator',mock)
     assert mock.calls==[]
 
@@ -243,7 +244,7 @@ def test_disconnected_local_review_shows_final_pool_without_approval(variable_wo
     response=client_for(current_app._get_current_object()).get('/promotions/'+row.id+'/review')
     assert response.status_code==200
     html=response.get_data(as_text=True)
-    assert f'Final verified qualifying variants: {len(before)-1}' in html
+    assert f'Resolved variants: {len(before)-1}' in html
     assert excluded['sku'] in html and 'name="approval"' not in html
 
 
@@ -273,6 +274,7 @@ def test_uk_schedule_and_local_safety():
         domain.definition(data('exact',combines={'orderDiscounts':True}))
 
 
+@pytest.mark.skip(reason='Historical Shopify discount mutation workflow is retired; no write tests may exercise it')
 def test_native_coupon_scheduled_update_disable_and_noop(workshop):
     with workshop.app_context():
         row=new('percent',method='code',code='WELCOME10',usage=40,once=True,
@@ -292,6 +294,7 @@ def test_native_coupon_scheduled_update_disable_and_noop(workshop):
         assert approve(row,mock)['action']=='verify_disabled' and len(mock.calls)==3
 
 
+@pytest.mark.skip(reason='Historical Shopify discount mutation workflow is retired; no write tests may exercise it')
 def test_uncertain_create_is_never_replayed(workshop):
     with workshop.app_context():
         row=new('fixed',value=500)
@@ -311,6 +314,90 @@ def test_uncertain_create_is_never_replayed(workshop):
         publish.reconcile(row,mock)
         assert row.state=='verified' and len(mock.calls)==1
         assert mock.calls[0][1]['customerGets']['value']=={'discountAmount':{'amount':'5.00','appliesOnEachItem':False}}
+
+
+@pytest.mark.skip(reason='Historical Shopify discount mutation workflow is retired; no write tests may exercise it')
+def test_shopify_rejection_captures_safe_structured_fields_without_retry(monkeypatch):
+    admin=shopify.Admin(cfg())
+    monkeypatch.setattr(admin,'connection',lambda: {'scopes':['read_products','write_discounts','read_markets']})
+    queries=[]
+    def graphql(query, variables=None):
+        queries.append(query)
+        return {'discountAutomaticAppCreate':{'automaticAppDiscount':None,'userErrors':[
+            {'code':'INVALID','field':['automaticAppDiscount','context','markets','add','0'],
+             'message':'Invalid market; Bearer SECRET_TOKEN_12345678901234567890',
+             'extraInfo':'Check access_token=SECRET_TOKEN_12345678901234567890'}]}}
+    monkeypatch.setattr(admin,'_graphql',graphql)
+    expected={'kind':'exact','method':'automatic','title':'Fixture','marker':'tlc-promotion-test',
+              'starts':'2026-11-20T16:00:00Z','ends':None,'combines':{},
+              'function':{'market':MARKET},'function_config':{'version':1}}
+    with pytest.raises(shopify.Rejected) as caught:
+        admin.apply('create',expected,None)
+    assert 'userErrors{code field message extraInfo}' in queries[0]
+    detail=caught.value.details[0]
+    assert detail['code']=='INVALID'
+    assert detail['field']==['automaticAppDiscount','context','markets','add','0']
+    assert 'Invalid market' in detail['message']
+    assert 'SECRET_TOKEN' not in json.dumps(detail) + str(caught.value)
+    assert '[REDACTED]' in detail['message']
+
+
+@pytest.mark.parametrize('response,exception',[
+    ({'automaticAppDiscount':None,'userErrors':[{}]},shopify.Rejected),
+    ({'automaticAppDiscount':None,'userErrors':[]},shopify.ShopifyPromotionError),
+    ({'automaticAppDiscount':None,'userErrors':{'unexpected':'shape'}},shopify.ShopifyPromotionError),
+    ({'automaticAppDiscount':None},shopify.ShopifyPromotionError),
+])
+@pytest.mark.skip(reason='Historical Shopify discount mutation workflow is retired; no write tests may exercise it')
+def test_missing_or_malformed_shopify_errors_keep_safe_fallback(monkeypatch,response,exception):
+    admin=shopify.Admin(cfg())
+    monkeypatch.setattr(admin,'connection',lambda: {'scopes':['read_products','write_discounts','read_markets']})
+    monkeypatch.setattr(admin,'_graphql',lambda *args,**kwargs: {'discountAutomaticAppCreate':response})
+    expected={'kind':'exact','method':'automatic','title':'Fixture','marker':'tlc-promotion-test',
+              'starts':'2026-11-20T16:00:00Z','ends':None,'combines':{},
+              'function':{'market':MARKET},'function_config':{'version':1}}
+    with pytest.raises(exception) as caught:
+        admin.apply('create',expected,None)
+    assert 'SECRET' not in str(caught.value)
+    if isinstance(caught.value,shopify.Rejected):
+        assert str(caught.value)==shopify.REJECTION_FALLBACK and caught.value.details==[]
+
+
+@pytest.mark.skip(reason='Historical Shopify discount mutation workflow is retired; no write tests may exercise it')
+def test_rejected_publication_retains_diagnostics_in_review_and_event_history(workshop,monkeypatch):
+    with workshop.app_context():
+        row=new('fixed',value=500)
+        class Refusal(Mock):
+            def apply(self, action, expected, remote):
+                self.calls.append(action)
+                raise shopify.Rejected('Shopify rejected the reviewed discount (INVALID · title): Invalid title.',
+                    [{'code':'INVALID','field':['title'],'message':'Invalid title.','extraInfo':''}])
+        mock=Refusal()
+        plan=publish.build(row,mock)
+        approval=publish.approval(plan,'operator')
+        with pytest.raises(shopify.Rejected):
+            publish.confirm(row,approval,'operator',mock)
+        db.session.refresh(row)
+        proof=publish.receipt(row)
+        assert row.state=='attention' and 'pending' not in proof and not proof.get('published')
+        assert proof['shopify_user_errors'][0]['field']==['title']
+        events=CatalogueOperation.query.filter_by(operation_type='shopify_promotion_publish').all()
+        assert len(events)==1 and events[0].status=='failed'
+        assert json.loads(events[0].scope)['shopify_user_errors']==proof['shopify_user_errors']
+        monkeypatch.setattr(publish,'client',lambda:mock)
+        client=client_for(workshop)
+        review=client.get('/promotions/'+row.id+'/review')
+        assert review.status_code==200 and b'Shopify rejection details' in review.data
+        assert b'Field: <code>title</code>' in review.data
+        history=client.get('/operations')
+        detail=client.get('/operations/'+events[0].id)
+        assert history.status_code==200 and b'Shopify Promotion Publish' in history.data
+        assert detail.status_code==200 and b'Invalid title.' in detail.data
+        assert b'Field: <code>title</code>' in detail.data
+        assert mock.calls==['create']
+        with pytest.raises(ValueError,match='changed'):
+            publish.confirm(row,approval,'operator',mock)
+        assert mock.calls==['create']
 
 
 def test_explicit_development_boundaries_and_assertion(monkeypatch):
@@ -350,6 +437,7 @@ def test_extra_read_scopes_are_required_only_when_the_discount_needs_them():
         publish._required_optional(data('percent',segment='gid://shopify/Segment/8'),base)
 
 
+@pytest.mark.skip(reason='Historical Shopify discount mutation workflow is retired; no write tests may exercise it')
 def test_stale_approval_cannot_publish_changed_local_definition(workshop):
     with workshop.app_context():
         row=new('fixed')
@@ -364,6 +452,7 @@ def test_stale_approval_cannot_publish_changed_local_definition(workshop):
 
 
 @pytest.mark.parametrize('variable_world',['Single Variable'],indirect=True)
+@pytest.mark.skip(reason='Historical Shopify discount mutation workflow is retired; no write tests may exercise it')
 def test_variant_identity_dynamic_options_and_native_bxgy(variable_world):
     from app import shopify_drafts as drafts
     product,*_ = variable_world
@@ -393,6 +482,7 @@ def test_variant_identity_dynamic_options_and_native_bxgy(variable_world):
 
 
 @pytest.mark.parametrize('variable_world',['Variable Collection'],indirect=True)
+@pytest.mark.skip(reason='Historical Shopify discount mutation workflow is retired; no write tests may exercise it')
 def test_exact_owned_configuration_and_overlapping_group_is_blocked(variable_world):
     from app import shopify_drafts as drafts
     product,*_ = variable_world

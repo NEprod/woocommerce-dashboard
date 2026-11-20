@@ -1,17 +1,17 @@
 import json
+import re
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from uuid import uuid4
 
-from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 from sqlalchemy import or_, update
 
 from app import db
 from app.models import Collection, Product, ShopifyProductIdentity
-from . import domain, publish
+from . import domain, planner, publish
 from .models import Promotion
-from .shopify import Configuration, ShopifyPromotionError
 
 promotions = Blueprint('promotions',__name__,url_prefix='/promotions')
 
@@ -25,7 +25,7 @@ def administrator():
 
 
 def default():
-    return dict(name='',kind='exact',method='automatic',scope='product',intent='draft',starts=None,ends=None,
+    return dict(name='',description='',kind='exact',method='automatic',scope='product',intent='draft',starts=None,ends=None,
                 targets=[],exclusions=[],rewards=[],combines={},tiers=[{'qty':2,'total':900}],repeat=True)
 
 
@@ -48,6 +48,7 @@ def _selection(raw):
 def _from_form(form):
     kind, method = form.get('kind'), form.get('method')
     data = {k:form.get(k) for k in ('name','kind','method','scope','intent','starts','ends','code','segment')}
+    data['description'] = form.get('description','')
     data.update(targets=[_selection(s) for s in form.getlist('targets')],
                 exclusions=[_selection(s) for s in form.getlist('exclusions')],
                 combines={k:k in form for k in domain.COMBINES})
@@ -88,33 +89,42 @@ def _uk(value):
     return datetime.fromisoformat(value).astimezone(domain.UK).strftime('%Y-%m-%d %H:%M %z') if value else ''
 
 
+def _currency(value):
+    if value is None:
+        return 'Incomplete'
+    return ('-' if value < 0 else '') + '£' + domain.money(abs(value))
+
+
 def _local_status(data, row):
-    if row.state in ('pending','uncertain','attention','migration_review'):
-        return 'Needs attention'
-    if data['intent'] != 'live':
-        return data['intent'].title()
-    return {'EXPIRED':'Expired','SCHEDULED':'Scheduled','ACTIVE':'Live'}[publish._phase(data)]
+    if row.state in ('pending','uncertain','migration_review'):
+        return 'Historical review needed'
+    return 'Archived' if data['intent']=='archived' else 'Draft' if data['intent']=='draft' else 'Planned'
 
 
 @promotions.get('/')
 def index():
     page = request.args.get('page',1,type=int)
     promotions_page = Promotion.query.order_by(Promotion.updated_at.desc(),Promotion.id).paginate(page=max(1,page),per_page=30,error_out=False)
-    rows = [(row,data,_local_status(data,row),publish.receipt(row)) for row in promotions_page.items if (data:=publish.document(row))]
-    ready = False
-    try:
-        ready = Configuration.from_env() is not None
-    except ShopifyPromotionError:
-        pass
-    return render_template('promotions/index.html',rows=rows,pagination=promotions_page,kinds=domain.KINDS,uk=_uk,money=domain.money,ready=ready)
+    rows = []
+    for row in promotions_page.items:
+        data = publish.document(row)
+        try:
+            projection = planner.review(data, _local_rows(data))
+            margins = [tier['worst_margin'] for tier in projection['tiers'] if tier['worst_margin'] is not None]
+            margin = min(margins, key=Decimal) if margins else None
+            cost_state = 'Product costs available' if projection['bom_complete'] else 'Cost data incomplete'
+        except (ValueError, ArithmeticError):
+            margin, cost_state = None, 'Eligibility or cost data incomplete'
+        rows.append((row,data,_local_status(data,row),margin,cost_state))
+    return render_template('promotions/index.html',rows=rows,pagination=promotions_page,kinds=domain.KINDS,uk=_uk,money=domain.money)
 
 
 def _render_edit(row, data, *, error=None, status=200):
-    published = publish.receipt(row).get('published') if row else None
-    choices = [('draft','Draft — local only'),('live','Live or Scheduled — review to publish'),
-               ('disabled','Disabled — review to turn off'),('archived','Archived — retain history')]
+    historical = publish.receipt(row).get('published') if row else None
+    choices = [('draft','Draft'),('live','Planned live'),
+               ('disabled','Planned disabled'),('archived','Archived')]
     return render_template('promotions/edit.html', row=row,d=data,error=error,kinds=domain.KINDS,changes=choices,
-        money=domain.money,uk=_uk,published=published),status
+        money=domain.money,uk=_uk,historical=historical),status
 
 
 @promotions.route('/new',methods=['GET','POST'])
@@ -132,7 +142,7 @@ def edit(ident=None):
         data = _from_form(request.form)
     except ValueError as exc:
         # Keep entered fields and selections after a validation error.
-        current = {**data, **{k:request.form.get(k,'') for k in ('name','kind','method','scope','intent','code','segment')}}
+        current = {**data, **{k:request.form.get(k,'') for k in ('name','description','kind','method','scope','intent','code','segment')}}
         for key in ('starts','ends','tiers','amount','minimum','buy','get','limit','reward_percent','usage'):
             current[key+'_text'] = request.form.get(key,'')
         for key in ('repeat','once'):
@@ -188,17 +198,14 @@ def search():
             Product.variations.any(sku=query))).order_by(Product.title).limit(16).all()
     collections = Collection.query.filter(Collection.source_relpath.is_not(None),
         Collection.name.icontains(query,autoescape=True)).order_by(Collection.name).limit(8).all()
-    try:
-        config = Configuration.from_env()
-    except ShopifyPromotionError:
-        config = None
+    store = _verified_store_id()
     results = []
     for product in products:
         base = {'id':product.id,'source':product.source_relpath}
         links = ShopifyProductIdentity.query.filter_by(product_id=product.id,state='verified',verification_state='verified').limit(3).all()
-        store = config.store if config else links[0].store_id if len(links)==1 else None
+        product_store = store if store else (links[0].store_id if len(links)==1 else None)
         try:
-            fixed = domain.product_choices(product,store) if store else []
+            fixed = domain.product_choices(product,product_store) if product_store else []
         except ValueError:
             fixed = []
         options = sorted({(a.name,a.value) for v in product.variations if v.catalogue_status=='active' for a in v.attributes})
@@ -211,66 +218,58 @@ def search():
     return jsonify(products=results,collections=[{'name':c.name,'target':{'mode':'collection','id':c.id,'source':c.source_relpath}} for c in collections])
 
 
-def _local_rows(d, adapter):
+def _verified_store_id():
+    # Read only retained local identity evidence, never the Promotions app or Shopify API.
+    stores = {value for (value,) in db.session.query(ShopifyProductIdentity.store_id).filter_by(
+        state='verified',verification_state='verified').distinct().all()}
+    proof = current_app.config.get('TLC_DEPLOYMENT_PROOF')
+    preferred = proof[0].shop if proof else None
+    return preferred if preferred in stores else next(iter(stores)) if not preferred and len(stores)==1 else None
+
+
+def _local_rows(d):
     if d['scope']!='product' or not d['targets']:
         return []
-    if adapter:
-        store = adapter.config.store
-    else:
-        # Offline local review never calls the primary application's connection.
-        stores = db.session.query(ShopifyProductIdentity.store_id).filter_by(state='verified',verification_state='verified').distinct().limit(2).all()
-        store = stores[0][0] if len(stores)==1 else None
+    store = _verified_store_id()
     if not store:
         raise ValueError('A single verified Shopify store identity is needed to preview the qualifying variants.')
     return domain.resolve(d['targets'],store,d.get('exclusions',[]))
 
 
-def _costs(rows):
-    from app.inventory.product_bom import product_costs
-    products = {}
-    for r in rows:
-        if r['local_id'] not in products:
-            try:
-                products[r['local_id']] = product_costs(db.session.get(Product,r['local_id']))
-            except (ValueError,OSError):
-                products[r['local_id']] = {}
-        value = products[r['local_id']].get(r['sku'],{}).get('shopify')
-        if value is not None:
-            r['cost'] = int((Decimal(value)*100).quantize(Decimal(1),rounding=ROUND_HALF_UP))
-    return rows
+def _admin_discount_url():
+    proof = current_app.config.get('TLC_DEPLOYMENT_PROOF')
+    domain_name = proof[0].domain if proof else ''
+    store = proof[0].shop if proof else ''
+    if (re.fullmatch(r'[a-z0-9][a-z0-9-]*\.myshopify\.com',domain_name)
+            and re.fullmatch(r'gid://shopify/Shop/[0-9]+',store)):
+        return f'https://{domain_name}/admin/discounts'
+    return None
+
+
+def _selection_labels(selections):
+    labels = []
+    for choice in selections:
+        owner = db.session.get(Collection if choice['mode']=='collection' else Product, choice['id'])
+        name = (owner.name if choice['mode']=='collection' else owner.title) if owner and owner.source_relpath == choice['source'] else 'Unresolved selection'
+        detail = (f" · {choice['sku']}" if choice['mode']=='fixed' else
+                  f" · {choice['name']} = {choice['value']}" if choice['mode']=='option' else '')
+        labels.append(f"{name}{detail} ({choice['mode']})")
+    return labels
 
 
 @promotions.route('/<ident>/review',methods=['GET','POST'])
 def review(ident):
     row = db.get_or_404(Promotion,ident)
     d, proof = publish.document(row), publish.receipt(row)
-    plan, token, error, rows, adapter = None,None,None,[],None
+    if request.method=='POST':
+        return jsonify(error='Promotion publishing is retired. Manage discounts manually in Shopify Admin.'),410
+    error, rows = None, []
     try:
-        adapter = publish.client()
-        if request.method=='POST':
-            action = request.form.get('action')
-            if action=='confirm' and request.form.get('ack')=='yes' and adapter:
-                publish.confirm(row,request.form.get('approval',''),current_user.id,adapter)
-                flash('Shopify configuration verified. Checkout has not been tested by this operation.','success')
-                return redirect(url_for('promotions.review',ident=ident),code=303)
-            if action=='reconcile' and adapter:
-                publish.reconcile(row,adapter)
-                flash('Configuration verified by readback; no mutation was replayed.','success')
-                return redirect(url_for('promotions.review',ident=ident),code=303)
-            raise ShopifyPromotionError('Explicit approval and a verified Promotions development connection are required.')
-        if adapter is None:
-            raise ShopifyPromotionError('Development connection is not configured. Publish is blocked; local definitions remain available.')
-        plan = publish.build(row,adapter)
-        token = publish.approval(plan,current_user.id)
-        rows = plan['rows']
-    except ValueError as exc:
+        rows = _local_rows(d)
+    except (ValueError, ArithmeticError) as exc:
         error = str(exc)
-        try:
-            rows = _local_rows(d,adapter)
-        except ValueError as local:
-            error += ' ' + str(local)
-        proof = publish.receipt(row)
-    prior = proof.get('published')
-    admin_url = 'https://' + adapter.config.domain + '/admin/discounts' if adapter and prior and prior['shop']==adapter.config.store else None
-    return render_template('promotions/review.html',row=row,d=d,plan=plan,approval=token,error=error,rows=_costs([dict(r) for r in rows]),proof=proof,
-        kinds=domain.KINDS,money=domain.money,uk=_uk,admin_url=admin_url), (409 if error and request.method=='POST' else 200)
+    estimate = planner.review(d, rows)
+    return render_template('promotions/review.html',row=row,d=d,error=error,rows=estimate['variants'],
+        estimate=estimate,proof=proof,kinds=domain.KINDS,money=domain.money,currency=_currency,uk=_uk,
+        admin_url=_admin_discount_url(), included_labels=_selection_labels(d['targets']),
+        excluded_labels=_selection_labels(d.get('exclusions',[])), reward_labels=_selection_labels(d.get('rewards',[])))

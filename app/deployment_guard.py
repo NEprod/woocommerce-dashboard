@@ -220,7 +220,9 @@ def verify_startup(instance, env, *, verify_product=None, verify_promotions=None
             or owner.environment == "development" and cfg.client_id == LIVE_CLIENT
             or owner.environment == "production" and cfg.client_id and cfg.client_id != LIVE_CLIENT):
         raise DeploymentError("Product Shopify configuration does not match the deployment identity.")
-    promo = promotions_config(owner, env)
+    # Promotions is now a local planner. Preserve its historical configuration
+    # fields, but never require its separate Shopify app to start TLCDashboard.
+    promo = None
     audit_database(owner, roots["instance"] / "site.db")
     try:
         data = (verify_product or ShopifyAdapter().deployment_identity)(cfg)
@@ -228,18 +230,6 @@ def verify_startup(instance, env, *, verify_product=None, verify_promotions=None
         raise DeploymentError("Product app authentication or Shopify identity read failed.") from None
     if data != (owner.domain, owner.shop, owner.app, owner.environment == "development"):
         raise DeploymentError("Authenticated Shopify store or product app does not match the deployment identity.")
-    if promo:
-        from app.promotions.shopify import Admin, ShopifyPromotionError
-        try:
-            if verify_promotions:
-                verify_promotions(promo)
-            else:
-                from contextlib import closing
-                admin = Admin(promo)
-                with closing(admin._session):
-                    admin.connection()
-        except ShopifyPromotionError:
-            raise DeploymentError("Promotions development authentication or identity read failed.") from None
     return owner, cfg.fingerprint(), promo
 
 

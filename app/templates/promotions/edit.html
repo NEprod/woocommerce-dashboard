@@ -20,7 +20,7 @@
 {% endmacro %}
 {% block promotions %}
 {% if error %}<p class="alert alert-danger" role="alert">{{ error }}</p>{% endif %}
-{% if published %}<p class="alert alert-info">This record owns a Shopify discount. Saving is local only. To enable, disable, archive or reschedule remotely, save the intended change then use Review &amp; Publish.</p>{% endif %}
+{% if historical %}<p class="alert alert-warning">This saved plan has historical Shopify publication evidence. That integration is inactive; changes here remain local and do not alter the existing Shopify discount.</p>{% endif %}
 <form method="post" data-promotion-editor data-search-url="{{ url_for('promotions.search') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% if row %}<input type="hidden" name="revision" value="{{ row.revision }}">{% endif %}
@@ -32,6 +32,7 @@
     <header class="table-panel-header"><h2>Promotion Details</h2></header>
     <div class="editor-field-grid">
       <label class="guided-field">Name<input name="name" required maxlength="95" value="{{ d.name }}"></label>
+      <label class="guided-field">Planning description<textarea name="description" maxlength="500" rows="3">{{ d.description|default('') }}</textarea></label>
     </div>
   </section>
   <section class="editor-workspace-section table-panel">
@@ -43,13 +44,13 @@
     </div>
   </section>
   <section class="editor-workspace-section table-panel">
-    <header class="table-panel-header"><h2>Schedule &amp; Activation</h2></header>
+    <header class="table-panel-header"><h2>Planned dates &amp; status</h2></header>
     <div class="editor-field-grid">
-      <label class="guided-field">Local intent<select name="intent">{% for key,label in changes %}<option value="{{ key }}" {% if d.intent==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label class="guided-field">Planning status<select name="intent">{% for key,label in changes %}<option value="{{ key }}" {% if d.intent==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
       <label class="guided-field">Starts (UK)<input name="starts" value="{{ d.starts_text|default(uk(d.starts)) }}" maxlength="35" placeholder="2027-01-15 18:00"></label>
       <label class="guided-field">Ends (UK, optional)<input name="ends" value="{{ d.ends_text|default(uk(d.ends)) }}" maxlength="35" placeholder="2027-01-20 23:00"></label>
     </div>
-    <p class="field-helper">Use UK local time or include a UTC offset. A future start time schedules a reviewed Live promotion; saving never starts it in Shopify.</p>
+    <p class="field-helper">Use UK local time or include a UTC offset. Dates are planning notes only; saving never schedules Shopify.</p>
   </section>
   <section class="editor-workspace-section table-panel" data-show-method="code">
     <header class="table-panel-header"><h2>Discount code</h2></header>
@@ -71,7 +72,7 @@
     {% endif %}
     </div><button type="button" class="btn btn-outline-primary" data-add-tier>Add Quantity Tier</button>
     <label class="check-row"><input type="checkbox" name="repeat" {% if d.repeat %}checked{% endif %}> Allow more than one qualifying set in the same cart</label>
-    <p class="field-helper">Blank prices are disabled. UK/GBP only; up to eight tiers. Requires the separate Shopify Discount Function.</p>
+    <p class="field-helper">Blank prices are disabled. GBP only; up to eight tiers. Check the exact offer mechanics manually in Shopify before use.</p>
   </section>
   <section class="editor-workspace-section table-panel" data-show-kind="bxgy">
     <header class="table-panel-header"><h2>Pricing &amp; Quantity Tiers · Buy X Get Y</h2></header>
@@ -95,14 +96,14 @@
   <div data-show-kind="bxgy">{{ targetpicker('rewards','Reward variants',d.rewards|default([])) }}</div>
   <section class="editor-workspace-section table-panel">
     <header class="table-panel-header"><h2>Discount Combinations</h2></header>
-    <p>Default: no stacking. Exact offers can coexist with opted-in offers on different products. Overlapping TLC product groups cannot be published for the same period.</p>
+    <p>Record the intended combination settings here, then configure and verify them separately in Shopify Admin.</p>
     {% for key,label in [('productDiscounts','Product discounts on other items'),('orderDiscounts','Order discounts'),('shippingDiscounts','Shipping discounts')] %}
     <label class="check-row"><input name="{{ key }}" type="checkbox" {% if d.combines.get(key) %}checked{% endif %}> {{ label }}</label>
     {% endfor %}
   </section>
   <div class="page-actions">
     <button class="btn btn-primary">Save locally</button>
-    {% if row %}<a class="btn btn-outline-primary" href="{{ url_for('promotions.review',ident=row.id) }}">Review &amp; Publish saved version</a>{% endif %}
+    {% if row %}<a class="btn btn-outline-primary" href="{{ url_for('promotions.review',ident=row.id) }}">Review saved plan &amp; profitability</a>{% endif %}
   </div>
 </form>
 {% endblock %}

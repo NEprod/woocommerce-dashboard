@@ -1,4 +1,4 @@
-"""Shopify Admin API for the distinct, development-only Promotions installation."""
+"""Inactive historical API client for the distinct Promotions installation."""
 from base64 import urlsafe_b64encode
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -12,6 +12,7 @@ from uuid import uuid4
 import requests
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from app.utils.redaction import redact_diagnostic
 
 from .domain import COMBINES, VARIANT, canonical, money, schedule_time
 
@@ -30,6 +31,60 @@ class ShopifyPromotionError(ValueError):
 
 class Rejected(ShopifyPromotionError):
     """Shopify explicitly refused a mutation without producing a discount."""
+
+    def __init__(self, message, details=None):
+        super().__init__(message)
+        self.details = details or []
+
+
+REJECTION_FALLBACK = 'Shopify refused the reviewed discount. Check its type, eligibility, limits and permissions.'
+_FIELD_PART = re.compile(r'[A-Za-z_][A-Za-z0-9_]{0,63}|[0-9]{1,5}')
+_ERROR_CODE = re.compile(r'[A-Z][A-Z0-9_]{0,79}')
+_OPAQUE_VALUE = re.compile(r'(?<![A-Za-z0-9])[A-Za-z0-9_+./=-]{32,}(?![A-Za-z0-9])')
+_PEM_BLOCK = re.compile(r'-----BEGIN [^-]+-----.*?-----END [^-]+-----', re.DOTALL)
+
+
+def _safe_error_text(value, limit=240):
+    if not isinstance(value, str):
+        return ''
+    # Shopify messages can quote supplied values. Persist only bounded, redacted text;
+    # never retain a mutation payload, access token, key material or response body.
+    value = _PEM_BLOCK.sub('[redacted key]', value)
+    value = redact_diagnostic(value)
+    value = re.sub(r'(?i)\b(?:shpat|shpca|shpss|shppa)_[A-Za-z0-9_-]+', '[redacted credential]', value)
+    value = re.sub(r'(?i)https?://[^\s]+', '[redacted link]', value)
+    value = _OPAQUE_VALUE.sub('[redacted value]', value)
+    return re.sub(r'\s+', ' ', value).strip()[:limit]
+
+
+def structured_user_errors(errors):
+    """Keep only safe Shopify code/path/message details, never raw GraphQL data."""
+    if not isinstance(errors, list):
+        return []
+    details = []
+    for item in errors[:8]:
+        if not isinstance(item, dict):
+            continue
+        code = item.get('code')
+        code = code if isinstance(code, str) and _ERROR_CODE.fullmatch(code) else None
+        field = item.get('field')
+        field = [part for part in field[:8] if isinstance(part, str) and _FIELD_PART.fullmatch(part)] if isinstance(field, list) else []
+        message = _safe_error_text(item.get('message'))
+        extra = _safe_error_text(item.get('extraInfo'), 160)
+        if code or field or message or extra:
+            details.append({'code':code, 'field':field, 'message':message, 'extraInfo':extra})
+    return details
+
+
+def rejection_summary(details):
+    if not details:
+        return REJECTION_FALLBACK
+    first = details[0]
+    location = '.'.join(first['field'])
+    label = ' · '.join(part for part in (first['code'], location) if part)
+    return ('Shopify rejected the reviewed discount' + (f' ({label})' if label else '') +
+            (': ' + first['message'] if first['message'] else '.') +
+            (f' See {len(details)} retained field-level error(s).' if len(details) > 1 else ''))[:600]
 
 
 @dataclass(frozen=True)
@@ -166,6 +221,8 @@ class Admin:
 
     def _graphql(self, query, variables=None):
         from app.deployment_guard import promotion_transport
+        if not query.lstrip().startswith('query '):
+            raise ShopifyPromotionError('Promotion publishing is retired. Manage discounts in Shopify Admin.')
         promotion_transport(self.config, writing=not query.lstrip().startswith("query "))
         if not self._token:
             try:
@@ -249,6 +306,7 @@ class Admin:
         return self._graphql(detail_query(kind),{'id':ident}).get('discountNode')
 
     def apply(self, operation, expected, old):
+        raise ShopifyPromotionError('Promotion publishing is retired. Manage discounts in Shopify Admin.')
         granted = self.connection()['scopes']  # fresh proof before any mutation, never a storefront token
         if expected['kind']=='exact' and 'read_markets' not in granted or expected.get('segment') and 'read_customers' not in granted:
             raise Rejected('The Promotions app lost a required read scope. No change was submitted.')
@@ -267,11 +325,13 @@ class Admin:
                 args, defs = 'id:$id,'+args, '$id:ID!,'+defs
                 variables['id'] = old['id']
             field_selection = 'discountId' if mode=='exact' else 'id'
-        result = self._graphql(f'mutation PublishPromotion({defs}){{{name}({args}){{{node}{{{field_selection}}} userErrors{{field code}}}}}}',variables).get(name)
+        result = self._graphql(f'mutation PublishPromotion({defs}){{{name}({args}){{{node}{{{field_selection}}} userErrors{{code field message extraInfo}}}}}}',variables).get(name)
         if not isinstance(result,dict):
             raise ShopifyPromotionError('Shopify did not confirm the mutation response. Reconcile before retrying.')
-        if result.get('userErrors') and not result.get(node):
-            raise Rejected('Shopify refused the reviewed discount. Check its type, eligibility, limits and permissions.')
+        errors = result.get('userErrors')
+        if isinstance(errors, list) and errors and not result.get(node):
+            details = structured_user_errors(errors)
+            raise Rejected(rejection_summary(details), details)
         if result.get('userErrors') != []:
             raise ShopifyPromotionError('Shopify could not verify the mutation outcome. Reconcile before retrying.')
         ident = (result.get(node) or {}).get(field_selection)

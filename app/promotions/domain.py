@@ -127,6 +127,8 @@ def definition(data):
     out = dict(name=clean(data.get('name'), 'promotion name', 95), kind=kind, method=method, scope=scope,
                intent=intent, starts=start, ends=end, targets=targets, exclusions=exclusions,
                combines={k:flags.get(k,False) for k in COMBINES})
+    if 'description' in data:
+        out['description'] = clean(data['description'], 'planning description', 500, required=False)
     if kind == 'exact' and (out['combines']['orderDiscounts'] or out['combines']['shippingDiscounts']):
         raise ValueError('Exact-price offers can only combine with product offers on different eligible items.')
     if kind == 'bxgy' and out['combines']['productDiscounts']:

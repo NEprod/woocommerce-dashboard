@@ -1,15 +1,13 @@
 {% extends 'promotions/base.html' %}
 {% block promotions %}
-{% if not ready %}<p class="alert alert-warning">The separate development Shopify Promotions app is not configured. Definitions can be saved and reviewed locally; Shopify publishing is blocked.</p>{% endif %}
-<section class="table-panel"><header class="table-panel-header"><h2>Saved promotions</h2></header>
-{% if rows %}<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Name</th><th>Type</th><th>Qualifying scope</th><th>Offer</th><th>Local status</th><th>Verified Shopify</th><th>Schedule (UK)</th><th>Actions</th></tr></thead><tbody>
-  {% for row,data,status,proof in rows %}
-  <tr><th scope="row">{{ data.name }}{% if proof.error %}<small class="d-block text-warning">{{ proof.error }}</small>{% endif %}</th>
+<section class="table-panel"><header class="table-panel-header"><h2>Saved promotion plans</h2></header>
+{% if rows %}<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Promotion</th><th>Type</th><th>Qualifying scope</th><th>Offer</th><th>Minimum product-cost margin</th><th>Cost completeness</th><th>Local status</th><th>Actions</th></tr></thead><tbody>
+  {% for row,data,status,margin,cost_state in rows %}
+  <tr><th scope="row">{{ data.name }}</th>
   <td>{{ kinds[data.kind] }}</td><td>{{ data.targets|length }} included · {{ data.exclusions|default([])|length }} excluded</td>
   <td>{% if data.kind=='exact' %}{% for tier in data.tiers %}{{ tier.qty }} for £{{ money(tier.total) }}{% if not loop.last %}, {% endif %}{% endfor %}{% elif data.kind=='bxgy' %}Buy {{ data.buy }}, get {{ data.get }}{% else %}{{ money(data.value) }}{{ '%' if data.kind=='percent' else ' GBP' }} off{% endif %}</td>
-  <td>{{ status }}</td><td>{% if proof.published %}{{ proof.published.result.status|title }}<small class="d-block">{{ uk(proof.published.checked) }}{% if proof.published.revision != row.revision %} · Local changes pending{% endif %}</small>{% else %}Not verified{% endif %}</td>
-  <td>{{ uk(data.starts) or 'Not set' }} → {{ uk(data.ends) or 'No end' }}</td>
-  <td><div class="d-flex flex-wrap gap-2"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('promotions.edit',ident=row.id) }}">Edit</a><a class="btn btn-sm btn-outline-primary" href="{{ url_for('promotions.review',ident=row.id) }}">Review</a><form method="post" action="{{ url_for('promotions.duplicate',ident=row.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary">Duplicate</button></form></div></td></tr>
+  <td>{{ margin ~ '%' if margin is not none else 'Incomplete' }}</td><td>{{ cost_state }}</td><td>{{ status }}</td>
+  <td><div class="d-flex flex-wrap gap-2"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('promotions.edit',ident=row.id) }}">Edit</a><a class="btn btn-sm btn-outline-primary" href="{{ url_for('promotions.review',ident=row.id) }}">Plan details</a><form method="post" action="{{ url_for('promotions.duplicate',ident=row.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary">Duplicate</button></form></div></td></tr>
   {% endfor %}</tbody></table></div>
   {% else %}<div class="workspace-card-body"><p>No promotions yet.</p><a class="btn btn-primary" href="{{ url_for('promotions.edit') }}">Create Promotion</a></div>{% endif %}</section>
 {% if pagination.has_prev %}<a class="btn btn-outline-primary" href="{{ url_for('promotions.index',page=pagination.prev_num) }}">Previous</a>{% endif %}

@@ -80,7 +80,6 @@ def test_legacy_and_marker_fallback(tmp_path, storage):
     ("TLC_DEPLOYMENT_STORAGE_ID", "b" * 32),
     ("TLC_PHOTO_WORKER_TOKEN", "never-print-this"),
     ("SHOPIFY_ORDERS_WEBHOOK_DOMAIN", "unrelated.myshopify.com"),
-    ("TLC_PROMOTIONS_DEV_APP_ID", guard.LIVE_APP),
 ])
 def test_bad_local_config_and_swapped_storage_never_call_shopify(storage, field, value):
     root, env = storage
@@ -156,7 +155,7 @@ def test_managed_transport_and_scheduler_are_fenced(storage, monkeypatch):
         assert calls == [True]
 
 
-def test_promotions_proof_separate(storage):
+def test_retired_promotions_auth_is_not_a_startup_dependency(storage):
     root, env = storage
     prefix = "TLC_PROMOTIONS_DEV_"
     supplied = {"DOMAIN": guard.DEV_DOMAIN, "STORE_ID": guard.DEV_SHOP,
@@ -166,7 +165,12 @@ def test_promotions_proof_separate(storage):
     env.update({prefix + k: v for k, v in supplied.items()})
     observed = []
     proof = guard.verify_startup(root / "instance", env, verify_product=mocked, verify_promotions=observed.append)
-    assert proof[2] == observed[0] and observed[0].app != proof[0].app
+    assert proof[2] is None and observed == []
+    env[prefix + "PRIVATE_KEY_PATH"] = "/missing/retired-key.pem"
+    env[prefix + "APP_ID"] = guard.LIVE_APP
+    proof = guard.verify_startup(root / "instance", env, verify_product=mocked,
+                                 verify_promotions=lambda _: pytest.fail("retired app contacted"))
+    assert proof[2] is None
 
 
 def test_production_identity_requires_distinct_confirmed_app(storage):

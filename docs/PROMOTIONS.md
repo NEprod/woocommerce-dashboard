@@ -1,6 +1,14 @@
 # Promotions & Discounts
 
-Open **Shopify → Promotions & Discounts** in TLCDashboard as an administrator. The dashboard owns the definitions; Shopify applies reviewed discounts. Saving, duplicating, scheduling locally or changing local intent never calls Shopify. This release has a hard development-shop write gate. **Production install, approval and checkout acceptance are outstanding.**
+Open **Shopify → Promotions & Discounts** in TLCDashboard as an administrator. This is a **local planning tool**. Create and edit offer definitions here, check the resolved qualifying variants and compare the offer price with the existing product/variant cost-per-item prepared for Shopify. Create the actual discount manually in Shopify Admin. TLCDashboard does not create, update, schedule, reconcile or delete Shopify discounts, and it cannot verify checkout behaviour.
+
+The displayed contribution is offer price minus the current resolved product cost. For a fixed-total tier, the best and worst cost bounds repeat the lowest- and highest-cost eligible variant because the saved selection permits repeated units. Margin is contribution divided by offer price; markup is contribution divided by product cost. If any ordinary set total is below the configured offer price, profit and margin are withheld rather than assuming Shopify would charge more. This is **not final net profit**: payment fees, postage, labour, electricity, wear and waste are not added unless they are already costed BOM items. Missing product costs suppress the affected profit figure rather than counting them as £0. A red loss warning appears when a qualifying combination's product cost alone can exceed the offer price. The planner shows a local manual-cost override when one is the selected cost source, but cannot verify its itemised BOM breakdown.
+
+The existing multi-collection, product, retained variant, option-value and exclusion selector remains authoritative. Included local collection groups plus explicit selections form a deduplicated pool; exclusions take precedence. Membership and verified product identities are refreshed when the saved plan is reviewed. Existing definitions, quantity tiers, dates and local Drafts remain readable. Planned dates do not schedule Shopify. The Review page includes a copyable setup summary and a link to the verified store's Admin Discounts page when a managed store identity is available. Compare the manually configured discount and cart totals in Shopify before activating it; fixed-total semantics may not match native discounts exactly.
+
+The dedicated Promotions app, its Function, existing credentials and historical receipts are retained but inactive. The seven `TLC_PROMOTIONS_DEV_*` values and read-only PEM mount are no longer startup requirements in the planner image. Remove only those Promotions-specific development container entries after upgrading; keep the product app's `TLC_DEPLOYMENT_*` identity and all ordinary Shopify settings. Historical mutation details remain below for reference, not instructions for the current workflow.
+
+## Retired Shopify publishing design (historical reference only)
 
 ## Prepare an offer
 

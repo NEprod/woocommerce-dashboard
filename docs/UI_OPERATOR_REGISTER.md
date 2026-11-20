@@ -247,3 +247,17 @@ native table structure. Their rows retain column headings and scroll inside each
 table container on narrow screens; they do not become mobile cards. Discovery's
 read-only controls and saved Promotions also use the established panel wrapper.
 The mobile bottom shortcuts and all existing actions and routes remain unchanged.
+
+## Promotions profitability planner
+
+Promotions & Discounts remains under Shopify navigation, but it is a local offer
+planner. The existing selector, quantity tiers, exclusions, dates and saved Drafts
+remain. Review shows resolved qualifying variants, their authoritative local
+product/variant cost-per-item prepared for Shopify, and fixed-total best/worst
+contribution bounds. Missing cost stays incomplete; a manual cost is labelled as
+such. Shopify Admin is the only place to create or change a real discount. No
+promotion publishing or reconciliation action is available in TLCDashboard, and
+the separate Promotions app is not checked during startup. Its historical
+receipts and seven configuration entries are retained for reference, while the
+product app, materials, BOM, inventory and scheduled product publishing remain
+untouched.

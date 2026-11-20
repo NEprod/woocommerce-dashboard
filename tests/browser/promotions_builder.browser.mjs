@@ -58,9 +58,15 @@ try {
       const review=await page.goto(origin+'/promotions/'+'f'.repeat(32)+'/review');
       assert.equal(review.status(),200,`${name} local review`);
       assert.ok(await page.locator('.table-panel-header').count()>0,`${name} shared review panels`);
+      const reviewTables=page.locator('.table-panel > .table-responsive table');
+      assert.ok(await reviewTables.count()>=2,`${name} profitability and resolved-variant tables`);
+      if (name==='phone') {
+        for (const table of await reviewTables.all()) assert.ok(await table.evaluate(node=>node.parentElement.scrollWidth>node.parentElement.clientWidth),`${name} review table scrolls independently`);
+      }
       assert.equal(await page.locator('input[name="approval"]').count(),0,`${name} disconnected fixture cannot approve a write`);
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${name} review overflow`);
       await page.screenshot({path:`${out}/${name}-review.png`,fullPage:false});
+      await page.locator('.table-panel').nth(1).screenshot({path:`${out}/${name}-profitability-panel.png`});
     }
     assert.deepEqual(errors,[],`${name} JavaScript errors`);
     await context.close();

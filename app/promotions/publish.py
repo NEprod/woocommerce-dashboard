@@ -1,13 +1,16 @@
-"""Signed Review & Publish with durable before-write receipts and read-only recovery."""
+"""Inactive historical Promotions publisher; local planner uses document/receipt only."""
 from datetime import datetime, UTC, timedelta
 import json
+from uuid import uuid4
 
 from flask import current_app
 from itsdangerous import BadData, URLSafeTimedSerializer
 from sqlalchemy import select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import aliased
 
 from app import db
+from app.models import CatalogueOperation
 from . import domain
 from .models import Promotion
 from .shopify import TYPES, Admin, Configuration, Rejected, ShopifyPromotionError, observed, same_identity
@@ -198,10 +201,27 @@ def _complete(row, raw, proof, attempt, actual):
                           'checked':domain.iso(now()),'revision':attempt['revision']}
     proof.pop('pending',None)
     proof.pop('error',None)
+    proof.pop('shopify_user_errors',None)
     _finish(row.id,row.state,raw,state='verified',proof=proof)
 
 
+def _record_rejection(row, attempt, exc):
+    """Append a safe Event History record without affecting the retained refusal."""
+    scope = {'promotion_id':row.id, 'shop_id':attempt['shop'], 'action':attempt['action'],
+             'shopify_user_errors':exc.details}
+    started = datetime.fromisoformat(attempt['began']).replace(tzinfo=None)
+    db.session.add(CatalogueOperation(id=uuid4().hex, operation_type='shopify_promotion_publish',
+        status='failed', scope=domain.canonical(scope), error=str(exc), started_at=started,
+        finished_at=stamp()))
+    try:
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.warning('Promotion rejection was retained, but its Event History record could not be saved.')
+
+
 def confirm(row, token, actor, adapter):
+    raise ShopifyPromotionError('Promotion publishing is retired. Manage discounts in Shopify Admin.')
     from app.deployment_guard import promotion_transport
     if hasattr(adapter, "config"):
         promotion_transport(adapter.config, writing=True)
@@ -254,7 +274,9 @@ def confirm(row, token, actor, adapter):
             raise
         proof.pop('pending',None)
         proof['error'] = str(exc)
+        proof['shopify_user_errors'] = exc.details
         _finish(row.id,'pending',raw,state='attention',proof=proof)
+        _record_rejection(row, attempt, exc)
         raise
     except ShopifyPromotionError as exc:
         proof['error'] = str(exc)
@@ -263,6 +285,7 @@ def confirm(row, token, actor, adapter):
 
 
 def reconcile(row, adapter):
+    raise ShopifyPromotionError('Promotion reconciliation is retired. The planner cannot alter historical Shopify evidence.')
     proof = receipt(row)
     attempt = proof.get('pending')
     if row.state not in ('pending','uncertain') or not attempt:

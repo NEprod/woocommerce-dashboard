@@ -39,6 +39,7 @@ TYPE_LABELS = {
     "taxonomy_registry_update": "Local Taxonomy Registry Update",
     "woo_publish_preview": "WooCommerce Publish Preview",
     "woo_controlled_publish": "WooCommerce Controlled Publish",
+    "shopify_promotion_publish": "Shopify Promotion Publish",
 }
 SCAN_MODES = (
     {
@@ -264,7 +265,9 @@ def operation_view(row, *, redaction_paths=None):
         "warning_groups": warning_view["groups"],
         "blocking_count": blocking_count(active_summary, row=row),
         "error_count": max(summary_error_count, int((live or {}).get("counts", {}).get("failures", 0) or 0), row.products_failed + int(bool(row.error))),
-        "scope": scope, "scope_label": source or scope.get("sku") or scope.get("store_hostname") or "Catalogue",
+        "scope": scope, "scope_label": ("Promotion " + str(scope.get("promotion_id", ""))[:8]
+            if row.operation_type == "shopify_promotion_publish" else
+            source or scope.get("sku") or scope.get("store_hostname") or "Catalogue"),
         "recovery_state": row.recovery_state or "none", "recoverable": row.recovery_state not in (None, "none"),
         "marker_state": row.marker_state, "error": redact_diagnostic(row.error, paths=redaction_paths, limit=1000) if row.error else None,
         "discord": _discord_view(row.id, row), "live": live,

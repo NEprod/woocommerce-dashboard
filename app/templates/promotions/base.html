@@ -2,9 +2,10 @@
 {% block title %}Promotions &amp; Discounts{% endblock %}
 {% block content %}
 <header class="page-header">
-  <div><p class="eyebrow">Shopify · Promotions</p><h1>Promotions &amp; Discounts</h1><p>Configure in TLC. Apply at Shopify checkout after approved publication.</p></div>
+  <div><p class="eyebrow">Shopify · local planning</p><h1>Promotions &amp; Discounts</h1><p>Plan bundles and discounts, estimate production costs and compare contribution before setting up an offer in Shopify Admin.</p></div>
   <div class="page-actions"><a class="btn btn-outline-primary" href="{{ url_for('promotions.index') }}">All promotions</a><a class="btn btn-primary" href="{{ url_for('promotions.edit') }}">Create promotion</a></div>
 </header>
+<p class="alert alert-info">Shopify discounts are managed manually in Shopify Admin. This planner does not change Shopify checkout.</p>
 {% for category,message in get_flashed_messages(with_categories=true) %}<p class="alert alert-{{ category }}" role="status">{{ message }}</p>{% endfor %}
 {% block promotions %}{% endblock %}
 {% endblock %}
