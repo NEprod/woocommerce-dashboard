@@ -63,6 +63,7 @@
 .editor-field-wide { grid-column: 1 / -1; }
 .editor-field-wide textarea { min-height: 150px; }
 .metadata-editor-layout :where(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea) { min-width: 0; max-width: 100%; width: 100%; min-height: var(--control-height); padding: var(--space-3) var(--space-4); border: var(--border-default); border-radius: var(--radius-input); background: var(--color-surface-primary); color: var(--color-brand-text); font: inherit; }
+.metadata-editor-layout :where(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]), select) { box-sizing: border-box; height: 48px; min-height: 48px; padding-block: 0; }
 .metadata-editor-layout :where(input[type="checkbox"], input[type="radio"]), .metadata-shared-confirmation input { width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; margin: 0; padding: 0; accent-color: var(--color-brand-forest); }
 .metadata-editor-layout :where(input, select, textarea, button, a):focus-visible, .metadata-mobile-savebar :focus-visible { outline: 3px solid var(--color-brand-gold); outline-offset: 3px; }
 .metadata-editor-main .editor-workspace-section > header code { color: inherit; background: transparent; }

@@ -91,9 +91,19 @@ try {
         const controls = await page.evaluate(() => {
           const input = document.querySelector('#metadata-price');
           const select = document.querySelector('#metadata-shopify_status');
-          return {input: input?.getBoundingClientRect().height, select: select?.getBoundingClientRect().height};
+          const productType = document.querySelector('#metadata-product-type');
+          const category = document.querySelector('[data-effective-organisation="categories"] .repeatable-row input');
+          return {input: input?.getBoundingClientRect().height, select: select?.getBoundingClientRect().height,
+            productType: productType?.getBoundingClientRect().height, category: category?.getBoundingClientRect().height};
         });
         assert.ok(Math.abs(controls.input - controls.select) <= 2, `${name}/${label}: editor input and select heights differ ${JSON.stringify(controls)}`);
+        assert.equal(controls.productType, 48, `${name}/${label}: Product Type dropdown height ${JSON.stringify(controls)}`);
+        assert.equal(controls.category, 48, `${name}/${label}: Categories field height ${JSON.stringify(controls)}`);
+        const editorHeights = await page.evaluate(() => [...document.querySelectorAll('[data-metadata-editor] input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]), [data-metadata-editor] select')]
+          .filter(control => control.getClientRects().length)
+          .map(control => ({field: control.id || control.name || control.dataset.field || control.type, height: control.getBoundingClientRect().height})));
+        assert.ok(editorHeights.length > 30, `${name}/${label}: expected a representative set of visible editor controls`);
+        assert.deepEqual(editorHeights.filter(control => control.height !== 48), [], `${name}/${label}: single-line editor controls must share one 48px height`);
         if (name === 'desktop') assert.equal(await page.locator('.editor-save-controls .metadata-section-nav').evaluate(el => getComputedStyle(el).overflowY), 'visible', `${label}: sidebar navigation has an internal scrollbar`);
         if (name === 'phone') {
           assert.equal(await page.locator('.metadata-mobile-savebar [data-validate-metadata]').count(), 1);
