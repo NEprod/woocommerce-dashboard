@@ -1,13 +1,16 @@
 {% extends 'promotions/base.html' %}
 {% block promotions %}
-<section class="editor-workspace-section">
-  <header><h2>Review &amp; Publish: {{ d.name }}</h2></header>
+<section class="editor-workspace-section table-panel">
+  <header class="table-panel-header"><h2>Review &amp; Publish: {{ d.name }}</h2></header>
   <p>{{ kinds[d.kind] }} · {{ d.method|title }}{% if d.code %} ({{ d.code }}){% endif %} · {{ d.scope|title }} discount · {{ d.intent|title }}</p>
   <p>UK schedule: {{ uk(d.starts) or 'Start not set' }} → {{ uk(d.ends) or 'No scheduled end' }}.</p>
   {% if d.kind=='exact' %}<p>{% for tier in d.tiers %}Any {{ tier.qty }} for £{{ money(tier.total) }}{% if not loop.last %} · {% endif %}{% endfor %} · {{ 'Repeating sets' if d.repeat else 'One set per cart' }}.</p>
   {% elif d.kind=='bxgy' %}<p>Buy {{ d.buy }}, get {{ d.get }} at {{ money(d.value) }}% off. Limit {{ d.limit }} sets per order.</p>
   {% else %}<p>{{ money(d.value) ~ '%' if d.kind=='percent' else '£' ~ money(d.value) }} off; at least {{ d.minimum }} qualifying items.</p>{% endif %}
   <p>Combines with: {% for key,value in d.combines.items() if value %}{{ key }}{% if not loop.last %}, {% endif %}{% else %}None{% endfor %}.</p>
+  <p>Included selections: {{ d.targets|length }} · Exclusions: {{ d.exclusions|default([])|length }} · Final verified qualifying variants: {{ rows|length }}.</p>
+  {% if d.targets %}<details><summary>Included collections, products and variants</summary><ul>{% for target in d.targets %}<li>{{ target.mode|title }} · {{ target.source }}{% if target.sku %} · {{ target.sku }}{% endif %}{% if target.name %} · {{ target.name }} = {{ target.value }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+  {% if d.exclusions|default([]) %}<details open><summary>Excluded products and variants</summary><ul>{% for target in d.exclusions %}<li>{{ target.mode|title }} · {{ target.source }}{% if target.sku %} · {{ target.sku }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
   {% if d.method=='code' %}<p>{{ d.usage or 'Unlimited' }} uses · {{ 'Once per customer' if d.once else 'Repeat use permitted' }} · {{ d.segment or 'All eligible buyers' }}.</p>{% endif %}
   {% if error %}<p class="alert alert-warning" role="alert">{{ error }}</p>{% endif %}
   {% if proof.published %}
@@ -24,8 +27,8 @@
   {% endif %}
 </section>
 {% if rows %}
-<section class="editor-workspace-section" {% if d.kind=='exact' %}data-promotion-quote{% endif %}>
-  <header><h2>Resolved qualifying variants ({{ rows|length }})</h2></header>
+<section class="editor-workspace-section table-panel" {% if d.kind=='exact' %}data-promotion-quote{% endif %}>
+  <header class="table-panel-header"><h2>Resolved qualifying variants ({{ rows|length }})</h2></header>
   <div class="structured-editor-list">
   {% for variant in rows %}
     <div class="structured-editor-row"><strong>{{ variant.name }} · {{ variant.sku }}</strong>
@@ -39,7 +42,7 @@
 </section>
 {% endif %}
 {% if plan and plan.rewards %}
-<section class="editor-workspace-section"><h2>Resolved reward variants</h2><ul>{% for v in plan.rewards %}<li>{{ v.name }} · {{ v.sku }} · {{ v.id }}</li>{% endfor %}</ul></section>
+<section class="editor-workspace-section table-panel"><header class="table-panel-header"><h2>Resolved reward variants</h2></header><ul>{% for v in plan.rewards %}<li>{{ v.name }} · {{ v.sku }} · {{ v.id }}</li>{% endfor %}</ul></section>
 {% endif %}
 <div class="page-actions">
   <a class="btn btn-outline-primary" href="{{ url_for('promotions.edit',ident=row.id) }}">Back to editor</a>

@@ -886,6 +886,8 @@ a.metric-card:hover, a.products-stat-card:hover, a.dashboard-stat-card:hover { b
 .guided-field-label { display: flex; min-height: 22px; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .guided-field label, .guided-field-label > span { margin: 0; color: var(--color-brand-text); font-size: 13px; font-weight: 650; }
 .guided-field input, .guided-field select, .guided-field textarea, .repeatable-row input, .structured-editor-row input { width: 100%; min-height: 44px; padding: var(--space-3) var(--space-4); border: var(--border-default); border-color: var(--color-brand-forest); border-radius: var(--radius-input); background: var(--color-surface-primary); color: var(--color-brand-text); }
+.guided-field :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select) { box-sizing: border-box; height: var(--control-height); }
+.check-row input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--color-brand-forest); }
 .guided-field textarea { resize: vertical; }
 .field-helper { min-height: 18px; margin: 0; color: var(--color-brand-muted); font-size: 12px; }
 :where(.feature-panel, .operational-panel, .panel-dark, .metadata-provenance-panel, .operation-progress, .preview-readiness, .preview-product-hero, .intake-readiness, .intake-compatibility) > .field-helper { color: rgba(248,250,248,.75); }

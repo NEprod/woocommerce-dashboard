@@ -26,7 +26,7 @@ def administrator():
 
 def default():
     return dict(name='',kind='exact',method='automatic',scope='product',intent='draft',starts=None,ends=None,
-                targets=[],rewards=[],combines={},tiers=[{'qty':2,'total':900}],repeat=True)
+                targets=[],exclusions=[],rewards=[],combines={},tiers=[{'qty':2,'total':900}],repeat=True)
 
 
 def _number(form,name,default=None):
@@ -48,18 +48,31 @@ def _selection(raw):
 def _from_form(form):
     kind, method = form.get('kind'), form.get('method')
     data = {k:form.get(k) for k in ('name','kind','method','scope','intent','starts','ends','code','segment')}
-    data.update(targets=[_selection(s) for s in form.getlist('targets')], combines={k:k in form for k in domain.COMBINES})
+    data.update(targets=[_selection(s) for s in form.getlist('targets')],
+                exclusions=[_selection(s) for s in form.getlist('exclusions')],
+                combines={k:k in form for k in domain.COMBINES})
     if method=='code':
         data.update(usage=_number(form,'usage'),once='once' in form)
     if kind=='exact':
         tiers = []
-        for line in form.get('tiers','').splitlines():
-            if not line.strip():
-                continue
-            qty, sep, total = line.partition('=')
-            if not sep or not qty.strip().isascii() or not qty.strip().isdecimal() or len(qty.strip())>2:
-                raise ValueError('Enter each tier as quantity=total, for example 2=9.00.')
-            tiers.append({'qty':int(qty),'total':domain.minor(total,'Tier price')})
+        quantities, prices = form.getlist('tier_qty'), form.getlist('tier_total')
+        if quantities or prices:
+            if len(quantities) != len(prices) or len(quantities) > 8:
+                raise ValueError('Enter no more than eight complete quantity tiers.')
+            for qty, price in zip(quantities, prices):
+                if not price.strip():
+                    continue
+                if not qty.isascii() or not qty.isdecimal():
+                    raise ValueError('Enter a whole-number tier quantity.')
+                tiers.append({'qty':int(qty),'total':domain.minor(price,'Tier price')})
+        else:
+            for line in form.get('tiers','').splitlines():
+                if not line.strip():
+                    continue
+                qty, sep, total = line.partition('=')
+                if not sep or not qty.strip().isascii() or not qty.strip().isdecimal() or len(qty.strip())>2:
+                    raise ValueError('Enter each tier as quantity=total, for example 2=9.00.')
+                tiers.append({'qty':int(qty),'total':domain.minor(total,'Tier price')})
         data.update(tiers=tiers,repeat='repeat' in form)
     elif kind=='bxgy':
         data.update(buy=_number(form,'buy',2),get=_number(form,'get',1),limit=_number(form,'limit',1),
@@ -93,7 +106,7 @@ def index():
         ready = Configuration.from_env() is not None
     except ShopifyPromotionError:
         pass
-    return render_template('promotions/index.html',rows=rows,pagination=promotions_page,kinds=domain.KINDS,uk=_uk,ready=ready)
+    return render_template('promotions/index.html',rows=rows,pagination=promotions_page,kinds=domain.KINDS,uk=_uk,money=domain.money,ready=ready)
 
 
 def _render_edit(row, data, *, error=None, status=200):
@@ -124,8 +137,9 @@ def edit(ident=None):
             current[key+'_text'] = request.form.get(key,'')
         for key in ('repeat','once'):
             current[key] = key in request.form
+        current['tier_rows'] = list(zip(request.form.getlist('tier_qty'),request.form.getlist('tier_total')))
         current['combines'] = {key:key in request.form for key in domain.COMBINES}
-        for key in ('targets','rewards'):
+        for key in ('targets','rewards','exclusions'):
             current[key] = []
             for value in request.form.getlist(key)[:domain.MAX_VARIANTS]:
                 try:
@@ -206,7 +220,9 @@ def _local_rows(d, adapter):
         # Offline local review never calls the primary application's connection.
         stores = db.session.query(ShopifyProductIdentity.store_id).filter_by(state='verified',verification_state='verified').distinct().limit(2).all()
         store = stores[0][0] if len(stores)==1 else None
-    return domain.resolve(d['targets'],store) if store else []
+    if not store:
+        raise ValueError('A single verified Shopify store identity is needed to preview the qualifying variants.')
+    return domain.resolve(d['targets'],store,d.get('exclusions',[]))
 
 
 def _costs(rows):

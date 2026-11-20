@@ -137,12 +137,13 @@ def build(row, adapter):
             _required_optional(prior['expected'],conn['scopes'])
         if d['ends'] and d['ends'] <= domain.iso(now()):
             raise ShopifyPromotionError('This promotion has expired. Review a new schedule first.')
-        rows = domain.resolve(d['targets'],conn['shop']) if d['scope']=='product' else []
+        rows = domain.resolve(d['targets'],conn['shop'],d.get('exclusions',[])) if d['scope']=='product' else []
         rewards = domain.resolve(d['rewards'],conn['shop']) if d['kind']=='bxgy' and d['rewards'] else rows if d['kind']=='bxgy' else []
         adapter.verify_variants(list({r['id']:r for r in [*rows,*rewards]}.values()))
         expected = {**d,'segment':d.get('segment'),'title':'TLC · ' + d['name'],'marker':'tlc-promotion-' + row.id,
                     'variants':[r['id'] for r in rows]}
         expected.pop('targets')
+        expected.pop('exclusions', None)
         if d['kind']=='bxgy':
             expected['rewards'] = [r['id'] for r in rewards]
         if d['kind']=='exact':

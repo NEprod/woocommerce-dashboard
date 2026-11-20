@@ -153,6 +153,100 @@ def test_admin_local_edit_duplicate_and_no_implicit_publication(workshop, monkey
         assert publish.document(copy_row)['intent']=='draft' and copy_row.receipt is None
 
 
+def test_structured_tiers_and_exclusions_save_locally_without_shopify(workshop, monkeypatch):
+    client=client_for(workshop)
+    monkeypatch.setattr(publish,'client',lambda: (_ for _ in ()).throw(AssertionError('No Shopify request on save')))
+    form=dict(name='Christmas set',kind='exact',method='automatic',scope='product',intent='draft',
+              tier_qty=['2','3','4','5'],tier_total=['9.00','19.95','',''],repeat='yes')
+    response=client.post('/promotions/new',data=form)
+    assert response.status_code==303
+    with workshop.app_context():
+        saved=publish.document(Promotion.query.one())
+        assert saved['tiers']==[{'qty':2,'total':900},{'qty':3,'total':1995}]
+        assert saved['exclusions']==[]
+    assert b'Add Quantity Tier' in client.get(response.location).data
+    listing=client.get('/promotions/')
+    assert listing.status_code==200 and b'Qualifying scope' in listing.data and b'Christmas set' in listing.data
+    assert client.post('/promotions/new',data={**form,'tier_qty':['2','2'],'tier_total':['9.00','10.00']}).status_code==400
+
+
+@pytest.mark.parametrize('variable_world',['Variable Collection'],indirect=True)
+def test_exclusions_override_collection_and_variant_inclusions(variable_world):
+    from app import shopify_drafts as drafts
+    product,*_=variable_world
+    adapter=VariableAdapter()
+    _,token=drafts.preview(product,adapter)
+    drafts.confirm(token,True,adapter)
+    base={'id':product.id,'source':product.source_relpath}
+    selected=dict(base,mode='product')
+    before=domain.resolve([selected],STORE)
+    assert len(before)>1
+    excluded=dict(base,mode='fixed',sku=before[0]['sku'],gid=before[0]['id'])
+    remaining=domain.resolve([selected,selected],STORE,[excluded])
+    assert len(remaining)==len(before)-1 and excluded['gid'] not in {row['id'] for row in remaining}
+    with pytest.raises(ValueError,match='verified identity'):
+        domain.resolve([selected],STORE,[dict(excluded,sku='WRONG')])
+    with pytest.raises(ValueError,match='verified eligible'):
+        domain.resolve([selected],STORE,[selected])
+    promotion=new('exact',targets=[selected],exclusions=[excluded])
+    mock=Mock()
+    plan=publish.build(promotion,mock)
+    assert plan['expected']['function_config']['variants']==[row['id'] for row in remaining]
+    assert 'exclusions' not in plan['expected']
+    assert mock.calls==[]
+    approval=publish.approval(plan,'operator')
+    local_update(promotion,exclusions=[])
+    with pytest.raises(ValueError,match='changed'):
+        publish.confirm(promotion,approval,'operator',mock)
+    assert mock.calls==[]
+
+
+@pytest.mark.parametrize('variable_world',['Variable Collection'],indirect=True)
+def test_multiple_collections_combined_explicit_variant_and_deduplication(variable_world,monkeypatch):
+    from app.models import Product
+    variable,*_=variable_world
+    simple=Product.query.filter(Product.id != variable.id).first()
+    Product.query.filter(Product.id.not_in((simple.id,variable.id))).update({'catalogue_status':'inactive'},synchronize_session=False)
+    db.session.commit()
+    monkeypatch.setattr(domain,'product_choices',lambda product,store: [{
+        'id':f'gid://shopify/ProductVariant/{300+product.id}', 'local_id':product.id,
+        'sku':product.sku,'name':product.title,'price':'3.50','options':{}}])
+    collections=[{'mode':'collection','id':product.collection.id,'source':product.collection.source_relpath}
+                 for product in (simple,variable)]
+    explicit={'mode':'product','id':variable.id,'source':variable.source_relpath}
+    rows=domain.resolve([*collections,explicit,collections[1]],STORE)
+    assert len(rows)==len({row['id'] for row in rows})
+    assert {row['local_id'] for row in rows}=={simple.id,variable.id}
+    assert len(rows)==len(domain.resolve(collections,STORE))
+    without_simple=domain.resolve([*collections,explicit],STORE,
+        [{'mode':'product','id':simple.id,'source':simple.source_relpath}])
+    assert {row['local_id'] for row in without_simple}=={variable.id}
+    variable.collection_id=None
+    db.session.commit()
+    assert {row['local_id'] for row in domain.resolve(collections,STORE)}=={simple.id}
+
+
+@pytest.mark.parametrize('variable_world',['Variable Collection'],indirect=True)
+def test_disconnected_local_review_shows_final_pool_without_approval(variable_world,monkeypatch):
+    from flask import current_app
+    from app import shopify_drafts as drafts
+    product,*_=variable_world
+    adapter=VariableAdapter()
+    _,token=drafts.preview(product,adapter)
+    drafts.confirm(token,True,adapter)
+    selected={'mode':'product','id':product.id,'source':product.source_relpath}
+    before=domain.resolve([selected],STORE)
+    excluded={'mode':'fixed','id':product.id,'source':product.source_relpath,
+              'sku':before[0]['sku'],'gid':before[0]['id']}
+    row=new('exact',intent='draft',targets=[selected],exclusions=[excluded])
+    monkeypatch.setattr(publish,'client',lambda: None)
+    response=client_for(current_app._get_current_object()).get('/promotions/'+row.id+'/review')
+    assert response.status_code==200
+    html=response.get_data(as_text=True)
+    assert f'Final verified qualifying variants: {len(before)-1}' in html
+    assert excluded['sku'] in html and 'name="approval"' not in html
+
+
 def test_confirmation_and_local_mutations_keep_existing_csrf(workshop):
     workshop.config['WTF_CSRF_ENABLED']=True
     client=client_for(workshop)

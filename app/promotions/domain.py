@@ -118,11 +118,15 @@ def definition(data):
     if intent == 'live' and not start:
         raise ValueError('Set an explicit start time before making a promotion Live.')
     targets = _targets(data.get('targets', [])) if scope == 'product' else []
+    exclusions = _targets(data.get('exclusions', [])) if scope == 'product' else []
+    if any(item['mode'] not in ('product', 'fixed') for item in exclusions):
+        raise ValueError('Exclude an entire product or one retained variant.')
     flags = data.get('combines', {})
     if not isinstance(flags, dict) or any(k not in COMBINES or type(v) is not bool for k,v in flags.items()):
         raise ValueError('Choose supported combinations only.')
     out = dict(name=clean(data.get('name'), 'promotion name', 95), kind=kind, method=method, scope=scope,
-               intent=intent, starts=start, ends=end, targets=targets, combines={k:flags.get(k,False) for k in COMBINES})
+               intent=intent, starts=start, ends=end, targets=targets, exclusions=exclusions,
+               combines={k:flags.get(k,False) for k in COMBINES})
     if kind == 'exact' and (out['combines']['orderDiscounts'] or out['combines']['shippingDiscounts']):
         raise ValueError('Exact-price offers can only combine with product offers on different eligible items.')
     if kind == 'bxgy' and out['combines']['productDiscounts']:
@@ -194,8 +198,17 @@ def product_choices(product, store_id):
     return rows
 
 
-def resolve(selectors, store_id):
+def resolve(selectors, store_id, exclusions=()):
     rows = {}
+    excluded_products = set()
+    for selection in exclusions:
+        product = db.session.get(Product,selection['id'])
+        if not product or product.source_relpath != selection['source']:
+            raise ValueError('An excluded product no longer has its retained catalogue identity.')
+        if selection['mode'] == 'product':
+            excluded_products.add(product.id)
+        elif selection['mode'] != 'fixed':
+            raise ValueError('Exclude an entire product or one retained variant.')
     for selection in selectors:
         if selection['mode'] == 'collection':
             collection = db.session.get(Collection,selection['id'])
@@ -210,6 +223,8 @@ def resolve(selectors, store_id):
                 raise ValueError('A selected product no longer has its retained catalogue identity.')
             products = [product]
         for product in products:
+            if product.id in excluded_products:
+                continue
             options = product_choices(product,store_id)
             if selection['mode'] == 'fixed':
                 options = [v for v in options if v['sku'] == selection['sku'] and v['id'] == selection['gid']]
@@ -225,6 +240,14 @@ def resolve(selectors, store_id):
                 rows[row['id']] = row
                 if len(rows) > MAX_VARIANTS:
                     raise ValueError('The promotion exceeds the 100-variant publication budget; narrow the eligibility.')
+    for selection in exclusions:
+        if selection['mode'] == 'fixed' and selection['id'] not in excluded_products:
+            product = db.session.get(Product,selection['id'])
+            if not any(row['id'] == selection['gid'] and row['sku'] == selection['sku']
+                       for row in product_choices(product, store_id)):
+                raise ValueError('An excluded variant no longer has its retained verified identity.')
+            rows = {gid: row for gid, row in rows.items() if not
+                    (row['local_id'] == product.id and row['sku'] == selection['sku'] and gid == selection['gid'])}
     if not rows:
         raise ValueError('Choose at least one verified eligible variant.')
     return [rows[key] for key in sorted(rows)]

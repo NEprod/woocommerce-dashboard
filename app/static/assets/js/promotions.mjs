@@ -20,16 +20,29 @@ for (const editor of document.querySelectorAll('[data-promotion-editor]')) {
     if (productOnly) scope.value = 'product';
     for (const section of editor.querySelectorAll('[data-show-kind]')) section.hidden = !section.dataset.showKind.split(' ').includes(kind.value);
     for (const section of editor.querySelectorAll('[data-show-method]')) section.hidden = section.dataset.showMethod !== method.value;
-    editor.querySelector('[data-promotion-product-scope]').hidden = scope.value !== 'product';
+    for (const section of editor.querySelectorAll('[data-promotion-product-scope]')) section.hidden = scope.value !== 'product';
   }
   for (const field of [kind,method,scope]) field.addEventListener('change',show);
   show();
+  const addTier = editor.querySelector('[data-add-tier]');
+  addTier?.addEventListener('click', () => {
+    const rows = editor.querySelector('[data-tier-rows]');
+    if (rows.querySelectorAll('[data-tier-row]').length >= 8) return;
+    const row = make('div'); row.className = 'editor-field-grid'; row.dataset.tierRow = '';
+    for (const [label,name,mode] of [['Quantity','tier_qty','numeric'],['Fixed total (£)','tier_total','decimal']]) {
+      const field = make('label',label); field.className = 'guided-field';
+      const input = make('input'); input.name = name; input.inputMode = mode; input.className = 'form-control';
+      field.append(input); row.append(field);
+    }
+    rows.append(row);
+  });
   for (const picker of editor.querySelectorAll('[data-promotion-targets]')) {
     const group = picker.dataset.promotionTargets;
     const input = picker.querySelector('[data-target-search]');
     const results = picker.querySelector('[data-target-results]');
     const chosen = picker.querySelector('[data-target-chosen]');
     const status = picker.querySelector('[data-target-status]');
+    const mode = picker.querySelector('[data-eligibility-mode]');
     const key = item => JSON.stringify(Object.entries(item).sort(([left],[right]) => left < right ? -1 : left === right ? 0 : 1));
     let timer, generation = 0;
     chosen.addEventListener('click', event => {
@@ -60,7 +73,7 @@ for (const editor of document.querySelectorAll('[data-promotion-editor]')) {
       chosen.append(row);
       status.textContent = 'Added ' + label;
     }
-    input.addEventListener('input',() => {
+    const search = () => {
       const active = ++generation;
       clearTimeout(timer);
       results.replaceChildren();
@@ -73,22 +86,23 @@ for (const editor of document.querySelectorAll('[data-promotion-editor]')) {
           if (!response.ok) throw new Error();
           const data = await response.json();
           if (active!==generation) return;
-          for (const collection of data.collections) {
+          for (const collection of group === 'exclusions' || mode?.value === 'products' ? [] : data.collections) {
             results.append(button(collection.name+' · collection',() => add(collection.target,collection.name+' · collection')));
           }
-          for (const product of data.products) {
+          for (const product of mode?.value === 'collections' ? [] : data.products) {
             const row = make('div');
             row.className = 'structured-editor-row';
             const choices = make('select');
             choices.setAttribute('aria-label','Eligibility for '+product.name);
             choices.className = 'form-select';
-            for (const [index,option] of product.options.entries()) {
+            const options = group === 'exclusions' ? product.options.filter(option => ['product','fixed'].includes(option.target.mode)) : product.options;
+            for (const [index,option] of options.entries()) {
               const element = make('option',option.label);
               element.value=index;
               choices.append(element);
             }
             row.append(make('strong',product.name+' · '+product.sku),choices,button('Add selection',() => {
-              const option = product.options[Number(choices.value)];
+              const option = options[Number(choices.value)];
               if (option) add(option.target,product.name+' · '+option.label);
             }));
             results.append(row);
@@ -98,7 +112,9 @@ for (const editor of document.querySelectorAll('[data-promotion-editor]')) {
           if (active===generation) status.textContent='Catalogue search is unavailable. Try again.';
         }
       },300);
-    });
+    };
+    input.addEventListener('input',search);
+    mode?.addEventListener('change',search);
   }
 }
 
