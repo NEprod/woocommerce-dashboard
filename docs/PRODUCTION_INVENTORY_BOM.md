@@ -144,3 +144,52 @@ mode without reinterpretation. Purchase inputs are optional additive fields in
 existing scenario JSON, not new inventory records or schema changes. Row Apply
 only changes the unsaved scenario; Save retains the inputs and calculation
 snapshot. This change has no stock, barcode, Shopify or deployment effects.
+
+### Production process runtime entry
+
+Process dialogs accept hours and remaining minutes, but saved scenarios still
+store total minutes (250 minutes reopens as 4 hours 10 minutes). Select one
+finished item or a whole batch/print plate. Identical items split runtime equally
+across accepted usable items. Mixed items require an explicit equal split or a
+custom percentage of total runtime, then divide by the usable items in that group.
+The live preview shares the BOM calculation and uses current profile/tariff values;
+unknown electricity inputs stay unknown and estimated wattages remain labelled.
+Opening or cancelling a dialog does not rewrite saved assumptions or snapshots.
+
+### Standalone print waste, packaging and price comparisons
+
+The existing `buffer` (default 10%) applies only to manufactured-component recipe
+material estimates. It intentionally does not charge direct/hypothetical raw
+materials. The separate `print_waste_rate` defaults to 11% and applies only to
+standalone raw lines explicitly marked **3D-print raw material**. This is an
+operator declaration of process use, not a classification inferred from PLA names.
+Unmarked lines, manufactured/purchased components, packaging, electricity and
+labour are excluded. Existing scenarios without marked lines acquire no charge.
+Blank scenario overrides inherit; explicit zero disables the allowance. The
+full-precision allowance enters total cost before pricing, without stock changes.
+
+Packaging & Presentation accepts hypothetical purchase/direct costs or saved
+purchased components. Add only packaging additional to any existing recipes/BOM;
+the same inventory item cannot be charged in both material and packaging sections.
+Unknown costs remain incomplete; absent packaging is labelled not included.
+Postage and customer shipping income are not inferred. Nested recipe packaging
+and physically identical hypothetical lines cannot be identified automatically.
+
+Advanced Costing Options retain hidden values and show inherited defaults and
+active overrides. Opening/cancelling an Add dialog has no row or dirty-state
+effect. Rows enter the submitted form only after Apply. Row templates are inert,
+so repeated preview/save/reopen cannot generate new unused placeholders. Existing
+saved rows are rendered without automatic deletion or database cleanup.
+
+Blank chosen price means no chosen-price profit calculation; explicit £0 remains
+a real zero. Previously saved zeroes and snapshots remain zeroes/snapshots. The
+suggested-price comparison solves percentage plus fixed fees once. Exact Decimal
+recommendations are retained; currency recommendations round upward to a penny,
+or optionally to £0.50, £1 or .95, never downward. Profit/fees/margin use the
+presented recommendation. Changes to current defaults only affect an explicit
+preview/recalculation or save, not stored historical snapshots.
+
+The mobile bottom navigation stays fixed. Planner clearance is measured from its
+actual rendered position; modal content scrolls independently with sticky actions.
+Browser tests cover phone and reduced viewport heights, not physical iOS keyboard
+or printer hardware acceptance.

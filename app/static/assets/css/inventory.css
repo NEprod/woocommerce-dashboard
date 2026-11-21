@@ -20,6 +20,29 @@
 .workshop .workshop-section-heading { margin-top: 1.5rem; }
 .workshop-form { display: grid; gap: var(--workshop-gap); max-width: 56rem; }
 .workshop-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: .75rem; }
+.bom-workspace .bom-add { margin: var(--space-4, 1rem); }
+.bom-workspace .bom-row-actions, .bom-dialog .page-actions { display: flex; flex-wrap: wrap; gap: var(--space-3, .75rem); align-items: center; }
+.bom-workspace [data-advanced] { margin: var(--space-4, 1rem); }
+.bom-workspace [data-advanced] .workshop-fields { margin-top: var(--space-4, 1rem); }
+.bom-dialog { max-height: calc(100dvh - 2 * var(--space-4, 1rem)); overscroll-behavior: contain; }
+.bom-dialog label { display: grid; min-width: 0; gap: .3rem; }
+.bom-dialog fieldset { min-width: 0; }
+.bom-dialog .form-control, .bom-dialog .form-select { min-height: 44px; }
+@media (max-width: 767px) {
+  body:has(.bom-workspace) { padding-bottom: 0; }
+  .app-main:has(.bom-workspace) { padding-bottom: var(--space-5, 1.25rem); }
+  .bom-workspace { padding-bottom: calc(var(--bom-nav-clearance, 6rem) + var(--space-4, 1rem)); }
+  .bom-workspace .bom-lines { min-width: 0; }
+  .bom-workspace .bom-lines thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .bom-workspace .bom-lines tbody { display: grid; gap: var(--space-3, .75rem); }
+  .bom-workspace .bom-lines tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: var(--space-4, 1rem); border-bottom: 1px solid var(--color-border); gap: .6rem; }
+  .bom-workspace .bom-lines td { display: block; border: 0; padding: 0; overflow-wrap: anywhere; }
+  .bom-workspace .bom-lines td::before { content: attr(data-column); display: block; font-size: .75rem; color: var(--color-text-secondary); }
+  .bom-workspace .bom-lines td:first-child, .bom-workspace .bom-row-actions { grid-column: 1 / -1; }
+  .bom-workspace .bom-lines .bom-row-actions { display: flex; }
+  .bom-workspace .bom-single-process td:nth-child(4), .bom-workspace .bom-single-process td:nth-child(5), .bom-workspace .bom-single-process td:nth-child(6) { display: none; }
+  .bom-dialog .page-actions { padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }
+}
 .workshop label { display: grid; gap: .3rem; font-weight: 600; min-width: 0; }
 .workshop-panel > :is(label, .workshop-fields, fieldset, details) { margin-bottom: .75rem; }
 .workshop fieldset { min-width: 0; }

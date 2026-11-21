@@ -158,9 +158,11 @@ def costing_settings():
                     raise ValueError("Settings changed in another session. Reload before saving.")
                 saved = json.loads(row.document) if row else {}
                 for key in DEFAULTS:
+                    if key == 'print_waste_rate' and key not in request.form:
+                        continue  # Older clients must not overwrite the new optional default.
                     value = request.form.get(key, "").strip()
                     saved[key] = None if not value and key in {"tariff", "labour_rate"} else str(decimal(value, key,
-                        maximum="99.99" if key == "fee_percent" else "1000000000"))
+                        maximum="99.99" if key == "fee_percent" else "100" if key == "print_waste_rate" else "1000000000"))
                 if row:
                     row.document, row.version = json.dumps(saved), row.version + 1
                 else:
@@ -223,12 +225,20 @@ def bom_planner(scenario_id, product_id=None):
                 raise ValueError("Send complete equipment usage lines.")
             document = dict(lines=[dict(item_id=int(i), quantity=q, unit=u) for i, q, u in zip(*columns) if i],
                             equipment=[dict(equipment_id=int(i), minutes=m) for i, m in zip(*equipment_columns) if i],
-                            **{key: request.form.get(key) or "0" for key in ("labour_minutes", "other", "selling_price")})
+                            **{key: request.form.get(key) or "0" for key in ("labour_minutes", "other")},
+                            selling_price=request.form.get('selling_price',''),
+                            price_rounding=request.form.get('price_rounding','exact'))
+            print_flags = request.form.getlist('print_material')
+            if print_flags:
+                if len(print_flags) != len(columns[0]):
+                    raise ValueError('Send one print-material selection per inventory line.')
+                for line, flag in zip(document['lines'], [flag for identity,flag in zip(columns[0],print_flags) if identity]):
+                    line['print_material'] = flag
             manual = [request.form.getlist(k) for k in ('manual_name','manual_quantity','manual_unit','manual_cost')]
             if len({len(c) for c in manual}) != 1:
                 raise ValueError('Send complete hypothetical material rows.')
             extras = {key: request.form.getlist('manual_' + key) for key in
-                      ('cost_mode','purchase_cost','purchase_quantity','purchase_unit','conversion_factor')}
+                      ('cost_mode','purchase_cost','purchase_quantity','purchase_unit','conversion_factor','print_material')}
             if any(column and len(column) != len(manual[0]) for column in extras.values()):
                 raise ValueError('Send complete hypothetical purchase details for each material row.')
             for index, (n,q,u,c) in enumerate(zip(*manual)):
@@ -236,6 +246,21 @@ def bom_planner(scenario_id, product_id=None):
                     line = dict(source='manual',name=n,quantity=q,unit=u,unit_cost=c)
                     line.update({key: column[index] for key,column in extras.items() if column})
                     document['lines'].append(line)
+            pack_fields = ('name','quantity','unit','cost','cost_mode','purchase_cost','purchase_quantity','purchase_unit','conversion_factor','item_id')
+            packs = {key: request.form.getlist('pack_' + key) for key in pack_fields}
+            if any(packs.values()) and len({len(column) for column in packs.values()}) != 1:
+                raise ValueError('Send complete packaging rows.')
+            for index in range(len(packs['name'])):
+                entry = {key: values[index] for key,values in packs.items()}
+                if entry['item_id']:
+                    selected = db.session.get(Item, int(entry['item_id']))
+                    if not selected or selected.kind != 'purchased':
+                        raise ValueError('Select a purchased packaging component.')
+                    document['lines'].append(dict(item_id=selected.id, quantity=entry['quantity'], unit=entry['unit'], purpose='packaging'))
+                elif entry['name'].strip():
+                    entry['unit_cost'] = entry.pop('cost')
+                    entry.pop('item_id')
+                    document['lines'].append(dict(entry, source='manual', purpose='packaging'))
             for index, usage in enumerate(document['equipment']):
                 for field in ('timing_mode','usable_units','allocation','share_percent'):
                     entered = request.form.getlist(field)
@@ -244,7 +269,7 @@ def bom_planner(scenario_id, product_id=None):
                             raise ValueError('Send one allocation configuration per selected equipment line.')
                         selected_index = [i for i,value in enumerate(equipment_columns[0]) if value][index]
                         usage[field] = entered[selected_index]
-            for key in ("buffer", "markup", "labour_rate", "fee_profile"):
+            for key in ("buffer", "markup", "labour_rate", "fee_profile", "print_waste_rate"):
                 if request.form.get(key, "").strip():
                     document[key] = request.form[key].strip()
             if product:
@@ -291,7 +316,10 @@ def bom_planner(scenario_id, product_id=None):
             result = estimate(document, config, direct_materials=not bool(product))
             if not product:
                 result['historical_context_missing'] = True
-    return render_template("inventory/bom_planner.html", scenario=scenario, name=name, document=document,
+    from .profitability import DEFAULTS
+    settings = db.session.get(CostingSettings, 1)
+    defaults = {**DEFAULTS, **(json.loads(settings.document) if settings else {})}
+    return render_template("inventory/bom_planner.html", scenario=scenario, name=name, document=document, defaults=defaults,
                            result=result, error=error, items=_item_choices(include_archived=True), equipment=Equipment.query.order_by(Equipment.name).all(),
                            product=product, sku=sku, costs=costs,
                            fee_profiles=json.loads(db.session.get(CostingSettings, 1).document).get('fee_profiles', []) if db.session.get(CostingSettings, 1) else [],
@@ -315,6 +343,29 @@ def archive_bom_scenario(scenario_id):
     return redirect(url_for('inventory.bom_planner'), code=303)
 
 
+@inventory.post('/bom/process-preview')
+def process_preview():
+    from .profitability import process_cost, decimal, material_money
+    request.max_content_length = 16384
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(error='Send production process fields as an object.'), 400
+    try:
+        hours = decimal(body.get('runtime_hours'), 'Hours')
+        minutes = decimal(body.get('runtime_minutes'), 'Minutes')
+        if hours != hours.to_integral_value() or minutes >= 60:
+            raise ValueError('Enter whole non-negative hours and minutes from 0 to less than 60.')
+        line = {**body, 'minutes': str(hours * 60 + minutes)}
+        settings = db.session.get(CostingSettings, 1)
+        result = process_cost(line, json.loads(settings.document) if settings else {})
+        return jsonify(minutes=line['minutes'], total_minutes=str(result['total_minutes']),
+                       attributable_minutes=str(result['attributable_minutes']),
+                       electricity=material_money(result['electricity']),
+                       missing=result['missing'], provisional=result['provisional'])
+    except (ValueError, KeyError) as exc:
+        return jsonify(error=str(exc)), 400
+
+
 @inventory.post('/bom/hypothetical-preview')
 def hypothetical_preview():
     from .profitability import hypothetical_cost, material_money
@@ -323,6 +374,15 @@ def hypothetical_preview():
     if not isinstance(body, dict):
         return jsonify(error='Send hypothetical material fields as an object.'), 400
     try:
+        if body.get('item_id'):
+            from .profitability import estimate
+            selected = db.session.get(Item, int(body['item_id']))
+            if not selected or (body.get('purpose') != 'material' and selected.kind != 'purchased'):
+                raise ValueError('Select a purchased packaging component.')
+            result = estimate(dict(lines=[dict(item_id=selected.id, quantity=body.get('quantity'), unit=body.get('unit'), purpose='packaging' if body.get('purpose') != 'material' else 'material')]),
+                              direct_materials=True, selling_fees=False)
+            amount = result['lines'][0]['cost'] if result['lines'] else None
+            return jsonify(normalized_unit=body.get('unit'), normalized_unit_cost=None, amount=amount, display_amount=amount, inventory=True)
         result = hypothetical_cost(body)
         return jsonify(normalized_unit=result['normalized_unit'],
                        normalized_unit_cost=None if result['normalized_cost'] is None else format(result['normalized_cost'], 'f'),

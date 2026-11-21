@@ -1,11 +1,11 @@
 """Shared finished-product planning arithmetic. Never posts stock or Shopify writes."""
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_CEILING, localcontext
 
 from app import db
 from . import service as stock
 from .models import Equipment, Item
 
-DEFAULTS = dict(buffer="10", tariff=None, labour_rate=None, markup="0", fee_percent="0", fee_fixed="0", overhead="0")
+DEFAULTS = dict(buffer="10", print_waste_rate="11", tariff=None, labour_rate=None, markup="0", fee_percent="0", fee_fixed="0", overhead="0")
 
 
 def decimal(value, label, *, maximum="1000000000"):
@@ -82,16 +82,68 @@ def material_money(value):
     return text + '.00' if '.' not in text else text + '0' if len(text.split('.')[1]) == 1 else text
 
 
-def pricing(cost, chosen, config, markup, *, complete):
+def pricing(cost, chosen, config, markup, *, complete, rounding='exact'):
     percent = decimal(config['fee_percent'], 'Payment fee percentage', maximum='99.99') / 100
     fixed = decimal(config['fee_fixed'], 'Fixed transaction charge')
-    fees = chosen * percent + fixed
-    profit = chosen - cost - fees
+    fees = None if chosen is None else chosen * percent + fixed
+    profit = None if chosen is None else chosen - cost - fees
+    exact = (cost * (1 + markup / 100) + fixed) / (1 - percent)
+    if rounding == 'exact':
+        recommended = exact.quantize(Decimal('.01'), rounding=ROUND_CEILING)
+    elif rounding in {'half','whole'}:
+        step = Decimal('.50') if rounding == 'half' else Decimal(1)
+        recommended = (exact / step).to_integral_value(rounding=ROUND_CEILING) * step
+    elif rounding == '95':
+        recommended = (exact - Decimal('.95')).to_integral_value(rounding=ROUND_CEILING) + Decimal('.95')
+    else:
+        raise ValueError('Choose a supported selling-price rounding option.')
+    suggested_fees = recommended * percent + fixed
+    suggested_profit = recommended - cost - suggested_fees
     return dict(cost=money(cost) if complete else None,
                 suggested=money(cost * (1 + markup / 100)) if complete else None,
                 fee_adjusted=money((cost * (1 + markup / 100) + fixed) / (1 - percent)) if complete else None,
-                selling_price=money(chosen), fees=money(fees), profit=money(profit) if complete else None,
-                margin=money(profit / chosen * 100) if chosen and complete else None)
+                selling_price=money(chosen) if chosen is not None else None,
+                fees=money(fees) if fees is not None else None,
+                profit=money(profit) if complete and profit is not None else None,
+                margin=money(profit / chosen * 100) if chosen and complete else None,
+                suggestion_exact=str(exact) if complete else None,
+                recommended_price=money(recommended) if complete else None,
+                suggested_fees=money(suggested_fees) if complete else None,
+                suggested_profit=money(suggested_profit) if complete else None,
+                suggested_margin=money(suggested_profit / recommended * 100) if complete and recommended else None)
+
+
+def process_cost(line, config):
+    """Shared process preview/BOM allocation; persisted runtime remains minutes."""
+    total = decimal(line['minutes'], 'Machine runtime minutes')
+    minutes = total
+    if line.get('timing_mode', 'item') == 'batch':
+        usable = decimal(line.get('usable_units'), 'Usable units')
+        if usable <= 0 or usable != usable.to_integral_value():
+            raise ValueError('Batch allocation requires a positive whole number of usable units.')
+        allocation = line.get('allocation')
+        if allocation not in {'identical', 'explicit_equal', 'share'}:
+            raise ValueError('Choose an explicit batch allocation method; mixed items are not assumed equal.')
+        if allocation == 'share':
+            minutes = minutes * decimal(line.get('share_percent'), 'Attributable batch share', maximum='100') / 100
+        minutes /= usable
+    elif line.get('timing_mode', 'item') != 'item':
+        raise ValueError('Choose per-item or batch equipment timing.')
+    try:
+        equipment = db.session.get(Equipment, int(line.get('equipment_id', '')))
+    except (TypeError, ValueError):
+        raise ValueError('Choose an equipment operating profile.') from None
+    missing, provisional, electricity = [], [], None
+    if not equipment or not equipment.active or equipment.watts is None:
+        missing.append(f'{equipment.name if equipment else "Equipment"}: operating watts are unknown or unavailable.')
+    elif config.get('tariff') in (None, ''):
+        missing.append('Electricity tariff is not configured.')
+    else:
+        electricity = decimal(equipment.watts, 'Watts') / 1000 * minutes / 60 * decimal(config['tariff'], 'Tariff')
+        if equipment.source != 'measured':
+            provisional.append(f'{equipment.name} / {equipment.profile}: {equipment.source} watts.')
+    return dict(total_minutes=total, attributable_minutes=minutes, electricity=electricity,
+                missing=missing, provisional=provisional)
 
 
 def estimate(document, settings=None, *, direct_materials=False, selling_fees=True):
@@ -108,13 +160,19 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
             raise ValueError('Selected payment fee profile is no longer available.')
         config.update(fee_percent=profile['percent'], fee_fixed=profile['fixed'])
     missing, provisional, rows, base, manufactured = [], [], [], Decimal(0), Decimal(0)
+    print_material = Decimal(0)
     subtotals = {key: Decimal(0) for key in ('raw_material','purchased_component','manufactured_component','packaging')}
     lines = document.get('lines', [])
     if not isinstance(lines, list) or len(lines) > 80:
         raise ValueError('Use at most 80 inventory lines.')
+    packaged_ids = {str(line.get('item_id')) for line in lines if line.get('purpose') == 'packaging' and line.get('item_id')}
+    other_ids = {str(line.get('item_id')) for line in lines if line.get('purpose') != 'packaging' and line.get('item_id')}
+    if packaged_ids & other_ids:
+        raise ValueError('Packaging inventory is also present in materials/components. Combine its quantity in one section to avoid double-counting.')
     if not lines:
         missing.append('No inventory BOM lines configured.')
     for line in lines:
+        packaging = line.get('purpose') == 'packaging'
         if line.get('source') == 'manual':
             if not direct_materials:
                 raise ValueError('Hypothetical materials are supported only in standalone scenarios.')
@@ -129,8 +187,10 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
             else:
                 amount = calculation['amount']
                 base += amount
-                subtotals['raw_material'] += amount
-                rows.append(dict(name=name,cost=material_money(amount),source='Hypothetical',quantity=str(quantity),unit=line['unit'],unit_cost=format(calculation['usage_unit_cost'],'f')))
+                subtotals['packaging' if packaging else 'raw_material'] += amount
+                if direct_materials and not packaging and line.get('print_material') == 'yes':
+                    print_material += amount
+                rows.append(dict(name=name,cost=material_money(amount),source='Hypothetical packaging' if packaging else 'Hypothetical',quantity=str(quantity),unit=line['unit'],unit_cost=format(calculation['usage_unit_cost'],'f')))
                 provisional.append(f'{name}: hypothetical material cost.')
             continue
         item = db.session.get(Item, int(line['item_id']))
@@ -150,63 +210,53 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
         amount = Decimal(quantity) / stock.SCALE * rate
         base += amount
         category = (item.category or '').strip().casefold()
-        group = 'packaging' if category in {'packaging','packaging material','packaging materials'} else {
+        group = 'packaging' if packaging or category in {'packaging','packaging material','packaging materials'} else {
             'material':'raw_material','purchased':'purchased_component','manufactured':'manufactured_component'}[item.kind]
         subtotals[group] += amount
         if item.kind == 'manufactured':
             manufactured += amount
+        elif item.kind == 'material' and group != 'packaging' and line.get('print_material') == 'yes' and direct_materials:
+            print_material += amount
         rows.append(dict(name=item.name, cost=money(amount), source='Inventory / saved recipe',
                          quantity=str(line['quantity']), unit=line['unit'],
                          unit_cost=format(amount / Decimal(str(line['quantity'])), '.6g')))
     buffer = manufactured * decimal(document.get('buffer', config['buffer']), 'Manufacturing buffer') / 100
+    waste_rate = decimal(document.get('print_waste_rate', config['print_waste_rate']), '3D-print material waste allowance', maximum='100')
+    print_waste = print_material * waste_rate / 100
     electricity = Decimal(0)
     usage = document.get('equipment', [])
     if not isinstance(usage, list) or len(usage) > 40:
         raise ValueError('Use at most 40 equipment usage lines.')
     for line in usage:
-        equipment = db.session.get(Equipment, int(line['equipment_id']))
-        minutes = decimal(line['minutes'], 'Attributable equipment minutes')
-        if line.get('timing_mode', 'item') == 'batch':
-            usable = decimal(line.get('usable_units'), 'Usable units')
-            if usable <= 0 or usable != usable.to_integral_value():
-                raise ValueError('Batch allocation requires a positive whole number of usable units.')
-            allocation = line.get('allocation')
-            if allocation not in {'identical', 'explicit_equal', 'share'}:
-                raise ValueError('Choose an explicit batch allocation method; mixed items are not assumed equal.')
-            if allocation == 'share':
-                share = decimal(line.get('share_percent'), 'Attributable batch share', maximum='100')
-                minutes = minutes * share / 100 / usable
-            else:
-                minutes /= usable
-        elif line.get('timing_mode', 'item') != 'item':
-            raise ValueError('Choose per-item or batch equipment timing.')
-        if not equipment or not equipment.active or equipment.watts is None:
-            missing.append(f'{equipment.name if equipment else "Equipment"}: operating watts are unknown or unavailable.')
-        elif config['tariff'] is None:
-            missing.append('Electricity tariff is not configured.')
-        else:
-            electricity += decimal(equipment.watts, 'Watts') / 1000 * minutes / 60 * decimal(config['tariff'], 'Tariff')
-            if equipment.source != 'measured':
-                provisional.append(f'{equipment.name} / {equipment.profile}: {equipment.source} watts.')
+        calculation = process_cost(line, config)
+        missing.extend(calculation['missing'])
+        provisional.extend(calculation['provisional'])
+        if calculation['electricity'] is not None:
+            electricity += calculation['electricity']
     labour_minutes = decimal(document.get('labour_minutes', '0'), 'Hands-on labour minutes')
     labour_rate = document.get('labour_rate', config['labour_rate'])
     if labour_minutes and labour_rate is None:
         missing.append('Hands-on labour rate is not configured.')
     labour = labour_minutes / 60 * decimal(labour_rate or '0', 'Labour rate')
     other = decimal(document.get('other', '0'), 'Additional costs') + decimal(config['overhead'], 'Overhead')
-    total = base + buffer + electricity + labour + other
+    total = base + buffer + print_waste + electricity + labour + other
     markup = decimal(document.get('markup', config['markup']), 'Markup')
-    chosen = decimal(document.get('selling_price', '0'), 'Chosen selling price')
-    amounts = pricing(total, chosen, config, markup, complete=not missing)
+    entered_price = document.get('selling_price', '0')
+    chosen = None if entered_price is None or str(entered_price).strip() == '' else decimal(entered_price, 'Chosen selling price')
+    amounts = pricing(total, chosen, config, markup, complete=not missing, rounding=document.get('price_rounding','exact'))
     if selling_fees and not document.get('fee_profile') and not {'fee_percent', 'fee_fixed'} <= (settings or {}).keys():
         missing.append('Payment fees are not configured. Save applicable defaults or choose a fee profile; fees are not assumed free.')
         amounts.update(fees=None, fee_adjusted=None, profit=None, margin=None)
+        amounts.update(recommended_price=None, suggested_fees=None, suggested_profit=None, suggested_margin=None, suggestion_exact=None)
     if not selling_fees:
         amounts.update(fees=None, fee_adjusted=None, profit=None, margin=None)
     return dict(complete=not missing, state='incomplete' if missing else 'provisional' if provisional else 'complete',
                 provisional=provisional, missing=missing, lines=rows, material_component=money(base),
                 subtotals={k:money(v) for k,v in subtotals.items()}, markup=format(markup,'f'),
                 buffer=money(buffer), electricity=money(electricity), labour=money(labour), other=money(other),
+                print_waste=money(print_waste), print_waste_exact=str(print_waste),
+                print_material_exact=str(print_material), print_waste_rate=str(waste_rate),
+                packaging_included=any(line.get('purpose') == 'packaging' for line in lines) or subtotals['packaging'] > 0,
                 **amounts,
                 assumption='One finished product / bundle per transaction; fixed payment charge applied once. No VAT assumed.')
 
