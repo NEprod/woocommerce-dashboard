@@ -12,7 +12,7 @@
       <div class="workshop-barcode-editor" data-workshop-scan="inventory-item-barcode" data-editor-scan="{{ url_for('inventory.item_barcode_check') }}">
         <label for="inventory-item-barcode">Permanent barcode</label>
         <input class="form-control" id="inventory-item-barcode" type="text" value="{{ row.identity.code if row else values.get('code','') }}" autocomplete="off" spellcheck="false"
-               {% if row %}readonly{% else %}name="code" required maxlength="24" placeholder="e.g. PLA-BLACK"{% endif %}>
+               {% if row %}readonly{% else %}name="code" maxlength="24" placeholder="e.g. PLA-BLACK (blank generates a code)"{% endif %}>
         <button class="btn btn-outline-primary" type="button" data-scan-open hidden>Scan Barcode</button>
         <button class="btn btn-outline-primary" type="button" data-scan-stop hidden>Cancel scan</button>
         {{ scanner_preview() }}
@@ -20,6 +20,7 @@
         {% if row %}<p class="field-helper">Scan to check the saved barcode. This identity cannot be changed.</p>{% endif %}
       </div>
       {{ field('Category','category',values) }}{{ field('Brand or specification','specification',values,limit=250) }}
+      <label>Default storage location / tub (optional)<select class="form-select" name="default_location_id"><option value="">No default</option>{% for loc in locations %}<option value="{{ loc.id }}" {% if values.get('default_location_id')|string == loc.id|string %}selected{% endif %}>{{ breadcrumbs(loc) }} · {{ loc.identity.code }}</option>{% endfor %}</select></label>
       {% if row or kind == 'manufactured' %}<p><strong>Stock unit</strong><br>{{ row.unit if row else 'piece' }}</p>{% else %}{{ unit('Stock unit (permanent)','unit',values.get('unit'),units,true) }}{% endif %}
       {{ field('Minimum stock','minimum',values,'decimal') }}{{ field('Preferred reorder target','reorder',values,'decimal') }}
     </div>

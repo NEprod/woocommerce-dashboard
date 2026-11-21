@@ -261,3 +261,20 @@ the separate Promotions app is not checked during startup. Its historical
 receipts and seven configuration entries are retained for reference, while the
 product app, materials, BOM, inventory and scheduled product publishing remain
 untouched.
+
+## Production, batches and BOM costing
+
+Operations retains the existing stock workflows and adds Inventory Catalogue and
+Create Production. Scan a planned batch for signed completion or a completed
+batch for signed stock removal; scanning alone never posts a movement. Batch
+labels distinguish planned pieces from received stock. History and compensating
+reversals retain their existing routes.
+
+Tools contains Standalone BOM and Bundles. Existing Promotions & Discounts keeps
+its current navigation destination and local-only workflow.
+Settings contains Production & Costing. New costing panels use the Dashboard's
+actual `table-panel` / `table-panel-header` / `.table` patterns, including local
+horizontal scrolling. Finished-product assumptions are saved separately from
+product metadata; the Product Editor's live preview shares the costing engine.
+Unknown inputs withhold complete estimates. See `PRODUCTION_INVENTORY_BOM.md` for
+cost ownership, time allocation, fees and deployment notes.

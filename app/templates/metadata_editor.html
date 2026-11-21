@@ -112,6 +112,7 @@
       <section class="editor-workspace-section table-panel" aria-labelledby="production-title">
         <header class="table-panel-header"><h2 id="production-title">Production &amp; Costing</h2></header><p class="editor-section-intro">Define the requirements for one sellable unit. Product and variant changes apply to individual inherited lines. Separate lines for the same item are added together. Saving does not move inventory.</p>
         <div data-production-editor></div>
+        <p><a class="btn btn-outline-primary" href="{{ url_for('inventory.bom_planner',product_id=product.id) }}">Finished-product Profitability — Equipment, Labour &amp; Fees</a></p>
         <p class="field-error" data-field-error="production" hidden></p>
       </section>
       <section class="editor-workspace-section table-panel taxonomy-editor-section" aria-labelledby="categories-tags-title">

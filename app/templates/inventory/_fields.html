@@ -7,7 +7,7 @@
 {% macro unit(label,name,selected,units,required=false,blank='Same as stock unit') %}
 <label>{{ label }}<select class="form-select" name="{{ name }}" {% if required %}required{% endif %}>
   <option value="">{{ 'Choose a unit' if required else blank }}</option>
-  {% for option,label in [('piece','Pieces'),('sheet','Sheets'),('g','Grams (g)'),('kg','Kilograms (kg)'),('ml','Millilitres (ml)'),('l','Litres (l)'),('mm','Millimetres (mm)'),('m','Metres (m)')] %}
+  {% for option,label in [('piece','Pieces'),('sheet','Sheets'),('g','Grams (g)'),('kg','Kilograms (kg)'),('ml','Millilitres (ml)'),('l','Litres (l)'),('mm','Millimetres (mm)'),('m','Metres (m)'),('mm2','Square millimetres'),('cm2','Square centimetres'),('m2','Square metres')] %}
     {% if option in units %}<option value="{{ option }}" {% if selected == option %}selected{% endif %}>{{ label }}</option>{% endif %}
   {% endfor %}
 </select></label>

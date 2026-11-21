@@ -1,0 +1,2 @@
+{% extends 'inventory/base.html' %}
+{% block workshop %}<section class="workshop-panel"><h1>{{ row.component.name }}</h1><img src="{{ url_for('inventory.batch_barcode',batch_id=row.id) }}" alt="Batch barcode {{ row.code }}" style="max-width:100%"><h2>{{ row.code }}</h2><p>{{ row.planned_good }} pieces planned — not received stock</p><p>{{ row.created_at.strftime('%d %b %Y') }}</p></section><p class="workshop-no-print">Use your browser’s Print command to print this label.</p>{% endblock %}

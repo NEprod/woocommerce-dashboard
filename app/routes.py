@@ -805,7 +805,26 @@ def product_costing_preview(product_id):
             shared, override = {**shared, 'production':value}, {}
         else:
             override = {**override, 'production':value}
-        return jsonify(product_bom.editor_preview(product, shared, override, shared_editor=body['kind'] == 'shared'))
+        result = product_bom.editor_preview(product, shared, override, shared_editor=body['kind'] == 'shared')
+        from app.inventory.profitability import estimate
+        from app.inventory.models import CostingSettings, ProductCostingProfile
+        settings = db.session.get(CostingSettings, 1)
+        config = json.loads(settings.document) if settings else {}
+        from app.sale_pricing import catalogue as local_prices
+        price_by_sku = {v['sku']: v['price'] for v in local_prices(product)['variants']}
+        candidates = {product.sku: result['parent'], **result.get('variants', {})}
+        for sku, projection in candidates.items():
+            if projection.get('state') != 'complete':
+                continue
+            profile = db.session.get(ProductCostingProfile, (product.id, sku))
+            assumptions = json.loads(profile.document) if profile else dict(selling_price=str(price_by_sku.get(sku) or product.regular_price or '0'))
+            assumptions['lines'] = [dict(item_id=r['item_id'], quantity=r['quantity'], unit=r['unit'])
+                                    for r in projection['rows'] if not r['excluded']]
+            try:
+                projection['profitability'] = estimate(assumptions, config)
+            except ValueError as exc:
+                projection['profitability'] = dict(complete=False, missing=[str(exc)])
+        return jsonify(result)
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
 

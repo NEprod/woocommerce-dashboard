@@ -5,7 +5,7 @@
 {{ heading(title,'Scan a TLC label or enter its identifier. A lookup never changes stock.') }}
 {{ show_error(error) }}
 <form method="get" class="workshop-panel workshop-form" data-inventory-lookup>
-  <label>Barcode identifier<input class="form-control" data-lookup-code name="code" value="{{ code }}" placeholder="e.g. SH-A-B01" autocomplete="off" spellcheck="false" autocapitalize="characters" maxlength="24" required></label>
+  <label>Barcode identifier<input class="form-control" data-lookup-code name="code" value="{{ code }}" placeholder="e.g. SH-A-B01" autocomplete="off" spellcheck="false" autocapitalize="characters" maxlength="64" required></label>
   <div class="workshop-actions"><button class="btn btn-primary">Look up barcode</button></div>
   {{ scanner(standalone=true) }}
   <p class="field-helper">If the camera cannot scan, type the label code or use a keyboard-style barcode scanner.</p>

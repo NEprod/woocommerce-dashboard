@@ -400,6 +400,13 @@
         (isOption ? ' · actual variant costs depend on all matching rules' :
           ' · Shopify cost: ' + quote(result.shopify) + ' (' + result.mode + '; ' + result.mode_source + ')') +
         (result.warnings.length ? ' · ' + result.warnings.join(' ') : '');
+      if (view.total && !isOption && result.profitability) {
+        const p = result.profitability;
+        view.total.textContent += p.complete ?
+          ' · Finished-product cost £' + p.cost + ' · Fee-aware suggested price £' + p.fee_adjusted +
+          ' · Profit at chosen £' + p.selling_price + ': £' + p.profit + ' · Margin ' + p.margin + '%' :
+          ' · Finished-product costing incomplete: ' + p.missing.join(' ');
+      }
       if (view.replacement) {
         const describe = (recipe) => (recipe?.rows || []).filter(r => !r.excluded)
           .map(r => (r.name || 'Inventory item #' + r.item_id) + ' × ' + r.quantity + ' ' + r.unit).join('; ') || 'None';

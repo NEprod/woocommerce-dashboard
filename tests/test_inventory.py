@@ -10,6 +10,7 @@ from xml.etree import ElementTree
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from PIL import Image
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
@@ -18,7 +19,7 @@ from werkzeug.datastructures import MultiDict
 from app import db
 from app.database import _alembic_config, ensure_database
 from app.inventory import service as stock
-from app.inventory.models import Identity, Item, Location, Movement, Transaction
+from app.inventory.models import Identity, Item, Location, Movement, ProductionBatch, Transaction
 from app.models import User
 from test_setup_flow import setup_app  # noqa: F401 - isolated migrated application fixture
 
@@ -97,6 +98,224 @@ def manufactured(client, requirements):
         fields.add("material_qty",amount)
         fields.add("material_unit",unit)
     return row_id(client.post("/production/item/new/manufactured",data=fields))
+
+
+def test_batch_identity_reservation_is_stock_neutral_and_idempotent(workshop):
+    client = client_for(workshop)
+    pla = item(client, "material", "PLA", "PLA", unit="g")
+    body = manufactured(client, [(pla, "220", "g")])
+    with workshop.app_context():
+        first = stock.reserve_batches(body, 2, "a" * 32)
+        assert [row.code for row in first] == ["BODY-0001", "BODY-0002"]
+        assert stock.balance(body) == 0
+        db.session.commit()
+        again = stock.reserve_batches(body, 2, "a" * 32)
+        assert [row.id for row in again] == [row.id for row in first]
+        with pytest.raises(ValueError, match="already used"):
+            stock.reserve_batches(body, 1, "a" * 32)
+        third = stock.reserve_batches(body, 1, "b" * 32)
+        assert third[0].code == "BODY-0003"
+        assert db.session.query(ProductionBatch).count() == 3
+        assert stock.balance(body) == 0
+        db.session.rollback()
+
+
+def test_create_production_page_reserves_labels_without_stock(workshop):
+    client = client_for(workshop)
+    material = item(client, "material", "PLA-LABEL", "PLA", unit="g")
+    component = manufactured(client, [(material, "220", "g")])
+    page = client.get("/production/batches/create")
+    assert page.status_code == 200 and b"Create Batch Labels" in page.data
+    assert b'data-workshop-scan="batch-component"' in page.data
+    created = client.post("/production/batches/create", data=dict(
+        item_id=component, count="2", request_id="4" * 32))
+    assert created.status_code == 303
+    detail = client.get(created.headers["Location"])
+    assert b"BODY-0001" in detail.data and b"BODY-0002" in detail.data
+    with workshop.app_context():
+        assert stock.balance(component) == 0
+
+
+def test_batch_operator_forms_signed_completion_and_removal(workshop):
+    client = client_for(workshop)
+    place = location(client, "BATCH-TUB", "Batch tub")
+    raw = item(client, "material", "BATCH-PLA", "PLA", unit="g", pack_qty="1000", pack_price="20")
+    transact(client, "receive", raw, qty="1000", destination=str(place), cost="20")
+    component = manufactured(client, [(raw, "220", "g")])
+    with workshop.app_context():
+        batch = stock.reserve_batches(component, 1, "5" * 32)[0]
+        batch_id, code = batch.id, batch.code
+        db.session.commit()
+    assert client.get('/production/lookup', query_string={'code':code}).headers['Location'].endswith(f'/batch/{batch_id}')
+    path = f'/production/batch/{batch_id}/complete'
+    page = client.get(path)
+    assert page.status_code == 200 and b'220' in page.data
+    data = dict(request_id='6' * 32, good='3', failed='1', location=str(place),
+                **{f'actual_{raw}':'200', f'source_{raw}':str(place)})
+    preview = client.post(path, data=data)
+    assert preview.status_code == 200
+    token = re.search(rb'name="approval" value="([^"]+)"', preview.data).group(1).decode()
+    with workshop.app_context():
+        assert stock.balance(component) == 0
+    receipt = client.post(path, data={'approval':token})
+    assert receipt.status_code == 303
+    assert client.post(path, data={'approval':token}).headers['Location'] == receipt.headers['Location']
+    remove = f'/production/batch/{batch_id}/remove'
+    preview = client.post(remove, data=dict(request_id='7' * 32, quantity='1', location=str(place), reason='sample'))
+    token = re.search(rb'name="approval" value="([^"]+)"', preview.data).group(1).decode()
+    assert client.post(remove, data={'approval':token}).status_code == 303
+    assert client.post(remove, data={'approval':token}).status_code == 303
+    with workshop.app_context():
+        assert stock.balance(component) == stock.batch_available(batch_id) == 2 * stock.SCALE
+        assert stock.balance(raw) == 800 * stock.SCALE
+
+
+def test_two_batch_receipts_and_specific_removal_share_the_stock_ledger(workshop):
+    client = client_for(workshop)
+    place = location(client, "TUB-01", "Tub 01")
+    pla = item(client, "material", "PLA-RAW", "PLA", unit="g", pack_qty="1000", pack_price="20")
+    transact(client, "receive", pla, qty="1000", destination=str(place), cost="20")
+    body = manufactured(client, [(pla, "220", "g")])
+    with workshop.app_context():
+        batches = stock.reserve_batches(body, 2, "c" * 32, planned_good=10)
+        ids = [row.id for row in batches]
+        db.session.commit()
+        assert stock.balance(body) == 0
+        first = stock.complete_batch(ids[0], 10, 0, {pla: ("220", place)}, place, "d" * 32, actor="1")
+        db.session.commit()
+        second = stock.complete_batch(ids[1], 8, 2, {pla: ("180", place)}, place, "e" * 32, actor="1")
+        db.session.commit()
+        assert first.id != second.id
+        assert stock.balance(body) == 18 * stock.SCALE
+        assert stock.balance(pla) == 600 * stock.SCALE
+        assert stock.batch_available(ids[0]) == 10 * stock.SCALE
+        assert stock.batch_available(ids[1]) == 8 * stock.SCALE
+        assert stock.complete_batch(ids[0], 10, 0, {pla: ("220", place)}, place, "d" * 32, actor="1").id == first.id
+        with pytest.raises(ValueError, match="already completed"):
+            stock.complete_batch(ids[0], 10, 0, {pla: ("220", place)}, place, "f" * 32, actor="1")
+        stock.remove_from_batch(ids[0], "1", place, "sample", "0" * 32, actor="1")
+        db.session.commit()
+        assert stock.batch_available(ids[0]) == 9 * stock.SCALE
+        assert stock.batch_available(ids[1]) == 8 * stock.SCALE
+        assert stock.balance(body) == 17 * stock.SCALE
+
+
+def test_zero_good_batch_consumes_material_without_phantom_component_stock(workshop):
+    client = client_for(workshop)
+    place = location(client, "TUB-02", "Tub 02")
+    material = item(client, "material", "PLA-ZERO", "PLA", unit="g", pack_qty="1000", pack_price="20")
+    transact(client, "receive", material, qty="1000", destination=str(place), cost="20")
+    component = manufactured(client, [(material, "220", "g")])
+    with workshop.app_context():
+        batch = stock.reserve_batches(component, 1, "1" * 32)[0]
+        db.session.commit()
+        tx = stock.complete_batch(batch.id, 0, batch.planned_good, {material: ("220", place)},
+                                  None, "2" * 32, actor="1")
+        db.session.commit()
+        assert len(tx.moves) == 1
+        assert stock.balance(material) == 780 * stock.SCALE
+        assert stock.balance(component) == 0
+        assert stock.batch_available(batch.id) == 0
+        with pytest.raises(ValueError, match="already completed"):
+            stock.complete_batch(batch.id, 0, batch.planned_good, {material: ("220", place)},
+                                 None, "3" * 32, actor="1")
+
+
+def test_batch_atomic_failure_and_ledger_reversal(workshop):
+    client = client_for(workshop)
+    place = location(client, 'SAFE-TUB', 'Safe tub')
+    raw = item(client, 'material', 'SAFE-RAW', 'PLA', unit='g', pack_qty='1000', pack_price='20')
+    transact(client, 'receive', raw, qty='300', destination=str(place), cost='6')
+    component = manufactured(client, [(raw, '220', 'g')])
+    with workshop.app_context():
+        batch = stock.reserve_batches(component, 1, '8' * 32)[0]
+        batch_id = batch.id
+        db.session.commit()
+        with pytest.raises(ValueError, match='Not enough'):
+            stock.complete_batch(batch_id, 4, 0, {raw:('400',place)}, place, '9' * 32, actor='1')
+        db.session.rollback()
+        assert stock.balance(raw) == 300 * stock.SCALE
+        assert stock.balance(component) == 0
+        assert db.session.get(ProductionBatch, batch_id).status == 'planned'
+        receipt = stock.complete_batch(batch_id, 4, 0, {raw:('220',place)}, place, 'a1' * 16, actor='1')
+        db.session.commit()
+        with pytest.raises(ValueError, match='batch stock'):
+            stock.plan('use', dict(item_id=component, source=place, qty='1', reason='sample'))
+        removal = stock.remove_from_batch(batch_id, '1', place, 'sample', 'b1' * 16, actor='1')
+        db.session.commit()
+        reverse = dict(original=removal.id, reason='Mistaken sample removal')
+        stock.post('reversal', reverse, 'c1' * 16, stock.digest(stock.plan('reversal', reverse)), actor='1')
+        db.session.commit()
+        assert stock.batch_available(batch_id) == stock.balance(component) == 4 * stock.SCALE
+        assert db.session.get(ProductionBatch, batch_id).receipt_id == receipt.id
+
+
+def test_concurrent_batch_allocations_are_distinct_and_stock_neutral(workshop):
+    client = client_for(workshop)
+    raw = item(client, 'material', 'RACE-RAW', 'PLA', unit='g')
+    component = manufactured(client, [(raw, '220', 'g')])
+    barrier = Barrier(2)
+    def allocate(key):
+        with workshop.app_context():
+            barrier.wait(timeout=5)
+            rows = stock.reserve_batches(component, 2, key)
+            codes = [r.code for r in rows]
+            db.session.commit()
+            return codes
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(allocate, ['ad' * 16, 'be' * 16]))
+    assert sorted(code for codes in results for code in codes) == ['BODY-0001','BODY-0002','BODY-0003','BODY-0004']
+    with workshop.app_context():
+        assert stock.balance(component) == 0
+
+
+def test_batch_completion_failure_rolls_back_receipt_materials_and_status(workshop):
+    client = client_for(workshop)
+    place = location(client, 'FAIL-TUB', 'Failure tub')
+    raw = item(client, 'material', 'FAIL-RAW', 'PLA', unit='g', pack_qty='1000', pack_price='20')
+    transact(client, 'receive', raw, qty='500', destination=str(place), cost='10')
+    component = manufactured(client, [(raw,'220','g')])
+    with workshop.app_context():
+        batch_id = stock.reserve_batches(component, 1, 'cd' * 16)[0].id
+        db.session.commit()
+        db.session.execute(text("""CREATE TRIGGER fail_fixture_batch_output BEFORE INSERT ON inventory_movement
+            WHEN NEW.kind='production_output' BEGIN SELECT RAISE(ABORT,'fixture output failure'); END"""))
+        db.session.commit()
+        with pytest.raises(IntegrityError, match='fixture output failure'):
+            stock.complete_batch(batch_id,4,0,{raw:('220',place)},place,'de' * 16,actor='1')
+        db.session.rollback()
+        assert stock.balance(raw) == 500 * stock.SCALE
+        assert stock.balance(component) == stock.batch_available(batch_id) == 0
+        assert db.session.get(ProductionBatch,batch_id).status == 'planned'
+        assert db.session.get(Transaction,'de' * 16) is None
+
+
+def test_concurrent_completion_consumes_and_receives_only_once(workshop):
+    client = client_for(workshop)
+    place = location(client, 'ONCE-TUB', 'Once tub')
+    raw = item(client, 'material', 'ONCE-RAW', 'PLA', unit='g', pack_qty='1000', pack_price='20')
+    transact(client, 'receive', raw, qty='500', destination=str(place), cost='10')
+    component = manufactured(client, [(raw,'220','g')])
+    with workshop.app_context():
+        batch_id = stock.reserve_batches(component, 1, 'ab' * 16)[0].id
+        db.session.commit()
+    barrier = Barrier(2)
+    def complete(key):
+        with workshop.app_context():
+            barrier.wait(timeout=5)
+            try:
+                stock.complete_batch(batch_id,4,0,{raw:('220',place)},place,key,actor='1')
+                db.session.commit()
+                return 'recorded'
+            except ValueError as exc:
+                db.session.rollback()
+                assert 'already completed' in str(exc)
+                return 'blocked'
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(complete, ['ef' * 16, 'fa' * 16])) == ['blocked','recorded']
+    with workshop.app_context():
+        assert stock.balance(raw) == 280 * stock.SCALE
+        assert stock.balance(component) == stock.batch_available(batch_id) == 4 * stock.SCALE
 
 
 def test_admin_only_local_pages_csrf_and_navigation(workshop):
@@ -344,13 +563,17 @@ def test_unassigned_upgrade_keeps_manual_location_and_all_existing_rows(tmp_path
                 VALUES ('prior','receive',2,'1','Operator','2026-01-01 00:00','Original','{}','original-hash')""")
             connection.execute("""INSERT INTO inventory_movement (id,transaction_id,item_id,location_id,qty,unit,kind)
                 VALUES (3,'prior',2,1,120000000,'g','receipt')""")
+        old_columns = {table: [row[1] for row in connection.execute(f"PRAGMA table_info(inventory_{table})")]
+                       for table in ("identity", "location", "item", "transaction", "movement")}
         old_rows = {table: connection.execute(f"SELECT * FROM inventory_{table} ORDER BY id").fetchall()
                     for table in ("identity", "location", "item", "transaction", "movement")}
     report = ensure_database(url)
-    assert report.revision == "0023_unassigned_stock" and report.backup_path.is_file()
+    assert report.revision == ScriptDirectory.from_config(_alembic_config(url)).get_current_head()
+    assert report.backup_path.is_file()
     with sqlite3.connect(database) as connection:
         for table, rows in old_rows.items():
-            assert connection.execute(f"SELECT * FROM inventory_{table} WHERE id != 0 ORDER BY id").fetchall() == rows
+            columns = ','.join(old_columns[table])
+            assert connection.execute(f"SELECT {columns} FROM inventory_{table} WHERE id != 0 ORDER BY id").fetchall() == rows
         assert connection.execute("SELECT code, kind FROM inventory_identity WHERE id=0").fetchone() == ("~UNASSIGNED", "system")
         assert connection.execute("SELECT COUNT(*) FROM inventory_movement WHERE location_id=0").fetchone() == (0,)
         assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)

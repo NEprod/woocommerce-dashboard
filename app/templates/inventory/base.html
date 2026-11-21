@@ -6,6 +6,7 @@
 <div class="workshop">
   <nav class="workshop-nav" aria-label="Production &amp; Operations">
     <a class="btn btn-outline-primary" href="{{ url_for('inventory.home') }}">Operations home</a>
+    <a class="btn btn-outline-primary" href="{{ url_for('inventory.items',group='catalogue') }}">Inventory Catalogue</a>
     <a class="btn btn-outline-primary" href="{{ url_for('inventory.lookup') }}">Scan / Look up</a>
     <a class="btn btn-outline-primary" href="{{ url_for('inventory.history') }}">Stock history</a>
   </nav>

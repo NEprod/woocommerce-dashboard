@@ -1,0 +1,31 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading, csrf, error as show_error, scanner %}
+{% macro location_select(name, label) %}<label>{{ label }}<select class="form-select" id="{{ name }}" name="{{ name }}"><option value="">Choose location</option>{% for loc in locations %}<option value="{{ loc.id }}" data-code="{{ loc.identity.code }}" {% if values.get(name)|string == loc.id|string %}selected{% endif %}>{{ breadcrumbs(loc) }}</option>{% endfor %}</select></label>{{ scanner(name) }}{% endmacro %}
+{% block workshop %}
+{{ heading('Complete Production' if action == 'complete' else 'Use / Remove Batch Stock') }}
+{{ show_error(error) }}
+<section class="workshop-panel"><h2>{{ row.component.name }} · {{ row.code }}</h2><p>{{ row.status|title }} · {{ row.planned_good }} planned · {{ qty(available) }} available</p></section>
+{% if approval %}
+<section class="table-panel"><div class="table-panel-header"><h2>Review entered values</h2></div><div class="workspace-card-body"><dl class="workshop-facts">
+{% if action == 'complete' %}<dt>Accepted pieces</dt><dd>{{ values.good }}</dd><dt>Failed / scrapped pieces</dt><dd>{{ values.failed }}</dd>
+{% for req in recipe %}<dt>Actual {{ req.material.name }} used</dt><dd>{{ values.get('actual_' ~ req.material_id) }} {{ req.unit }} from {% for loc in locations if loc.id|string == values.get('source_' ~ req.material_id) %}{{ breadcrumbs(loc) }}{% endfor %}</dd>{% endfor %}
+{% else %}<dt>Pieces to remove</dt><dd>{{ values.quantity }}</dd><dt>Reason</dt><dd>{{ values.reason }}</dd>{% endif %}
+<dt>{{ 'Destination' if action == 'complete' else 'Stock location' }}</dt><dd>{% for loc in locations if loc.id|string == values.get('location') %}{{ breadcrumbs(loc) }}{% else %}Not selected{% endfor %}</dd></dl><p>Confirmation validates current stock and records this transaction once. No stock has changed yet.</p></div></section>
+<form method="post" class="workshop-actions">{{ csrf() }}<input type="hidden" name="approval" value="{{ approval }}"><button class="btn btn-primary">Confirm {{ 'Completion' if action == 'complete' else 'Removal' }}</button><a class="btn btn-outline-primary" href="{{ url_for('inventory.batch_operation',batch_id=row.id,action=action) }}">Start fresh</a></form>
+{% elif row.status == 'planned' and action == 'complete' or row.status == 'completed' and action == 'remove' %}
+<form method="post" class="workshop-form">{{ csrf() }}<input type="hidden" name="request_id" value="{{ nonce }}">
+<section class="workshop-panel">
+{% if action == 'complete' %}
+<label>Accepted good pieces<input class="form-control" type="number" min="0" name="good" value="{{ values.get('good','') }}" required></label>
+<label>Failed / scrapped pieces<input class="form-control" type="number" min="0" name="failed" value="{{ values.get('failed','0') }}" required></label>
+{{ location_select('location','Destination for accepted pieces (not needed for zero output)') }}
+<h2>Actual material consumed</h2><p>Recipe defaults describe the whole planned batch. Edit to actual usage, including failed output and waste.</p>
+{% for req in recipe %}<label>{{ req.material.name }} ({{ req.unit }})<input class="form-control" inputmode="decimal" name="actual_{{ req.material_id }}" value="{{ values.get('actual_' ~ req.material_id,'') }}" required></label>{{ location_select('source_' ~ req.material_id,'Source for ' ~ req.material.name) }}{% endfor %}
+{% else %}
+<label>Pieces to remove<input class="form-control" type="number" min="1" name="quantity" value="{{ values.get('quantity','1') }}" required></label>
+{{ location_select('location','Batch stock location') }}
+<label>Reason / note<input class="form-control" name="reason" maxlength="400" value="{{ values.get('reason','') }}" placeholder="Used, damaged, sample, missing or correction" required></label>
+{% endif %}
+</section><button class="btn btn-primary">Review {{ 'Completion' if action == 'complete' else 'Removal' }}</button></form>
+{% else %}<p class="alert alert-info">This operation is not available for the batch’s current state. {% if row.receipt_id %}<a href="{{ url_for('inventory.transaction',transaction_id=row.receipt_id) }}">Inspect original completion receipt</a>{% endif %}</p>{% endif %}
+{% endblock %}

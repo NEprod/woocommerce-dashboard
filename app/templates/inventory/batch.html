@@ -1,0 +1,12 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading %}
+{% block workshop %}
+{{ heading('Production Batch', 'A planned batch is not received stock.') }}
+<section class="workshop-panel"><h2>{{ row.component.name }} · {{ row.code }}</h2>
+  <dl class="workshop-facts"><dt>Status</dt><dd>{{ row.status|title }}</dd><dt>Planned good pieces</dt><dd>{{ row.planned_good }}</dd><dt>Batch available</dt><dd>{{ qty(available) }}</dd><dt>Overall component stock</dt><dd>{{ qty(total) }}</dd></dl>
+  <a class="btn btn-outline-primary" href="{{ url_for('inventory.item', record_id=row.component_id) }}">View Component</a>
+  <a class="btn btn-outline-primary" href="{{ url_for('inventory.batch_label',batch_id=row.id) }}">Print Batch Label</a>
+  {% if row.status == 'planned' %}<a class="btn btn-primary" href="{{ url_for('inventory.batch_operation',batch_id=row.id,action='complete') }}">Complete Production</a>{% else %}<a class="btn btn-primary" href="{{ url_for('inventory.batch_operation',batch_id=row.id,action='remove') }}">Use / Remove Stock</a>{% if row.receipt_id %}<a href="{{ url_for('inventory.transaction',transaction_id=row.receipt_id) }}">Completion receipt</a>{% endif %}{% endif %}
+</section>
+<section class="workshop-panel"><h2>Created together</h2><ul>{% for batch in siblings %}<li><a href="{{ url_for('inventory.batch_detail', batch_id=batch.id) }}">{{ batch.code }}</a> · {{ batch.status }} · {{ batch.planned_good }} planned</li>{% endfor %}</ul></section>
+{% endblock %}

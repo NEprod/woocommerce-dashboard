@@ -59,12 +59,13 @@
     {{ csrf() }}<input type="hidden" name="request_id" value="{{ nonce }}">
     {% if row %}<input type="hidden" name="item_id" value="{{ row.id }}">{% else %}<input type="hidden" name="original" value="{{ original.id }}">{% endif %}
     {% if row and not locations and kind != 'receive' %}<p class="alert alert-warning">Add an active <a href="{{ url_for('inventory.locations') }}">storage location</a> before recording a movement.</p>{% endif %}
-    {% if kind in ['opening','receive','production','move','count'] %}
+    {% if kind in ['opening','receive','production','move','count','use'] %}
     <fieldset class="workshop-panel"><legend>{{ 'Batch output' if kind == 'production' else 'Stock details' }}</legend>
       {% if kind == 'receive' %}<label>Receive in<select class="form-select" name="entry_unit"><option value="units">Stock units ({{ row.unit }})</option>{% if row.pack_qty %}<option value="packs" {% if values.get('entry_unit') == 'packs' %}selected{% endif %}>Purchase packs ({{ qty(row.pack_qty) }} {{ row.pack_unit }} per pack)</option>{% endif %}</select></label>{% endif %}
       {{ field('Good components produced' if kind == 'production' else ('Physical quantity counted (' ~ row.unit ~ ')' if kind == 'count' else 'Quantity' if kind == 'receive' else 'Quantity (' ~ row.unit ~ ')'),'qty',values,'decimal',true) }}
       {% if kind in ['receive','opening'] %}{{ field('Total purchase cost (GBP, optional)','cost',values,'decimal') }}<p class="field-helper">If left blank, the configured purchase pack price is used where available.</p>{% endif %}
-      {% if kind == 'move' %}
+      {% if kind == 'use' %}{{ select_location('Source location','source',row.unit,counts,true) }}
+      {% elif kind == 'move' %}
         {{ select_location('Source location','source',row.unit,counts,true,true) }}
         <div data-normal-move-destination {% if requires_scan %}hidden{% endif %}>{{ select_location('Destination location','destination',row.unit,counts,false,true,requires_scan) }}</div>
         {{ scanned_destination(not requires_scan) }}

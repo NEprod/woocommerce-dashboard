@@ -5,6 +5,9 @@
 {{ heading(title,tx.item.name + ' · ' + tx.created_at.strftime('%d %b %Y, %H:%M UTC')) }}
 <section class="workshop-panel"><h2>Receipt</h2><dl class="workshop-facts">
   <dt>Transaction ID</dt><dd><code>{{ tx.id }}</code></dd><dt>Recorded by</dt><dd>{{ tx.actor_label }}</dd>
+  {% if details.batch_id %}<dt>Production batch</dt><dd><a href="{{ url_for('inventory.batch_detail',batch_id=details.batch_id) }}">{{ details.batch_code }}</a></dd>{% endif %}
+  {% if details.good_pieces is defined %}<dt>Accepted good pieces</dt><dd>{{ details.good_pieces }}</dd>{% endif %}
+  {% if details.failed_pieces is defined %}<dt>Failed / scrapped pieces</dt><dd>{{ details.failed_pieces }}</dd>{% endif %}
   {% if tx.reason %}<dt>Reason or reference</dt><dd>{{ tx.reason }}</dd>{% endif %}
   {% if tx.cost is not none %}<dt>{{ 'Actual batch cost' if tx.kind == 'production' else 'Recorded cost' }}</dt><dd>{{ pounds(tx.cost) }}{% if details.cost_basis %} · {{ details.cost_basis }}{% endif %}</dd>{% endif %}
   {% if details.placement %}<dt>Destination check</dt><dd>{{ 'Explicitly kept Unassigned (no physical destination)' if details.placement == 'explicit_unassigned' else 'Physical destination verified by barcode' }}</dd>{% endif %}

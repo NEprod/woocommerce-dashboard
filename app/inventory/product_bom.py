@@ -406,7 +406,7 @@ def editor_options(product, *, document=None):
         groups = option_groups(product, document)
     except ValueError:
         groups = {}  # keep the existing metadata editor available to repair invalid drivers
-    rows = Item.query.filter_by(active=True).order_by(Item.name, Item.id).all()
+    rows = Item.query.filter(Item.active.is_(True), Item.kind.in_(('manufactured', 'purchased'))).order_by(Item.name, Item.id).all()
     return {'items': [{'id': i.id, 'name': i.name, 'code': i.identity.code, 'supplier_sku': i.supplier_sku,
                        'unit': i.unit, 'units': [u for u, spec in stock.UNITS.items() if spec[0] == stock.UNITS[i.unit][0]]}
                       for i in rows],
@@ -490,4 +490,6 @@ def check_changed_references(before, after, *, inherited=None, product=None, doc
             if not resolved or (line['op'] == 'add' and resolved['item_id'] != line['item_id']):
                 raise ValueError(f'BOM line {line_id} no longer has an inherited source. Reset it or add a separate line.')
             item = stock.item_for(resolved['item_id'])
+            if item.kind == 'material' and old.get('lines', {}).get(line_id, {}).get('item_id') != item.id:
+                raise ValueError('Product BOMs use manufactured or purchased components. Use the standalone planner for new direct raw-material lines.')
             stock.converted(stock.number(resolved['quantity'], 'BOM quantity', positive=True), resolved['unit'], item.unit)

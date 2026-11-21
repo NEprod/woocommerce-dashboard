@@ -2,7 +2,7 @@ import {browserBarcodeFallback, decodedBarcodeValue, scanFormats} from './invent
 
 export const normalizeCode = (raw) => {
   const code = String(raw || '').trim();
-  return /^[A-Za-z0-9][A-Za-z0-9-]{0,23}$/.test(code) ? code.toUpperCase() : null;
+  return /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/.test(code) ? code.toUpperCase() : null;
 };
 
 export function barcodeOption(options, raw) {

@@ -1,0 +1,18 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading, csrf, scanner, error as show_error %}
+{% block workshop %}
+{{ heading('Create Production', 'Plan separate manufacturing runs without receiving stock or consuming materials.') }}
+{{ show_error(error) }}
+<form method="post" class="workshop-panel workshop-form">
+  {{ csrf() }}<input type="hidden" name="request_id" value="{{ nonce }}">
+  <label>Manufactured component<select class="form-select" id="batch-component" name="item_id" required>
+    <option value="">Choose or scan a permanent component barcode</option>
+    {% for item in choices %}<option value="{{ item.id }}" data-code="{{ item.identity.code }}" {% if values.get('item_id')|string == item.id|string %}selected{% endif %}>{{ item.name }} · {{ item.identity.code }} · {{ item.yield_qty }} expected per batch</option>{% endfor %}
+  </select></label>{{ scanner('batch-component') }}
+  <label>Separate batches / plates<input class="form-control" type="number" name="count" min="1" max="40" value="{{ values.get('count', '1') }}" required></label>
+  <label>Planned good pieces per batch (optional override)<input class="form-control" type="number" name="planned_good" min="1" value="{{ values.get('planned_good', '') }}"></label>
+  <p class="field-helper">The component’s saved recipe is the expected material plan, not an actual stock deduction. Completion records good pieces and actual consumption later.</p>
+  <button class="btn btn-primary">Create Batch Labels</button>
+</form>
+<section class="table-panel"><div class="table-panel-header"><h2>Component plans and stock</h2></div><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Component</th><th>Available / minimum / target</th><th>Expected pieces per batch</th><th>Already planned</th><th>Recommended additional batches</th></tr></thead><tbody>{% for item in choices %}{% set plan = recommendations[item.id] %}<tr><td>{{ item.name }}{% if plan.below_minimum %}<span class="status-badge status-warning">Low stock</span>{% endif %}<details class="operator-help"><summary>Material plan per entire batch</summary><ul>{% for req in item.materials %}<li>{{ req.material.name }} · {{ qty(req.qty) }} {{ req.unit }} per whole batch</li>{% endfor %}</ul></details></td><td>{{ qty(plan.available) }} / {{ qty(item.minimum) }} / {{ qty(item.reorder) if item.reorder is not none else 'No preferred target' }}</td><td>{{ item.yield_qty }}</td><td>{{ plan.planned }}</td><td>{{ plan.recommended if plan.recommended is not none else 'Yield unknown' }} (estimate only)</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

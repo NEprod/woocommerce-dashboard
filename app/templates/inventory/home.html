@@ -4,11 +4,16 @@
 {{ heading('Production & Operations','Receive materials, record completed batches and keep workshop stock accurate. All inventory here stays in TLC.') }}
 <h2>Stock operations</h2>
 <div class="workshop-grid">
+  <a class="workshop-tile" href="{{ url_for('inventory.lookup') }}"><strong>Complete a Planned Batch</strong><span>Scan the batch label to record accepted output and actual materials.</span></a>
+  <a class="workshop-tile" href="{{ url_for('inventory.workflow',kind='use') }}"><strong>Use / Remove Stock</strong><span>Record non-order use of unbatched components or materials. For batch stock, scan the batch label.</span></a>
+  <a class="workshop-tile" href="{{ url_for('inventory.create_batches') }}"><strong>Create Production</strong><span>Reserve one permanent label per planned manufacturing run. No stock changes yet.</span></a>
   {% for kind, intro in [('receive','Receive a delivery in packs or stock units.'),('production','Record actual material used and good components made.'),('move','Transfer stock between shelves, bins or drawers.'),('count','Compare a physical count and record any difference.'),('opening','Record the initial stock at a location.' )] %}
   <a class="workshop-tile" href="{{ url_for('inventory.workflow',kind=kind) }}"><strong>{{ steps[kind] }}</strong><span>{{ intro }}</span></a>
   {% endfor %}
 </div>
 <h2 class="workshop-section-heading">Manage inventory</h2>
+<p><a class="btn btn-outline-primary" href="{{ url_for('inventory.bom_planner') }}">Standalone BOM &amp; Viability Planner</a></p>
+<p><a class="btn btn-outline-primary" href="{{ url_for('inventory.costing_settings') }}">Production &amp; Costing Settings</a></p>
 <div class="workshop-grid">
   <a class="workshop-tile" href="{{ url_for('inventory.items',group='materials') }}"><strong>Materials</strong><span>Raw materials, suppliers and reorder levels.</span></a>
   <a class="workshop-tile" href="{{ url_for('inventory.items',group='components') }}"><strong>Components</strong><span>Purchased parts and manufactured recipes.</span></a>

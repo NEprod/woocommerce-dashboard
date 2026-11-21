@@ -5,12 +5,13 @@ from decimal import Decimal, ROUND_HALF_UP, localcontext
 from hashlib import sha256
 import json
 import re
+from uuid import uuid4
 from urllib.parse import urlsplit
 
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import aliased
 from app import db
-from .models import Identity, Item, Location, Movement, RecipeMaterial, Transaction
+from .models import Identity, Item, Location, Movement, ProductionBatch, RecipeMaterial, Transaction
 
 SCALE = 1_000_000
 UNASSIGNED_ID = 0
@@ -19,9 +20,10 @@ MAX_QTY = 10**14          # 100 million stock units
 MAX_COST = 10**15         # £1 billion per recorded transaction
 KINDS = {"material": "Material", "purchased": "Purchased component", "manufactured": "Manufactured component"}
 STEPS = {"opening": "Opening Stock", "receive": "Receive Stock", "production": "Complete Production",
-         "move": "Move Stock", "count": "Stock Check", "reversal": "Reverse Transaction"}
+         "move": "Move Stock", "count": "Stock Check", "reversal": "Reverse Transaction", "use": "Use / Remove Stock"}
 UNITS = {"piece": ("piece", 1), "sheet": ("sheet", 1), "g": ("mass", 1), "kg": ("mass", 1000),
-         "ml": ("volume", 1), "l": ("volume", 1000), "mm": ("length", 1), "m": ("length", 1000)}
+         "ml": ("volume", 1), "l": ("volume", 1000), "mm": ("length", 1), "m": ("length", 1000),
+         "mm2": ("area", 1), "cm2": ("area", 100), "m2": ("area", 1000000)}
 CODE = re.compile(r"[A-Z0-9][A-Z0-9-]{0,23}\Z", re.ASCII | re.IGNORECASE)
 
 
@@ -92,7 +94,11 @@ def item_barcode_conflict(identity):
 
 
 def _new_identity(raw, kind):
+    if kind == 'item' and not str(raw or '').strip():
+        raw = 'TLC-' + uuid4().hex[:20].upper()
     code = identifier(raw)
+    if db.session.scalar(select(ProductionBatch.id).where(ProductionBatch.code == code)):
+        raise ValueError("That barcode is already reserved for a permanent production batch.")
     existing = lookup(code)
     if existing is not None:
         if kind == "item":
@@ -105,6 +111,47 @@ def writer_lock():
     # Force SQLite's writer lock before reading balances, rules or idempotency
     # state. No data changes here; the surrounding transaction owns the lock.
     db.session.execute(text("UPDATE inventory_item SET version=version WHERE 0"))
+
+
+def reserve_batches(component_id, count, request_id, *, planned_good=None):
+    """Allocate permanent identities atomically; an identical retry returns its plan.
+
+    The caller owns the transaction. No inventory movement is posted here.
+    """
+    if not re.fullmatch(r"[a-f0-9]{32}", request_id):
+        raise ValueError("A stable production-plan request ID is required.")
+    if type(count) is not int or not 1 <= count <= 40:
+        raise ValueError("Create between one and 40 batches at a time.")
+    writer_lock()
+    component = item_for(component_id)
+    if component.kind != "manufactured" or not component.yield_qty:
+        raise ValueError("Choose a manufactured component with an expected batch yield.")
+    good = component.yield_qty if planned_good is None else planned_good
+    if type(good) is not int or not 1 <= good <= 1000000:
+        raise ValueError("Planned good pieces must be a positive whole number.")
+    existing = db.session.scalars(select(ProductionBatch).where(
+        ProductionBatch.allocation_id == request_id).order_by(ProductionBatch.allocation_ordinal)).all()
+    if existing:
+        if len(existing) != count or any(row.component_id != component.id or row.planned_good != good for row in existing):
+            raise ValueError("This production-plan request ID was already used for different batches.")
+        return existing
+    last = db.session.scalar(select(func.max(ProductionBatch.sequence)).where(
+        ProductionBatch.component_id == component.id)) or 0
+    rows = []
+    for ordinal in range(1, count + 1):
+        sequence = last + ordinal
+        code = f"{component.identity.code}-{sequence:04d}"
+        if db.session.scalar(select(Identity.id).where(Identity.code == code)):
+            raise ValueError(f"Batch barcode {code} is already assigned to a permanent inventory identity.")
+        rows.append(ProductionBatch(component_id=component.id, sequence=sequence, code=code,
+                                    planned_good=good, planned_recipe=json.dumps([
+                                        dict(material_id=r.material_id, quantity=quantity_text(r.qty), unit=r.unit)
+                                        for r in component.materials]), allocation_id=request_id,
+                                    allocation_ordinal=ordinal, status="planned",
+                                    created_at=datetime.now(UTC).replace(tzinfo=None)))
+    db.session.add_all(rows)
+    db.session.flush()
+    return rows
 
 
 def balance(item_id, location_id=None):
@@ -243,6 +290,7 @@ def save_item(kind, data, *, row=None, requirements=(), image=None, remove_image
         ("filament_type","Filament type",100),("filament_colour","Filament colour",100))}
     values.update(unit=unit,active=active,supplier_url=ext,minimum=converted(number(data.get("minimum") or "0","Minimum stock"),unit,unit),
                   pack_qty=None,pack_unit=None,pack_price=None,yield_qty=None)
+    values['default_location_id'] = location_for(data['default_location_id']).id if data.get('default_location_id') else None
     for key,label in (("spool_grams","Spool weight (g)"),("sheet_length","Sheet length"),
                       ("sheet_width","Sheet width"),("sheet_thickness","Sheet thickness"),
                       ("reorder","Reorder target")):
@@ -328,6 +376,18 @@ def _checked(moves):
     totals=defaultdict(int)
     for move in moves:
         key=(move["item_id"],move["location_id"])
+        if move["qty"] < 0:
+            if move.get("batch_id"):
+                batch_balance = db.session.scalar(select(func.coalesce(func.sum(Movement.qty), 0)).where(
+                    Movement.batch_id == move["batch_id"], Movement.location_id == move["location_id"]))
+                if batch_balance + move["qty"] < 0:
+                    raise ValueError("This operation would make the selected batch stock negative.")
+            else:
+                batched = db.session.scalar(select(func.coalesce(func.sum(Movement.qty), 0)).where(
+                    Movement.item_id == move["item_id"], Movement.location_id == move["location_id"],
+                    Movement.batch_id.is_not(None)))
+                if batched > 0 and balance(*key) - batched + by_location[key] + move["qty"] < 0:
+                    raise ValueError("This quantity includes batch stock. Scan the specific batch to remove it.")
         allowed=balance(*key)+by_location[key]
         move["before"]=allowed
         move["after"]=allowed+move["qty"]
@@ -345,7 +405,7 @@ def plan(kind, data):
     """Read-only preview. Recomputed under the SQLite write lock on confirmation."""
     if kind not in STEPS:
         raise ValueError("Unknown stock operation.")
-    why=clean(data.get("reason"),"Reason or reference",400,required=kind in {"reversal","opening"})
+    why=clean(data.get("reason"),"Reason or reference",400,required=kind in {"reversal","opening","use"})
     moves,details,total,original=[],{},None,None
     if kind=="reversal":
         key=data.get("original","")
@@ -359,7 +419,7 @@ def plan(kind, data):
             # the operator to reactivate that exact identity first.
             if not old.item.active or not old.location.active:
                 raise ValueError("Reactivate all affected items and locations before reversing.")
-            moves.append(_movement(old.item,old.location,-old.qty,"reversal",old.cost))
+            moves.append(_movement(old.item,old.location,-old.qty,"reversal",old.cost, batch_id=old.batch_id))
         total=original.cost
     else:
         item=item_for(data.get("item_id"))
@@ -412,6 +472,10 @@ def plan(kind, data):
                 raise ValueError("Choose two different locations.")
             qty=converted(number(data.get("qty"),"Quantity",positive=True),item.unit,item.unit)
             moves=[_movement(item,source,-qty,"transfer"),_movement(item,destination,qty,"transfer")]
+        elif kind == "use":
+            source = location_for(data.get("source"))
+            amount = converted(number(data.get("qty"), "Quantity to remove", positive=True), item.unit, item.unit)
+            moves = [_movement(item, source, -amount, "use")]
         elif kind=="count":
             loc=location_for(data.get("destination"))
             physical=converted(number(data.get("qty"),"Physical count"),item.unit,item.unit)
@@ -474,7 +538,131 @@ def post(kind, data, request_id, expected, *, actor, actor_label=None):
     tx=Transaction(id=request_id,kind=kind,item_id=change["item_id"],actor=actor,actor_label=(actor_label or actor)[:160],
         created_at=datetime.now(UTC).replace(tzinfo=None),reason=change["reason"],cost=change["cost"],
         details=json.dumps(change["details"]),request_hash=expected,reverses_id=change["reverses_id"])
-    tx.moves=[Movement(**{k:m[k] for k in ("item_id","location_id","qty","kind","unit","cost")}) for m in change["moves"]]
+    tx.moves=[Movement(**{k:m.get(k) for k in ("item_id","location_id","qty","kind","unit","cost","batch_id")}) for m in change["moves"]]
+    db.session.add(tx)
+    db.session.flush()
+    return tx
+
+
+def batch_available(batch_id):
+    """The batch balance is a projection of the same immutable stock movements."""
+    return db.session.scalar(select(func.coalesce(func.sum(Movement.qty), 0)).where(
+        Movement.batch_id == batch_id))
+
+
+def production_recommendation(component):
+    available = balance(component.id)
+    planned = db.session.scalar(select(func.coalesce(func.sum(ProductionBatch.planned_good), 0)).where(
+        ProductionBatch.component_id == component.id, ProductionBatch.status == 'planned'))
+    gap = max(0, (component.reorder or component.minimum) - available - planned * SCALE)
+    per_batch = (component.yield_qty or 0) * SCALE
+    return dict(available=available, planned=planned, below_minimum=available < component.minimum,
+                recommended=(gap + per_batch - 1) // per_batch if per_batch else None)
+
+
+def complete_batch(batch_id, good, failed, usage, destination_id, request_id, *, actor, actor_label=None):
+    """Atomically consume actual materials and receive accepted batch output once."""
+    if not re.fullmatch(r"[a-f0-9]{32}", request_id):
+        raise ValueError("A stable completion request ID is required.")
+    if type(good) is not int or type(failed) is not int or good < 0 or failed < 0:
+        raise ValueError("Record non-negative accepted and failed whole-piece quantities.")
+    writer_lock()
+    batch = db.session.get(ProductionBatch, batch_id)
+    if not batch:
+        raise ValueError("Unknown production batch.")
+    db.session.refresh(batch)
+    if batch.status != "planned":
+        if batch.receipt_id == request_id:
+            previous = db.session.get(Transaction, request_id)
+            detail = json.loads(previous.details)
+            if (previous.actor != actor or detail.get("good_pieces") != good
+                    or detail.get("failed_pieces") != failed
+                    or detail.get("destination_id") != destination_id
+                    or {int(k): tuple(v) for k, v in detail.get("actual_materials", {}).items()} != usage):
+                raise ValueError("This completion request ID was already used with different details.")
+            return previous
+        raise ValueError("This batch was already completed; inspect its receipt instead of receiving it again.")
+    item = item_for(batch.component_id)
+    recipe = json.loads(batch.planned_recipe)
+    if item.kind != "manufactured" or not recipe:
+        raise ValueError("The batch component has no active material recipe.")
+    if good > MAX_QTY // SCALE or failed > MAX_QTY // SCALE:
+        raise ValueError("Accepted or failed output exceeds the supported quantity range.")
+    if set(usage) != {r['material_id'] for r in recipe}:
+        raise ValueError("Provide actual consumption and source for every recipe material.")
+    destination = location_for(destination_id) if good else None
+    moves, total = [], 0
+    for requirement in recipe:
+        material = item_for(requirement['material_id'])
+        if material.kind != "material" or not material.active:
+            raise ValueError("A recipe material is no longer active.")
+        raw, source_id = usage[material.id]
+        amount = converted(number(raw, f"Actual {material.name} used"), requirement['unit'], material.unit)
+        if not amount:
+            continue
+        source = location_for(source_id)
+        basis = rate(material)
+        if basis is None:
+            raise ValueError(f"Record a cost for {material.name} before completing production.")
+        cost = value_at(amount, basis)
+        total += cost
+        moves.append(_movement(material, source, -amount, "production_consumption", cost))
+    if good:
+        moves.append(_movement(item, destination, good * SCALE, "production_output", total))
+        moves[-1]["batch_id"] = batch.id
+    _checked(moves)
+    if total > MAX_COST:
+        raise ValueError("Actual batch cost exceeds the supported range.")
+    details = dict(batch_id=batch.id, batch_code=batch.code, planned_good=batch.planned_good,
+                   good_pieces=good, failed_pieces=failed, actual_materials=usage, destination_id=destination_id)
+    tx = Transaction(id=request_id, kind="production", item_id=item.id, actor=actor,
+                     actor_label=(actor_label or actor)[:160], created_at=datetime.now(UTC).replace(tzinfo=None),
+                     reason=f"Complete batch {batch.code}", details=json.dumps(details),
+                     request_hash=digest(details), cost=total)
+    tx.moves = [Movement(**{k: move.get(k) for k in ("item_id", "location_id", "qty", "kind", "unit", "cost", "batch_id")})
+                for move in moves]
+    db.session.add(tx)
+    db.session.flush()
+    batch.status, batch.accepted_good, batch.failed_qty, batch.receipt_id = "completed", good, failed, tx.id
+    db.session.flush()
+    return tx
+
+
+def remove_from_batch(batch_id, qty, location_id, reason, request_id, *, actor, actor_label=None):
+    """Remove specific accepted pieces, changing the batch and overall ledger together."""
+    if not re.fullmatch(r"[a-f0-9]{32}", request_id):
+        raise ValueError("A stable removal request ID is required.")
+    reason = clean(reason, "Removal reason", 400, required=True)
+    writer_lock()
+    existing = db.session.get(Transaction, request_id)
+    if existing:
+        detail = json.loads(existing.details)
+        if (existing.kind != "use" or existing.actor != actor or detail.get("batch_id") != batch_id
+                or detail.get("removed") != number(qty, "Pieces to remove", positive=True)
+                or detail.get("location_id") != location_id or existing.reason != reason):
+            raise ValueError("This removal request ID belongs to another transaction.")
+        return existing
+    batch = db.session.get(ProductionBatch, batch_id)
+    if not batch or batch.status != "completed":
+        raise ValueError("Choose a completed production batch.")
+    amount = converted(number(qty, "Pieces to remove", positive=True), "piece", "piece")
+    if batch_available(batch_id) < amount:
+        raise ValueError("Not enough accepted pieces remain in this batch.")
+    item, location = item_for(batch.component_id), location_for(location_id)
+    at_location = db.session.scalar(select(func.coalesce(func.sum(Movement.qty), 0)).where(
+        Movement.batch_id == batch_id, Movement.location_id == location.id))
+    if at_location < amount:
+        raise ValueError("Not enough pieces from this batch remain at the selected location.")
+    why = clean(reason, "Removal reason", 400, required=True)
+    move = _movement(item, location, -amount, "use")
+    move["batch_id"] = batch.id
+    _checked([move])
+    details = dict(batch_id=batch.id, batch_code=batch.code, removed=amount, location_id=location.id)
+    tx = Transaction(id=request_id, kind="use", item_id=item.id, actor=actor,
+                     actor_label=(actor_label or actor)[:160], created_at=datetime.now(UTC).replace(tzinfo=None),
+                     reason=why, details=json.dumps(details), request_hash=digest(details),
+                     moves=[Movement(item_id=item.id, location_id=location.id, qty=-amount,
+                                     unit=item.unit, kind="use", batch_id=batch.id)])
     db.session.add(tx)
     db.session.flush()
     return tx
