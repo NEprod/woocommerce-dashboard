@@ -47,13 +47,33 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
         if not profile:
             raise ValueError('Selected payment fee profile is no longer available.')
         config.update(fee_percent=profile['percent'], fee_fixed=profile['fixed'])
-    missing, rows, base, manufactured = [], [], Decimal(0), Decimal(0)
+    missing, provisional, rows, base, manufactured = [], [], [], Decimal(0), Decimal(0)
+    subtotals = {key: Decimal(0) for key in ('raw_material','purchased_component','manufactured_component','packaging')}
     lines = document.get('lines', [])
     if not isinstance(lines, list) or len(lines) > 80:
         raise ValueError('Use at most 80 inventory lines.')
     if not lines:
         missing.append('No inventory BOM lines configured.')
     for line in lines:
+        if line.get('source') == 'manual':
+            if not direct_materials:
+                raise ValueError('Hypothetical materials are supported only in standalone scenarios.')
+            quantity = decimal(line.get('quantity'), 'Hypothetical material quantity')
+            if quantity <= 0 or line.get('unit') not in stock.UNITS:
+                raise ValueError('Use a positive quantity and supported unit for hypothetical materials.')
+            name = str(line.get('name') or '').strip()
+            if not name:
+                raise ValueError('Name the hypothetical material.')
+            if line.get('unit_cost') in (None, ''):
+                missing.append(f'{name}: hypothetical unit cost is unknown.')
+                rows.append(dict(name=name,cost=None,source='Hypothetical',quantity=str(quantity),unit=line['unit'],unit_cost=None))
+            else:
+                amount = quantity * decimal(line['unit_cost'], 'Hypothetical unit cost')
+                base += amount
+                subtotals['raw_material'] += amount
+                rows.append(dict(name=name,cost=money(amount),source='Hypothetical',quantity=str(quantity),unit=line['unit'],unit_cost=str(line['unit_cost'])))
+                provisional.append(f'{name}: hypothetical material cost.')
+            continue
         item = db.session.get(Item, int(line['item_id']))
         if not item or not item.active:
             missing.append('A BOM inventory item is missing or archived.')
@@ -70,9 +90,15 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
             continue
         amount = Decimal(quantity) / stock.SCALE * rate
         base += amount
+        category = (item.category or '').strip().casefold()
+        group = 'packaging' if category in {'packaging','packaging material','packaging materials'} else {
+            'material':'raw_material','purchased':'purchased_component','manufactured':'manufactured_component'}[item.kind]
+        subtotals[group] += amount
         if item.kind == 'manufactured':
             manufactured += amount
-        rows.append(dict(name=item.name, cost=money(amount)))
+        rows.append(dict(name=item.name, cost=money(amount), source='Inventory / saved recipe',
+                         quantity=str(line['quantity']), unit=line['unit'],
+                         unit_cost=format(amount / Decimal(str(line['quantity'])), '.6g')))
     buffer = manufactured * decimal(document.get('buffer', config['buffer']), 'Manufacturing buffer') / 100
     electricity = Decimal(0)
     usage = document.get('equipment', [])
@@ -81,12 +107,28 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
     for line in usage:
         equipment = db.session.get(Equipment, int(line['equipment_id']))
         minutes = decimal(line['minutes'], 'Attributable equipment minutes')
+        if line.get('timing_mode', 'item') == 'batch':
+            usable = decimal(line.get('usable_units'), 'Usable units')
+            if usable <= 0 or usable != usable.to_integral_value():
+                raise ValueError('Batch allocation requires a positive whole number of usable units.')
+            allocation = line.get('allocation')
+            if allocation not in {'identical', 'explicit_equal', 'share'}:
+                raise ValueError('Choose an explicit batch allocation method; mixed items are not assumed equal.')
+            if allocation == 'share':
+                share = decimal(line.get('share_percent'), 'Attributable batch share', maximum='100')
+                minutes = minutes * share / 100 / usable
+            else:
+                minutes /= usable
+        elif line.get('timing_mode', 'item') != 'item':
+            raise ValueError('Choose per-item or batch equipment timing.')
         if not equipment or not equipment.active or equipment.watts is None:
             missing.append(f'{equipment.name if equipment else "Equipment"}: operating watts are unknown or unavailable.')
         elif config['tariff'] is None:
             missing.append('Electricity tariff is not configured.')
         else:
             electricity += decimal(equipment.watts, 'Watts') / 1000 * minutes / 60 * decimal(config['tariff'], 'Tariff')
+            if equipment.source != 'measured':
+                provisional.append(f'{equipment.name} / {equipment.profile}: {equipment.source} watts.')
     labour_minutes = decimal(document.get('labour_minutes', '0'), 'Hands-on labour minutes')
     labour_rate = document.get('labour_rate', config['labour_rate'])
     if labour_minutes and labour_rate is None:
@@ -102,7 +144,9 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
         amounts.update(fees=None, fee_adjusted=None, profit=None, margin=None)
     if not selling_fees:
         amounts.update(fees=None, fee_adjusted=None, profit=None, margin=None)
-    return dict(complete=not missing, missing=missing, lines=rows, material_component=money(base),
+    return dict(complete=not missing, state='incomplete' if missing else 'provisional' if provisional else 'complete',
+                provisional=provisional, missing=missing, lines=rows, material_component=money(base),
+                subtotals={k:money(v) for k,v in subtotals.items()}, markup=format(markup,'f'),
                 buffer=money(buffer), electricity=money(electricity), labour=money(labour), other=money(other),
                 **amounts,
                 assumption='One finished product / bundle per transaction; fixed payment charge applied once. No VAT assumed.')

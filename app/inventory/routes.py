@@ -109,12 +109,22 @@ def costing_settings():
                     db.session.refresh(row)
                 config = json.loads(row.document) if row else {}
                 profiles = config.get('fee_profiles', [])
-                if len(profiles) >= 30:
+                profile_id = request.form.get('profile_id')
+                if request.form.get('settings_version') and int(request.form['settings_version']) != (row.version if row else 0):
+                    raise ValueError('Fee profiles changed in another session. Reload before saving.')
+                existing_profile = next((p for p in profiles if p['id'] == profile_id), None) if profile_id else None
+                if profile_id and not existing_profile:
+                    raise ValueError('The selected fee profile no longer exists.')
+                if not profile_id and len(profiles) >= 30:
                     raise ValueError('At most 30 payment fee profiles are supported.')
-                profiles.append(dict(id=uuid4().hex, name=stock.clean(request.form.get('name'), 'Fee profile name', 160, required=True),
+                replacement = dict(id=profile_id or uuid4().hex, name=stock.clean(request.form.get('name'), 'Fee profile name', 160, required=True),
                                      percent=str(decimal(request.form.get('percent'), 'Total percentage fees', maximum='99.99')),
                                      fixed=str(decimal(request.form.get('fixed'), 'Fixed transaction charge')),
-                                     notes=stock.clean(request.form.get('notes'), 'Notes', 4000)))
+                                     notes=stock.clean(request.form.get('notes'), 'Notes', 4000))
+                if existing_profile is not None:
+                    existing_profile.update(replacement)
+                else:
+                    profiles.append(replacement)
                 config['fee_profiles'] = profiles
                 if row:
                     row.document, row.version = json.dumps(config), row.version + 1
@@ -214,6 +224,19 @@ def bom_planner(scenario_id, product_id=None):
             document = dict(lines=[dict(item_id=int(i), quantity=q, unit=u) for i, q, u in zip(*columns) if i],
                             equipment=[dict(equipment_id=int(i), minutes=m) for i, m in zip(*equipment_columns) if i],
                             **{key: request.form.get(key) or "0" for key in ("labour_minutes", "other", "selling_price")})
+            manual = [request.form.getlist(k) for k in ('manual_name','manual_quantity','manual_unit','manual_cost')]
+            if len({len(c) for c in manual}) != 1:
+                raise ValueError('Send complete hypothetical material rows.')
+            document['lines'].extend(dict(source='manual',name=n,quantity=q,unit=u,unit_cost=c)
+                                     for n,q,u,c in zip(*manual) if n.strip())
+            for index, usage in enumerate(document['equipment']):
+                for field in ('timing_mode','usable_units','allocation','share_percent'):
+                    entered = request.form.getlist(field)
+                    if entered:
+                        if len(entered) != len(equipment_columns[0]):
+                            raise ValueError('Send one allocation configuration per selected equipment line.')
+                        selected_index = [i for i,value in enumerate(equipment_columns[0]) if value][index]
+                        usage[field] = entered[selected_index]
             for key in ("buffer", "markup", "labour_rate", "fee_profile"):
                 if request.form.get(key, "").strip():
                     document[key] = request.form[key].strip()
@@ -225,6 +248,10 @@ def bom_planner(scenario_id, product_id=None):
             if product and (not projection or projection.get('state') != 'complete'):
                 raise ValueError('The existing product BOM must be configured and complete before saving finished-product profitability.')
             if request.form.get("action") in {"save", "duplicate"}:
+                if not product:
+                    document['_snapshot'] = dict(result=result, settings=config,
+                        equipment=[dict(id=e.id,name=e.name,profile=e.profile,watts=e.watts,source=e.source)
+                                   for e in Equipment.query.filter(Equipment.id.in_([u['equipment_id'] for u in document['equipment']])).all()])
                 stock.writer_lock()
                 if scenario and request.form.get("action") != "duplicate":
                     db.session.refresh(scenario)
@@ -251,13 +278,34 @@ def bom_planner(scenario_id, product_id=None):
     elif scenario:
         settings = db.session.get(CostingSettings, 1)
         config = json.loads(settings.document) if settings else {}
-        result = estimate(document, config, direct_materials=not bool(product))
+        if not product and document.get('_snapshot'):
+            result = document['_snapshot']['result']
+        else:
+            result = estimate(document, config, direct_materials=not bool(product))
+            if not product:
+                result['historical_context_missing'] = True
     return render_template("inventory/bom_planner.html", scenario=scenario, name=name, document=document,
-                           result=result, error=error, items=_item_choices(), equipment=Equipment.query.filter_by(active=True).all(),
+                           result=result, error=error, items=_item_choices(include_archived=True), equipment=Equipment.query.order_by(Equipment.name).all(),
                            product=product, sku=sku, costs=costs,
                            fee_profiles=json.loads(db.session.get(CostingSettings, 1).document).get('fee_profiles', []) if db.session.get(CostingSettings, 1) else [],
                            scenarios=[s for s in BomScenario.query.order_by(BomScenario.name).limit(100).all()
-                                      if json.loads(s.document).get('kind') != 'bundle']), 400 if error else 200
+                                      if json.loads(s.document).get('kind') != 'bundle' and not json.loads(s.document).get('_archived')]), 400 if error else 200
+
+
+@inventory.post('/bom/<int:scenario_id>/archive')
+def archive_bom_scenario(scenario_id):
+    stock.writer_lock()
+    scenario = _record(BomScenario, scenario_id)
+    document = json.loads(scenario.document)
+    if scenario.product_id or document.get('kind') == 'bundle' or request.form.get('confirmed') != 'yes':
+        abort(400)
+    if request.form.get('version') != str(scenario.version):
+        abort(409, 'Scenario changed; reload before deleting from the list.')
+    document['_archived'] = True
+    scenario.document, scenario.version = json.dumps(document), scenario.version + 1
+    db.session.commit()
+    flash('Scenario removed from saved list; historical data retained.', 'success')
+    return redirect(url_for('inventory.bom_planner'), code=303)
 
 
 @inventory.route('/bundles', methods=['GET', 'POST'])

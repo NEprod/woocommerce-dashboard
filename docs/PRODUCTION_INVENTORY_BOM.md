@@ -73,9 +73,45 @@ only to manufactured-material estimates; it never changes physical consumption.
 Unknown inputs withhold complete cost/profit suggestions rather than counting as
 free. Markup and margin are different; prices remain the operator's choice.
 
-Current estimates follow current inventory rates/settings. Historical production
-receipts retain actual consumption and costs. Scenario documents retain inputs,
-not a guarantee that a future reopened estimate has unchanged rates.
+New standalone scenario saves retain a calculation snapshot, costing defaults and
+equipment context. Reopening shows that saved result. Editing inputs / Calculate
+Preview explicitly calculates with current rates; Save records the new result.
+Legacy scenarios without snapshots are identified as such; their original historic
+results cannot be reconstructed. Historical production receipts remain unchanged.
+
+## Costing workspace interactions (pending user acceptance)
+
+Equipment and fee profiles use shared table panels and pencil-edit native dialogs,
+following the application's package-editor dialog pattern. Cancel/Escape discards
+dialog drafts. Save is explicit; invalid input stays in the dialog with feedback.
+Equipment archival requires confirmation and retains references. Fee edits retain
+their profile ID and use settings-version checks.
+
+Planner inventory, hypothetical-material and process tables have dynamic Add,
+pencil Edit and Remove actions. Apply Row only updates the unsaved scenario; it
+does not save inventory or produce stock. Hypothetical costs are provisional and
+allowed only in standalone scenarios. Blank hypothetical costs remain unknown.
+
+Per-item timing remains the default. Batch timing requires usable units and an
+explicit allocation: identical items, an explicitly chosen equal mixed-item split,
+or an attributable share of the job followed by division by that group's usable
+units. Failed pieces are reflected by reducing usable output. Select concurrent
+electrical devices separately; their runtime never becomes hands-on labour.
+
+Known estimated/specification wattages produce a provisional result; missing
+wattages, tariffs or material prices produce an incomplete result. The existing
+manufactured-material allowance and fee-aware pricing equations are unchanged.
+
+Scenario Rename uses the name field and Save. Duplicate creates a new scenario.
+Delete requires confirmation and removes the scenario from the saved list through
+an additive JSON archive flag; the historical record is retained.
+
+Manual acceptance: edit/cancel an equipment profile, save and reopen it; repeat
+for a fee profile. Add a hypothetical material and two concurrent process rows.
+Compare seven usable units with five usable units using the same batch runtime.
+Save, change defaults, reopen the scenario and verify the saved result remains;
+then explicitly recalculate. Check keyboard Escape/Tab and phone modal scrolling.
+No commit or Docker release is authorised for this UI-overhaul review.
 
 ## Storage and deployment
 
