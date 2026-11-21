@@ -164,8 +164,8 @@ def common_plan(product, *, variable=False):
         diagnostics = gallery_diagnostics(product, diagnostics)
     limit = MAX_IMAGES
     from app.shopify_connection import ShopifyReadinessFinding
-    if not diagnostics:
-        raise ShopifyReadinessFinding('Publishing needs original catalogue/gallery artwork. Check the source folder and image references; no images are removed.', code='missing_images')
+    # Existing verified products may intentionally remove their final image.
+    # The create path below still blocks creation without original artwork.
     if len(diagnostics) > limit:
         raise ShopifyReadinessFinding(f'Gallery exceeds the supported publication bound: {len(diagnostics)} images; limit {limit}. No images are truncated or removed.', code='gallery_bound')
     images = []
@@ -187,7 +187,7 @@ def common_plan(product, *, variable=False):
     plan["taxonomy_fingerprint"] = taxonomy_fingerprint(product)
     plan["price"] = plan["managed"]["variant"]["price"]
     plan["unsupported"] = ["Storefront navigation publishing is deferred", "Customer-facing customisation",
-        "Inventory quantities/locations", "Media replacement, addition or removal on existing drafts",
+        "Inventory quantities/locations",
         "Shopify saved-package assignment readback/clearing is unavailable; reviewed writes record acceptance only"]
     from app.shopify_products import source_fingerprint
     from app.inventory import product_bom
@@ -346,6 +346,8 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None,
         from app.shopify_publication import has_reviewed_changes
         return result, token if not result["blockers"] and (scope=='inventory' or has_reviewed_changes(result)) else None
     require_absent_sku(adapter, config, plan["sku"])
+    if not plan["images"]:
+        plan["blockers"].append("New Shopify products require original catalogue artwork.")
     plan.update(store_key=store_key, store_id=shop["shop_id"], domain=config.domain,
                 config_digest=config.fingerprint(),
                 nonce=evidence(row)['plan']['nonce'] if upload_pending(row) else uuid.uuid4().hex)
@@ -783,8 +785,7 @@ def run_simple_checkpoint(row,data,config,adapter,*,updating):
         steps = [
             ('product_update', len(product_input)>1, lambda:adapter.update_simple_product(config,product_input), 'productUpdate'),
             ('variant_update', len(variant_input)>1, lambda:adapter.update_simple_variant(config,row.shopify_product_id,variant_input), 'productVariantsBulkUpdate'),
-            ('media_alt', actions['alt'], lambda:adapter.update_media_alt(config,actions['alt']), 'fileUpdate'),
-            ('media_order', actions['reorder'], lambda:adapter.reorder_media(config,row.shopify_product_id,actions['ids']), 'productReorderMedia')]
+            ('media_alt', actions['alt'], lambda:adapter.update_media_alt(config,actions['alt']), 'fileUpdate')]
         for stage, needed, call, payload in steps:
             if not needed or stage in completed:
                 continue
@@ -800,6 +801,23 @@ def run_simple_checkpoint(row,data,config,adapter,*,updating):
                     data['reorder_job'] = _gid((result.get('job') or {}).get('id'),'Job')
 
             effect(row,data,stage,call,accept,state='updating')
+        if actions['add'] or actions['retire']:
+            from app.shopify_media_update import prepare, retire, update_simple_association
+            if local_plan(product)['digest'] != plan['digest'] or configuration().fingerprint() != plan['config_digest']:
+                raise ShopifyError('Local source/configuration changed before media execution.')
+            resolved = prepare(row,data,product,config,adapter)
+            update_simple_association(row,data,config,adapter,resolved)
+            retire(row,data,config,adapter,resolved)
+        if actions['reorder'] and actions['ids'] and 'media_order' not in completed:
+            if local_plan(product)['digest'] != plan['digest'] or configuration().fingerprint() != plan['config_digest']:
+                raise ShopifyError('Local source/configuration changed before media order.')
+            data.update(stage='media_order',update_attempted=True)
+            def accept_order(result):
+                payload = result.get('productReorderMedia') or {}
+                if payload.get('mediaUserErrors'):
+                    raise ShopifyError('Shopify rejected gallery order; inspect the retained review.')
+                data['reorder_job'] = _gid((payload.get('job') or {}).get('id'),'Job')
+            effect(row,data,'media_order',lambda:adapter.reorder_media(config,row.shopify_product_id,actions['ids']),accept_order,state='updating')
     join_reviewed(row,data,config,adapter)
     return finish_registration_tail(row,data,config,adapter,updating=updating)
 
@@ -1025,14 +1043,25 @@ def media_review(plan, data, remote):
     if not isinstance(retained, list) or any(not isinstance(m, dict) for m in retained):
         raise ShopifyError("Retained media mapping is invalid; administrator recovery review is required.")
     by_source = {m.get("source"): m for m in retained}
-    if len(by_source) != len(retained) or len(retained) != len(plan["images"]):
-        raise ShopifyError("Unsupported media addition/removal. Existing media will not be deleted or re-uploaded.")
-    desired, alt, rows = [], [], []
+    if len(by_source) != len(retained):
+        raise ShopifyError("Retained media source mapping is ambiguous; no gallery write is allowed.")
+    desired, alt, rows, additions, retired = [], [], [], [], []
     remote_nodes = {m["id"]: m for m in remote["media"]["nodes"]}
+    retained_ids = [m.get("id") for m in retained]
+    if len(retained_ids) != len(set(retained_ids)) or set(retained_ids) != set(remote_nodes):
+        raise ShopifyError("Shopify gallery differs from retained managed media; reconcile before changing images.")
     for image in plan["images"]:
-        mapped = by_source.get(image["source"], {})
-        if mapped.get("sha256") != image["sha256"] or mapped.get("id") not in remote_nodes:
-            raise ShopifyError("Unsupported media replacement or missing mapping. Retain original files; no automatic upload/delete is allowed.")
+        mapped = by_source.get(image["source"])
+        if mapped is None or mapped.get("sha256") != image["sha256"]:
+            additions.append(image)
+            desired.append(None)
+            rows.append({"field": "media.image." + image["source"],
+                         "before": mapped.get("sha256") if mapped else None,
+                         "after": image["sha256"], "changed": True,
+                         "action": "Replace" if mapped else "Add"})
+            continue
+        if mapped.get("id") not in remote_nodes:
+            raise ShopifyError("Retained media identity is missing from the complete Shopify gallery.")
         node = remote_nodes[mapped["id"]]
         if node.get("status") != "READY" or not (node.get("image") or {}).get("url", "").startswith("https://"):
             raise ShopifyError("Media processing is not ready; reconcile before reviewing updates.")
@@ -1041,11 +1070,23 @@ def media_review(plan, data, remote):
         rows.append({"field": f"media.alt.{node['id']}", "before": node.get("alt"), "after": image["alt"], "changed": changed})
         if changed:
             alt.append({"id": node["id"], "alt": image["alt"]})
-    if len(set(desired)) != len(desired) or set(desired) != set(remote_nodes):
-        raise ShopifyError("Unsupported remote media addition/removal or ambiguous mapping. No media will be deleted.")
+    wanted = {image["source"]: image for image in plan["images"]}
+    if len(wanted) != len(plan["images"]):
+        raise ShopifyError("Duplicate catalogue image source; no gallery write is allowed.")
+    for old in retained:
+        replacement = wanted.get(old["source"])
+        if replacement is None or replacement["sha256"] != old["sha256"]:
+            retired.append(old)
+            if replacement is None:
+                rows.append({"field": "media.image." + old["source"],
+                             "before": old["sha256"], "after": None,
+                             "changed": True, "action": "Remove"})
     before = [m["id"] for m in remote["media"]["nodes"]]
+    if len(before) + len(additions) > MAX_IMAGES:
+        raise ShopifyError("Safe replacement requires temporary Shopify gallery capacity; no old media is removed.")
     rows.append({"field": "media.order", "before": before, "after": desired, "changed": before != desired})
-    return {"ids": desired, "alt": alt, "reorder": before != desired}, rows
+    return {"ids": desired, "alt": alt, "reorder": before != desired,
+            "add": additions, "retire": retired}, rows
 
 
 def update_preview(product, row, plan, config, shop, adapter):
@@ -1062,6 +1103,10 @@ def update_preview(product, row, plan, config, shop, adapter):
     if not data.get("variant_id") and variant.get("sku") != row.sku:
         raise ShopifyError("Legacy Simple variant cannot be adopted with a different SKU; recovery review is required.")
     actions, media_rows = media_review(plan, data, remote)
+    if actions['retire']:
+        from app.shopify_media_update import simple_association_review
+        plan['media_actions'] = actions
+        media_rows += simple_association_review(plan, data, config, adapter, variant['id'])
     if actions["alt"] and "write_files" not in shop["scopes"]:
         plan["blockers"].append("Missing write_files for reviewed alt changes; no files will be written.")
     rows = fields.field_rows(plan["managed"], remote) + media_rows
@@ -1090,7 +1135,8 @@ def update_preview(product, row, plan, config, shop, adapter):
         inventory_item_id=variant["inventoryItem"]["id"], store_id=shop["shop_id"],
         store_key=row.store_key, domain=config.domain, config_digest=config.fingerprint(),
         handle=plan["managed"]["product"].get("handle", remote["handle"]), nonce=data["plan"]["nonce"],
-        remote_digest=digest(remote), identity_digest=digest(data))
+        remote_digest=digest({'product':remote,'simple_variant_media':plan.get('simple_variant_media')}) if actions['retire'] else digest(remote),
+        identity_digest=digest(data))
     plan["actual_status"] = remote.get("status", "Unknown")
     plan["remote_updated_at"] = remote.get("updatedAt")
     if actions["alt"]:
@@ -1165,6 +1211,8 @@ def confirm_update(reviewed, adapter=None):
         data.pop("reorder_job", None)
         data.pop('continuation',None)
         data.pop('dispatch',None)
+        data.pop('media_sync',None)
+        data.pop('upload_attempt',None)
         data["completed_steps"] = []
         data["previous_verified"] = {"operation_id": row.operation_id, "reviewed_digest": row.reviewed_digest,
             "verified_at": row.verified_at.isoformat() if row.verified_at else None, "plan": data["plan"],
@@ -1457,8 +1505,9 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
     data["verification"]["memberships"] = "verified"
     data["stage"] = "media_verification"
     save(row, data)
-    expected = plan.get("media_actions", {}).get("ids") or [m.get("id") for m in data.get("created_media", [])]
-    if not expected:
+    reviewed_ids = plan.get("media_actions", {}).get("ids")
+    expected = reviewed_ids if reviewed_ids is not None else [m.get("id") for m in data.get("created_media", [])]
+    if not expected and not (plan.get('classification') == 'update' and reviewed_ids == []):
         raise ShopifyError("Creation media receipts are missing. Inspect the retained draft and explicitly approve its mapping; no duplicate create is allowed.")
     observed = [m["id"] for m in remote["media"]["nodes"]]
     if set(expected) != set(observed) or len(expected) != len(plan["images"]):

@@ -1373,6 +1373,42 @@ def collection_detail(collection_id):
     )
 
 
+@main.route("/collections/<int:collection_id>/update-images", methods=["POST"])
+@login_required
+def collection_update_images(collection_id):
+    """Use the existing exhaustive collection scan, never a global scan."""
+    if not current_user.is_admin:
+        abort(403)
+    csrf.protect()
+    collection = db.get_or_404(Collection, collection_id)
+    settings = Settings.query.first()
+    if not settings or not settings.product_folder or not collection.root_path:
+        abort(409, "Collection source is unavailable")
+    root = os.path.realpath(settings.product_folder)
+    folder = os.path.realpath(collection.root_path)
+    if (not os.path.isdir(folder) or os.path.dirname(folder) != root
+            or not os.path.isfile(os.path.join(folder, "product_info.json"))):
+        abort(409, "The collection source no longer matches its catalogue identity")
+    collection_relpath = os.path.relpath(folder, root)
+    scope = {"scope_kind": "collection", "collection_relpath": collection_relpath,
+             "exhaustive": True, "initiating_source": "update_images"}
+    try:
+        lease = acquire_catalogue_operation("shared_collection_update", scope)
+    except CatalogueOperationActive as error:
+        return _operation_conflict(error)
+    try:
+        from app.utils.atomic_files import atomic_write_text
+        atomic_write_text(os.path.join(folder, ".update"), "1")
+        run_id = uuid.uuid4().hex
+        start_scan(current_app._get_current_object(), run_id,
+                   scan_mode="shared_collection", operation_id=lease.id,
+                   scope=scope, collection_relpath=collection_relpath)
+    except Exception as error:
+        finish_catalogue_operation(lease.id, status="failed", error=error)
+        abort(409, "The collection scan could not start; its update marker is retained")
+    return redirect(url_for("main.collection_detail", collection_id=collection_id))
+
+
 @main.route("/scanner")
 @login_required
 def scanner():

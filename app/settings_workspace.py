@@ -103,7 +103,6 @@ def build_settings_workspace():
     from app.woocommerce_connection import build_woocommerce_workspace
     woo = build_woocommerce_workspace()
     catalogue_ok = _directory_state(settings.product_folder if settings else None)
-    output_ok = _directory_state(settings.output_folder if settings else None, writable=True)
     app_data_ok = _directory_state(current_app.instance_path, writable=True)
     from app.onboarding import pending
     setup_complete = User.query.first() is not None and settings is not None and not pending()
@@ -136,11 +135,6 @@ def build_settings_workspace():
                 "Catalogue",
                 catalogue_ok,
                 detail="Scanner source is readable." if catalogue_ok else "Catalogue source cannot be read; scanner operations are unavailable.",
-            ),
-            _status(
-                "Output",
-                output_ok,
-                detail="Generated output can be written." if output_ok else "Scanner modes requiring output are unavailable.",
             ),
             _status(
                 "App data",
@@ -221,11 +215,9 @@ def configuration_inventory(*, show_paths=False):
         row("Application data", path_value(current_app.instance_path), "Container instance path"),
         row("Database", path_value(db.engine.url.database) if db.engine.dialect.name == "sqlite" else "Database connection details hidden",
             "Application instance" if db.engine.dialect.name == "sqlite" else "Database configuration"),
-        row("URL_PREFIX", current_app.config.get("URL_PREFIX") or "/", "Docker environment" if "URL_PREFIX" in os.environ else "Default"),
     ])
     group("Catalogue and source directories", [
         effective_path("PRODUCT_FOLDER", settings._product_folder if settings else None),
-        effective_path("OUTPUT_FOLDER", settings._output_folder if settings else None),
         effective_path("INTAKE_ROOT", None), effective_path("TAXONOMY_ROOT", None),
     ])
     group("Image and file handling", [
@@ -274,7 +266,6 @@ def system_status_workspace(*, show_paths=False):
     paths = []
     settings = Settings.query.first()
     values = [("Product catalogue", settings.product_folder if settings else None),
-              ("Image output", settings.output_folder if settings else None),
               ("Intake", current_app.config.get("INTAKE_ROOT")),
               ("Taxonomy", current_app.config.get("TAXONOMY_ROOT")),
               ("Application data", current_app.instance_path),

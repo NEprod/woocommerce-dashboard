@@ -16,7 +16,7 @@ from app.utils.atomic_files import atomic_write_json
 from app import db
 
 
-FIELDS = {"product_folder": "Catalogue", "output_folder": "Output", "url_prefix": "Public image URL prefix"}
+FIELDS = {"product_folder": "Catalogue"}
 
 
 def owned(name):
@@ -62,10 +62,10 @@ def readiness():
     checks = []
     for name, label in FIELDS.items():
         value = getattr(settings, name) or ""
-        check_state = ("Configured" if valid_url(value) else "Invalid" if value else "Missing") if name == "url_prefix" else directory_state(value)
+        check_state = directory_state(value)
         # Only conventional container paths are shown. Non-container paths are
         # deliberately described without echoing host filesystem locations.
-        display = (value if valid_url(value) else "Not configured safely") if name == "url_prefix" else value if value in {"/catalogue", "/output"} else "Configured directory" if value else "Not configured"
+        display = value if value == "/catalogue" else "Configured directory" if value else "Not configured"
         checks.append(dict(key=name, label=label, state=check_state, display=display, owned=owned(name)))
     taxonomy = load_configured_registry()
     intake = intake_readiness()

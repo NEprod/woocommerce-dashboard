@@ -315,8 +315,8 @@ def _handoff_plan(result, path):
             validation = validate_product_info(document, 'collection' if row['path'] == 'product_info.json' else 'override')
             for issue in validation.errors:
                 _blocked(result, row['path'] + ': ' + issue.message)
-    if not settings or not settings.output_folder or not settings.url_prefix:
-        _blocked(result, 'Configure the existing scanner output folder and image URL before registration')
+    if not settings or not settings.product_folder:
+        _blocked(result, 'Configure the catalogue source folder before registration')
     prefix = str(metadata['document'].get('sku_prefix') or '')
     names = ([path.name] if metadata['document'].get('collection_type') == 'Single Variable'
              else sorted(metadata['analysis'].get('product_folders') or [path.name]))

@@ -700,6 +700,9 @@ class ProductAsset(db.Model):
     # Local filesystem path to file or folder
     path = db.Column(db.String(1024), nullable=False)
     source_relpath = db.Column(db.String(1024), index=True)
+    # Scanner-verified bytes; Shopify's retained media receipts remain the
+    # authority for the last successfully published fingerprint.
+    content_sha256 = db.Column(db.String(64))
 
     # Useful metadata
     kind = db.Column(

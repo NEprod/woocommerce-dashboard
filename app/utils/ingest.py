@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import os
 import json
 import re
+import hashlib
 from urllib.parse import unquote, urlsplit
 from sqlalchemy import select
 from flask import current_app
@@ -395,22 +396,33 @@ def _sync_source_image_assets(
     for position, filename in enumerate(filenames):
         if (
             not isinstance(filename, str)
-            or os.path.basename(filename) != filename
             or os.path.splitext(filename)[1].lower() not in IMAGE_SUFFIXES
         ):
             continue
+        # New scans carry product-relative paths for nested variant imagery.
+        # Historical markers carry basenames and still resolve by the existing
+        # ordered source directories.
+        normalized = filename.replace('\\', '/')
+        parts = normalized.split('/')
+        if any(part in {'', '.', '..'} for part in parts) or normalized.startswith('/'):
+            raise ValueError('Unsafe image reference in scanner marker')
+        product_folder = getattr(product, 'product_dir', None)
+        explicit = (
+            _confined_source(os.path.join(product_folder, *parts), catalogue_root)
+            if product_folder and len(parts) > 1 else None
+        )
         source = next(
             (
                 candidate
                 for directory in directories
                 if (candidate := _confined_source(
-                    os.path.join(directory, filename), catalogue_root
+                    os.path.join(directory, parts[-1]), catalogue_root
                 ))
             ),
             None,
-        )
+        ) if explicit is None else explicit
         if not source:
-            continue
+            raise ValueError('Scanned image source is unavailable')
         label = f"{owner}:{position:04d}"
         asset = existing.pop(label, None)
         if not asset:
@@ -424,6 +436,8 @@ def _sync_source_image_assets(
         asset.path = source
         asset.source_relpath = _portable_relpath(source, catalogue_root)
         asset.is_primary = position == 0
+        with open(source, 'rb') as image_stream:
+            asset.content_sha256 = hashlib.file_digest(image_stream, 'sha256').hexdigest()
     for asset in existing.values():
         db.session.delete(asset)
 
@@ -971,7 +985,7 @@ def _ingest_complete_parent(
             "parent_images_count": parent_image_count,
             "variation_images_count": variation_image_count,
             "total_images_count": parent_image_count + variation_image_count,
-            "output_images_copied": parent_image_count + variation_image_count,
+            "output_images_copied": 0,
             "has_shared": "shared" in info_paths,
             "has_override": "override" in info_paths,
             # Discord receives only portable catalogue identity, never a host path.

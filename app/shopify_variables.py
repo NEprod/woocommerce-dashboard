@@ -165,7 +165,7 @@ def local_plan(product):
     if any(isinstance(v,dict) and "sale_price" in v for v in product_document(product).get("variation_modifiers",{}).values()):
         plan["warnings"].append("Per-variant sale amounts use existing exact/most-specific modifiers. The legacy scanner sale column is unchanged; Review shows the effective Shopify prices.")
     plan["unsupported"] = ["Storefront navigation publishing is deferred", "Customer-facing customisation", "Inventory quantities/locations",
-        "Destructive option restructuring / variant deletion", "Existing gallery replacement/addition/removal", "Shopify package presets / labels"]
+        "Destructive option restructuring / variant deletion", "Shopify package presets / labels"]
     plan["digest"] = drafts.digest({"base": plan["digest"], "variants": variants, "options": plan["options"]})
     return plan
 
@@ -246,6 +246,8 @@ def variant_rows(wanted, remote):
     if wanted.get("media_id"):
         before = [m["id"] for m in association["nodes"]]
         rows.append({"field":"mediaId", "before":before, "after":wanted["media_id"], "changed":before != [wanted["media_id"]]})
+    elif not wanted.get("media_source") and association["nodes"]:
+        rows.append({"field":"mediaId", "before":[m["id"] for m in association["nodes"]], "after":None, "changed":True})
     return rows
 
 
@@ -261,11 +263,12 @@ def compare(plan, row, data, remote, *, initial_variant=None):
     actions, media_rows = drafts.media_review(plan,data,remote)
     plan["media_actions"] = actions
     rows += media_rows
+    changed_sources = {image['source'] for image in actions['add']}
     by_id = {v["id"]:v for v in nodes}
     used = set()
     for v in plan["variants"]:
-        v["media_id"] = sources.get(v["media_source"])
-        if v["media_source"] and not v["media_id"]:
+        v["media_id"] = sources.get(v["media_source"]) if v["media_source"] not in changed_sources else None
+        if v["media_source"] and not v["media_id"] and v["media_source"] not in changed_sources:
             plan["blockers"].append("Variant image lacks a retained media mapping: " + v["sku"])
         mapping = data.get("variant_maps",{}).get(v["identity"])
         if not mapping and initial_variant and v['identity']==plan['variants'][0]['identity']:
@@ -277,13 +280,16 @@ def compare(plan, row, data, remote, *, initial_variant=None):
             v.update(remote_id=mapping["id"], inventory_id=mapping["inventory_id"], action="Update")
             used.add(mapping["id"])
             current_media=[m["id"] for m in by_id[mapping["id"]].get("media",{}).get("nodes",[])]
-            if v.get("media_id") and current_media and current_media != [v["media_id"]]:
-                plan["blockers"].append("Existing variant media replacement requires a separately reviewed association policy: "+v["sku"])
             previous=next((old for old in data["plan"]["variants"] if old["identity"]==v["identity"]),None)
-            if previous and previous.get("media_source") and not v["media_source"]:
-                plan["blockers"].append("Managed variant media removal is unsupported; retained association preserved: "+v["sku"])
+            expected_before = sources.get(previous.get('media_source')) if previous else None
+            if current_media != ([expected_before] if expected_before else []):
+                plan['blockers'].append('Existing variant media differs from its retained mapping: '+v['sku'])
             for field in variant_rows(v,by_id[mapping["id"]]):
                 rows.append({**field,"field":"variants."+v["sku"]+"."+field["field"],"variant_identity":v["identity"],"leaf":field["field"]})
+            if v['media_source'] in changed_sources:
+                rows.append({'field':'variants.'+v['sku']+'.mediaId','variant_identity':v['identity'],
+                    'leaf':'mediaId','before':current_media,'after':'New managed image: '+v['media_source'],
+                    'changed':True})
         else:
             candidates = [n for n in nodes if n["sku"] == v["sku"] or n["selectedOptions"] == v["options"]]
             if candidates:
@@ -295,6 +301,10 @@ def compare(plan, row, data, remote, *, initial_variant=None):
         plan["blockers"].append("Managed additions plus retained remote-only variants exceed the 32-variant readback bound; no variants are removed to make space.")
     if extras:
         plan["warnings"].append("Remote-only/unmapped variants are preserved: " + ", ".join(extras))
+    retired_ids={m['id'] for m in actions['retire']}
+    for node in nodes:
+        if node['id'] not in used and any(m['id'] in retired_ids for m in node.get('media',{}).get('nodes',[])):
+            plan['blockers'].append('A remote-only variant uses media due for removal; reconcile its image before updating the gallery.')
     plan["fields"] = rows
     return nodes
 
@@ -883,6 +893,8 @@ def confirm(reviewed, adapter=None):
             data=drafts.evidence(row)
             data.pop('continuation',None)
             data.pop('dispatch',None)
+            data.pop('media_sync',None)
+            data.pop('upload_attempt',None)
             if resuming:
                 data['creation_resume_from']={'operation_id':row.operation_id,'stage':data.get('stage'),'completed_steps':data.get('completed_steps',[])}
                 for receipt,mid in zip(data['media'],plan['creation_resume']['media_ids']):receipt['id']=mid
@@ -1016,25 +1028,29 @@ def run_variable_checkpoint(row,data,config,adapter,*,creating):
         actions = plan['media_actions']
         for stage,needed,invoke,key in (
             ('product_update',len(metadata)>1,lambda:adapter.update_simple_product(config,metadata),'productUpdate'),
-            ('media_alt',actions['alt'],lambda:adapter.update_media_alt(config,actions['alt']),'fileUpdate'),
-            ('media_order',actions['reorder'],lambda:adapter.reorder_media(config,row.shopify_product_id,actions['ids']),'productReorderMedia')):
+            ('media_alt',actions['alt'],lambda:adapter.update_media_alt(config,actions['alt']),'fileUpdate')):
             if not needed or stage in completed:
                 continue
             fresh()
             data['stage'] = stage
             def accept(result):
                 payload = drafts.payload_result(result,key)
-                if key == 'productReorderMedia':
-                    data['reorder_job'] = (payload.get('job') or {}).get('id')
             effect(row,data,stage,invoke,accept)
-        data['created_media'] = [{'id':i} for i in actions['ids']]
+        if actions['add'] or actions['retire']:
+            from app.shopify_media_update import prepare
+            fresh()
+            resolved = prepare(row,data,product,config,adapter)
+        else:
+            resolved = actions['ids']
+        data['created_media'] = [{'id':i} for i in resolved]
         drafts.save(row,data)
     if len(data["created_media"])!=len(plan["images"]):
         raise ShopifyError("Creation media receipts are missing/incomplete; inspect the retained mapping, no upload retry.")
     if creating:
         for receipt,created in zip(data["media"],data["created_media"]):
             receipt["id"]=_gid(created["id"],"MediaImage")
-    media={r["source"]:r["id"] for r in data["media"]}
+    media = ({image['source']: media_id for image, media_id in zip(plan['images'], resolved)}
+        if not creating else {r["source"]:r["id"] for r in data["media"]})
     updates, additions = [], []
     changed = {f.get("variant_identity") for f in plan["fields"] if f["changed"]}
     for wanted in plan["variants"]:
@@ -1071,6 +1087,68 @@ def run_variable_checkpoint(row,data,config,adapter,*,creating):
             payload = drafts.payload_result(result,'productVariantsBulkCreate')
             acknowledge(row,data,payload,targets,'variant_create',commit=False)
         effect(row,data,'variant_create',lambda:adapter.create_variants(config,row.shopify_product_id,additions),accept)
+    if not creating:
+        from app.shopify_capacity import BackgroundYield
+        remote=adapter.read_variable(config,row.shopify_product_id,plan['managed']['namespace'])
+        nodes={v['id']:v for v in remote_identity(row,data,remote)}
+        for wanted in plan['variants']:
+            mapping=data['variant_maps'].get(wanted['identity'])
+            if not mapping or mapping['id'] not in nodes:
+                raise ShopifyError('Reviewed variant identity is missing before media retirement.')
+            current=[m['id'] for m in nodes[mapping['id']]['media']['nodes']]
+            desired=media.get(wanted['media_source']) if wanted['media_source'] else None
+            reviewed_link=next((f for f in plan['fields'] if f.get('variant_identity')==wanted['identity']
+                and f.get('leaf')=='mediaId' and f.get('changed')),None)
+            old_links=reviewed_link.get('before',[]) if reviewed_link else []
+            old=old_links[0] if len(old_links)==1 else None
+            if desired and desired not in current:
+                sync=data.setdefault('media_sync',{})
+                sync['association_wait']=sync.get('association_wait',0)+1
+                drafts.save(row,data)
+                if sync['association_wait'] <= 12:
+                    raise BackgroundYield('Acknowledged variant image link is awaiting Shopify readback.',code='media_association')
+                raise ShopifyError('Variant image association could not be verified; original media is retained.')
+            if old and old != desired and old in current:
+                invalid = (old not in {m['id'] for m in data['media']}
+                    or (set(current)!={old,desired} if desired else current!=[old]))
+                if invalid:
+                    raise ShopifyError('Variant image no longer matches retained managed media; detach refused.')
+                stage='media_detach:'+wanted['identity']
+                if stage not in completed:
+                    fresh()
+                    data.update(stage=stage,update_attempted=True)
+                    def accept_detach(result):
+                        payload=drafts.payload_result(result,'productVariantDetachMedia')
+                        if (payload.get('product') or {}).get('id')!=row.shopify_product_id:
+                            raise ShopifyError('Variant media detach acknowledgement is incomplete.')
+                    effect(row,data,stage,lambda:adapter.detach_variant_media(config,row.shopify_product_id,mapping['id'],old),accept_detach)
+            elif current != ([desired] if desired else []):
+                raise ShopifyError('Variant has an unreviewed media association; old media is retained.')
+        remote=adapter.read_variable(config,row.shopify_product_id,plan['managed']['namespace'])
+        nodes={v['id']:v for v in remote_identity(row,data,remote)}
+        for wanted in plan['variants']:
+            mapping=data['variant_maps'][wanted['identity']]
+            desired=media.get(wanted['media_source']) if wanted['media_source'] else None
+            if [m['id'] for m in nodes[mapping['id']]['media']['nodes']] != ([desired] if desired else []):
+                sync=data.setdefault('media_sync',{})
+                sync['detach_wait']=sync.get('detach_wait',0)+1
+                drafts.save(row,data)
+                if sync['detach_wait'] <= 12:
+                    raise BackgroundYield('Variant media detachment is awaiting Shopify readback.',code='media_association')
+                raise ShopifyError('Variant media detachment could not be verified; original media is retained.')
+        if actions['add'] or actions['retire']:
+            from app.shopify_media_update import retire
+            fresh()
+            retire(row,data,config,adapter,resolved)
+        if actions['reorder'] and actions['ids'] and 'media_order' not in completed:
+            fresh()
+            data.update(stage='media_order',update_attempted=True)
+            def accept_order(result):
+                payload=result.get('productReorderMedia') or {}
+                if payload.get('mediaUserErrors'):
+                    raise ShopifyError('Shopify rejected gallery order; inspect retained review.')
+                data['reorder_job']=_gid((payload.get('job') or {}).get('id'),'Job')
+            effect(row,data,'media_order',lambda:adapter.reorder_media(config,row.shopify_product_id,actions['ids']),accept_order)
     join_reviewed(row,data,config,adapter)
     return finish_registration_tail(row,data,config,adapter)
 

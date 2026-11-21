@@ -6,9 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     FLASK_ENV=production \
     PRODUCT_FOLDER=/catalogue \
-    OUTPUT_FOLDER=/output \
     INTAKE_ROOT=/intake \
-    URL_PREFIX=""
+    TAXONOMY_ROOT=/taxonomy
 
 # Image labels are not visible inside a container without host Docker access.
 ENV APP_GIT_REVISION=${GIT_REVISION}
@@ -29,8 +28,8 @@ COPY --chown=root:root --chmod=0555 migrations ./migrations
 COPY --chown=root:root --chmod=0444 config.py run.py ./
 COPY --chown=root:root docker/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-RUN mkdir -p /app/instance /catalogue /output && \
-    chown -R app:app /app/instance /catalogue /output && \
+RUN mkdir -p /app/instance /catalogue && \
+    chown -R app:app /app/instance /catalogue && \
     chmod 0755 /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 7485

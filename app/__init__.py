@@ -120,7 +120,7 @@ def create_app(*, recover=None):
         # Existing consumers keep using Settings; deployment values are resolved
         # by its descriptors, never copied into competing persisted settings.
         from .models import Settings
-        if any(app.config.get(key) is not None for key in ("PRODUCT_FOLDER", "OUTPUT_FOLDER", "URL_PREFIX")) and Settings.query.first() is None:
+        if app.config.get("PRODUCT_FOLDER") is not None and Settings.query.first() is None:
             db.session.add(Settings())
             db.session.commit()
         should_recover = recover if recover is not None else os.getenv("TLC_MANAGED_RUNTIME") != "true"

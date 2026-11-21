@@ -115,8 +115,8 @@ def test_single_variable_parent_folder_is_ordered_and_parent_owned(single_variab
 
     assert parent["Type"] == "variable"
     assert parent["Images"].split(", ") == [
-        f"{URL_PREFIX}parent-gallery.webp",
-        f"{URL_PREFIX}parent-primary.webp",
+        "Parent/parent-gallery.jpeg",
+        "Parent/parent-primary.PNG",
     ]
     assert state["marker"]["images_used"] == [
         "parent-gallery.jpeg",
@@ -140,8 +140,8 @@ def test_parent_urls_and_portable_sources_are_projected(single_variable_projecti
     with app.app_context():
         product = db.session.get(Product, state["product_id"])
         assert [image.url for image in product.images] == [
-            f"{URL_PREFIX}parent-gallery.webp",
-            f"{URL_PREFIX}parent-primary.webp",
+            "Parent/parent-gallery.jpeg",
+            "Parent/parent-primary.PNG",
         ]
         assert [image.position for image in product.images] == [0, 1]
         parent_assets = ProductAsset.query.filter_by(
@@ -152,6 +152,7 @@ def test_parent_urls_and_portable_sources_are_projected(single_variable_projecti
             "SingleVariableFixture/Parent/parent-primary.PNG",
         ]
         assert [asset.is_primary for asset in parent_assets] == [True, False]
+        assert all(len(asset.content_sha256 or "") == 64 for asset in parent_assets)
         assert all(str(state["output"]) not in asset.path for asset in parent_assets)
         assert resolve_product_catalogue_image(product).name == "parent-gallery.jpeg"
         variation_assets = ProductAsset.query.filter(
@@ -210,7 +211,7 @@ def test_product_detail_products_and_dashboard_use_parent_primary(single_variabl
     dashboard = client.get("/")
     assert detail.status_code == products.status_code == dashboard.status_code == 200
     assert b"Parent image gallery" in detail.data
-    assert b"parent-gallery.webp" in detail.data
+    assert b"parent-gallery.jpeg" in detail.data
     assert b"Parent preview fallback" not in detail.data.split(b"Parent image gallery", 1)[0]
     thumbnail_path = f"/catalogue-images/products/{state['product_id']}".encode()
     assert products.status_code == 200
@@ -232,7 +233,7 @@ def test_no_image_binary_or_output_path_is_persisted(single_variable_projection)
     state = single_variable_projection
     database = Path(state["app"].config["SQLALCHEMY_DATABASE_URI"].removeprefix("sqlite:///"))
     payload = database.read_bytes()
-    assert b"parent-gallery.webp" in payload
+    assert b"parent-gallery.jpeg" in payload
     assert b"\x89PNG\r\n\x1a\n" not in payload
     with state["app"].app_context():
         image_assets = ProductAsset.query.filter_by(kind="image").all()
@@ -316,8 +317,8 @@ def test_reserved_parent_directory_is_case_insensitive_and_preserves_source_case
     assert selected == collection / directory_name
     assert selected.name == directory_name
     assert rows[0]["Images"].split(", ") == [
-        f"{URL_PREFIX}01-parent.webp",
-        f"{URL_PREFIX}02-parent.webp",
+        f"{directory_name}/01-parent.png",
+        f"{directory_name}/02-parent.jpg",
     ]
     assert marker["images_used"] == ["01-parent.png", "02-parent.jpg"]
     assert rows[1]["Attribute 1 value(s)"] == "Hero A"

@@ -5,13 +5,19 @@ from unittest.mock import patch
 import pytest
 
 from app import db, automatic_publishing as publisher, shopify_drafts as drafts
-from app.models import AutomaticPublishing, ShopifyPublishJob, ShopifyProductIdentity, User, CatalogueOperation
+from app.models import AutomaticPublishing, ShopifyPublishJob, ShopifyProductIdentity, User, CatalogueOperation, ProductImage
 from app.shopify_capacity import BackgroundYield
 from test_phase3_woo_publish_preview import preview_app
 from test_shopify_drafts import world
 from test_shopify_simple_updates import change
-from test_shopify_publication_sales import AcceptanceAdapter, VariableAcceptanceAdapter
+from test_shopify_simple_updates import MediaUpdateAdapter
+from test_shopify_publication_sales import AcceptanceAdapter, VariableAcceptanceAdapter, SafetyMixin
 from test_shopify_variables import variable_world
+from PIL import Image
+
+
+class AutomaticMediaAdapter(SafetyMixin, MediaUpdateAdapter):
+    pass
 
 
 @pytest.fixture(autouse=True)
@@ -87,6 +93,37 @@ def test_changed_live_uses_changed_only_executor(world):
     assert adapter.remote['title'] == drafts.local_plan(product)['managed']['product']['title']
     assert 'stage_write' not in adapter.calls and 'product_create' not in adapter.calls
     assert ShopifyProductIdentity.query.one().shopify_product_id == remote
+
+
+@pytest.mark.parametrize('kind',['added','replaced','removed'])
+def test_authorised_automatic_image_changes_use_normal_publisher(world,kind):
+    product,*_=world
+    change(world,live=True)
+    adapter=AutomaticMediaAdapter();authorise(adapter)
+    assert execute(product,adapter)=='verified'
+    row=ShopifyProductIdentity.query.one();remote_id=row.shopify_product_id
+    old=[m['id'] for m in adapter.remote['media']['nodes']]
+    if kind=='added':
+        Image.new('RGB',(5,5),'green').save(world[1]/'third.png')
+        product.images.append(ProductImage(url='third.png',position=2,alt_text='Third'))
+    elif kind=='replaced':
+        Image.new('RGB',(5,5),'blue').save(world[1]/'original.png')
+    else:
+        image=product.images[-1]
+        product.images.remove(image)
+        db.session.delete(image)
+        (world[1]/'second.jpg').unlink()
+    db.session.commit()
+    adapter.calls.clear()
+    assert execute(product,adapter)=='verified'
+    assert row.shopify_product_id==remote_id
+    after=[m['id'] for m in adapter.remote['media']['nodes']]
+    if kind=='added': assert old==after[:2]
+    if kind=='replaced': assert old[0] not in after
+    if kind=='removed': assert old[-1] not in after
+    assert adapter.calls.count('media_add')==int(kind!='removed')
+    assert adapter.calls.count('media_remove')==int(kind!='added')
+    assert 'product_create' not in adapter.calls
 
 
 def test_live_to_draft_pauses_metadata_then_reactivates_same_identity(world):

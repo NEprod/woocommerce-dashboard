@@ -218,6 +218,10 @@ def review_rows(plan):
                     for item in variant['managed'].get('metafields', [])]
         for key, before, after in expanded:
             label=row.get("label") or labels.get(key, key.replace("dimensions.", "Product ").replace("media.alt.", "Image alt "))
+            image_source = key.removeprefix('media.image.') if key.startswith('media.image.') else None
+            if image_source:
+                from pathlib import PurePosixPath
+                label = 'Image · ' + PurePosixPath(image_source).name
             if key.startswith("variants."):
                 _,sku,leaf=key.split(".",2)
                 label=f'Variant {sku} · {labels.get(leaf, leaf.replace("dimensions.", "Product ").replace("create", "Create"))}'
@@ -230,6 +234,10 @@ def review_rows(plan):
             if dimensional and not key.startswith('dimension_definitions.'):
                 label = 'Finished Product Dimensions · ' + label
             action = "Deferred (inventory-only scope)" if row.get("deferred") else "Set on create" if plan["classification"] == "create" and after is not None else "Change" if row["changed"] else "Already matching"
+            if image_source:
+                action = row.get('action', action)
+                before = 'Previously published' if before else 'Not present'
+                after = 'Remove managed image' if after is None else 'New original image' if action == 'Add' else 'Replace with changed original'
             if dimensional and row['changed'] and not row.get('deferred'):
                 action = 'New Shopify field — Finished Product Dimensions' if before is None else 'Changed Shopify field — Finished Product Dimensions'
             details = None
@@ -240,7 +248,8 @@ def review_rows(plan):
             rows.append({"label": label, 'group': 'customisations' if details else 'finished' if dimensional else 'packed' if key.startswith('native.') else 'general',
                 'owner': ('Variant ' + key.split('.')[1]) if key.startswith('variants.') else 'Product',
                 "before": "Not created" if plan["classification"] == "create" and after is not None else value(before),
-                "after": value(after), "action": action, **({'customisation_details': details} if details else {})})
+                "after": value(after), "action": action, **({'customisation_details': details} if details else {}),
+                **({'image_source': image_source} if image_source else {})})
     return rows
 
 

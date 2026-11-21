@@ -319,8 +319,6 @@ def run_reconstruction(*, failure_injector=None, log=_quiet_log):
     backup_path = None
     settings = Settings.query.first()
     product_folder = settings.product_folder if settings else None
-    output_folder = settings.output_folder if settings else None
-    url_prefix = settings.url_prefix if settings else None
     state = detect_setup_state()
     collections = state.collection_count
     products = state.product_count
@@ -333,8 +331,8 @@ def run_reconstruction(*, failure_injector=None, log=_quiet_log):
         root = Path(product_folder)
         plan, rows = _pre_resolve(
             root,
-            output_folder,
-            url_prefix,
+            None,
+            None,
             lease.id,
             log,
         )

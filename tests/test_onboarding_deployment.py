@@ -28,13 +28,15 @@ def configured(registry_app):
 
 def test_deployment_values_override_without_persisting_or_editing_fallback(configured):
     app, client, root, catalogue, output = configured
-    app.config["URL_PREFIX"] = "https://cdn.example.test/image-"
+    alternate = root.parent / 'alternate-catalogue'
+    alternate.mkdir()
+    app.config['PRODUCT_FOLDER'] = str(alternate)
     with app.app_context():
         settings = Settings.query.one()
-        assert settings.url_prefix == app.config["URL_PREFIX"]
-        assert db.session.execute(text("select url_prefix from settings")).scalar() == "https://images.example.test/"
+        assert settings.product_folder == str(alternate)
+        assert db.session.execute(text("select product_folder from settings")).scalar() == str(catalogue)
         with pytest.raises(ValueError):
-            settings.url_prefix = "https://other.example.test/"
+            settings.product_folder = str(catalogue)
         assert onboarding.readiness()["ready"]
     page = client.get("/initial-settings")
     assert page.status_code == 200
@@ -43,27 +45,28 @@ def test_deployment_values_override_without_persisting_or_editing_fallback(confi
         assert f'name="{key}"' not in body
     assert str(root.parent) not in body
     token = field(page, "csrf_token")
-    assert client.post("/initial-settings", data={"csrf_token": token, "url_prefix": "https://other.example.test/"}).status_code == 409
+    assert client.post("/initial-settings", data={"csrf_token": token, "product_folder": str(catalogue)}).status_code == 409
     assert client.post("/initial-settings", data={"csrf_token": token}).headers["Location"].endswith("/scanner")
-    app.config["URL_PREFIX"] = ""
+    app.config['PRODUCT_FOLDER'] = ''
     with app.app_context():
-        assert Settings.query.one().url_prefix == ""
+        assert Settings.query.one().product_folder == ''
         assert not onboarding.readiness()["ready"]
-    app.config["URL_PREFIX"] = None
+    app.config['PRODUCT_FOLDER'] = None
     with app.app_context():
-        assert Settings.query.one().url_prefix == "https://images.example.test/"
+        assert Settings.query.one().product_folder == str(catalogue)
 
 
 def test_local_fallback_still_editable_and_validated(configured):
     app, client, root, catalogue, output = configured
     app.config.update(PRODUCT_FOLDER=None, OUTPUT_FOLDER=None, URL_PREFIX=None)
     page = client.get("/initial-settings")
-    data = {"csrf_token": field(page, "csrf_token"), "product_folder": str(catalogue), "output_folder": str(output), "url_prefix": "https://images.example.test/new/"}
+    data = {"csrf_token": field(page, "csrf_token"), "product_folder": str(catalogue)}
     assert client.post("/initial-settings", data=data).status_code == 302
-    data["url_prefix"] = "https://user:password@example.test/"
+    data['product_folder'] = 'relative-path'
     invalid = client.post("/initial-settings", data=data)
-    assert invalid.status_code == 400
-    assert b"user:password" not in invalid.data
+    assert invalid.status_code == 200
+    with app.app_context():
+        assert not onboarding.readiness()['ready']
     assert onboarding.directory_state("/invalid\x00directory") == "Invalid"
 
 
@@ -86,11 +89,11 @@ def test_taxonomy_readiness_gates_onboarding_without_creating_registry(configure
 @pytest.mark.parametrize("state", ["missing", "read_only", "inaccessible"])
 def test_directory_readiness(configured, state):
     app, client, root, catalogue, output = configured
-    if state == "missing": output.rmdir()
-    else: output.chmod(0o555 if state == "read_only" else 0)
+    if state == "missing": catalogue.rmdir()
+    else: catalogue.chmod(0o555 if state == "read_only" else 0)
     with app.app_context():
         assert not onboarding.readiness()["configured"]
-    if output.exists(): output.chmod(0o755)
+    if catalogue.exists(): catalogue.chmod(0o755)
 
 
 def test_start_uses_existing_runner_and_success_completes_only_after_revalidation(configured, monkeypatch):
@@ -125,9 +128,9 @@ def test_start_uses_existing_runner_and_success_completes_only_after_revalidatio
         row.status = "succeeded"; row.products_failed = 0; db.session.commit()
     page = client.get("/operations/onboarding-operation")
     assert b"Complete setup and continue to Dashboard" in page.data
-    app.config["URL_PREFIX"] = "https://changed.example.test/"
+    app.config['PRODUCT_FOLDER'] = str(root.parent/'changed-catalogue')
     assert client.post("/setup/complete", data=data).status_code == 409
-    app.config["URL_PREFIX"] = "https://images.example.test/"
+    app.config['PRODUCT_FOLDER'] = str(catalogue)
     assert client.post("/setup/complete", data={"operation_id": data["operation_id"]}).status_code == 400
     assert client.post("/setup/complete", data=data).status_code == 302
     with app.app_context(): assert not onboarding.pending()
@@ -208,8 +211,9 @@ def test_generic_deployment_contract():
         if e.attrib["Target"] in {"/intake", "/catalogue", "/output", "/taxonomy"}:
             assert e.attrib["Default"] == ""
     compose = (root / "compose.yaml").read_text()
-    assert "PRODUCT_FOLDER: /catalogue" in compose and "OUTPUT_FOLDER: /output" in compose
-    assert "URL_PREFIX:" in compose
+    assert "PRODUCT_FOLDER: /catalogue" in compose
+    assert "OUTPUT_FOLDER:" not in compose and "URL_PREFIX:" not in compose
+    assert "OUTPUT_FOLDER_HOST" not in compose and ":/output" not in compose
     assert "target: /intake" in (root / "compose.intake.yaml").read_text()
     assert "target: /taxonomy" in (root / "compose.taxonomy.yaml").read_text()
 
@@ -221,7 +225,7 @@ def test_startup_projects_environment_without_new_columns(configured, monkeypatc
     app, client, root, catalogue, output = configured
     with app.app_context():
         Settings.query.delete(); db.session.commit()
-    for key, value in {"PRODUCT_FOLDER": str(catalogue), "OUTPUT_FOLDER": str(output), "URL_PREFIX": "https://images.example.test/prefix-"}.items():
+    for key, value in {"PRODUCT_FOLDER": str(catalogue)}.items():
         monkeypatch.setattr(Config, key, value)
     restarted = module.create_app()
     with restarted.app_context():
@@ -229,8 +233,7 @@ def test_startup_projects_environment_without_new_columns(configured, monkeypatc
         assert settings.product_folder == str(catalogue)
         assert settings._product_folder is None
         assert {c["name"] for c in inspect(db.engine).get_columns("settings")} == {"id", "product_folder", "output_folder", "url_prefix"}
-        from app.utils.image_tools import get_image_csv_urls
-        assert get_image_csv_urls(["fictional.png"], settings.url_prefix) == ["https://images.example.test/prefix-fictional.webp"]
+        assert settings._output_folder is None and settings._url_prefix is None
         assert onboarding.pending()
 
 

@@ -87,6 +87,7 @@ def test_docker_runtime_uses_gosu_and_drops_privileges_before_application_load()
     assert "chown -R \"${PUID}:${PGID}\" /app/instance" in entrypoint
     assert "chown -R \"${PUID}:${PGID}\" /catalogue" not in entrypoint
     assert "chown -R \"${PUID}:${PGID}\" /output" not in entrypoint
+    assert "/output" not in entrypoint
 
 
 def test_compose_and_unraid_template_expose_consumed_permission_variables():

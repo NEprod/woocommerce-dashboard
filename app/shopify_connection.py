@@ -81,6 +81,16 @@ FILES_QUERY = """mutation SimpleAlt($files: [FileUpdateInput!]!) {
  fileUpdate(files: $files) { files { id alt } userErrors { field message } } }"""
 ORDER_QUERY = """mutation SimpleOrder($id: ID!, $moves: [MoveInput!]!) {
  productReorderMedia(id: $id, moves: $moves) { job { id } mediaUserErrors { field message } } }"""
+MEDIA_ADD_QUERY = """mutation TLCMediaAdd($product: ProductUpdateInput!, $media: [CreateMediaInput!]) {
+ productUpdate(product: $product, media: $media) { product { id
+ media(first: 250) { nodes { id status mediaContentType } pageInfo { hasNextPage } } }
+ userErrors { field message } } }"""
+MEDIA_REMOVE_QUERY = """mutation TLCMediaRemove($productId: ID!, $mediaIds: [ID!]!) {
+ productDeleteMedia(productId: $productId, mediaIds: $mediaIds) {
+ deletedMediaIds mediaUserErrors { field message code } } }"""
+MEDIA_DETACH_QUERY = """mutation TLCMediaDetach($productId: ID!, $variantMedia: [ProductVariantDetachMediaInput!]!) {
+ productVariantDetachMedia(productId: $productId, variantMedia: $variantMedia) {
+ product { id } userErrors { field message code } } }"""
 READ_QUERIES = READ_QUERIES | frozenset((SIMPLE_QUERY, COUNTRIES_QUERY, SKU_QUERY))
 REVISIONS_QUERY = '''query TLCRevisions($ids: [ID!]!) { nodes(ids: $ids) { id ... on Product { updatedAt status } } }'''
 READ_QUERIES = READ_QUERIES | frozenset((REVISIONS_QUERY,))
@@ -130,7 +140,8 @@ COLLECTION_CREATE = '''mutation TLCCollection($input: CollectionInput!) { collec
 COLLECTION_JOIN = '''mutation TLCMembership($id: ID!, $products: [ID!]!) { collectionAddProducts(id: $id, productIds: $products) { collection { id } userErrors { field message } } }'''
 STANDARD_CATEGORY = '''query StandardCategory($id: ID!) { node(id: $id) { ... on TaxonomyCategory { id fullName isArchived } } }'''
 READ_QUERIES = READ_QUERIES | frozenset((COLLECTION_LOOKUP, COLLECTION_STATE, STANDARD_CATEGORY))
-WRITE_QUERIES = WRITE_QUERIES | frozenset((UPDATE_QUERY, FILES_QUERY, ORDER_QUERY, COLLECTION_CREATE, COLLECTION_JOIN))
+WRITE_QUERIES = WRITE_QUERIES | frozenset((UPDATE_QUERY, FILES_QUERY, ORDER_QUERY,
+    MEDIA_ADD_QUERY, MEDIA_REMOVE_QUERY, MEDIA_DETACH_QUERY, COLLECTION_CREATE, COLLECTION_JOIN))
 NATIVE_CAPABILITY = '''query PackedCapability {
  measurement: __type(name: "InventoryItemMeasurement") { fields { name } }
  measurementInput: __type(name: "InventoryItemMeasurementInput") { inputFields { name } }
@@ -1062,6 +1073,21 @@ class ShopifyAdapter:
     def reorder_media(self, configuration, product_id, ids):
         return self._write(configuration, ORDER_QUERY,
             {"id": product_id, "moves": [{"id": media_id, "newPosition": str(i)} for i, media_id in enumerate(ids)]})
+
+    def add_product_media(self, configuration, product_id, media):
+        return self._write(configuration, MEDIA_ADD_QUERY,
+            {"product": {"id": _gid(product_id, "Product")}, "media": [media]})
+
+    def remove_product_media(self, configuration, product_id, media_id):
+        return self._write(configuration, MEDIA_REMOVE_QUERY,
+            {"productId": _gid(product_id, "Product"),
+             "mediaIds": [_gid(media_id, "MediaImage")]})
+
+    def detach_variant_media(self, configuration, product_id, variant_id, media_id):
+        return self._write(configuration, MEDIA_DETACH_QUERY,
+            {"productId": _gid(product_id, "Product"), "variantMedia": [{
+                "variantId": _gid(variant_id, "ProductVariant"),
+                "mediaIds": [_gid(media_id, "MediaImage")]}]})
 
     def read_draft(self, configuration, product_id):
         return self._complete_gallery(configuration,self._read(configuration, DRAFT_QUERY, {"id": _gid(product_id, "Product")}).get("product"))

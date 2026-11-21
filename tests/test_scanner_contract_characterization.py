@@ -83,13 +83,21 @@ def test_scanned_marker_payload_is_the_current_durable_identity_contract(
     assert marker["images_used"] == ["fictional-blue.png"]
 
 
+def test_scanner_uses_original_images_without_woocommerce_output_or_urls(tmp_path, quiet_log):
+    collection, product, output = _simple_collection(tmp_path)
+    rows = scan_collection(collection, "https://obsolete.invalid/uploads/", output, log=quiet_log)
+    assert rows[0]["Images"] == "fictional-blue.png"
+    assert list(output.iterdir()) == []
+    assert (product / "fictional-blue.png").is_file()
+
+
 def test_scanner_filesystem_side_effect_order_is_sku_images_then_marker(
     tmp_path, quiet_log, monkeypatch
 ):
     collection, _, output = _simple_collection(tmp_path)
     events = []
     original_generate = scanner_module.generate_sku
-    original_process = scanner_module.process_images
+    original_process = scanner_module.source_images
     original_write = scanner_module.write_scanned
 
     def generate(*args, **kwargs):
@@ -105,7 +113,7 @@ def test_scanner_filesystem_side_effect_order_is_sku_images_then_marker(
         return original_write(*args, **kwargs)
 
     monkeypatch.setattr(scanner_module, "generate_sku", generate)
-    monkeypatch.setattr(scanner_module, "process_images", process)
+    monkeypatch.setattr(scanner_module, "source_images", process)
     monkeypatch.setattr(scanner_module, "write_scanned", write)
 
     scan_collection(collection, "https://invalid.example/assets/", output, log=quiet_log)
@@ -119,7 +127,7 @@ def test_phase0_pipeline_order_removes_update_before_database_ingestion(
     (product / ".update").write_text("fixture", encoding="utf-8")
     events = []
     original_generate = scanner_module.generate_sku
-    original_process = scanner_module.process_images
+    original_process = scanner_module.source_images
     original_write = scanner_module.write_scanned
     original_remove = marker_module.os.remove
 
@@ -141,7 +149,7 @@ def test_phase0_pipeline_order_removes_update_before_database_ingestion(
         return original_remove(path)
 
     monkeypatch.setattr(scanner_module, "generate_sku", generate)
-    monkeypatch.setattr(scanner_module, "process_images", process)
+    monkeypatch.setattr(scanner_module, "source_images", process)
     monkeypatch.setattr(scanner_module, "write_scanned", write)
     monkeypatch.setattr(marker_module.os, "remove", remove)
 

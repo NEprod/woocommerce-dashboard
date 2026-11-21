@@ -17,7 +17,7 @@ from .file_markers import (
     should_rescan,
     write_scanned,
 )
-from .image_tools import process_images, get_image_csv_urls
+from .image_tools import source_images, source_references
 from .csv_writer import build_simple_product, build_variable_parent, build_variation_row
 from .catalogue_paths import find_reserved_directory, is_reserved_directory_name
 
@@ -237,10 +237,10 @@ def scan_simple_product(
     merged["sku"] = sku
     log(f"✅ Assigned SKU for product: {sku}", level="INFO")
 
-    # Process and map image files to URL paths
-    log(f"🖼️ Processing images in: {folder}", level="INFO")
-    image_names = process_images(folder, image_output_folder, log=log)
-    image_urls = get_image_csv_urls(image_names, url_prefix)
+    # Persist portable references to originals; no WordPress copy or URL.
+    log(f"🖼️ Inventorying images in: {folder}", level="INFO")
+    image_names = source_images(folder, log=log)
+    image_urls = source_references(image_names, folder, folder)
 
     # Save .scanned marker to record this product's processing
     if not preserve_existing_marker or not (
@@ -347,10 +347,9 @@ def scan_variable_product(
     merged["sku"] = sku
     log(f"✅ Assigned SKU for parent product: {sku}", level="INFO")
 
-    # Process folder images and build the base image URL list
-    log(f"🖼️ Processing parent images in: {folder}", level="INFO")
-    parent_image_names = process_images(folder, image_output_folder, log=log)
-    image_urls = get_image_csv_urls(parent_image_names, url_prefix)
+    log(f"🖼️ Inventorying parent images in: {folder}", level="INFO")
+    parent_image_names = source_images(folder, log=log)
+    image_urls = source_references(parent_image_names, folder, folder)
 
     all_rows = [build_variable_parent(merged, image_urls)]
 
@@ -506,18 +505,14 @@ def scan_single_variable(
             f"🖼️ Using '{parent_directory.name}/' folder for parent images",
             level="INFO",
         )
-        parent_image_names = process_images(
-            parent_folder, image_output_folder, log=log, deterministic=True
-        )
+        parent_image_names = source_images(parent_folder, log=log, deterministic=True)
     else:
         fallback_style = attr_map[image_attrs[0]][0]
         parent_folder = os.path.join(base_folder, fallback_style)
         log(f"🖼️ Using '{fallback_style}' for parent images", level="WARN")
-        parent_image_names = process_images(
-            parent_folder, image_output_folder, log=log, deterministic=True
-        )
+        parent_image_names = source_images(parent_folder, log=log, deterministic=True)
 
-    parent_image_urls = get_image_csv_urls(parent_image_names, url_prefix)
+    parent_image_urls = source_references(parent_image_names, parent_folder, base_folder)
     all_rows.append(build_variable_parent(merged, parent_image_urls))
 
     # Generate all variation rows
@@ -541,8 +536,8 @@ def scan_single_variable(
                 "The first image attribute contains the reserved 'parent' directory name"
             )
         base_path = os.path.join(base_folder, first_image_value)
-        style_images = process_images(
-            base_path, image_output_folder, log=log, deterministic=True
+        style_images = source_references(
+            source_images(base_path, log=log, deterministic=True), base_path, base_folder
         )
 
         for attr in image_attrs[1:]:
@@ -550,15 +545,14 @@ def scan_single_variable(
                 sub_path = os.path.join(base_path, v_attrs[attr])
                 if os.path.exists(sub_path):
                     log(f"   ↳ Adding images from: {sub_path}")
-                    extra_images = process_images(
+                    extra_images = source_references(
+                        source_images(sub_path, log=log, deterministic=True),
                         sub_path,
-                        image_output_folder,
-                        log=log,
-                        deterministic=True,
+                        base_folder,
                     )
                     style_images.extend(extra_images)
 
-        image_urls = get_image_csv_urls(style_images, url_prefix)
+        image_urls = style_images
         mod = apply_variation_modifiers(merged, v_attrs, log=log)
         v_sku = matcher.match(v_attrs) if reuse_identity else None
         if not v_sku:

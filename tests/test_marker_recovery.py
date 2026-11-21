@@ -183,7 +183,7 @@ def test_recoverable_pipeline_orders_pending_before_database_and_marker_after_co
     (product / ".update").write_text("fixture", encoding="utf-8")
     events = []
     original_generate = scanner_module.generate_sku
-    original_process = scanner_module.process_images
+    original_process = scanner_module.source_images
     original_write = scanner_module.write_scanned
 
     def generate(*args, **kwargs):
@@ -201,7 +201,7 @@ def test_recoverable_pipeline_orders_pending_before_database_and_marker_after_co
         return result
 
     monkeypatch.setattr(scanner_module, "generate_sku", generate)
-    monkeypatch.setattr(scanner_module, "process_images", process)
+    monkeypatch.setattr(scanner_module, "source_images", process)
     monkeypatch.setattr(scanner_module, "write_scanned", write)
 
     rows = _stage_collection(collection, output, "ordered", quiet_log)

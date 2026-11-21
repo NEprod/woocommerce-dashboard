@@ -67,15 +67,6 @@
             const source = document.createElement("code");
             source.textContent = image.source_reference || "Source unavailable";
             card.append(frame, role, source);
-            if (image.stored_url) {
-              const label = document.createElement("label");
-              label.textContent = `Stored website URL for image ${index + 1}`;
-              const input = document.createElement("input");
-              input.readOnly = true;
-              input.value = image.stored_url;
-              label.appendChild(input);
-              card.appendChild(label);
-            }
             strip.appendChild(card);
           });
           body.appendChild(strip);

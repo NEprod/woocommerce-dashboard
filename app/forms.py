@@ -37,6 +37,4 @@ class ResetPasswordForm(FlaskForm):
 
 class InitialSettingsForm(FlaskForm):
     product_folder = StringField("Main Product Folder", validators=[DataRequired()])
-    output_folder = StringField("Output Folder", validators=[DataRequired()])
-    url_prefix = StringField("Image URL Prefix", validators=[DataRequired()])
     submit = SubmitField("Save Settings")

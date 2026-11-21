@@ -161,6 +161,7 @@ a:hover { color: var(--color-brand-forest-hover); }
 .shipping-packages-table th,.shipping-packages-table td { overflow-wrap:anywhere; vertical-align:top; }
 .package-observation { padding:var(--space-4); margin-block:var(--space-4); border:var(--border-default); border-radius:var(--radius-card-small); }
 .shopify-review-table th, .shopify-review-table td { overflow-wrap: anywhere; white-space: pre-wrap; vertical-align: top; }
+.shopify-review-thumbnail { display: block; width: 48px; height: 48px; margin-bottom: var(--space-2); border-radius: var(--radius-card-small); object-fit: cover; }
 @media (max-width: 767px) {
   .shopify-status-actions { display: block; }
   .shopify-status-actions > .btn-primary { width: 100%; min-height: 44px; }

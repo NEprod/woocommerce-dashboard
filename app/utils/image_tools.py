@@ -1,5 +1,5 @@
 import os
-import shutil
+from pathlib import Path
 from PIL import Image
 
 """
@@ -8,9 +8,8 @@ image_tools.py
 Handles image processing for product folders.
 
 Responsibilities:
-- Crop images to square format
-- Convert images to supported formats
-- Prepare image filenames for WooCommerce CSV export
+- Inventory original catalogue images without copying or rewriting them
+- Build portable references to those authoritative originals
 """
 
 SUPPORTED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp"]
@@ -50,61 +49,35 @@ def crop_to_square(image):
     bottom = top + side
     return image.crop((left, top, right, bottom))
 
-def process_images(source_folder, output_folder, log=print, *, deterministic=False):
+def source_images(source_folder, log=print, *, deterministic=False):
+    """Inventory originals. An unreadable image fails the scan, not a deletion.
+
+    The old flattened WordPress upload directory is deliberately never written.
+    Shopify validates and uploads these same original bytes at publication time.
     """
-    Processes all supported images in a folder:
-    - Crops to square
-    - Saves to a flattened output folder
-
-    Args:
-        source_folder (str): Path to input folder with images
-        output_folder (str): Path to output folder to store processed images
-        log (function): Logging function (default: print)
-
-    Returns:
-        list[str]: List of processed filenames
-    """
-
-    processed_files = []
-    filenames = os.listdir(source_folder)
+    names = os.listdir(source_folder)
     if deterministic:
-        filenames = sorted(filenames, key=lambda value: (value.casefold(), value))
-    for filename in filenames:
-        if filename.startswith("._"):
-            log(f"⏭️ Skipped macOS hidden file: {filename}", level="INFO")
+        names = sorted(names, key=lambda value: (value.casefold(), value))
+    result = []
+    for name in names:
+        if name.startswith("._") or not is_image_file(name):
             continue
-        if not is_image_file(filename):
-            continue
-
-        source_path = os.path.join(source_folder, filename)
+        path = Path(source_folder) / name
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"Image source is not a regular catalogue file: {name}")
         try:
-            img = Image.open(source_path)
-            img = crop_to_square(img)
+            with Image.open(path) as image:
+                image.verify()
+        except (OSError, ValueError) as error:
+            raise ValueError(f"Image source cannot be verified: {name}") from error
+        result.append(name)
+        log(f"🖼️ Found original image: {name}", level="INFO")
+    return result
 
-            # Save processed image to output folder (original format retained)
-            output_path = os.path.join(output_folder, filename)
-            img.save(output_path)
-            processed_files.append(filename)
-            log(f"🖼️ Processed image: {filename}", level="INFO")
-        except Exception as e:
-            log(f"❌ Error processing image {filename}: {e}", level="ERROR")
-    
-    return processed_files
 
-def get_image_csv_urls(image_filenames, url_prefix):
-    """
-    Converts image filenames to .webp URLs for CSV export.
-
-    Args:
-        image_filenames (list[str]): Filenames of processed images
-        url_prefix (str): Base URL path (e.g., https://site.com/images/)
-
-    Returns:
-        list[str]: List of URL strings for use in CSV output
-    """
-    
-    urls = []
-    for fname in image_filenames:
-        name, _ = os.path.splitext(fname)
-        urls.append(f"{url_prefix}{name}.webp")
-    return urls
+def source_references(names, source_folder, product_folder):
+    """Return product-relative references, including variant subdirectories."""
+    source = Path(source_folder).resolve()
+    product = Path(product_folder).resolve()
+    relative = source.relative_to(product)
+    return [(relative / name).as_posix() for name in names]

@@ -4,7 +4,7 @@
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ url_for('main.collections') }}">Collections</a><span aria-hidden="true">/</span><span aria-current="page">{{ workspace.name }}</span></nav>
 <section class="page-heading page-heading-actions">
   <div><p class="eyebrow">{{ workspace.type }}</p><h1>{{ workspace.name }}</h1><p>Shared collection metadata and the products resolved from it.</p></div>
-  <div class="page-actions">{% if workspace.can_edit %}<a class="btn btn-primary" href="{{ workspace.edit_url }}">Edit Collection Metadata</a>{% endif %}<a class="btn btn-outline-primary" href="{{ workspace.products_url }}">View Products</a></div>
+  <div class="page-actions">{% if workspace.can_edit %}<a class="btn btn-primary" href="{{ workspace.edit_url }}">Edit Collection Metadata</a><form method="post" action="{{ url_for('main.collection_update_images', collection_id=workspace.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-primary" type="submit" title="Inventory original images in this collection using the existing scoped scanner; this does not publish to Shopify">Update Images</button></form>{% endif %}<a class="btn btn-outline-primary" href="{{ workspace.products_url }}">View Products</a></div>
 </section>
 
 <section class="collection-detail-hero">

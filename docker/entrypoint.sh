@@ -102,7 +102,7 @@ fi
 if ! mkdir -p /app/instance/backups; then
     fail "could not prepare /app/instance; ensure the mount is read/write for container startup"
 fi
-mkdir -p /catalogue /output
+mkdir -p /catalogue
 if ! chown -R "${PUID}:${PGID}" /app/instance; then
     fail "could not assign /app/instance to configured PUID ${PUID} and PGID ${PGID}"
 fi
@@ -110,7 +110,7 @@ if ! chmod 0700 /app/instance/backups; then
     fail "could not secure /app/instance/backups with mode 0700"
 fi
 
-for runtime_path in /catalogue /output; do
+for runtime_path in /catalogue; do
     if ! chown "${PUID}:${PGID}" "${runtime_path}" 2>/dev/null; then
         warn "could not adjust ${runtime_path}; configure the mounted share for UID ${PUID} and GID ${PGID}"
     fi
@@ -127,7 +127,7 @@ if ! gosu "${PUID}:${PGID}" sh -c '
     fail "/app/instance is not writable by configured PUID ${PUID} and PGID ${PGID}"
 fi
 
-for runtime_path in /catalogue /output; do
+for runtime_path in /catalogue; do
     # The probe variables expand in the deliberately separate non-root shell.
     # shellcheck disable=SC2016
     if ! gosu "${PUID}:${PGID}" sh -c '

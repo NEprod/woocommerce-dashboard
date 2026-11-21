@@ -156,6 +156,14 @@ def _canonical_rows(rows):
         # fixtures. Retain frozen Phase 0 hashes for every other scanner field;
         # the new canonical title is asserted independently below/in title tests.
         row['Name'] = row.get('Name', '').replace(' | ', ' - ')
+        # Preserve the frozen non-image scanner contract while explicitly
+        # retiring Phase 0's WordPress URL projection. Source references are
+        # asserted separately below.
+        if row.get('Images'):
+            row['Images'] = ', '.join(
+                URL_PREFIX + Path(reference).stem + '.webp'
+                for reference in row['Images'].split(', ')
+            )
         for field in ("Categories", "Tags"):
             if row.get(field):
                 row[field] = ", ".join(sorted(row[field].split(", ")))
@@ -194,7 +202,10 @@ def test_complete_scanner_rows_match_frozen_phase0_outputs(tmp_path):
     )
     assert simple["Short description"] == "Fictional parity short description."
     assert simple["Description"] == "Product override description."
-    assert simple["Images"] == f"{URL_PREFIX}simple-parity.webp"
+    assert simple["Images"] == "simple-parity.png"
+    assert all(not any((tmp_path / name).iterdir()) for name in
+               ('simple-output', 'variable-output', 'single-output', 'shared-output',
+                'update-output', 'full-output'))
     assert set(simple["Tags"].split(", ")) == {"baseline", "shared", "override"}
 
     variable = scenarios["variable_append"]

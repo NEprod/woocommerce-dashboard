@@ -306,7 +306,6 @@ def load_configured_registry():
     result = load_registry(current_app.config.get("TAXONOMY_ROOT"), excluded_roots=(
         current_app.instance_path, current_app.config.get("INTAKE_ROOT"),
         settings.product_folder if settings else None,
-        settings.output_folder if settings else None,
     ))
     if view is not None:
         view["result"] = result

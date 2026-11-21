@@ -70,7 +70,6 @@ def _path_state(path, *, writable=False):
 def scanner_readiness():
     settings = Settings.query.first()
     catalogue_ok = _path_state(settings.product_folder if settings else None)
-    output_ok = _path_state(settings.output_folder if settings else None, writable=True)
     database_ok = False
     integrity = "unavailable"
     try:
@@ -87,12 +86,11 @@ def scanner_readiness():
     return {
         "checks": [
             {"key": "catalogue", "label": "Catalogue available", "ok": catalogue_ok, "detail": "Readable source mount" if catalogue_ok else "Catalogue mount is unavailable or unreadable"},
-            {"key": "output", "label": "Output available", "ok": output_ok, "detail": "Writable generated-output mount" if output_ok else "Output mount is unavailable or not writable"},
             {"key": "app_data", "label": "App data available", "ok": app_data_ok, "detail": f"Database ready · migration {migration_head()}" if app_data_ok else "Persistent app data or database is unavailable"},
             {"key": "integrity", "label": "Database integrity", "ok": integrity == "ok", "detail": "SQLite quick check passed" if integrity == "ok" else "SQLite quick check did not pass"},
         ],
-        "ready": catalogue_ok and output_ok and app_data_ok and integrity == "ok" and active is None,
-        "mounts_ready": catalogue_ok and output_ok and app_data_ok and integrity == "ok",
+        "ready": catalogue_ok and app_data_ok and integrity == "ok" and active is None,
+        "mounts_ready": catalogue_ok and app_data_ok and integrity == "ok",
         "active": active,
         "discord": configuration_summary(),
     }

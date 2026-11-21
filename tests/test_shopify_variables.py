@@ -14,7 +14,7 @@ from app.shopify_products import states_for
 from app.utils.scanner import scan_collection
 from app.utils.ingest import ingest_rows_to_db
 from test_shopify_drafts import world
-from test_shopify_simple_updates import UpdateAdapter
+from test_shopify_simple_updates import UpdateAdapter, MediaUpdateAdapter
 from test_phase3_woo_publish_preview import preview_app, _client
 from test_shopify_taxonomy_products import registry
 
@@ -119,6 +119,7 @@ class VariableAdapter(UpdateAdapter):
                 v["inventoryItem"]["measurement"]["packedDimensions"]=copy.deepcopy(self.packed[v["inventoryItem"]["id"]])
         return remote
 
+
     def write_packed(self,config,iid,desired):
         assert any(p.get("state")=="pending" and p["inventory_id"]==iid for p in drafts.evidence(ShopifyProductIdentity.query.one())["variant_native"].values())
         self.calls.append("native_write")
@@ -130,6 +131,39 @@ class VariableAdapter(UpdateAdapter):
         self.calls.append("native_inventory_read")
         v=next(v for v in self.remote["variants"]["nodes"] if v["inventoryItem"]["id"]==iid)
         return {"id":iid,"sku":v["sku"],"measurement":{"packedDimensions":copy.deepcopy(self.packed[iid])}}
+
+
+class VariableMediaAdapter(VariableAdapter):
+    add_product_media = MediaUpdateAdapter.add_product_media
+    remove_product_media = MediaUpdateAdapter.remove_product_media
+    upload_image = MediaUpdateAdapter.upload_image
+
+    def __init__(self):
+        super().__init__()
+        self.next_media = 900
+        self.media_failure = None
+
+    def _apply(self, variant, payload):
+        old=copy.deepcopy(variant['media']['nodes']) if payload.get('mediaId') else []
+        super()._apply(variant,payload)
+        if old:
+            new=variant['media']['nodes']
+            variant['media']['nodes']=old+[m for m in new if m['id'] not in {o['id'] for o in old}]
+
+    def stage_images(self, config, images):
+        if self.remote is None:
+            return super().stage_images(config, images)
+        self.calls.append('media_stage')
+        return {'stagedUploadsCreate': {'stagedTargets': [{
+            'url': 'https://storage.googleapis.com/upload',
+            'resourceUrl': f'https://storage.googleapis.com/new/{self.next_media}',
+            'parameters': []}], 'userErrors': []}}
+
+    def detach_variant_media(self, config, product_id, variant_id, media_id):
+        self.calls.append('media_detach')
+        target=next(v for v in self.remote['variants']['nodes'] if v['id']==variant_id)
+        target['media']['nodes']=[m for m in target['media']['nodes'] if m['id']!=media_id]
+        return {'productVariantDetachMedia': {'product': {'id': product_id}, 'userErrors': []}}
 
 
 @pytest.fixture(params=["Variable Collection","Single Variable"])
@@ -166,6 +200,52 @@ def create(w):
     row=drafts.confirm(token,True,adapter)
     assert row.state=="verified", drafts.evidence(row).get("error")
     return row,adapter
+
+
+def test_variable_replacement_updates_association_before_old_media_removal(variable_world):
+    product=variable_world[0]
+    adapter=VariableMediaAdapter()
+    _,token=drafts.preview(product,adapter)
+    row=drafts.confirm(token,True,adapter)
+    assert row.state=='verified',drafts.evidence(row).get('error')
+    before_id=row.shopify_product_id
+    source=variable.local_plan(product)['variants'][0]['media_source']
+    assert source
+    old=next(m['id'] for m in drafts.evidence(row)['media'] if m['source']==source)
+    path=Path(Settings.query.first().product_folder)/source
+    Image.new('RGB',(5,5),'yellow').save(path)
+    rescan(variable_world)
+    plan,token=drafts.preview(product,adapter)
+    assert token and plan['classification']=='update'
+    assert source in {image['source'] for image in plan['media_actions']['add']}
+    adapter.calls.clear()
+    result=drafts.confirm(token,True,adapter)
+    assert result.state=='verified',drafts.evidence(result).get('error')
+    assert result.shopify_product_id==before_id
+    new=next(m['id'] for m in drafts.evidence(result)['media'] if m['source']==source)
+    assert new!=old
+    assert all(old not in [m['id'] for m in v['media']['nodes']] for v in adapter.remote['variants']['nodes'])
+    assert adapter.calls.index('variants_update') < adapter.calls.index('media_remove')
+    assert drafts.preview(product,adapter)[0]['classification']=='no_change'
+
+
+def test_variable_removed_source_relinks_before_managed_media_deletion(variable_world):
+    product=variable_world[0]
+    adapter=VariableMediaAdapter()
+    _,token=drafts.preview(product,adapter)
+    row=drafts.confirm(token,True,adapter)
+    assert row.state=='verified'
+    source=variable.local_plan(product)['variants'][0]['media_source']
+    old=next(m['id'] for m in drafts.evidence(row)['media'] if m['source']==source)
+    (Path(Settings.query.first().product_folder)/source).unlink()
+    rescan(variable_world)
+    plan,token=drafts.preview(product,adapter)
+    assert token and old in {m['id'] for m in plan['media_actions']['retire']}
+    adapter.calls.clear()
+    result=drafts.confirm(token,True,adapter)
+    assert result.state=='verified',drafts.evidence(result).get('error')
+    assert old not in [m['id'] for m in adapter.remote['media']['nodes']]
+    assert adapter.calls.index('variants_update') < adapter.calls.index('media_remove')
 
 
 def test_packaging_weight_and_native_size_are_managed_per_exact_variant(variable_world,monkeypatch):

@@ -86,12 +86,18 @@ credentials into an image or commit `.env`. See [Shopify integration](SHOPIFY_IN
 
 ## M5.2 deployment-owned configuration and first run
 
-Compose keeps `PRODUCT_FOLDER_HOST` and `OUTPUT_FOLDER_HOST` as host-side mount
-inputs only. Container configuration is `PRODUCT_FOLDER=/catalogue`,
-`OUTPUT_FOLDER=/output`, `INTAKE_ROOT=/intake`, `TAXONOMY_ROOT=/taxonomy` and
-`URL_PREFIX` for the public image prefix. Supply URL_PREFIX explicitly (including
-the trailing slash if a directory base is intended); the scanner still performs
-literal prefix + filename concatenation. No URL/path generation algorithm changed.
+**Image-sync update:** The active scanner and Shopify media publisher now read
+originals from `/catalogue`. Compose no longer declares `OUTPUT_FOLDER_HOST`,
+`OUTPUT_FOLDER`, `URL_PREFIX` or `/output`. Historical database columns remain
+for compatibility, but these settings are not needed for image sync. Keep old
+host files/backups; do not delete them during template cleanup. The Unraid
+template is intentionally unchanged until the operator removes the three
+legacy entries after deploying and validating this image.
+
+Compose keeps `PRODUCT_FOLDER_HOST` as a host-side mount input.
+Container configuration includes `PRODUCT_FOLDER=/catalogue` and
+`INTAKE_ROOT=/intake`. Source image paths are portable catalogue references;
+the scanner does not construct public WooCommerce URLs.
 
 Explicit process configuration overrides SQLite fallback values, including an
 explicit blank. The UI cannot save competing deployment-owned values. Without
@@ -160,7 +166,6 @@ Copy `.env.example` to the ignored `.env` and set:
 
 - `INSTANCE_FOLDER_HOST`: persistent database/application instance directory.
 - `PRODUCT_FOLDER_HOST`: catalogue directory mounted at `/catalogue`.
-- `OUTPUT_FOLDER_HOST`: generated output directory mounted at `/output`.
 - Catalogue Intake is optional. When used, bind a user-selected host staging
   folder to `/intake` read/write; do not add an empty volume interpolation.
 - `PUID` and `PGID`: numeric non-root runtime identity; defaults are `100:100`.
@@ -170,8 +175,8 @@ Copy `.env.example` to the ignored `.env` and set:
 IMAGE_TAG=0.2.3 docker compose up -d
 ```
 
-Docker catalogue/output/image-prefix values are supplied through deployment
-configuration, not reselected in the UI. Only unowned local-installation fallback
+Docker catalogue values are supplied through deployment configuration, not
+reselected in the UI. Only unowned local-installation fallback
 settings remain editable. Container paths must never be replaced by host paths.
 
 ## Persistence and backup
@@ -195,7 +200,7 @@ The canonical container storage contract is fixed:
 | --- | --- | --- |
 | `/app/instance` | required read/write | `/app/instance/site.db` and `/app/instance/backups/` |
 | `/catalogue` | required read/write | authored catalogue, source images, metadata, `.scanned`, `.scanned.pending`, `.update`, and SKU indexes |
-| `/output` | required read/write | processed/generated image output |
+| `/output` | obsolete, optional during transition | historical WooCommerce output only; not used by the current scanner or Shopify media publisher |
 | `/intake` | optional read/write | external loose images, private grouping staging, and provisional `Prepared/` results for Catalogue Intake |
 | `/taxonomy` | optional read/write (read-only browsing supported) | authoritative registry.json and verified local registry backups |
 
@@ -249,7 +254,7 @@ Automatic startup migration is approved only for the documented single-worker Ph
 
 Setting `PUID`/`PGID` in Compose or an Unraid template only works because this image consumes them in its entrypoint. The entrypoint validates non-zero numeric IDs and a valid octal umask, updates the existing `app` account, creates `/app/instance/backups`, and deliberately corrects ownership recursively only beneath the application-owned `/app/instance`. Existing `site.db` and backup contents are preserved.
 
-The `/catalogue` and `/output` mount roots may have their ownership adjusted non-recursively, but their contents are never recursively chowned at startup. A write probe emits an actionable container-path warning if either is unavailable; the initial setup page may still load, while scanning still requires both paths to be read/write. Optional `/intake` is not created, chowned, or probed by startup. Its authenticated workspace reports real mount readiness without affecting application startup. Failure to prepare or write `/app/instance` stops startup immediately.
+The `/catalogue` mount root may have its ownership adjusted non-recursively, but its contents are never recursively chowned at startup. A write probe emits an actionable warning when the catalogue is unavailable; scanning requires catalogue read/write access. `/output` is neither created nor probed. Optional `/intake` is not created, chowned, or probed by startup. Its authenticated workspace reports real mount readiness without affecting application startup. Failure to prepare or write `/app/instance` stops startup immediately.
 
 ## Container logs
 
@@ -268,11 +273,11 @@ chown -R 99:100 /mnt/user/appdata/woocommerce-dashboard/instance
 chmod -R u+rwX,g+rwX /mnt/user/appdata/woocommerce-dashboard/instance
 ```
 
-Only run the correction after stopping the container and confirming the exact application-owned instance directory. Inspect catalogue and output share ownership separately; grant the configured identity suitable access rather than recursively rewriting a large catalogue.
+Only run the correction after stopping the container and confirming the exact application-owned instance directory. Inspect catalogue share ownership separately; grant the configured identity suitable access rather than recursively rewriting a large catalogue.
 
 ## Unraid deployment boundary
 
-An Unraid deployment should pull an approved immutable tag, set `PUID=99`, `PGID=100`, and `UMASK=002`, map persistent appdata to `/app/instance`, map catalogue/output shares explicitly, inject secrets at runtime, retain one Gunicorn worker and the image-managed scheduler, and verify backups before enabling scans. See the separate repository templates and update instructions in [Unraid Installation](UNRAID.md). The historical `0.2.3` release is not a managed deployment image.
+An Unraid deployment should pull an approved immutable tag, set `PUID=99`, `PGID=100`, and `UMASK=002`, map persistent appdata to `/app/instance`, map the authoritative catalogue to `/catalogue`, inject secrets at runtime, retain one Gunicorn worker and the image-managed scheduler, and verify backups before enabling scans. The historical `/output` mapping may be removed after image-sync validation. See [Unraid Installation](UNRAID.md). The historical `0.2.3` release is not a managed deployment image.
 
 The Phase 1 image supplies both target architectures, but publication does not replace deployment-specific backup, mount, secret, and operational validation.
 

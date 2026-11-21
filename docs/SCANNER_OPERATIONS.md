@@ -1,5 +1,19 @@
 # Scanner, Operations, and Discord
 
+## Image sync (current)
+
+Collection **Update Images** places the existing `.update` marker and starts an
+exhaustive scan of that collection only. A successful scan records SHA-256 of
+authoritative source images; the marker is a scan trigger, not the publication
+queue. Pending Shopify differences survive later scans and are reviewed or
+processed by the existing authorised automatic product publisher. Additions,
+same-name replacements and managed removals use the same signed product
+operation, retained media IDs and Shopify readback. An uncertain response stops
+automatic replay and requires existing recovery. The scanner neither generates
+WooCommerce image URLs nor copies files into `/output`.
+
+Historical `/output` references below describe superseded scanner behaviour.
+
 ## M3A.9.3.4 — no automatic local catalogue scan on boot
 
 The previous runtime hook queued catalogue_startup. On first deployment there was

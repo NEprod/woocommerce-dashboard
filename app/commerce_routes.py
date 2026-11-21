@@ -296,8 +296,23 @@ def drafts(product_id=None):
     from app.shopify_simple_fields import review_rows
     from app.product_presentation import review_display, action_label
     display_rows = review_rows(plan) if plan else []
+    image_preview_urls = {}
+    if plan and plan.get('images'):
+        from app.catalogue_images import product_image_diagnostics, variation_image_diagnostics
+        owner = scoped_product or db.session.get(Product, plan['product_id'])
+        if owner:
+            for index, item in enumerate(product_image_diagnostics(owner)):
+                if item.get('source_exists') and item.get('source_reference'):
+                    image_preview_urls[item['source_reference']] = url_for('main.catalogue_product_gallery_image',
+                        product_id=owner.id, index=index)
+            for variation in owner.variations:
+                for index, item in enumerate(variation_image_diagnostics(variation, include_parent_fallback=False)):
+                    if item.get('source_exists') and item.get('source_reference'):
+                        image_preview_urls[item['source_reference']] = url_for('main.catalogue_variation_gallery_image',
+                            variation_id=variation.id, index=index)
     return render_template("shopify_drafts.html", form=form, plan=plan, token=token, error=error,
         review_rows=display_rows, review_display=review_display(plan, display_rows) if plan else None,
+        image_preview_urls=image_preview_urls,
         action_label=action_label,
         return_to=products_return(product_id),
         products=products, identities=identities, scoped_product=scoped_product,

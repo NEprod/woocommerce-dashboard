@@ -415,6 +415,34 @@ def test_shared_refresh_reuses_all_parent_and_variation_skus(
         }
 
 
+def test_update_images_uses_only_the_selected_collection(reconciliation_app, monkeypatch):
+    from types import SimpleNamespace
+    app, catalogue = reconciliation_app
+    folder = catalogue / 'Fictional Collection'
+    with app.app_context():
+        collection = Collection(name='Fictional Collection', root_path=str(folder),
+            source_relpath='Fictional Collection', collection_type='Variable Collection',
+            sku_prefix='FIC-R-', shared_json_path=str(folder / 'product_info.json'),
+            shared_json_relpath='Fictional Collection/product_info.json')
+        db.session.add(collection)
+        db.session.commit()
+        collection_id = collection.id
+    captured = {}
+    monkeypatch.setattr('app.routes.current_user', SimpleNamespace(is_admin=True))
+    monkeypatch.setattr('app.routes.csrf.protect', lambda: None)
+    monkeypatch.setattr('app.routes.start_scan',
+        lambda *args, **kwargs: captured.update(kwargs))
+    response = app.test_client().post(f'/collections/{collection_id}/update-images')
+    assert response.status_code == 302
+    assert (folder / '.update').read_text() == '1'
+    assert captured['scan_mode'] == 'shared_collection'
+    assert captured['collection_relpath'] == 'Fictional Collection'
+    assert captured['scope']['scope_kind'] == 'collection'
+    assert captured['scope']['exhaustive'] is True
+    with app.app_context():
+        finish_catalogue_operation(captured['operation_id'], status='succeeded')
+
+
 def test_shared_editor_starts_explicit_exhaustive_collection_refresh(
     reconciliation_app, monkeypatch
 ):

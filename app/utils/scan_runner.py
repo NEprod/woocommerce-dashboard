@@ -74,8 +74,8 @@ def image_ownership_summary(rows):
         "parent_images": parent_count,
         "variation_images": variation_count,
         "total_images": total,
-        # Emitted image references originate only from successful process_images calls.
-        "output_images_copied": total,
+        # Historical metric remains readable, but new scans make no upload copies.
+        "output_images_copied": 0,
     }
 
 
@@ -687,19 +687,20 @@ def _scan_thread(
                 return
 
             scan_folder = settings.product_folder or ""
-            image_folder = settings.output_folder or ""
-            url_prefix = settings.url_prefix or ""
+            # Legacy WordPress image output/URL settings are intentionally not
+            # needed: the scanner now projects authoritative source images.
+            image_folder = None
+            url_prefix = None
             with _runs_lock:
                 _runs[run_id]["redaction_paths"] = runtime_redaction_paths(
                     catalogue=scan_folder,
-                    output=image_folder,
                     instance=app.instance_path,
                 )
 
-            if not (scan_folder and image_folder and url_prefix):
+            if not scan_folder:
                 scanner_execution_error = True
                 _runs[run_id]["stage"] = "failed"
-                operation_error = "Missing scan settings (folders or URL prefix)."
+                operation_error = "Missing catalogue source folder."
                 log(operation_error, level="ERROR")
                 return
 
@@ -731,8 +732,7 @@ def _scan_thread(
 
             log(f"Scan mode: {scan_mode}")
             log(f"Using product folder: {scan_folder}")
-            log(f"Using image output folder: {image_folder}")
-            log(f"Using URL prefix: {url_prefix}")
+            log("Using original catalogue images; no generated image output")
             log(f"Found {len(folders)} folders to process.")
             log("🔍 Starting scan...")
 
@@ -887,6 +887,14 @@ def _scan_thread(
                 operation_status = "failed"
             else:
                 operation_status = "succeeded"
+            if (operation_status == "succeeded"
+                    and operation_scope.get("initiating_source") == "update_images"
+                    and collection_relpath and len(plan.collection_paths) == 1):
+                # The collection-level trigger is separate from product markers.
+                # Retain it on every partial/failed scan for a safe retry.
+                marker = os.path.join(plan.collection_paths[0], ".update")
+                if os.path.isfile(marker):
+                    os.unlink(marker)
             _runs[run_id]["stage"] = (
                 "completed" if operation_status == "succeeded" else operation_status
             )

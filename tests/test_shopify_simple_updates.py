@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from app import db, shopify_drafts as drafts
-from app.models import CatalogueOperation, ShopifyProductIdentity
+from app.models import CatalogueOperation, ShopifyProductIdentity, ProductImage
 from app.shopify_connection import ShopifyError, ShopifyAdapter, ShopifyConfiguration, SIMPLE_QUERY, UPDATE_QUERY, FILES_QUERY, ORDER_QUERY, COUNTRIES_QUERY
 from app.shopify_simple_fields import weight_grams
 from test_shopify_drafts import FakeDraftAdapter, world
@@ -365,14 +365,229 @@ def test_alt_scope_is_required_only_for_alt_changes(world):
     assert token is None and any("write_files" in b for b in plan["blockers"])
 
 
-@pytest.mark.parametrize("kind", ["bytes", "removed", "extra_remote"])
-def test_media_replacement_removal_is_explicitly_unsupported(world, kind):
-    product, _, adapter = created(world)
-    if kind == "bytes": Image.new("RGB", (5, 5), "blue").save(world[1] / "original.png")
-    elif kind == "removed": (world[1] / "second.jpg").unlink()
-    else: adapter.remote["media"]["nodes"].append(dict(adapter.remote["media"]["nodes"][0], id="gid://shopify/MediaImage/999"))
-    with pytest.raises(ShopifyError, match="Unsupported|catalogue source"): drafts.preview(product, adapter)
-    assert "binary_upload" not in adapter.calls and "product_update" not in adapter.calls
+class MediaUpdateAdapter(UpdateAdapter):
+    def __init__(self):
+        super().__init__()
+        self.next_media = 900
+        self.media_failure = None
+        self.variant_media = []
+
+    def inspect_variant(self, config, variant_id, after=None):
+        self.calls.append('variant_media_read')
+        return {'id': variant_id, 'media': {'edges': [
+            {'node': {'id': media_id}} for media_id in self.variant_media],
+            'pageInfo': {'hasNextPage': False}}}
+
+    def update_simple_variant(self, config, product_id, variant):
+        if 'mediaId' in variant:
+            self.calls.append('variant_media_attach')
+            self.variant_media = list(dict.fromkeys([*self.variant_media, variant['mediaId']]))
+            return {'productVariantsBulkUpdate': {'productVariants': [{'id': variant['id']}], 'userErrors': []}}
+        return super().update_simple_variant(config, product_id, variant)
+
+    def detach_variant_media(self, config, product_id, variant_id, media_id):
+        self.calls.append('variant_media_detach')
+        self.variant_media.remove(media_id)
+        return {'productVariantDetachMedia': {'product': {'id': product_id}, 'userErrors': []}}
+
+    def stage_images(self, config, images):
+        if self.remote is None:
+            return super().stage_images(config, images)
+        self.calls.append('media_stage')
+        assert ShopifyProductIdentity.query.one().shopify_product_id == self.remote['id']
+        return {'stagedUploadsCreate': {'stagedTargets': [{
+            'url': 'https://storage.googleapis.com/upload',
+            'resourceUrl': f'https://storage.googleapis.com/new/{self.next_media}',
+            'parameters': []}], 'userErrors': []}}
+
+    def upload_image(self, config, target, image, content):
+        self.calls.append('binary_upload')
+        assert content and image['sha256'] == __import__('hashlib').sha256(content).hexdigest()
+
+    def add_product_media(self, config, product_id, media):
+        self.calls.append('media_add')
+        assert product_id == self.remote['id'] and media['mediaContentType'] == 'IMAGE'
+        node = {'id': f'gid://shopify/MediaImage/{self.next_media}', 'alt': media['alt'],
+            'status': 'READY', 'mediaContentType': 'IMAGE',
+            'image': {'url': f'https://cdn.shopify.com/added-{self.next_media}.png'}}
+        self.next_media += 1
+        self.remote['media']['nodes'].append(node)
+        if self.media_failure == 'lost_add':
+            raise ShopifyError('Media add response lost')
+        return {'productUpdate': {'product': {'id': product_id,
+            'media': {'nodes': copy.deepcopy(self.remote['media']['nodes']),
+                      'pageInfo': {'hasNextPage': False}}}, 'userErrors': []}}
+
+    def remove_product_media(self, config, product_id, media_id):
+        self.calls.append('media_remove')
+        assert product_id == self.remote['id']
+        self.remote['media']['nodes'] = [m for m in self.remote['media']['nodes'] if m['id'] != media_id]
+        if self.media_failure == 'lost_remove':
+            raise ShopifyError('Media removal response lost')
+        return {'productDeleteMedia': {'deletedMediaIds': [media_id], 'mediaUserErrors': []}}
+
+
+def media_created(world):
+    product = world[0]
+    adapter = MediaUpdateAdapter()
+    _, token = drafts.preview(product, adapter)
+    row = drafts.confirm(token, True, adapter)
+    assert row.state == 'verified'
+    adapter.calls.clear()
+    return product, row, adapter
+
+
+@pytest.mark.parametrize('kind', ['added', 'replaced', 'removed'])
+def test_reviewed_media_changes_reuse_existing_identity(world, kind):
+    product, row, adapter = media_created(world)
+    original_id = row.shopify_product_id
+    before = [m['id'] for m in adapter.remote['media']['nodes']]
+    if kind == 'added':
+        Image.new('RGB', (5, 5), 'green').save(world[1] / 'third.png')
+        product.images.append(ProductImage(url='third.png', position=2, alt_text='Third'))
+    elif kind == 'replaced':
+        Image.new('RGB', (5, 5), 'blue').save(world[1] / 'original.png')
+    else:
+        removed = product.images[-1]
+        product.images.remove(removed)
+        db.session.delete(removed)
+        (world[1] / 'second.jpg').unlink()
+    db.session.commit()
+    plan, token = drafts.preview(product, adapter)
+    assert token and plan['classification'] == 'update'
+    assert len(plan['media_actions']['add']) == int(kind != 'removed')
+    assert len(plan['media_actions']['retire']) == int(kind != 'added')
+    assert not {'media_stage', 'binary_upload', 'media_add', 'media_remove'} & set(adapter.calls)
+    result = drafts.confirm(token, True, adapter)
+    assert result.state == 'verified', drafts.evidence(result).get('error')
+    assert result.shopify_product_id == original_id
+    assert len(adapter.remote['media']['nodes']) == len(product.images)
+    assert adapter.calls.count('media_add') == int(kind != 'removed')
+    assert adapter.calls.count('media_remove') == int(kind != 'added')
+    assert not drafts.evidence(result).get('media_sync', {}).get('uploaded')
+    if kind == 'added': assert before == [m['id'] for m in adapter.remote['media']['nodes'][:2]]
+    if kind == 'replaced': assert before[0] not in [m['id'] for m in adapter.remote['media']['nodes']]
+    if kind == 'removed': assert before[-1] not in [m['id'] for m in adapter.remote['media']['nodes']]
+    assert drafts.preview(product, adapter)[0]['classification'] == 'no_change'
+
+
+def test_uncertain_media_add_keeps_identity_and_blocks_duplicate(world):
+    product, row, adapter = media_created(world)
+    Image.new('RGB', (5, 5), 'blue').save(world[1] / 'original.png')
+    _, token = drafts.preview(product, adapter)
+    adapter.media_failure = 'lost_add'
+    result = drafts.confirm(token, True, adapter)
+    assert result.state == 'uncertain'
+    assert adapter.calls.count('media_add') == 1
+    with pytest.raises(ShopifyError, match='Recovery required'):
+        drafts.preview(product, adapter)
+    assert adapter.calls.count('media_add') == 1
+
+
+def test_same_size_source_replacement_is_reviewed_and_verified(world):
+    product, row, adapter = media_created(world)
+    path = world[1] / 'original.png'
+    before = path.read_bytes()
+    old_id = adapter.remote['media']['nodes'][0]['id']
+    Image.new('RGB', (5, 5), (1, 0, 0)).save(path)
+    assert len(path.read_bytes()) == len(before) and path.read_bytes() != before
+    plan, token = drafts.preview(product, adapter)
+    assert token and plan['media_actions']['add'][0]['source'].endswith('/original.png')
+    assert drafts.confirm(token, True, adapter).state == 'verified'
+    assert old_id not in [node['id'] for node in adapter.remote['media']['nodes']]
+    assert drafts.preview(product, adapter)[0]['classification'] == 'no_change'
+
+
+def test_uncertain_media_removal_never_replays_delete(world):
+    product, row, adapter = media_created(world)
+    removed = product.images[-1]
+    product.images.remove(removed)
+    db.session.delete(removed)
+    (world[1] / 'second.jpg').unlink()
+    db.session.commit()
+    _, token = drafts.preview(product, adapter)
+    adapter.media_failure = 'lost_remove'
+    assert drafts.confirm(token, True, adapter).state == 'uncertain'
+    assert adapter.calls.count('media_remove') == 1
+    with pytest.raises(ShopifyError, match='Recovery required'):
+        drafts.preview(product, adapter)
+    assert adapter.calls.count('media_remove') == 1
+
+
+@pytest.mark.parametrize('kind', ['replaced', 'removed'])
+def test_simple_variant_image_link_is_verified_before_old_media_deletion(world, kind):
+    product, row, adapter = media_created(world)
+    old = adapter.remote['media']['nodes'][0]['id']
+    adapter.variant_media = [old]
+    if kind == 'replaced':
+        Image.new('RGB', (5, 5), 'blue').save(world[1] / 'original.png')
+    else:
+        removed = product.images[0]
+        product.images.remove(removed)
+        db.session.delete(removed)
+        (world[1] / 'original.png').unlink()
+        db.session.commit()
+    plan, token = drafts.preview(product, adapter)
+    assert token and plan['simple_variant_media'] == [old]
+    assert drafts.confirm(token, True, adapter).state == 'verified'
+    assert old not in [node['id'] for node in adapter.remote['media']['nodes']]
+    assert adapter.variant_media == ([adapter.remote['media']['nodes'][0]['id']] if kind == 'replaced' else [])
+    assert adapter.calls.index('variant_media_detach') < adapter.calls.index('media_remove')
+    assert drafts.preview(product, adapter)[0]['classification'] == 'no_change'
+
+
+def test_unreviewed_simple_variant_image_blocks_managed_removal(world):
+    product, _, adapter = media_created(world)
+    adapter.variant_media = ['gid://shopify/MediaImage/999']
+    Image.new('RGB', (5, 5), 'blue').save(world[1] / 'original.png')
+    with pytest.raises(ShopifyError, match='unreviewed media'):
+        drafts.preview(product, adapter)
+    assert not {'media_add', 'media_remove', 'variant_media_detach'} & set(adapter.calls)
+
+
+def test_resumed_media_checkpoint_does_not_readd_removed_image(world):
+    from app.shopify_media_update import prepare, retire
+    product, row, adapter = media_created(world)
+    removed = product.images[-1]
+    product.images.remove(removed)
+    db.session.delete(removed)
+    (world[1] / 'second.jpg').unlink()
+    db.session.commit()
+    plan, token = drafts.preview(product, adapter)
+    data = drafts.evidence(row)
+    data['plan'] = plan
+    old_id = plan['media_actions']['retire'][0]['id']
+    data['media_sync'] = {'uploaded': {}, 'added': {}, 'removed': [old_id]}
+    adapter.remote['media']['nodes'] = [node for node in adapter.remote['media']['nodes'] if node['id'] != old_id]
+    before = adapter.calls[:]
+    resolved = prepare(row, data, product, drafts.configuration(), adapter)
+    retire(row, data, drafts.configuration(), adapter, resolved)
+    assert adapter.calls[len(before):] == ['product_read']
+    assert resolved == [node['id'] for node in adapter.remote['media']['nodes']]
+
+
+def test_review_page_shows_image_change_and_authenticated_thumbnail(world, preview_app, monkeypatch):
+    product, _, adapter = media_created(world)
+    Image.new('RGB', (5, 5), 'blue').save(world[1] / 'original.png')
+    original_preview = drafts.preview
+    monkeypatch.setattr(drafts, 'preview',
+        lambda selected, **kwargs: original_preview(selected, adapter=adapter, **kwargs))
+    response = _client(preview_app).post(
+        f'/products/{product.id}/shopify/review', data={'action': 'preview'})
+    assert response.status_code == 200
+    assert b'Replace with changed original' in response.data
+    assert b'original.png' in response.data
+    assert b'shopify-review-thumbnail' in response.data
+    assert b'/catalogue/products/' not in response.data
+    assert not {'media_add', 'media_remove', 'binary_upload'} & set(adapter.calls)
+
+
+def test_unmanaged_remote_media_blocks_review_without_writes(world):
+    product, _, adapter = media_created(world)
+    adapter.remote['media']['nodes'].append(dict(adapter.remote['media']['nodes'][0], id='gid://shopify/MediaImage/999'))
+    with pytest.raises(ShopifyError, match='differs from retained managed media'):
+        drafts.preview(product, adapter)
+    assert not {'media_stage', 'binary_upload', 'media_add', 'media_remove'} & set(adapter.calls)
 
 
 @pytest.mark.parametrize("failure", ["before", "after", "partial"])

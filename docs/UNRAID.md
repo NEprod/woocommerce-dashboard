@@ -1,5 +1,16 @@
 # TLCDashboard on Unraid
 
+## Image-sync template cleanup after deployment
+
+After the image-sync image is deployed to development and its scoped scan and
+Shopify media review are verified, the operator may remove these **three**
+obsolete entries from `WooCommerceDashboard-dev`: `Generated Output` (`/output`),
+`Output Container Root` (`OUTPUT_FOLDER`) and `Public Image URL Prefix`
+(`URL_PREFIX`). The same entries can be omitted from a future production
+template. The source catalogue mount (`/catalogue` / `PRODUCT_FOLDER`) and all
+original images must remain. Do not delete historical uploads or change the
+running Unraid template as part of this repository release.
+
 These are repository templates, not changes to any installed container:
 
 | Template | Image channel | Use |
@@ -23,7 +34,7 @@ genuinely new data, initial scanning and verification when authorised.
 
 - Required: a strong independent `SECRET_KEY`, the correct existing
   `TLC_DEPLOYMENT_STORAGE_ID`, environment identity, separate writable mounts,
-  generated-image `URL_PREFIX`, the permanent Shopify domain in both domain
+  the permanent Shopify domain in both domain
   fields, and one complete Product app credential mechanism. Use **either**
   `SHOPIFY_CLIENT_ID` with `SHOPIFY_CLIENT_SECRET` **or**
   `SHOPIFY_ADMIN_ACCESS_TOKEN`. Both can be represented in the XML; do not
@@ -59,7 +70,7 @@ genuinely new data, initial scanning and verification when authorised.
 | --- | --- | --- |
 | `/app/instance` | `/mnt/cache/appdata/woocommerce-dashboard-dev/instance` | SQLite, local logins, inventory, materials, BOMs, orders, publishing receipts and backups |
 | `/catalogue` | `/mnt/user/data/tlc/09_Development_Products/products/` | Shared and product JSON, originals, SKU index and scanner markers |
-| `/output` | `/mnt/user/data/tlc/09_Development_Products/uploads/` | Generated files and images; not the private customer-photo bucket |
+| `/output` | `/mnt/user/data/tlc/09_Development_Products/uploads/` | Legacy WooCommerce output; remove the Path mapping after image-sync deployment validation, without deleting historical files |
 | `/intake` | `/mnt/user/data/tlc/09_Development_Products/intake/` | Optional independent staging area for loose and prepared product images |
 | `/taxonomy` | `/mnt/user/data/tlc/09_Development_Products/taxonomy/` | Optional authoritative registry and verified backups |
 

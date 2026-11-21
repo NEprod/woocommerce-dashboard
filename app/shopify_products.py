@@ -16,6 +16,11 @@ def source_fingerprint(product, images, *, production_costs=None, include_costs=
     from app.catalogue_images import _source_context
     context = _source_context(product)
     stats = []
+    verified = {asset.source_relpath: asset.content_sha256
+                for asset in product.assets if asset.kind == 'image' and asset.content_sha256}
+    for variant in product.variations:
+        verified.update({asset.source_relpath: asset.content_sha256
+                         for asset in variant.assets if asset.kind == 'image' and asset.content_sha256})
     for image in images:
         if not context:
             raise ValueError("Catalogue source is unavailable")
@@ -24,7 +29,11 @@ def source_fingerprint(product, images, *, production_costs=None, include_costs=
         path.relative_to(root)
         path.relative_to(folder)
         info = path.stat()
-        stats.append([image["source"], info.st_size, info.st_mtime_ns, info.st_ctime_ns])
+        # A completed scan's byte digest is authoritative for changed-content
+        # detection; live stats still invalidate the queue if a file is edited
+        # after that scan and before publication.
+        stats.append([image["source"], verified.get(image["source"]),
+                      info.st_size, info.st_mtime_ns, info.st_ctime_ns])
     from app.catalogue_fields import shipping_details
     from app import shopify_simple_fields as fields
     authored = product_document(product)

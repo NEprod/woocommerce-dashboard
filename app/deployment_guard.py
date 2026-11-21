@@ -69,8 +69,7 @@ def identity(env):
 
 
 def roots_for(instance, env):
-    roots = {"instance": instance, "catalogue": env.get("PRODUCT_FOLDER"),
-             "output": env.get("OUTPUT_FOLDER")}
+    roots = {"instance": instance, "catalogue": env.get("PRODUCT_FOLDER")}
     for role, key in (("intake", "INTAKE_ROOT"), ("taxonomy", "TAXONOMY_ROOT")):
         raw = env.get(key, "/" + role)
         if raw and (Path(raw).exists() or raw != "/" + role):

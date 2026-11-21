@@ -12,8 +12,6 @@ services:
     environment:
       FLASK_ENV: production
       PRODUCT_FOLDER: /catalogue
-      OUTPUT_FOLDER: /output
-      URL_PREFIX: "${URL_PREFIX:-}"
       INTAKE_ROOT: /intake
       PUID: "${PUID:-100}"
       PGID: "${PGID:-100}"
@@ -38,7 +36,6 @@ services:
     volumes:
       - "${INSTANCE_FOLDER_HOST}:/app/instance"
       - "${PRODUCT_FOLDER_HOST}:/catalogue"
-      - "${OUTPUT_FOLDER_HOST}:/output"
     healthcheck:
       test:
         - CMD
