@@ -122,3 +122,25 @@ backup/startup migration mechanisms apply. Destructive downgrade is refused.
 No new required environment variable or Unraid mount is introduced. Do not change
 the running container automatically. Camera hardware and physical printed labels
 should be manually accepted on the development container after deployment.
+
+## Hypothetical material purchase basis
+
+New hypothetical rows default to total purchase cost, purchased quantity/unit,
+and quantity/unit used in one proposed finished product. The modal previews the
+normalised unit cost and attributed material amount before Apply Row. For example,
+£13.99 for 1 kg with 26 g used contributes £0.36374. The same Decimal helper powers
+the local read-only modal endpoint and BOM totals; line amounts are not rounded
+before aggregation. Material displays retain up to eight decimal places, while
+final price outputs retain the established currency rounding.
+
+Compatible units use existing conversion factors. For packs, enter the actual
+pack count and pieces per pack. For incompatible units, explicitly enter:
+1 purchased unit = N usage units. Never infer sheet yields or pack contents.
+Missing purchase quantity/unit and incompatible conversions without a factor
+are validation errors. Blank cost stays unknown; an explicit £0 is a known zero.
+
+Known direct unit cost remains a selectable mode; legacy rows reopen in that
+mode without reinterpretation. Purchase inputs are optional additive fields in
+existing scenario JSON, not new inventory records or schema changes. Row Apply
+only changes the unsaved scenario; Save retains the inputs and calculation
+snapshot. This change has no stock, barcode, Shopify or deployment effects.

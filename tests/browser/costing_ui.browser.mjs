@@ -27,6 +27,7 @@ try {
   await page.goto('http://127.0.0.1:7513/production/bom');
   await page.locator('input[name=name]').fill('UI hypothetical scenario');
   await page.getByRole('button',{name:'Add Hypothetical Material',exact:true}).click();const modal=page.getByRole('dialog');
+  await modal.locator('[name=manual_cost_mode]').selectOption('direct');
   await modal.locator('[name=manual_name]').fill('Test PLA');await modal.locator('[name=manual_quantity]').fill('50');await modal.locator('[name=manual_unit]').selectOption('g');await modal.locator('[name=manual_cost]').fill('.02');await modal.getByRole('button',{name:'Apply Row'}).click();
   await page.locator('#live-costing').getByText('Test PLA',{exact:true}).waitFor();
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));

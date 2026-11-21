@@ -1,5 +1,5 @@
 """Shared finished-product planning arithmetic. Never posts stock or Shopify writes."""
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
 
 from app import db
 from . import service as stock
@@ -20,6 +20,66 @@ def decimal(value, label, *, maximum="1000000000"):
 
 def money(value):
     return format(value.quantize(Decimal('.01'), rounding=ROUND_HALF_UP), '.2f')
+
+
+def hypothetical_cost(line):
+    """One purchase/direct-cost calculation for modal preview and BOM totals.
+
+    A custom factor always means 1 purchase unit = N usage units; compatible
+    units use the existing inventory conversion constants instead.
+    """
+    mode = line.get('cost_mode', 'direct')
+    unit = line.get('unit')
+    if unit not in stock.UNITS:
+        raise ValueError('Choose a supported usage unit.')
+    quantity = decimal(line.get('quantity'), 'Quantity used')
+    if quantity <= 0 or unit == 'piece' and quantity != quantity.to_integral_value():
+        raise ValueError('Usage quantity must be positive; pieces must be whole numbers.')
+    family, usage_factor = stock.UNITS[unit]
+    normalized_unit = {'mass':'g','volume':'ml','length':'mm','area':'mm2','piece':'piece','sheet':'sheet'}[family]
+    with localcontext() as context:
+        context.prec = 40
+        if mode == 'direct':
+            value = line.get('unit_cost')
+            rate = None if value is None or not str(value).strip() else decimal(value, 'Direct unit cost') / usage_factor
+        elif mode == 'purchase':
+            purchase_unit = line.get('purchase_unit')
+            if purchase_unit not in stock.UNITS and purchase_unit != 'pack':
+                raise ValueError('Choose a purchased quantity unit.')
+            purchased = decimal(line.get('purchase_quantity'), 'Purchased quantity')
+            if purchased <= 0 or purchase_unit in {'piece','pack'} and purchased != purchased.to_integral_value():
+                raise ValueError('Purchased quantity must be positive; purchased pieces and packs must be whole numbers.')
+            factor = line.get('conversion_factor')
+            compatible = purchase_unit != 'pack' and stock.UNITS[purchase_unit][0] == family
+            if compatible:
+                if factor is not None and str(factor).strip():
+                    raise ValueError('Compatible units use their built-in conversion. Clear the custom factor.')
+                purchased_base = purchased * stock.UNITS[purchase_unit][1]
+            else:
+                if purchase_unit == 'pack' and unit != 'piece':
+                    raise ValueError('Purchased packs require piece usage and an explicit pieces-per-pack count.')
+                if factor is None or not str(factor).strip():
+                    raise ValueError('These units require an explicit conversion: 1 purchased unit = N usage units (pieces per pack for packs).')
+                factor = decimal(factor, 'Conversion: usage units per purchased unit')
+                if factor <= 0 or unit == 'piece' and factor != factor.to_integral_value():
+                    raise ValueError('Conversion factor must be positive; pieces per purchased unit must be whole numbers.')
+                purchased_base = purchased * factor * usage_factor
+            value = line.get('purchase_cost')
+            rate = None if value is None or not str(value).strip() else decimal(value, 'Total purchase cost') / purchased_base
+        else:
+            raise ValueError('Choose purchase cost or direct unit cost mode.')
+        amount = None if rate is None else quantity * usage_factor * rate
+        return dict(quantity=quantity, unit=unit, normalized_unit=normalized_unit, normalized_cost=rate,
+                    usage_unit_cost=None if rate is None else rate * usage_factor, amount=amount)
+
+
+def material_money(value):
+    if value is None:
+        return None
+    if 0 < value < Decimal('.00000001'):
+        return '<0.00000001'
+    text = format(value.quantize(Decimal('.00000001'), rounding=ROUND_HALF_UP), 'f').rstrip('0').rstrip('.')
+    return text + '.00' if '.' not in text else text + '0' if len(text.split('.')[1]) == 1 else text
 
 
 def pricing(cost, chosen, config, markup, *, complete):
@@ -58,20 +118,19 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
         if line.get('source') == 'manual':
             if not direct_materials:
                 raise ValueError('Hypothetical materials are supported only in standalone scenarios.')
-            quantity = decimal(line.get('quantity'), 'Hypothetical material quantity')
-            if quantity <= 0 or line.get('unit') not in stock.UNITS:
-                raise ValueError('Use a positive quantity and supported unit for hypothetical materials.')
+            calculation = hypothetical_cost(line)
+            quantity = calculation['quantity']
             name = str(line.get('name') or '').strip()
             if not name:
                 raise ValueError('Name the hypothetical material.')
-            if line.get('unit_cost') in (None, ''):
+            if calculation['amount'] is None:
                 missing.append(f'{name}: hypothetical unit cost is unknown.')
                 rows.append(dict(name=name,cost=None,source='Hypothetical',quantity=str(quantity),unit=line['unit'],unit_cost=None))
             else:
-                amount = quantity * decimal(line['unit_cost'], 'Hypothetical unit cost')
+                amount = calculation['amount']
                 base += amount
                 subtotals['raw_material'] += amount
-                rows.append(dict(name=name,cost=money(amount),source='Hypothetical',quantity=str(quantity),unit=line['unit'],unit_cost=str(line['unit_cost'])))
+                rows.append(dict(name=name,cost=material_money(amount),source='Hypothetical',quantity=str(quantity),unit=line['unit'],unit_cost=format(calculation['usage_unit_cost'],'f')))
                 provisional.append(f'{name}: hypothetical material cost.')
             continue
         item = db.session.get(Item, int(line['item_id']))

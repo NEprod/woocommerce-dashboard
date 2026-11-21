@@ -1,3 +1,4 @@
+import {materialDialog,paintMaterial} from './hypothetical-material.js';
 for (const [name,label] of [['item_id','Add Material / Component'],['manual_name','Add Hypothetical Material'],['equipment_id','Add Production Process']]) {
   const first=document.querySelector(`[name="${name}"]`); if(!first) continue;
   const table=first.closest('table'), body=table.tBodies[0];
@@ -7,21 +8,23 @@ for (const [name,label] of [['item_id','Add Material / Component'],['manual_name
     for(const cell of row.cells) {
       cell.querySelector('[data-row-summary]')?.remove();
       const input=cell.querySelector('input,select');if(!input)continue;
-      input.hidden=true;const summary=document.createElement('span');summary.dataset.rowSummary='';summary.className='text-break';summary.textContent=input.tagName==='SELECT'?input.selectedOptions[0]?.textContent:input.value||'—';cell.append(summary);
+      for(const control of cell.querySelectorAll('input,select'))control.hidden=true;const summary=document.createElement('span');summary.dataset.rowSummary='';summary.className='text-break';summary.textContent=input.tagName==='SELECT'?input.selectedOptions[0]?.textContent:input.value||'—';cell.append(summary);
     }
+    if(name==='manual_name')paintMaterial(row,table);
   }
   function edit(row) {
     const dialog=document.createElement('dialog');dialog.className='packaging-dialog';dialog.setAttribute('aria-label',label.replace('Add','Edit'));
     const form=document.createElement('form'),title=document.createElement('h2');title.textContent=label.replace('Add','Edit');form.append(title);
     const grid=document.createElement('div');grid.className='workshop-fields';const pairs=[];
     for(const [index,cell] of Array.from(row.cells).entries())for(const original of cell.querySelectorAll('input,select')){
-      const field=document.createElement('label');field.textContent=table.tHead.rows[0].cells[index].textContent;
+      const field=document.createElement('label');field.textContent=original.dataset.label||table.tHead.rows[0].cells[index].textContent;
       const input=original.cloneNode(true);input.hidden=false;input.value=original.value;field.append(input);grid.append(field);pairs.push([original,input]);
     }
     form.append(grid);const footer=document.createElement('div');footer.className='page-actions';
     const apply=document.createElement('button');apply.type='submit';apply.className='btn btn-primary';apply.textContent='Apply Row';
     const cancel=document.createElement('button');cancel.type='button';cancel.className='btn btn-ghost';cancel.textContent='Cancel';cancel.onclick=()=>dialog.close();footer.append(apply,cancel);form.append(footer);dialog.append(form);document.body.append(dialog);
-    form.onsubmit=event=>{event.preventDefault();for(const [original,input]of pairs)original.value=input.value;paint(row);table.dispatchEvent(new Event('input',{bubbles:true}));dialog.close();};
+    const canApply=name==='manual_name'?materialDialog(form,table,apply):()=>true;
+    form.onsubmit=event=>{event.preventDefault();if(!canApply())return;for(const [original,input]of pairs)original.value=input.value;paint(row);table.dispatchEvent(new Event('input',{bubbles:true}));dialog.close();};
     dialog.addEventListener('close',()=>dialog.remove());dialog.showModal();
   }
   function actions(row) { const cell=document.createElement('td'), button=document.createElement('button'),pencil=document.createElement('button');pencil.type='button';pencil.className='btn btn-sm btn-outline-primary';pencil.textContent='✎';pencil.setAttribute('aria-label',label.replace('Add','Edit'));pencil.title=label.replace('Add','Edit');pencil.onclick=()=>edit(row);button.type='button'; button.className='btn btn-sm btn-outline-danger'; button.textContent='Remove'; button.setAttribute('aria-label','Remove row'); button.addEventListener('click',()=>{row.remove();table.dispatchEvent(new Event('input',{bubbles:true}));});cell.append(pencil,button);row.append(cell);paint(row); }

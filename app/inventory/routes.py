@@ -227,8 +227,15 @@ def bom_planner(scenario_id, product_id=None):
             manual = [request.form.getlist(k) for k in ('manual_name','manual_quantity','manual_unit','manual_cost')]
             if len({len(c) for c in manual}) != 1:
                 raise ValueError('Send complete hypothetical material rows.')
-            document['lines'].extend(dict(source='manual',name=n,quantity=q,unit=u,unit_cost=c)
-                                     for n,q,u,c in zip(*manual) if n.strip())
+            extras = {key: request.form.getlist('manual_' + key) for key in
+                      ('cost_mode','purchase_cost','purchase_quantity','purchase_unit','conversion_factor')}
+            if any(column and len(column) != len(manual[0]) for column in extras.values()):
+                raise ValueError('Send complete hypothetical purchase details for each material row.')
+            for index, (n,q,u,c) in enumerate(zip(*manual)):
+                if n.strip():
+                    line = dict(source='manual',name=n,quantity=q,unit=u,unit_cost=c)
+                    line.update({key: column[index] for key,column in extras.items() if column})
+                    document['lines'].append(line)
             for index, usage in enumerate(document['equipment']):
                 for field in ('timing_mode','usable_units','allocation','share_percent'):
                     entered = request.form.getlist(field)
@@ -306,6 +313,23 @@ def archive_bom_scenario(scenario_id):
     db.session.commit()
     flash('Scenario removed from saved list; historical data retained.', 'success')
     return redirect(url_for('inventory.bom_planner'), code=303)
+
+
+@inventory.post('/bom/hypothetical-preview')
+def hypothetical_preview():
+    from .profitability import hypothetical_cost, material_money
+    request.max_content_length = 16384
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(error='Send hypothetical material fields as an object.'), 400
+    try:
+        result = hypothetical_cost(body)
+        return jsonify(normalized_unit=result['normalized_unit'],
+                       normalized_unit_cost=None if result['normalized_cost'] is None else format(result['normalized_cost'], 'f'),
+                       amount=None if result['amount'] is None else format(result['amount'], 'f'),
+                       display_amount=material_money(result['amount']))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
 
 
 @inventory.route('/bundles', methods=['GET', 'POST'])
