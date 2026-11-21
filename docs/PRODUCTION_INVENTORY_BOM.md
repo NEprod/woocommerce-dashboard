@@ -4,11 +4,21 @@
 
 Item details offers View Stock Card and Print Stock Card; Inventory Catalogue
 rows also link to the preview. Cards render current saved stable information at
-4 × 3 inches, without live balances. Code 128 and the text beneath it use the
+2 × 3.5 inches, portrait, without live balances. Code 128 and the text beneath it use the
 same permanent item identifier, never a production batch identifier. Missing
 barcodes are reported, not allocated. Previewing and printing do not change data.
 Use actual size / 100%, no margins or browser headers/footers, and check one page
 in the native print preview. Printer-specific paper-size support still applies.
+The upper image uses contain sizing (no crop); optional details are compact and
+long names are limited to two lines. One card is printed per custom-size page;
+there is no built-in business-card sheet/imposition layout. Do not use Fit to page.
+The portrait-only SVG is 1.78 inches wide including 12-module quiet zones on each
+side, with 0.45-inch bars. The layout refuses modules narrower than 0.20 mm; this
+is a print-layout safeguard, not a guarantee for all printer/scanner combinations.
+Long codes keep their full identifier but show a warning instead of a squeezed
+barcode. Use the existing larger inventory label for those codes. General item,
+location and batch labels retain their previous geometry and identifiers. Check
+a physical 100%-scale test print with a ruler and your scanner before bulk printing.
 
 Inventory remains local. Existing purchased/material receiving, location scans,
 immutable stock history, idempotent confirmations and compensating reversals are

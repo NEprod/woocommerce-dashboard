@@ -265,7 +265,7 @@ export function initialize(doc, host) {
   for (const button of doc.querySelectorAll('[data-inventory-print]')) {
     button.hidden = false;
     button.addEventListener('click', async () => {
-      await Promise.allSettled(Array.from(doc.querySelectorAll('.workshop-label img'), (image) => image.decode()));
+      await Promise.allSettled(Array.from(doc.querySelectorAll('.workshop-label img, .inventory-stock-card img'), (image) => image.decode()));
       host.print();
     });
   }

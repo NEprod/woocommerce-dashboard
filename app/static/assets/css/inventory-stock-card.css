@@ -1,22 +1,24 @@
-.inventory-stock-card { box-sizing:border-box; width: min(100%, 4in); aspect-ratio:4 / 3; padding:.12in; background:#fff; color:#000; border:1px solid #777; display:flex; flex-direction:column; gap:.06in; overflow:hidden; font:8pt/1.15 Arial,sans-serif; margin:24px 0; }
-.stock-card-information { display:flex; gap:.10in; min-height:0; flex:1; overflow:hidden; }
-.stock-card-photo { width:.7in; height:.7in; object-fit:contain; flex:none; }
-.stock-card-copy { min-width:0; flex:1; overflow:hidden; }
-.stock-card-copy h1 { margin:0 0 3px; font:bold 12pt/1.08 Arial,sans-serif; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
-.stock-card-kind { margin:0 0 4px; font-size:7pt; }
-.stock-card-copy dl { margin:0; font-size:8pt; }
-.stock-card-copy dl div { display:flex; gap:4px; margin:1px 0; min-width:0; }
-.stock-card-copy dt { font-weight:bold; flex:none; }
+.inventory-stock-card { box-sizing:border-box; width:2in; height:3.5in; padding:.10in; background:#fff; color:#161b18; border:.5pt solid #b9bfba; display:grid; grid-template-rows:1.55in minmax(0,1fr) .64in; gap:.05in; overflow:hidden; font:7pt/1.15 Arial,sans-serif; margin:24px 0; }
+.stock-card-image-area { min-width:0; min-height:0; display:flex; justify-content:center; align-items:center; background:#f4f5f3; border-radius:.04in; }
+.stock-card-photo { display:block; width:1.78in; height:1.55in; max-width:100%; max-height:1.55in; object-fit:contain; }
+.stock-card-placeholder { display:grid; justify-items:center; gap:.06in; color:#69716b; font-size:7pt; }
+.stock-card-copy { min-width:0; min-height:0; overflow:hidden; }
+.stock-card-copy h1 { margin:0 0 .035in; font:600 9pt/1.12 Arial,sans-serif; color:#203d30; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.stock-card-kind { margin:0 0 .04in; font:6pt/1.1 Arial,sans-serif; color:#555; text-transform:uppercase; letter-spacing:.025em; }
+.stock-card-copy dl { margin:0; font:7pt/1.15 Arial,sans-serif; }
+.stock-card-copy dl div { display:flex; gap:3px; margin:.012in 0; min-width:0; }
+.stock-card-copy dt { font-weight:600; flex:none; }
 .stock-card-copy dt::after { content:':'; }
 .stock-card-copy dd { margin:0; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.stock-card-materials dd { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-.stock-card-barcode { flex:none; text-align:center; height:.85in; background:#fff; }
-.stock-card-barcode img { width:100%; height:.66in; object-fit:fill; display:block; }
-.stock-card-code { font:9pt/1.2 monospace; white-space:nowrap; color:#000; }
-@page { size:4in 3in; margin:0; }
+.stock-card-barcode { min-width:0; align-self:end; text-align:center; background:#fff; color:#000; }
+/* SVG carries its own checked module widths and 12-module quiet zones. No stretching. */
+.stock-card-barcode img { display:block; width:1.78in; height:.45in; max-width:none; margin:0 auto .025in; }
+.stock-card-code { font:7pt/1.1 monospace; overflow-wrap:anywhere; white-space:normal; color:#000; }
+.stock-card-barcode-warning { font:6pt/1.1 Arial,sans-serif; margin:0 0 .035in; color:#000; }
+@page { size:2in 3.5in; margin:0; }
 @media print {
-  html, body { width:4in!important; height:3in!important; min-height:0!important; margin:0!important; padding:0!important; background:white!important; }
+  html, body { width:2in!important; height:3.5in!important; min-height:0!important; margin:0!important; padding:0!important; background:white!important; }
   .app-sidebar,.app-utility-header,.mobile-bottom-nav,.app-offcanvas,.skip-link,footer,.workshop-nav,.workshop-no-print { display:none!important; }
-  .app-frame,.app-workspace,.app-main,.app-content,.workshop { display:block!important; width:4in!important; max-width:none!important; min-width:0!important; height:auto!important; min-height:0!important; margin:0!important; padding:0!important; overflow:visible!important; }
-  .inventory-stock-card { width:4in!important; height:3in!important; margin:0!important; border:0; break-inside:avoid; page-break-inside:avoid; box-shadow:none; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+  .app-frame,.app-workspace,.app-main,.app-content,.workshop { display:block!important; width:2in!important; max-width:none!important; min-width:0!important; height:auto!important; min-height:0!important; margin:0!important; padding:0!important; overflow:visible!important; }
+  .inventory-stock-card { width:2in!important; height:3.5in!important; margin:0!important; break-inside:avoid; page-break-inside:avoid; box-shadow:none; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
 }

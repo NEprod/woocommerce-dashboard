@@ -835,7 +835,9 @@ def label(record_id):
 def stock_card(record_id):
     """Ephemeral print view of the saved item, never an identity or stock action."""
     row = _record(Item, record_id)
+    from .stock_cards import barcode_geometry
     return render_template('inventory/stock_card.html', row=row,
+                           barcode=barcode_geometry(row.identity.code if row.identity else None),
                            location=db.session.get(Location, row.default_location_id) if row.default_location_id else None,
                            has_image=row.image is not None)
 
@@ -849,7 +851,14 @@ def label_art(record_id, style):
     if style == "code128":
         from barcode import Code128
         from barcode.writer import SVGWriter
-        Code128(code, writer=SVGWriter()).write(output, {"write_text":False, "module_width":0.29, "quiet_zone":4})
+        options = {"write_text":False, "module_width":0.29, "quiet_zone":4}
+        if request.args.get('layout') == 'stock-card':
+            from .stock_cards import barcode_geometry
+            geometry = barcode_geometry(code)
+            if not geometry['fits']:
+                abort(422, geometry['warning'])
+            options = {key: value for key,value in geometry.items() if key not in {'fits','warning'}}
+        Code128(code, writer=SVGWriter()).write(output, options)
     elif style == "qr":
         import qrcode
         from qrcode.image.svg import SvgPathFillImage

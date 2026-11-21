@@ -50,7 +50,14 @@ def test_card_image_long_name_optional_fields_and_print_css(workshop):
     assert 'stock-card-photo' in html and f'/production/item/{record}/image.jpg' in html
     assert 'ABCDEFGHIJKLMNOPQRSTUVWX</div>' in html
     css = client.get('/static/assets/css/inventory-stock-card.css').get_data(as_text=True)
-    assert 'size:4in 3in' in css and '@media print' in css and 'height:3in!important' in css
+    assert 'size:2in 3.5in' in css and '@media print' in css and 'height:3.5in!important' in css
+    assert 'width:2in!important' in css and 'object-fit:contain' in css
+    assert 'Identifier too long' in html and 'Open larger inventory label' in html
+    assert 'class="stock-card-barcode"' in html
+    assert 'alt="Code 128 for ABCDEFGHIJKLMNOPQRSTUVWX"' not in html
+    assert client.get(f'/production/label/{record}/code128.svg?layout=stock-card').status_code == 422
+    # The ordinary label remains available, without a change of barcode identity.
+    assert client.get(f'/production/label/{record}/code128.svg').status_code == 200
     assert client_for(workshop,3).get(f'/production/item/{record}/stock-card').status_code == 403
 
 
@@ -67,3 +74,45 @@ def test_missing_barcode_preview_never_generates_an_identity(workshop):
         assert 'Permanent barcode missing' in html
         assert '/code128.svg' not in html
         assert Identity.query.count() == before
+
+
+def test_portrait_barcode_geometry_and_original_encoding(workshop):
+    import xml.etree.ElementTree as ET
+    from app.inventory.stock_cards import barcode_geometry, MIN_MODULE_MM
+    client=client_for(workshop)
+    record=item(client,'purchased','KAI-BOX-WHITE','Kailh Box White V2')
+    original=ET.fromstring(client.get(f'/production/label/{record}/code128.svg').data)
+    portrait=ET.fromstring(client.get(f'/production/label/{record}/code128.svg?layout=stock-card').data)
+    assert portrait.attrib['width']=='45.212mm'
+    assert portrait.attrib['height']=='11.430mm'
+    def bars(root):
+        return [r for r in root.iter('{http://www.w3.org/2000/svg}rect') if r.get('x')]
+    def value(rect,key):
+        return float(rect.attrib[key].removesuffix('mm'))
+    old,new=bars(original),bars(portrait)
+    assert len(old)==len(new)
+    module=min(value(bar,'width') for bar in new)
+    assert module>=float(MIN_MODULE_MM)
+    assert value(new[0],'x')>=10*module
+    assert 45.212-max(value(bar,'x')+value(bar,'width') for bar in new)>=10*module
+    # Same bar positions and widths, measured in modules: no identifier substitution.
+    for a,b in zip(old,new):
+        assert round(value(a,'width')/.29)==round(value(b,'width')/module)
+        assert round((value(a,'x')-4)/.29)==round((value(b,'x')-value(new[0],'x'))/module)
+    assert barcode_geometry('KAI-BOX-WHITE')['fits']
+    assert barcode_geometry('123456789012345678901234')['fits']  # Code 128 numeric compaction is retained.
+    assert not barcode_geometry('ABCDEFGHIJKLMNOPQRSTUVWX')['fits']
+    assert not barcode_geometry(None)['fits']
+
+
+def test_portrait_placeholder_and_saved_location(workshop):
+    client=client_for(workshop)
+    record=item(client,'material','PORTRAIT-RAW','Material without an image',unit='g')
+    tub=location(client,'PORTRAIT-TUB','Drawer A')
+    with workshop.app_context():
+        db.session.get(Item,record).default_location_id=tub
+        db.session.commit()
+    html=client.get(f'/production/item/{record}/stock-card').get_data(as_text=True)
+    assert 'stock-card-placeholder' in html and 'No item image' in html
+    assert 'Drawer A' in html and '2 × 3.5-inch portrait' in html
+    assert 'layout=stock-card' in html

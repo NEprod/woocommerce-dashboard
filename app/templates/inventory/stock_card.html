@@ -4,29 +4,30 @@
 {% block workshop %}
 <div class="workshop-no-print">{{ heading('Stock Card', 'A printable companion to the saved inventory item. No live stock balance is printed.') }}
 <div class="workshop-actions" id="print-controls"><button class="btn btn-primary" type="button" data-inventory-print hidden>Print Stock Card</button><a class="btn btn-outline-primary" href="{{ url_for('inventory.item',record_id=row.id) }}">Return to item</a></div>
-<p>Use 4 × 3-inch landscape paper, actual size / 100%, no margins, and disable browser headers and footers. If your printer does not support this size, select suitable stock in its print settings. Check the preview shows one page; do not use “Fit to page”.</p></div>
+<p>Use 2 × 3.5-inch portrait business-card stock, actual size / 100%, no extra margins, and disable browser headers and footers. Check the print preview shows one card at 2 × 3.5 inches; do not use “Fit to page”. This view prints one card, not a pre-arranged business-card sheet. If custom paper sizes are unavailable, position at actual size using your printer’s supported layout and check a test print with a ruler.</p>
+{% if barcode is defined and barcode.warning %}<p class="alert alert-warning" role="alert">{{ barcode.warning }} {% if row.identity and row.identity.code %}<a href="{{ url_for('inventory.label',record_id=row.id) }}">Open larger inventory label</a>{% endif %}</p>{% endif %}</div>
 <article class="inventory-stock-card" aria-label="Stock Card for {{ row.name }}">
-  <div class="stock-card-information">
-    {% if has_image %}<img class="stock-card-photo" src="{{ url_for('inventory.item_image',record_id=row.id) }}" alt="{{ row.name }}">{% endif %}
-    <div class="stock-card-copy"><h1 title="{{ row.name }}">{{ row.name }}</h1><p class="stock-card-kind">{{ kinds[row.kind] }}</p>
+  <div class="stock-card-image-area">
+    {% if has_image %}<img class="stock-card-photo" src="{{ url_for('inventory.item_image',record_id=row.id) }}" alt="{{ row.name }}">{% else %}<div class="stock-card-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor"/><path d="m3 17 6-6 4 4 3-3 5 5" fill="none" stroke="currentColor"/></svg><span>No item image</span></div>{% endif %}
+  </div>
+  <div class="stock-card-copy"><h1 title="{{ row.name }}">{{ row.name }}</h1><p class="stock-card-kind">{{ kinds[row.kind] }}</p>
     <dl>
+      {% if location %}<div><dt>Location</dt><dd title="{{ breadcrumbs(location) }}">{{ breadcrumbs(location) }}</dd></div>{% endif %}
       {% if row.kind == 'manufactured' %}
-        {% if row.category %}<div><dt>Category</dt><dd>{{ row.category }}</dd></div>{% endif %}
         {% if row.materials %}<div class="stock-card-materials"><dt>Materials</dt><dd>{{ row.materials|map(attribute='material.name')|join(', ') }}</dd></div>{% endif %}
-        {% if row.yield_qty %}<div><dt>Expected per batch</dt><dd>{{ row.yield_qty }} pieces</dd></div>{% endif %}
+        {% if row.yield_qty %}<div><dt>Expected per batch</dt><dd>{{ row.yield_qty }} pieces{% if row.reorder is not none %} · Target {{ qty(row.reorder) }}{% endif %}</dd></div>{% endif %}
       {% else %}
-        {% if row.filament_type or row.specification or row.category %}<div><dt>Type / specification</dt><dd>{{ row.filament_type or row.specification or row.category }}</dd></div>{% endif %}
-        {% if row.filament_colour %}<div><dt>Colour</dt><dd>{{ row.filament_colour }}</dd></div>{% endif %}
+        {% if row.filament_type or row.specification or row.category %}<div><dt>Type</dt><dd>{{ row.filament_type or row.specification or row.category }}{% if row.filament_colour %} · {{ row.filament_colour }}{% endif %}</dd></div>{% endif %}
         {% if row.supplier %}<div><dt>Supplier</dt><dd>{{ row.supplier }}</dd></div>{% endif %}
       {% endif %}
-      <div><dt>Unit</dt><dd>{{ row.unit }}</dd></div>
-      <div><dt>Minimum stock</dt><dd>{{ qty(row.minimum) }} {{ row.unit }}</dd></div>
-      {% if row.kind == 'manufactured' and row.reorder is not none %}<div><dt>Target stock</dt><dd>{{ qty(row.reorder) }} {{ row.unit }}</dd></div>{% endif %}
-      {% if location %}<div><dt>Location</dt><dd>{{ breadcrumbs(location) }}</dd></div>{% endif %}
-    </dl></div>
+      <div><dt>Unit</dt><dd>{{ row.unit }} · Minimum {{ qty(row.minimum) }}</dd></div>
+    </dl>
   </div>
   <div class="stock-card-barcode">
-    {% if row.identity and row.identity.code %}<img src="{{ url_for('inventory.label_art',record_id=row.id,style='code128') }}" alt="Code 128 for {{ row.identity.code }}"><div class="stock-card-code">{{ row.identity.code }}</div>
+    {% if row.identity and row.identity.code %}
+      {% if barcode is defined and barcode.fits %}<img src="{{ url_for('inventory.label_art',record_id=row.id,style='code128',layout='stock-card') }}" alt="Code 128 for {{ row.identity.code }}" width="171" height="43">
+      {% else %}<p class="stock-card-barcode-warning">Barcode cannot fit safely at this size. Use the larger label.</p>{% endif %}
+      <div class="stock-card-code">{{ row.identity.code }}</div>
     {% else %}<p>Permanent barcode missing. No barcode has been generated.</p>{% endif %}
   </div>
 </article>
