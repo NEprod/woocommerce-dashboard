@@ -449,6 +449,48 @@ def test_missing_shared_product_title_remains_a_metadata_issue(
     assert "<h1>Fictional Cards</h1>" in detail
     assert "Shared product title</dt><dd>Not set" in detail
     assert "Has issues" in detail
+    assert "Title (title)" in detail
+    assert '<details id="collection-validation"' in detail
+    assert 'data-collection-validation-toggle' in detail
+
+
+def test_collection_validation_disclosure_shows_current_metadata_evidence(collections_client, collections_app):
+    _app, _database, catalogue, ids = collections_app
+    cards = catalogue / "Fictional Cards" / "product_info.json"
+    detail_url = f"/collections/{ids['Fictional Cards']}"
+    healthy = collections_client.get(detail_url).get_data(as_text=True)
+    assert "Valid metadata" in healthy
+    assert "passed the existing validation checks" in healthy
+    assert '<details id="collection-validation"' in healthy
+    assert '<details id="collection-validation" class="workspace-panel operator-help" open' not in healthy
+    payload = json.loads(cards.read_text(encoding="utf-8"))
+    payload.pop("meta_description")
+    payload.pop("short_description")
+    cards.write_text(json.dumps(payload), encoding="utf-8")
+    issues = collections_client.get(detail_url).get_data(as_text=True)
+    assert "Has issues" in issues
+    assert "Meta Description (meta_description)" in issues
+    assert "Short Description (short_description)" in issues
+    assert "not confirmation of Shopify publication" in issues
+    cards.unlink()
+    missing = collections_client.get(detail_url).get_data(as_text=True)
+    assert "Missing metadata" in missing
+    assert "Collection metadata source is missing" in missing
+    invalid = collections_client.get(f"/collections/{ids['Fictional Prints']}").get_data(as_text=True)
+    assert "Invalid metadata" in invalid
+    assert "could not be parsed safely" in invalid
+
+
+def test_collection_validation_disclosure_shows_validator_warning(collections_client, collections_app):
+    _app, _database, catalogue, ids = collections_app
+    source = catalogue / "Fictional Cards" / "product_info.json"
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    payload["fictional_unknown_field"] = "retained"
+    source.write_text(json.dumps(payload), encoding="utf-8")
+    html = collections_client.get(f"/collections/{ids['Fictional Cards']}").get_data(as_text=True)
+    assert "Has issues" in html
+    assert "$.fictional_unknown_field" in html
+    assert "Unknown fields are preserved but are not part of the current contract." in html
 
 
 @pytest.mark.parametrize(

@@ -169,6 +169,7 @@ def collection_metadata_source(collection, root):
         "data": data,
         "parse_error": parse_error,
         "validation": validation,
+        "missing_checked_fields": [key for key in ("title", "short_description", "meta_title", "meta_description") if not data.get(key)],
         "unsupported_type": unsupported,
         "state": state,
         "label": label,

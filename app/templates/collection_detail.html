@@ -9,8 +9,24 @@
 
 <section class="collection-detail-hero">
   <div class="collection-detail-image">{% if workspace.image.thumbnail %}<img src="{{ workspace.image.thumbnail }}" alt="{{ workspace.image.thumbnail_alt }}">{% else %}<span class="collection-image-fallback" aria-hidden="true">{{ workspace.name[:1] }}</span>{% endif %}</div>
-  <div class="collection-detail-facts"><span class="status-badge status-{{ workspace.metadata.state }}">{{ workspace.metadata.label }}</span><dl><div><dt>Collection identity</dt><dd>{{ workspace.name }}</dd></div><div><dt>SKU prefix</dt><dd>{{ workspace.sku_prefix or 'Not projected' }}</dd></div><div><dt>Metadata source</dt><dd>{{ workspace.source_reference or 'Not registered' }}</dd></div><div><dt>Source modified</dt><dd>{{ workspace.metadata_summary.modified_at.strftime('%d %b %Y, %H:%M') if workspace.metadata_summary.modified_at else 'Not available' }}</dd></div><div><dt>Last product update</dt><dd>{{ workspace.last_updated.strftime('%d %b %Y, %H:%M') if workspace.last_updated else 'Not recorded' }}</dd></div><div><dt>Source state</dt><dd>{{ 'Present' if workspace.metadata.exists else 'Missing' }} · {{ 'Parses safely' if not workspace.metadata.parse_error else 'Parse failed' }}</dd></div></dl></div>
+  <div class="collection-detail-facts"><a class="status-badge status-{{ workspace.metadata.state }}" href="#collection-validation" data-collection-validation-toggle aria-controls="collection-validation">{{ workspace.metadata.label }}</a><dl><div><dt>Collection identity</dt><dd>{{ workspace.name }}</dd></div><div><dt>SKU prefix</dt><dd>{{ workspace.sku_prefix or 'Not projected' }}</dd></div><div><dt>Metadata source</dt><dd>{{ workspace.source_reference or 'Not registered' }}</dd></div><div><dt>Source modified</dt><dd>{{ workspace.metadata_summary.modified_at.strftime('%d %b %Y, %H:%M') if workspace.metadata_summary.modified_at else 'Not available' }}</dd></div><div><dt>Last product update</dt><dd>{{ workspace.last_updated.strftime('%d %b %Y, %H:%M') if workspace.last_updated else 'Not recorded' }}</dd></div><div><dt>Source state</dt><dd>{{ 'Present' if workspace.metadata.exists else 'Missing' }} · {{ 'Parses safely' if not workspace.metadata.parse_error else 'Parse failed' }}</dd></div></dl></div>
 </section>
+
+<details id="collection-validation" class="workspace-panel operator-help">
+  <summary>Collection Validation · {{ workspace.metadata.label }}</summary>
+  <div class="workspace-card-body">
+    <p>This is a check of local collection metadata, not confirmation of Shopify publication.</p>
+    {% if workspace.metadata.state == 'healthy' %}<p>The current collection metadata passed the existing validation checks with no warnings or missing checked fields. Source last modified: {{ workspace.metadata_summary.modified_at.strftime('%d %b %Y, %H:%M') if workspace.metadata_summary.modified_at else 'not available' }}. No separate validation timestamp is recorded.</p>{% endif %}
+    {% if workspace.metadata.state == 'missing' %}<p>Collection metadata source is missing: {{ workspace.metadata.reference or 'No source path registered' }}.</p>{% endif %}
+    {% if workspace.metadata.parse_error %}<p>Collection metadata could not be parsed safely.</p>{% endif %}
+    {% if workspace.metadata.unsupported_type %}<p>Unsupported collection type: {{ workspace.metadata.data.collection_type }}.</p>{% endif %}
+    {% if workspace.metadata.validation.errors %}<h3>Validation errors</h3><ul>{% for issue in workspace.metadata.validation.errors %}<li>{{ issue.path }}: {{ issue.message }}</li>{% endfor %}</ul>{% endif %}
+    {% if workspace.metadata.validation.warnings %}<h3>Warnings</h3><ul>{% for issue in workspace.metadata.validation.warnings %}<li>{{ issue.path }}: {{ issue.message }}</li>{% endfor %}</ul>{% endif %}
+    {% if workspace.metadata.exists and not workspace.metadata.parse_error and workspace.metadata.missing_checked_fields %}<h3>Missing checked fields</h3><ul>{% for field in workspace.metadata.missing_checked_fields %}<li>{{ field|replace('_', ' ')|title }} ({{ field }})</li>{% endfor %}</ul>{% endif %}
+    {% if workspace.can_edit and workspace.metadata.state != 'healthy' %}<a class="btn btn-outline-primary" href="{{ workspace.edit_url }}">Edit Collection Metadata</a>{% endif %}
+  </div>
+</details>
+<script>document.querySelector('[data-collection-validation-toggle]').addEventListener('click', function () { document.getElementById('collection-validation').open = true; });</script>
 
 <section class="collection-detail-grid">
   <article class="workspace-panel"><div class="panel-heading"><div><p class="eyebrow">Source contract</p><h2>Metadata health</h2></div><span class="status-badge status-{{ workspace.metadata.state }}">{{ workspace.metadata.label }}</span></div>
