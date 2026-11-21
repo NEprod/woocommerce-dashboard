@@ -1,5 +1,15 @@
 # Production, inventory and finished-product costing
 
+## Printable stock cards
+
+Item details offers View Stock Card and Print Stock Card; Inventory Catalogue
+rows also link to the preview. Cards render current saved stable information at
+4 × 3 inches, without live balances. Code 128 and the text beneath it use the
+same permanent item identifier, never a production batch identifier. Missing
+barcodes are reported, not allocated. Previewing and printing do not change data.
+Use actual size / 100%, no margins or browser headers/footers, and check one page
+in the native print preview. Printer-specific paper-size support still applies.
+
 Inventory remains local. Existing purchased/material receiving, location scans,
 immutable stock history, idempotent confirmations and compensating reversals are
 reused. No planner or settings action sends Shopify requests or changes prices.

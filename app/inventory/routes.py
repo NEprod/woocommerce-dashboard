@@ -701,6 +701,15 @@ def label(record_id):
     return render_template("inventory/label.html", row=row, size=size if size in {"75", "100", "125"} else "100")
 
 
+@inventory.get('/item/<int:record_id>/stock-card')
+def stock_card(record_id):
+    """Ephemeral print view of the saved item, never an identity or stock action."""
+    row = _record(Item, record_id)
+    return render_template('inventory/stock_card.html', row=row,
+                           location=db.session.get(Location, row.default_location_id) if row.default_location_id else None,
+                           has_image=row.image is not None)
+
+
 @inventory.get("/label/<int:record_id>/<style>.svg")
 def label_art(record_id, style):
     if record_id == stock.UNASSIGNED_ID:

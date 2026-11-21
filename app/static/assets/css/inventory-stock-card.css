@@ -1,0 +1,22 @@
+.inventory-stock-card { box-sizing:border-box; width: min(100%, 4in); aspect-ratio:4 / 3; padding:.12in; background:#fff; color:#000; border:1px solid #777; display:flex; flex-direction:column; gap:.06in; overflow:hidden; font:8pt/1.15 Arial,sans-serif; margin:24px 0; }
+.stock-card-information { display:flex; gap:.10in; min-height:0; flex:1; overflow:hidden; }
+.stock-card-photo { width:.7in; height:.7in; object-fit:contain; flex:none; }
+.stock-card-copy { min-width:0; flex:1; overflow:hidden; }
+.stock-card-copy h1 { margin:0 0 3px; font:bold 12pt/1.08 Arial,sans-serif; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.stock-card-kind { margin:0 0 4px; font-size:7pt; }
+.stock-card-copy dl { margin:0; font-size:8pt; }
+.stock-card-copy dl div { display:flex; gap:4px; margin:1px 0; min-width:0; }
+.stock-card-copy dt { font-weight:bold; flex:none; }
+.stock-card-copy dt::after { content:':'; }
+.stock-card-copy dd { margin:0; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.stock-card-materials dd { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.stock-card-barcode { flex:none; text-align:center; height:.85in; background:#fff; }
+.stock-card-barcode img { width:100%; height:.66in; object-fit:fill; display:block; }
+.stock-card-code { font:9pt/1.2 monospace; white-space:nowrap; color:#000; }
+@page { size:4in 3in; margin:0; }
+@media print {
+  html, body { width:4in!important; height:3in!important; min-height:0!important; margin:0!important; padding:0!important; background:white!important; }
+  .app-sidebar,.app-utility-header,.mobile-bottom-nav,.app-offcanvas,.skip-link,footer,.workshop-nav,.workshop-no-print { display:none!important; }
+  .app-frame,.app-workspace,.app-main,.app-content,.workshop { display:block!important; width:4in!important; max-width:none!important; min-width:0!important; height:auto!important; min-height:0!important; margin:0!important; padding:0!important; overflow:visible!important; }
+  .inventory-stock-card { width:4in!important; height:3in!important; margin:0!important; border:0; break-inside:avoid; page-break-inside:avoid; box-shadow:none; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+}

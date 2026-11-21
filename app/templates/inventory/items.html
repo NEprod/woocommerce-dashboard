@@ -20,6 +20,7 @@
   <div>{{ row.category or 'No category' }}</div>
   <div><strong>{{ qty(balances[row.id]) }} {{ row.unit }}</strong>{% if row.active and balances[row.id] <= row.minimum %} <span class="workshop-warning">Low stock</span>{% endif %}</div>
   <a class="btn btn-outline-primary" href="{{ url_for('inventory.edit_item',record_id=row.id) }}">Edit <span class="visually-hidden">{{ row.name }}</span></a>
+  <a class="btn btn-outline-primary" href="{{ url_for('inventory.stock_card',record_id=row.id) }}">Stock Card <span class="visually-hidden">{{ row.name }}</span></a>
 </article>{% else %}<p class="workshop-panel">No {{ group }} match this view.</p>{% endfor %}
 </div>
 {{ pagination(page,dict(group=group,q=search,state=state,kind=kind)) }}

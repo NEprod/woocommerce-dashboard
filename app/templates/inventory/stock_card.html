@@ -1,0 +1,33 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading %}
+{% block stylesheets %}{{ super() }}<link rel="stylesheet" href="{{ url_for('static',filename='assets/css/inventory-stock-card.css') }}">{% endblock %}
+{% block workshop %}
+<div class="workshop-no-print">{{ heading('Stock Card', 'A printable companion to the saved inventory item. No live stock balance is printed.') }}
+<div class="workshop-actions" id="print-controls"><button class="btn btn-primary" type="button" data-inventory-print hidden>Print Stock Card</button><a class="btn btn-outline-primary" href="{{ url_for('inventory.item',record_id=row.id) }}">Return to item</a></div>
+<p>Use 4 × 3-inch landscape paper, actual size / 100%, no margins, and disable browser headers and footers. If your printer does not support this size, select suitable stock in its print settings. Check the preview shows one page; do not use “Fit to page”.</p></div>
+<article class="inventory-stock-card" aria-label="Stock Card for {{ row.name }}">
+  <div class="stock-card-information">
+    {% if has_image %}<img class="stock-card-photo" src="{{ url_for('inventory.item_image',record_id=row.id) }}" alt="{{ row.name }}">{% endif %}
+    <div class="stock-card-copy"><h1 title="{{ row.name }}">{{ row.name }}</h1><p class="stock-card-kind">{{ kinds[row.kind] }}</p>
+    <dl>
+      {% if row.kind == 'manufactured' %}
+        {% if row.category %}<div><dt>Category</dt><dd>{{ row.category }}</dd></div>{% endif %}
+        {% if row.materials %}<div class="stock-card-materials"><dt>Materials</dt><dd>{{ row.materials|map(attribute='material.name')|join(', ') }}</dd></div>{% endif %}
+        {% if row.yield_qty %}<div><dt>Expected per batch</dt><dd>{{ row.yield_qty }} pieces</dd></div>{% endif %}
+      {% else %}
+        {% if row.filament_type or row.specification or row.category %}<div><dt>Type / specification</dt><dd>{{ row.filament_type or row.specification or row.category }}</dd></div>{% endif %}
+        {% if row.filament_colour %}<div><dt>Colour</dt><dd>{{ row.filament_colour }}</dd></div>{% endif %}
+        {% if row.supplier %}<div><dt>Supplier</dt><dd>{{ row.supplier }}</dd></div>{% endif %}
+      {% endif %}
+      <div><dt>Unit</dt><dd>{{ row.unit }}</dd></div>
+      <div><dt>Minimum stock</dt><dd>{{ qty(row.minimum) }} {{ row.unit }}</dd></div>
+      {% if row.kind == 'manufactured' and row.reorder is not none %}<div><dt>Target stock</dt><dd>{{ qty(row.reorder) }} {{ row.unit }}</dd></div>{% endif %}
+      {% if location %}<div><dt>Location</dt><dd>{{ breadcrumbs(location) }}</dd></div>{% endif %}
+    </dl></div>
+  </div>
+  <div class="stock-card-barcode">
+    {% if row.identity and row.identity.code %}<img src="{{ url_for('inventory.label_art',record_id=row.id,style='code128') }}" alt="Code 128 for {{ row.identity.code }}"><div class="stock-card-code">{{ row.identity.code }}</div>
+    {% else %}<p>Permanent barcode missing. No barcode has been generated.</p>{% endif %}
+  </div>
+</article>
+{% endblock %}
