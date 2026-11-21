@@ -58,10 +58,14 @@ does not rewrite product JSON, set a selling price or move stock.
 
 Tools → Standalone BOM also permits direct raw materials. Such lines are additional
 to materials inside manufactured-component recipes. Save, reopen and duplicate
-local scenarios without creating catalogue products. Tools → Bundles multiplies
-saved finished-product unit costs by quantity, adds bundle-only costs, and charges
-the fixed transaction fee once. Promotion Plans retains its local-only boundaries;
-saved product costing profiles are reused where present.
+local scenarios without creating catalogue products. Tools → Promotions & Discounts
+opens the original `/promotions/` mix-and-match planner with its existing calculations
+and local-only boundaries. The duplicate `/production/bundles` editor is retired;
+old page bookmarks redirect to Promotions & Discounts and cannot create scenarios.
+Any saved duplicate bundle scenarios remain in the database unchanged, readable
+through their existing scenario bookmarks but no longer editable or listed in the
+BOM planner. No scenario is converted into a promotion. Shared costing helpers
+remain available; this navigation cleanup does not change pricing calculations.
 
 Equipment minutes mean time attributable to ONE finished product, not a whole
 multi-item plate. Labour means hands-on time only. Manufacturing allowance applies

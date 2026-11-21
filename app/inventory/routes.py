@@ -169,8 +169,8 @@ def costing_settings():
 @inventory.route("/bom", methods=["GET", "POST"], defaults={"scenario_id": None})
 @inventory.route("/bom/<int:scenario_id>", methods=["GET", "POST"])
 @inventory.route("/product/<int:product_id>/bom", methods=["GET", "POST"], defaults={"scenario_id": None})
-def bom_planner(scenario_id, product_id=None, bundle_mode=False):
-    from .profitability import bundle_estimate, estimate
+def bom_planner(scenario_id, product_id=None):
+    from .profitability import estimate
     from .product_bom import product_costs
     from app.models import Product
     scenario = _record(BomScenario, scenario_id) if scenario_id else None
@@ -185,7 +185,10 @@ def bom_planner(scenario_id, product_id=None, bundle_mode=False):
     product_lines = [dict(item_id=line['item_id'], quantity=line['quantity'], unit=line['unit'])
                      for line in (projection or {}).get('rows', []) if not line['excluded']]
     document = json.loads(scenario.document) if scenario else dict(lines=[], equipment=[])
-    bundle_mode = bundle_mode or document.get('kind') == 'bundle'
+    if document.get('kind') == 'bundle':
+        if request.method == 'POST':
+            abort(410, 'The duplicate bundle editor is retired. Saved data is retained unchanged.')
+        return render_template('inventory/retired_bundle.html', scenario=scenario, document=document)
     if product and not scenario:
         profile = db.session.get(ProductCostingProfile, (product.id, sku))
         if profile:
@@ -214,17 +217,11 @@ def bom_planner(scenario_id, product_id=None, bundle_mode=False):
             for key in ("buffer", "markup", "labour_rate", "fee_profile"):
                 if request.form.get(key, "").strip():
                     document[key] = request.form[key].strip()
-            if bundle_mode:
-                columns = [request.form.getlist(k) for k in ('bundle_product', 'bundle_quantity')]
-                if len({len(c) for c in columns}) != 1:
-                    raise ValueError('Send complete bundle product lines.')
-                document.update(kind='bundle', products=[dict(product_id=int(value.split('|', 1)[0]),
-                    sku=value.split('|', 1)[1], quantity=q) for value, q in zip(*columns) if value])
             if product:
                 document['lines'] = product_lines
             settings = db.session.get(CostingSettings, 1)
             config = json.loads(settings.document) if settings else {}
-            result = bundle_estimate(document['products'], document, config) if bundle_mode else estimate(document, config, direct_materials=not bool(product))
+            result = estimate(document, config, direct_materials=not bool(product))
             if product and (not projection or projection.get('state') != 'complete'):
                 raise ValueError('The existing product BOM must be configured and complete before saving finished-product profitability.')
             if request.form.get("action") in {"save", "duplicate"}:
@@ -254,19 +251,20 @@ def bom_planner(scenario_id, product_id=None, bundle_mode=False):
     elif scenario:
         settings = db.session.get(CostingSettings, 1)
         config = json.loads(settings.document) if settings else {}
-        result = bundle_estimate(document['products'], document, config) if bundle_mode else estimate(document, config, direct_materials=not bool(product))
+        result = estimate(document, config, direct_materials=not bool(product))
     return render_template("inventory/bom_planner.html", scenario=scenario, name=name, document=document,
                            result=result, error=error, items=_item_choices(), equipment=Equipment.query.filter_by(active=True).all(),
-                           product=product, sku=sku, costs=costs, bundle_mode=bundle_mode,
+                           product=product, sku=sku, costs=costs,
                            fee_profiles=json.loads(db.session.get(CostingSettings, 1).document).get('fee_profiles', []) if db.session.get(CostingSettings, 1) else [],
-                           bundle_choices=db.session.query(ProductCostingProfile, Product).join(Product,
-                               Product.id == ProductCostingProfile.product_id).order_by(Product.title).limit(500).all() if bundle_mode else [],
-                           scenarios=BomScenario.query.order_by(BomScenario.name).limit(100).all()), 400 if error else 200
+                           scenarios=[s for s in BomScenario.query.order_by(BomScenario.name).limit(100).all()
+                                      if json.loads(s.document).get('kind') != 'bundle']), 400 if error else 200
 
 
 @inventory.route('/bundles', methods=['GET', 'POST'])
 def bundle_planner():
-    return bom_planner(None, bundle_mode=True)
+    if request.method == 'POST':
+        abort(410, 'The duplicate bundle editor is retired. No data was changed.')
+    return redirect(url_for('promotions.index'), code=302)
 
 
 @inventory.route("/batches/create", methods=["GET", "POST"])

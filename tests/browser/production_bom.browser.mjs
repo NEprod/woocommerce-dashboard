@@ -14,6 +14,13 @@ try {
     for (const [label,path] of [['catalogue','/production/catalogue'],['create','/production/batches/create'],['batch','/production/batch/1'],['label','/production/batch/1/label'],['complete','/production/batch/1/complete'],['settings','/production/costing/settings'],['planner','/production/bom'],['bundles','/production/bundles']]) {
       const response=await page.goto('http://127.0.0.1:7513'+path);
       assert.equal(response.status(),200);
+      if (label === 'bundles') {
+        assert.equal(new URL(page.url()).pathname,'/promotions/');
+        const tools=page.locator('.app-sidebar [data-navigation-group="Tools"]');
+        assert.equal(await tools.locator('a[href="/promotions/"]').count(),1);
+        assert.equal(await tools.locator('a[href="/production/bom"]').count(),1);
+        assert.equal(await page.locator('a[href="/production/bundles"]').count(),0);
+      }
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),name+' overflow: '+label);
       await page.screenshot({path:`/tmp/tlc-production-layout/${name}-${label}.png`,fullPage:true});
     }

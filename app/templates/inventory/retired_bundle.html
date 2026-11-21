@@ -1,0 +1,4 @@
+{% extends 'inventory/base.html' %}
+{% block workshop %}
+<section class="table-panel"><header class="table-panel-header"><h1>Retained historical scenario</h1></header><div class="workspace-card-body"><p>The duplicate Bundles editor has been retired. This saved scenario remains unchanged; no data has been deleted or converted into a promotion.</p><a class="btn btn-primary" href="{{ url_for('promotions.index') }}">Promotions &amp; Discounts</a><details class="operator-help"><summary>Retained data — {{ scenario.name }}</summary><pre class="text-wrap text-break">{{ document|tojson(indent=2) }}</pre></details></div></section>
+{% endblock %}

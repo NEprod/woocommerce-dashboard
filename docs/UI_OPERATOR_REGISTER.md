@@ -270,8 +270,9 @@ batch for signed stock removal; scanning alone never posts a movement. Batch
 labels distinguish planned pieces from received stock. History and compensating
 reversals retain their existing routes.
 
-Tools contains Standalone BOM and Bundles. Existing Promotions & Discounts keeps
-its current navigation destination and local-only workflow.
+Tools contains BOM & Viability Planner and the original Promotions & Discounts
+(`/promotions/`), moved from Shopify without changing its implementation. The
+duplicate Bundles editor is retired; saved duplicate scenarios are retained read-only.
 Settings contains Production & Costing. New costing panels use the Dashboard's
 actual `table-panel` / `table-panel-header` / `.table` patterns, including local
 horizontal scrolling. Finished-product assumptions are saved separately from

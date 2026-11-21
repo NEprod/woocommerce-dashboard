@@ -131,14 +131,13 @@ def test_product_profitability_reads_existing_bom_and_saves_only_planning_assump
         assert bundle['fees'] == '0.45'
         assert bundle['profit'] == '5.55'
     bundle_page = client.get('/production/bundles')
-    assert bundle_page.status_code == 200 and b'Bundle Profitability Planner' in bundle_page.data
+    assert bundle_page.status_code == 302 and bundle_page.headers['Location'] == '/promotions/'
     with app.app_context():
         product = db.session.get(Product, product_id)
         selected = f'{product_id}|{product.sku}'
     reply = client.post('/production/bundles', data=dict(name='Two product bundle', bundle_product=selected,
         bundle_quantity='2', selling_price='10', labour_minutes='0', other='0', action='save'))
-    assert reply.status_code == 303
-    assert b'Two product bundle' in client.get(reply.headers['Location']).data
+    assert reply.status_code == 410
 
 
 def test_equipment_editing_and_fee_profiles_preserve_unknown_values(workshop):
