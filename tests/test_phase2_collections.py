@@ -435,7 +435,7 @@ def test_collection_search_and_sort_use_folder_display_name(
     assert [sorted_html.index(name) for name in names] == sorted(sorted_html.index(name) for name in names)
 
 
-def test_missing_shared_product_title_remains_a_metadata_issue(
+def test_missing_shared_product_title_uses_folder_fallback(
     collections_client, collections_app
 ):
     _app, _database, catalogue, ids = collections_app
@@ -448,10 +448,38 @@ def test_missing_shared_product_title_remains_a_metadata_issue(
     ).get_data(as_text=True)
     assert "<h1>Fictional Cards</h1>" in detail
     assert "Shared product title</dt><dd>Not set" in detail
-    assert "Has issues" in detail
-    assert "Title (title)" in detail
+    assert "Valid metadata" in detail
+    assert "folder name supplies the effective collection title" in detail
+    assert "Title (title)" not in detail
     assert '<details id="collection-validation"' in detail
     assert 'data-collection-validation-toggle' in detail
+
+
+def test_explicit_unusable_title_remains_invalid(collections_client, collections_app):
+    _app, _database, catalogue, ids = collections_app
+    source = catalogue / "Fictional Cards" / "product_info.json"
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    payload["title"] = "   "
+    source.write_text(json.dumps(payload), encoding="utf-8")
+    html = collections_client.get(f"/collections/{ids['Fictional Cards']}").get_data(as_text=True)
+    assert "Invalid metadata" in html
+    assert "explicitly supplied title is empty or unusable" in html
+
+
+def test_supported_production_and_obsolete_taxonomy_diagnostics(collections_client, collections_app):
+    _app, _database, catalogue, ids = collections_app
+    source = catalogue / "Fictional Cards" / "product_info.json"
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    payload["production"] = {"cost": {"mode": "unconfigured"}}
+    source.write_text(json.dumps(payload), encoding="utf-8")
+    html = collections_client.get(f"/collections/{ids['Fictional Cards']}").get_data(as_text=True)
+    assert "Valid metadata" in html
+    assert "$.production" not in html
+    payload["taxonomy_additions"] = {"legacy": "preserved"}
+    source.write_text(json.dumps(payload), encoding="utf-8")
+    html = collections_client.get(f"/collections/{ids['Fictional Cards']}").get_data(as_text=True)
+    assert "Has issues" in html
+    assert "$.taxonomy_additions" in html
 
 
 def test_collection_validation_disclosure_shows_current_metadata_evidence(collections_client, collections_app):

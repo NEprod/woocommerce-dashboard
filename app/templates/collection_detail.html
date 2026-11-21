@@ -20,6 +20,8 @@
     {% if workspace.metadata.state == 'missing' %}<p>Collection metadata source is missing: {{ workspace.metadata.reference or 'No source path registered' }}.</p>{% endif %}
     {% if workspace.metadata.parse_error %}<p>Collection metadata could not be parsed safely.</p>{% endif %}
     {% if workspace.metadata.unsupported_type %}<p>Unsupported collection type: {{ workspace.metadata.data.collection_type }}.</p>{% endif %}
+    {% if workspace.metadata.invalid_title %}<p>The explicitly supplied title is empty or unusable; correct it in the collection metadata.</p>{% endif %}
+    {% if workspace.metadata.title_from_folder %}<p>No title is authored; the existing collection folder name supplies the effective collection title.</p>{% endif %}
     {% if workspace.metadata.validation.errors %}<h3>Validation errors</h3><ul>{% for issue in workspace.metadata.validation.errors %}<li>{{ issue.path }}: {{ issue.message }}</li>{% endfor %}</ul>{% endif %}
     {% if workspace.metadata.validation.warnings %}<h3>Warnings</h3><ul>{% for issue in workspace.metadata.validation.warnings %}<li>{{ issue.path }}: {{ issue.message }}</li>{% endfor %}</ul>{% endif %}
     {% if workspace.metadata.exists and not workspace.metadata.parse_error and workspace.metadata.missing_checked_fields %}<h3>Missing checked fields</h3><ul>{% for field in workspace.metadata.missing_checked_fields %}<li>{{ field|replace('_', ' ')|title }} ({{ field }})</li>{% endfor %}</ul>{% endif %}

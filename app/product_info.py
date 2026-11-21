@@ -167,7 +167,7 @@ def _warnings(data, kind):
     for key in data:
         field = FIELD_BY_KEY.get(key)
         if not field:
-            if key in SHOPIFY_EDITOR_FIELDS or key in {'shopify_status','shopify_channels','packaging','finished_dimensions','shopify_product_type_key'}:
+            if key in SHOPIFY_EDITOR_FIELDS or key in {'shopify_status','shopify_channels','packaging','finished_dimensions','shopify_product_type_key','production'}:
                 continue
             warnings.append(
                 ValidationIssue(

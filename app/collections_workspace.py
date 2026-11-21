@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app import db
 from app.catalogue_images import primary_image_alt, projected_image_coverage
-from app.collection_identity import collection_display_name, collection_source_provenance
+from app.collection_identity import UNTITLED_COLLECTION, collection_display_name, collection_source_provenance
 from app.dashboard import OPERATION_LABELS
 from app.models import (
     CatalogueOperation,
@@ -151,13 +151,15 @@ def collection_metadata_source(collection, root):
             parse_error = True
     validation = validate_product_info(data, "collection").to_dict()
     unsupported = bool(data.get("collection_type")) and data.get("collection_type") not in COLLECTION_TYPES
-    completeness = sum(
-        not data.get(key)
-        for key in ("title", "short_description", "meta_title", "meta_description")
-    )
+    source_name = collection_source_provenance(collection)
+    usable_fallback = bool(source_name and collection_display_name(collection) != UNTITLED_COLLECTION)
+    invalid_title = "title" in data and (not isinstance(data["title"], str) or not data["title"].strip())
+    missing_checked_fields = [key for key in ("title", "short_description", "meta_title", "meta_description")
+                              if not data.get(key) and not (key == "title" and "title" not in data and usable_fallback)]
+    completeness = len(missing_checked_fields)
     if path is None:
         state, label = "missing", "Missing metadata"
-    elif parse_error or not validation["valid"] or unsupported:
+    elif parse_error or not validation["valid"] or unsupported or invalid_title:
         state, label = "invalid", "Invalid metadata"
     elif validation["warnings"] or completeness:
         state, label = "issues", "Has issues"
@@ -169,7 +171,9 @@ def collection_metadata_source(collection, root):
         "data": data,
         "parse_error": parse_error,
         "validation": validation,
-        "missing_checked_fields": [key for key in ("title", "short_description", "meta_title", "meta_description") if not data.get(key)],
+        "missing_checked_fields": missing_checked_fields,
+        "invalid_title": invalid_title,
+        "title_from_folder": "title" not in data and usable_fallback,
         "unsupported_type": unsupported,
         "state": state,
         "label": label,
