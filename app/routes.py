@@ -2262,6 +2262,23 @@ def complete_setup():
     return redirect(url_for("main.dashboard"))
 
 
+@main.route('/setup/empty', methods=['POST'])
+@login_required
+def complete_empty_setup():
+    if not current_user.is_admin:
+        abort(403)
+    # CSRF is enforced by the existing application-wide protection.
+    if request.form.get('confirmed_empty') != 'yes':
+        abort(400, 'Confirm that you want to start with an empty catalogue.')
+    try:
+        onboarding.complete_empty(actor=f'{current_user.id}:{current_user.username}')
+    except ValueError as error:
+        flash(str(error), 'warning')
+        return redirect(url_for('main.initial_settings'), code=303)
+    flash('Setup complete. Your catalogue is empty; add products when you are ready.', 'success')
+    return redirect(url_for('main.dashboard'), code=303)
+
+
 @main.route("/signup", methods=["GET", "POST"])
 def signup():
     return redirect(url_for("main.login" if User.query.first() else "main.setup"))

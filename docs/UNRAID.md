@@ -27,6 +27,15 @@ release, deployment, app change, or data migration in this template cleanup.
 
 ## Before first start
 
+For a genuinely new catalogue, the first-run configuration page now offers
+**Start with an empty catalogue**. After storage/Taxonomy readiness is valid, an
+administrator can explicitly finish setup and reach the dashboard without a
+scan or any product folders. This writes only the persistent onboarding
+completion record; it creates no products, SKUs or scan receipts. Non-empty
+folders, existing catalogue records and active catalogue operations must still
+use the existing scan/reconstruction path. No mount or credential changes are
+made by this option.
+
 Set the template values in Unraid **before** starting a new managed container.
 The application reads these on startup. They are not entered on the dashboard
 first-run page. The dashboard still handles local administrator onboarding on

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import stat
 import uuid
+from datetime import datetime, UTC
 from urllib.parse import urlsplit
 
 from flask import current_app
@@ -153,4 +154,35 @@ def complete(operation_id):
     value.update(status="complete", operation_id=operation.id)
     if _path().is_symlink():
         raise ValueError("Setup state is unsafe; check application data.")
+    atomic_write_json(_path(), value)
+
+
+def complete_empty(*, actor):
+    """Explicit first-run completion without inventing products or a scan receipt."""
+    from app.models import Product, Collection
+    from app.utils.operation_control import get_active_operation
+    value = state()
+    if not value or value.get('status') != 'pending':
+        if value and value.get('status') == 'complete' and value.get('completion') == 'empty_catalogue':
+            return
+        raise ValueError('Empty-catalogue completion is only available during initial setup.')
+    if not readiness()['ready']:
+        raise ValueError('Resolve catalogue storage and Taxonomy readiness before continuing.')
+    if Product.query.first() or Collection.query.first():
+        raise ValueError('Existing catalogue records are present. Use the normal scan/reconstruction path; nothing has been removed.')
+    if get_active_operation():
+        raise ValueError('A catalogue operation is running. Wait for it to finish before completing setup.')
+    settings = Settings.query.first() or Settings()
+    root = Path(settings.product_folder)
+    from app.deployment_guard import MARKER
+    try:
+        if any(child.name not in {MARKER, '.DS_Store'} or not child.is_file() or child.is_symlink()
+               for child in root.iterdir()):
+            raise ValueError('The catalogue contains files or folders. Use the initial scan instead; no files were changed.')
+    except OSError:
+        raise ValueError('The catalogue folder is unavailable. Check its persistent mount and permissions.') from None
+    value.update(status='complete', completion='empty_catalogue', completed_by=str(actor),
+                 completed_at=datetime.now(UTC).isoformat())
+    if _path().is_symlink():
+        raise ValueError('Setup state is unsafe; check application data.')
     atomic_write_json(_path(), value)

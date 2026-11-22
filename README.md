@@ -53,7 +53,7 @@ Shopify; existing unfinished legacy folders are preserved. See the
 
 ## Current capabilities
 
-- First-user setup with deployment readiness and an explicitly confirmed initial scan.
+- First-user setup with deployment readiness and either an explicitly confirmed initial scan or an explicit empty-catalogue start.
 - Simple, Variable Collection, and Single Variable scanning.
 - Shared collection metadata with optional per-product overrides.
 - Stable local SKU markers and variation generation.
