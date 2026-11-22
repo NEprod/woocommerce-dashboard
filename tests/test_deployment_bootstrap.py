@@ -119,6 +119,34 @@ def test_publication_failure_rolls_back_only_own_files(fresh,monkeypatch):
     assert all(not list(path.iterdir()) for path in roots.values())
 
 
+def test_final_check_refreshes_pinned_directory_view(fresh,monkeypatch):
+    instance,env,roots,owner,authenticated,_=fresh
+    original_open,original_list=guard.os.open,guard.os.listdir
+    pinned=set(); refreshed=[]
+    def opened(path,flags,*args,**kwargs):
+        fd=original_open(path,flags,*args,**kwargs)
+        if path in roots.values():pinned.add(fd)
+        if path=='.' and kwargs.get('dir_fd') in pinned:refreshed.append(fd)
+        return fd
+    monkeypatch.setattr(guard.os,'open',opened)
+    monkeypatch.setattr(guard.os,'listdir',lambda fd:[] if fd in pinned else original_list(fd))
+    assert guard.verify_startup(instance,env,verify_product=authenticated)[0]==owner
+    assert len(refreshed)==len(roots)
+
+
+def test_final_refreshed_view_still_rejects_arriving_data(fresh,monkeypatch):
+    instance,env,roots,owner,authenticated,_=fresh
+    original=guard.os.listdir
+    def arrived(fd):
+        (roots['catalogue']/'arrived.json').write_text('retained')
+        return original(fd)
+    monkeypatch.setattr(guard.os,'listdir',arrived)
+    with pytest.raises(guard.DeploymentError,match='changed during initialisation'):
+        guard.verify_startup(instance,env,verify_product=authenticated)
+    assert (roots['catalogue']/'arrived.json').read_text()=='retained'
+    assert not any((p/guard.MARKER).exists() for p in roots.values())
+
+
 def test_data_arriving_during_authentication_is_not_claimed(fresh):
     instance,env,roots,owner,authenticated,_=fresh
     def raced(config):

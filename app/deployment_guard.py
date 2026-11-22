@@ -179,7 +179,14 @@ def _initialise_markers(owner, roots):
             if (current.st_dev, current.st_ino) != (pinned.st_dev, pinned.st_ino):
                 raise DeploymentError('Managed storage changed during initialisation.')
             own = {name for directory, name in staged if directory == fd}
-            if set(os.listdir(fd)) != own:
+            # Some filesystems retain a stale directory view on an open handle.
+            # Open the same pinned directory afresh, not its replaceable path.
+            listing = os.open('.', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            try:
+                contents = set(os.listdir(listing))
+            finally:
+                os.close(listing)
+            if contents != own:
                 raise DeploymentError('Managed storage changed during initialisation; no existing data was claimed.')
         for fd, temporary in staged:
             # A hard link is an atomic no-replace publication of the fully fsynced file.
