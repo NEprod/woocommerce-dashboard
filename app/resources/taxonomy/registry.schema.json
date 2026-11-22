@@ -7,11 +7,26 @@
   "properties": {
     "schema_version": {"type": "integer", "const": 1},
     "categories": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/category"}},
-    "storefront_collections": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/entry"}},
+    "storefront_collections": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/storefront_collection"}},
     "attributes": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/attribute"}},
     "tags": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/entry"}}
   },
   "$defs": {
+    "storefront_collection": {
+      "type": "object",
+      "required": ["key", "name", "slug", "state"],
+      "properties": {
+        "key": {"$ref": "#/$defs/key"}, "name": {"$ref": "#/$defs/label"},
+        "slug": {"$ref": "#/$defs/entry/properties/slug"},
+        "state": {"$ref": "#/$defs/entry/properties/state"},
+        "order": {"$ref": "#/$defs/entry/properties/order"},
+        "aliases": {"$ref": "#/$defs/entry/properties/aliases"},
+        "browse_role": {"$ref": "#/$defs/entry/properties/browse_role"},
+        "browse_parent": {"$ref": "#/$defs/entry/properties/browse_parent"},
+        "image_sha256": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
     "key": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,95}(?![\\s\\S])"},
     "label": {"type": "string", "minLength": 1, "maxLength": 191, "pattern": "^[^\\u0000-\\u001f\\u007f]+(?![\\s\\S])"},
     "entry": {

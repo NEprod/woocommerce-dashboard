@@ -60,6 +60,8 @@ def create_app(*, recover=None):
             request.max_form_parts = 125
         if request.blueprint in {"taxonomy", "customisations", "packaging"}:
             request.max_content_length = 4 * 1024 * 1024
+            if request.endpoint == 'taxonomy.edit' and request.view_args.get('kind') == 'storefront_collections':
+                request.max_content_length = 26 * 1024 * 1024
             request.max_form_memory_size = 2 * 1024 * 1024
             request.max_form_parts = 50
             if request.blueprint == 'packaging':request.max_content_length=256*1024

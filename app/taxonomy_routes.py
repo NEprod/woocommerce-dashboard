@@ -242,6 +242,8 @@ def import_seed():
 @taxonomy.route("/edit/<kind>", methods=["GET", "POST"])
 @login_required
 def edit(kind):
+    if kind == 'storefront_collections':
+        request.max_content_length = 26 * 1024 * 1024
     if kind not in LABELS:
         abort(404)
     data, revision, missing = base_source()
@@ -255,7 +257,17 @@ def edit(kind):
     error = None
     if request.method == "POST":
         try:
-            proposed = service.edit_definition(json.loads(json.dumps(data)), kind, key, attribute, request.form)
+            fields = request.form.copy()
+            if kind == 'storefront_collections' and fields.get('action') != 'remove':
+                from app.taxonomy_images import store, ImageUploadError
+                try:
+                    image = store(request.files.get('image'))
+                    if image:
+                        fields['image_sha256'] = image
+                        fields.pop('remove_image', None)
+                except ImageUploadError as invalid:
+                    raise service.RegistryEditError(str(invalid)) from None
+            proposed = service.edit_definition(json.loads(json.dumps(data)), kind, key, attribute, fields)
             return review(data, proposed, revision, missing, "guided")
         except service.RegistryEditError as invalid:
             error = str(invalid)
@@ -276,6 +288,17 @@ def edit(kind):
     return render_template("taxonomy/edit.html", row=row, values=values, key=key, attribute=attribute,
                            kind=kind, labels=LABELS, categories=data["categories"],
                            paths=service.category_paths(data), base=signature(revision), error=error), 422 if error else 200
+
+
+@taxonomy.route('/images/<digest>.webp')
+@login_required
+def collection_image(digest):
+    from flask import Response
+    from app.taxonomy_images import read, ImageUploadError
+    try:
+        return Response(read(digest), mimetype='image/webp', headers={'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff'})
+    except (OSError, ImageUploadError):
+        abort(404)
 
 
 @taxonomy.route("/confirm", methods=["POST"])

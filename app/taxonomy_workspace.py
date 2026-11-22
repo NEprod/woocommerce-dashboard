@@ -159,6 +159,12 @@ def edit_definition(data, kind, key, attribute, form):
                 raise RegistryEditError("Order must be a non-negative integer.") from None
         if kind == "categories":
             row["parent"] = form.get("parent") or None
+        if kind == 'storefront_collections':
+            image = form.get('image_sha256', (old or {}).get('image_sha256'))
+            if form.get('remove_image') == 'yes':
+                image = None
+            if image:
+                row['image_sha256'] = image
         if kind == "attributes":
             row.update(navigation=form.get("navigation") == "yes",
                        visible_default=form.get("visible_default") == "yes",

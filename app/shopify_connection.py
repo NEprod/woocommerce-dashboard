@@ -137,6 +137,13 @@ WRITE_QUERIES |= frozenset((PUBLICATION_PUBLISH, PUBLICATION_UNPUBLISH))
 COLLECTION_LOOKUP = '''query CollectionCandidates($query: String!) { collections(first: 20, query: $query) { nodes { id title handle ruleSet { appliedDisjunctively } metafield(namespace: "tlc_dashboard", key: "collection_attempt") { value } } pageInfo { hasNextPage endCursor } } }'''
 COLLECTION_STATE = '''query CollectionState($id: ID!, $product: ID!, $check: Boolean!) { collection(id: $id) { id title handle ruleSet { appliedDisjunctively } sources { __typename ... on CollectionConditionsSource { targetType shareable inclusion { conditions { __typename } } exclusion { conditions { __typename } selections(first: 1) { nodes { product { id } } } } } } hasProduct(id: $product) @include(if: $check) metafield(namespace: "tlc_dashboard", key: "collection_attempt") { value } } }'''
 COLLECTION_CREATE = '''mutation TLCCollection($input: CollectionInput!) { collectionCreate(input: $input) { collection { id } userErrors { field message } } }'''
+COLLECTION_UPDATE = '''mutation TLCCollectionArtwork($input: CollectionInput!) { collectionUpdate(input: $input) { collection { id } userErrors { field message } } }'''
+COLLECTION_LIVE = '''query TLCCollectionLive($id: ID!) { collection(id: $id) { id image { url altText }
+ metafield(namespace: "tlc_dashboard", key: "collection_image_sha256") { value }
+ resourcePublicationsV2(first: 100, onlyPublished: false) { nodes { isPublished publication { id } } pageInfo { hasNextPage } }
+} }'''
+READ_QUERIES |= frozenset((COLLECTION_LIVE,))
+WRITE_QUERIES |= frozenset((COLLECTION_UPDATE,))
 COLLECTION_JOIN = '''mutation TLCMembership($id: ID!, $products: [ID!]!) { collectionAddProducts(id: $id, productIds: $products) { collection { id } userErrors { field message } } }'''
 STANDARD_CATEGORY = '''query StandardCategory($id: ID!) { node(id: $id) { ... on TaxonomyCategory { id fullName isArchived } } }'''
 READ_QUERIES = READ_QUERIES | frozenset((COLLECTION_LOOKUP, COLLECTION_STATE, STANDARD_CATEGORY))
@@ -726,6 +733,22 @@ class ShopifyAdapter:
 
     def create_collection(self, config, data):
         return self._write(config, COLLECTION_CREATE, {"input": data})
+
+    def collection_live(self, config, collection_id):
+        return self._read(config, COLLECTION_LIVE, {'id': _gid(collection_id, 'Collection')}).get('collection')
+
+    def publish_collection(self, config, collection_id, publications):
+        return self._write(config, PUBLICATION_PUBLISH, {'id': _gid(collection_id, 'Collection'),
+            'input': [{'publicationId': _gid(value, 'Publication')} for value in publications]})
+
+    def set_collection_image(self, config, collection_id, source, alt, digest):
+        return self._write(config, COLLECTION_UPDATE, {'input': {'id': _gid(collection_id, 'Collection'),
+            'image': {'src': source, 'altText': alt}, 'metafields': [{'namespace': 'tlc_dashboard',
+                'key': 'collection_image_sha256', 'type': 'single_line_text_field', 'value': digest}]}})
+
+    def stage_collection_image(self, config, image):
+        return self._write(config, STAGE_QUERY, {'input': [{'filename': image['filename'],
+            'mimeType': image['mime'], 'resource': 'IMAGE', 'httpMethod': 'POST', 'fileSize': str(image['size'])}]})
 
     def join_collection(self, config, collection_id, product_id):
         return self._write(config, COLLECTION_JOIN, {"id": _gid(collection_id, "Collection"), "products": [_gid(product_id, "Product")]})

@@ -33,6 +33,8 @@ def sources():
                     rows.append({"key": kind + ":" + item["key"], "name": item["name"],
                         "label": paths[item["key"]] if kind == "categories" else item["name"], "slug": item["slug"],
                         "parent": item.get("parent"), "order": item.get("order"), "aliases": list(item.get("aliases", []))})
+                    if kind == 'storefront_collections' and item.get('image_sha256'):
+                        rows[-1]['image_sha256'] = item['image_sha256']
         for attribute in registry.snapshot.data["attributes"]:
             terms={t["key"]:t for t in attribute["terms"]}
             for term in attribute["terms"]:

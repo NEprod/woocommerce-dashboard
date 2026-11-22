@@ -1,0 +1,18 @@
+<details class="workspace-panel" id="collection-publication"{% if publication_plan %} open{% endif %}>
+<summary>Publish collections · images &amp; all sales channels</summary>
+<p>Create or link the Shopify collection using the existing mapping workflow first. Review here to publish categories and storefront collections to every available sales channel. Uploaded artwork applies to storefront collections only. Product prices, memberships and publication settings are not changed.</p>
+<form method="post" action="{{ url_for('commerce.taxonomy_mappings') }}">
+{{ form.hidden_tag() }}<input type="hidden" name="action" value="publication_review">
+<div class="table-responsive"><table class="table"><thead><tr><th>Select</th><th>Category / collection</th><th>Image</th></tr></thead><tbody>
+{% for source in sources if source.key.startswith('categories:') or source.key.startswith('storefront_collections:') %}
+<tr><td><input type="checkbox" name="sources" value="{{ source.key }}" aria-label="Publish {{ source.label }}"></td><td>{{ source.label }}</td><td>{% if source.get('image_sha256') %}<img src="{{ url_for('taxonomy.collection_image', digest=source.image_sha256) }}" alt="{{ source.name }}" style="width:3rem;height:3rem;object-fit:contain">{% else %}—{% endif %}</td></tr>
+{% endfor %}</tbody></table></div>
+<button class="btn btn-primary">Review &amp; Publish selected collections</button>
+</form>
+{% if publication_plan %}
+<h3>Review publication</h3>
+<p>All available sales channels: {% for channel in publication_plan.publications %}{{ channel.name }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+<div class="table-responsive"><table class="table"><thead><tr><th>Collection</th><th>Image update</th><th>Channels to add</th></tr></thead><tbody>{% for group in publication_plan.groups %}<tr><td>{{ group.source.label }}</td><td>{{ 'Upload saved image' if group.upload_image else 'No change' }}</td><td>{{ group.missing|length }} / {{ publication_plan.publications|length }}</td></tr>{% endfor %}</tbody></table></div>
+<form method="post" action="{{ url_for('commerce.taxonomy_mappings') }}">{{ form.hidden_tag() }}<input type="hidden" name="action" value="publication_confirm"><input type="hidden" name="review" value="{{ publication_token }}"><label class="check-row"><input type="checkbox" name="acknowledge" value="yes" required><span>I approve these image updates and publication to every listed sales channel.</span></label><div class="panel-actions"><button class="btn btn-primary">Publish reviewed collections</button><a class="btn btn-ghost" href="{{ url_for('commerce.taxonomy_mappings') }}">Cancel</a></div></form>
+{% endif %}
+</details>

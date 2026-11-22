@@ -445,6 +445,7 @@ def draft_identity(identity_id):
 def taxonomy_mappings():
     from app import shopify_taxonomy as service
     from app import shopify_taxonomy_batch as batch
+    from app import taxonomy_publishing as publishing
     from app.models import ShopifyCollectionIdentity, CatalogueOperation
     from app import db
     from app.utils.operation_control import CatalogueOperationActive
@@ -454,11 +455,17 @@ def taxonomy_mappings():
         abort(403)
     form, plan, token, error, saved = FlaskForm(), None, None, None, False
     batch_row, batch_plan, batch_token = None, None, None
+    publication_plan, publication_token = None, None
     if request.method == "POST":
         if not form.validate_on_submit():
             abort(400)
         try:
-            if request.form.get("action") == "batch_review":
+            if request.form.get('action') == 'publication_review':
+                publication_plan, publication_token = publishing.review(request.form.getlist('sources'))
+            elif request.form.get('action') == 'publication_confirm':
+                publishing.confirm(request.form.get('review', ''), request.form.get('acknowledge') == 'yes')
+                flash('Collection artwork and all reviewed sales channels verified on Shopify.', 'success')
+            elif request.form.get("action") == "batch_review":
                 cursor = request.form.get("after", "0")
                 if not cursor.isascii() or not cursor.isdigit() or len(cursor) > 12:
                     raise ShopifyError("Invalid product scope cursor. Reload Taxonomy Sync and review again.")
@@ -481,7 +488,7 @@ def taxonomy_mappings():
         except (ShopifyError, config.CommerceConfigError, CatalogueOperationActive) as exc:
             error = str(exc)
             action = request.form.get("action")
-            action = action if action in {"batch_review", "batch_confirm", "batch_recover", "review", "confirm"} else "invalid"
+            action = action if action in {"batch_review", "batch_confirm", "batch_recover", "review", "confirm", "publication_review", "publication_confirm"} else "invalid"
             current_app.logger.warning("Shopify taxonomy request rejected: action=%s, type=%s", action, type(exc).__name__)
         except IntegrityError:
             db.session.rollback()
@@ -494,7 +501,8 @@ def taxonomy_mappings():
     return render_template("taxonomy/workspace.html", **workspace_context(active_tab="shopify"),
         batch_row=batch_row, batch_plan=batch_plan, batch_token=batch_token, batch_data=batch_data,
         execution=batch.execution_token(batch_row) if batch_row and batch_row.status == "approved" else None,
-        plan=plan, token=token, error=error, saved=saved), 400 if error else 200, {"Cache-Control": "no-store"}
+        plan=plan, token=token, error=error, saved=saved,
+        publication_plan=publication_plan, publication_token=publication_token), 400 if error else 200, {"Cache-Control": "no-store"}
 
 
 @commerce.route("/taxonomy/shopify/attributes/<int:identity_id>", methods=["GET", "POST"])
