@@ -34,7 +34,7 @@ def insert(connection, table, **values):
     columns=connection.execute(f'PRAGMA table_info("{table}")').fetchall()
     for _,name,kind,required,default,primary in columns:
         if name not in values and required and default is None and not primary:
-            values[name]='' if any(k in kind.upper() for k in ('CHAR','TEXT','DATE')) else 0
+            values[name]='2026-11-22 00:00:00' if 'DATE' in kind.upper() else '' if any(k in kind.upper() for k in ('CHAR','TEXT')) else 0
     known={r[1] for r in columns};values={k:v for k,v in values.items() if k in known}
     values={k:str(v) if isinstance(v,Decimal) else v.isoformat() if isinstance(v,datetime) else v for k,v in values.items()}
     names=','.join('"'+k+'"' for k in values)
