@@ -14,7 +14,7 @@ from flask import abort,request,session
 import app as module
 from app import db
 from app.models import ShopifyOrderSync
-from app.order_work_models import WorkEvent,WorkPick
+from app.order_work_models import WorkEvent,WorkPick,WorkPrint
 from app.inventory.models import Transaction
 from app.order_integration_models import OrderWebhookSetting
 from app import order_integrations as integration
@@ -28,6 +28,9 @@ patch.setattr(module,'Flask',lambda *a,**kw:flask(*a,instance_path=str(directory
 fixture=core.__wrapped__(directory,patch);world=next(fixture)
 world,oid,lid,iid,tub=fulfilment.__wrapped__(world,patch)
 app=world[0];app.config['TEMPLATES_AUTO_RELOAD']=True
+if '--workflow' in sys.argv:
+    from test_order_workflow_corrections import add_order
+    with app.app_context():add_order((world,oid,lid,iid,tub))
 patch.setattr(integration,'shopify_settings',lambda:dict(domain='fictional.myshopify.com',client_secret='private-test-key'))
 with app.app_context():
     db.session.add(ShopifyOrderSync(store_id=STORE,domain='fictional.myshopify.com'));db.session.commit()
@@ -41,6 +44,6 @@ def local_login():
 @app.get('/fixture')
 def fixture_data():
     return dict(order=oid,line=lid,item=iid,tub=tub,events=WorkEvent.query.count(),picks=WorkPick.query.count(),
-        transactions=Transaction.query.count(),webhooks=OrderWebhookSetting.query.count())
+        transactions=Transaction.query.count(),webhooks=OrderWebhookSetting.query.count(),prints=WorkPrint.query.count())
 
 if __name__=='__main__':app.run(host='127.0.0.1',port=7522,use_reloader=False)

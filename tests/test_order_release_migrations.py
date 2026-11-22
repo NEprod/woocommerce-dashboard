@@ -12,7 +12,7 @@ import tempfile
 from datetime import datetime
 from decimal import Decimal
 from alembic import command
-from app.database import _alembic_config, _assert_phase0_schema, BASELINE_REVISION, ensure_database
+from app.database import _alembic_config, _assert_phase0_schema, BASELINE_REVISION, ensure_database, migration_head
 from test_database_migrations import _create_phase0_database
 from test_shopify_orders import order, STORE
 from app.shopify_orders import normalise
@@ -78,9 +78,9 @@ def verify(source, directory):
     middle=snapshot(upgraded)
     assert all(middle[t]==rows for t,rows in before.items() if t!='alembic_version')
     result=ensure_database(f'sqlite:///{upgraded}')
-    assert result.revision=='0029_order_integrations' and result.backup_path
+    assert result.revision==migration_head() and result.backup_path
     after=snapshot(upgraded)
-    assert all(after[t]==rows for t,rows in before.items() if t not in {'alembic_version','scheduled_task'})
+    assert all(([(r[:len(rows[0])]) for r in after[t]] if t=='settings' and rows else after[t])==rows for t,rows in before.items() if t not in {'alembic_version','scheduled_task'})
     with sqlite3.connect(upgraded) as c:
         columns=[r[1] for r in c.execute('PRAGMA table_info(scheduled_task)')]
         for old,new in zip(before['scheduled_task'],after['scheduled_task']):

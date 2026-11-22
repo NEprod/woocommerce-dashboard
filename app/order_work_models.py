@@ -2,6 +2,18 @@
 from app import db
 
 
+class WorkPrint(db.Model):
+    """Explicit printing milestone, separate from production state and stock."""
+    __tablename__ = 'order_work_print'
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('shopify_order.id'), nullable=False, index=True)
+    request_id = db.Column(db.String(32), nullable=False)
+    selection_digest = db.Column(db.String(64), nullable=False)
+    actor = db.Column(db.String(160), nullable=False)
+    at = db.Column(db.DateTime, nullable=False)
+    __table_args__ = (db.UniqueConstraint('request_id','order_id'),)
+
+
 class OrderWorkLine(db.Model):
     __tablename__ = 'order_work_line'
     line_id = db.Column(db.Integer, db.ForeignKey('shopify_order_line.id'), primary_key=True)

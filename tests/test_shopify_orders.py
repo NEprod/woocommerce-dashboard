@@ -90,6 +90,8 @@ def orders_app(setup_app,monkeypatch):
     from app import shopify_drafts
     monkeypatch.setattr(shopify_drafts,'configuration',lambda:ShopifyConfiguration('fictional.myshopify.com','fictional_access_token_for_tests'))
     with app.app_context():
+        from app.models import Settings
+        db.session.add(Settings(include_test_orders=True))  # Explicit policy for synthetic test-order fixtures.
         db.session.add(User(id=1,email='admin@example.test',username='fictional-admin',password='unused',is_admin=True));db.session.commit()
         yield app,path
 
@@ -302,7 +304,7 @@ def test_read_only_fixed_queries_reuse_transport(orders_app,monkeypatch):
 
 
 def test_filters_search_pagination_and_dashboard_metrics(orders_app):
-    save();assert overview(as_of=datetime(2026,10,16,12,tzinfo=timezone.utc))['unfulfilled']==0
+    save();assert overview(as_of=datetime(2026,10,16,12,tzinfo=timezone.utc))['unfulfilled']==1
     current=overview(include_test=True,as_of=datetime(2026,10,16,12,tzinfo=timezone.utc))
     assert current['unfulfilled']==1 and current['items']==2 and current['today']==1
     assert listing({'q':'SAMPLE-1','test':'yes','personalised':'yes'})['pagination'].total==1

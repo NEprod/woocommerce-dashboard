@@ -9,7 +9,7 @@ function world({active=true,hidden=false,response={ok:true,json:async()=>({activ
   const nodes=Object.fromEntries(['label','message','time','feedback'].map(k=>[`[data-order-sync-${k}]`,{textContent:''}]));
   const panel={dataset:{active:String(active),statusUrl:'/orders/status'},querySelector:key=>nodes[key]};
   const timers=[],calls=[];
-  const context={document:{hidden,querySelector:()=>panel},AbortSignal:{timeout:ms=>({ms})},
+  const context={document:{hidden,querySelector:selector=>selector==='[data-order-sync]'?panel:null},AbortSignal:{timeout:ms=>({ms})},
     setTimeout:(fn,delay)=>timers.push({fn,delay}),fetch:async(url,opts)=>{calls.push([url,opts]);if(fail)throw Error('private details');return response;}};
   vm.runInNewContext(source,context);
   return {nodes,timers,calls,context};

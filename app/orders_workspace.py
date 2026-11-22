@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, or_
 from flask import current_app
 from app import db
-from app.models import ShopifyOrder, ShopifyOrderLine, ShopifyOrderSync, ScheduledTask
+from app.models import ShopifyOrder, ShopifyOrderLine, ShopifyOrderSync, ScheduledTask, Settings
 from app.shopify_orders import KEY
 
 UK = ZoneInfo('Europe/London')
@@ -22,9 +22,23 @@ def test_orders_default():
             and owner.shop == DEV_SHOP)
 
 
-def include_test_orders(args):
-    selected = args.get('include_test')
-    return selected == '1' if selected in {'0', '1'} else test_orders_default()
+def include_test_orders(args=None):
+    # Request parameters never override the single authoritative saved policy.
+    settings=Settings.query.order_by(Settings.id).first()
+    return bool(settings.include_test_orders) if settings and settings.include_test_orders is not None else test_orders_default()
+
+
+def operational_query(query=None):
+    query=ShopifyOrder.query if query is None else query
+    return query if include_test_orders() else query.filter(ShopifyOrder.test.is_(False))
+
+
+def order_allowed(order):
+    return not order.test or include_test_orders()
+
+
+def require_order(order):
+    if not order_allowed(order):raise ValueError('Test orders are disabled in Settings → Shopify Orders. History and previous stock movements are retained.')
 
 
 def uk_time(value):
@@ -36,7 +50,7 @@ def sync_status():
     task = db.session.get(ScheduledTask,KEY)
     sync = ShopifyOrderSync.query.order_by(ShopifyOrderSync.attempted_at.desc()).first()
     state = snapshot(task)
-    state['imported_orders']=ShopifyOrder.query.count()
+    state['imported_orders']=operational_query().count()
     state['last_successful']=sync.successful_at if sync else None
     state['last_attempted']=sync.attempted_at if sync else None
     from app.order_models import ShopifyOrderEvent, ShopifyOrderDelivery
@@ -72,7 +86,7 @@ def sync_status():
 
 
 def listing(args):
-    query = ShopifyOrder.query
+    query = operational_query()
     search = (args.get('q') or '').strip()[:100]
     fulfillment = args.get('fulfillment','')
     financial = args.get('payment','')
@@ -92,10 +106,20 @@ def listing(args):
     if personalised=='yes': query=query.filter_by(personalised=True)
     try: page=max(1,min(int(args.get('page',1)),100000))
     except (TypeError,ValueError): page=1
-    pagination=db.paginate(query.order_by(ShopifyOrder.created_at.desc(),ShopifyOrder.id.desc()),page=page,per_page=25,error_out=False)
+    try:per_page=int(args.get('per_page',25))
+    except (ValueError,TypeError):per_page=25
+    if per_page not in {10,25,50,100}:per_page=25
+    from app import order_work as work
+    stage=args.get('stage','')
+    if stage in work.ORDER_FILTERS:
+        ids=[o.id for o in query.all() if work.matches_status(o,stage)]
+        query=query.filter(ShopifyOrder.id.in_(ids))
+    else:stage=''
+    pagination=db.paginate(query.order_by(ShopifyOrder.created_at.desc(),ShopifyOrder.id.desc()),page=page,per_page=per_page,error_out=False)
     return {'pagination':pagination,'orders':pagination.items,
-            'filters':{'q':search,'fulfillment':fulfillment,'payment':financial,'test':test,'personalised':personalised},
-            'financial_options':sorted(allowed),'sync':sync_status()}
+            'filters':{'q':search,'fulfillment':fulfillment,'payment':financial,'test':test,'personalised':personalised,'stage':stage,'per_page':per_page},
+            'financial_options':sorted(allowed),'sync':sync_status(),'stage_options':work.ORDER_FILTERS,
+            'production_status':work.summary,'print_history':work.print_history}
 
 
 def line_view(line):
@@ -110,13 +134,34 @@ def line_view(line):
             'properties':properties,'photo_verified':photo_verified}
 
 
-def overview(*, include_test=False, as_of=None):
+def production_information(order):
+    """Fulfilment-only customer details; no email/phone, private properties or asset URLs."""
+    from app.customer_photos import REF
+    instructions={}
+    for line in order.lines:
+        personal=line_view(line)['personalisation']
+        fields=personal.get('fields') or personal.get('public') or []
+        safe=[]
+        for field in fields:
+            value=field.get('display',field.get('value',''))
+            if field.get('type')=='file_upload' or isinstance(value,(dict,list)):continue
+            value=str(value)
+            if any(marker in value.lower() for marker in ('http://','https://','plugin://')) or REF.search(value):continue
+            safe.append(dict(label=field.get('label') or field.get('id') or 'Instruction',value=value))
+        instructions[line.id]=safe
+    address=json.loads(order.delivery_json) if not order.redacted_at else None
+    return dict(customer=order.customer_name if not order.redacted_at else None,
+        address=[address.get(k) for k in ('name','company','address1','address2','city','province','zip','country') if address.get(k)] if address else [],
+        instructions=instructions)
+
+
+def overview(*, include_test=None, as_of=None):
     reference=as_of or datetime.now(timezone.utc)
     local_day=reference.astimezone(UK).date()
     start=datetime.combine(local_day,time(),UK).astimezone(timezone.utc).replace(tzinfo=None)
     end=datetime.combine(local_day+timedelta(days=1),time(),UK).astimezone(timezone.utc).replace(tzinfo=None)
-    base=ShopifyOrder.query
-    if not include_test: base=base.filter_by(test=False)
+    include_test=include_test_orders()
+    base=operational_query()
     eligible=base.filter(ShopifyOrder.cancelled_at.is_(None),
         ShopifyOrder.financial_status.in_({'PAID','PARTIALLY_REFUNDED'}),ShopifyOrder.outstanding_quantity>0)
     return {'unfulfilled':eligible.count(),

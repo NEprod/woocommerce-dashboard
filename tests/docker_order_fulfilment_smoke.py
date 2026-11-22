@@ -23,13 +23,14 @@ import html,http.cookiejar,json,os,re,sqlite3,urllib.parse,urllib.request
 assert os.environ['APP_GIT_REVISION']==os.environ['EXPECTED_REVISION']
 assert open('/proc/1/status').read().split('Uid:')[1].split()[0]=='100'
 with sqlite3.connect('/app/instance/site.db') as c:
- assert c.execute('select version_num from alembic_version').fetchone()[0]=='0029_order_integrations'
+ assert c.execute('select version_num from alembic_version').fetchone()[0]=='0030_order_workflow'
+ c.execute('update settings set include_test_orders=1')
  assert c.execute('pragma integrity_check').fetchone()==('ok',)
  assert not c.execute('pragma foreign_key_check').fetchall()
  oid=c.execute("select id from shopify_order where remote_id='gid://shopify/Order/987654321'").fetchone()[0]
  before={t:c.execute('select count(*) from '+t).fetchone()[0] for t in ['inventory_item','inventory_movement','shopify_order','shopify_order_line','order_work_line','order_work_outbound','order_webhook_setting','order_integration_settings']}
  assert before['inventory_item']==before['inventory_movement']==before['shopify_order']==1 and before['shopify_order_line']==2
- assert all(before[t]==0 for t in ['order_work_line','order_work_outbound','order_webhook_setting','order_integration_settings'])
+ assert all(before[t]==0 for t in ['order_webhook_setting','order_integration_settings'])
 jar=http.cookiejar.CookieJar()
 opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),urllib.request.HTTPCookieProcessor(jar))
 base='http://127.0.0.1:7485'
@@ -49,8 +50,10 @@ assert targets[0]==targets[1]
 assert b'<svg' in opener.open(base+'/production/orders/'+str(oid)+'/barcode.svg',timeout=10).read()
 assert 'Production sheet' in opener.open(base+'/production/orders/'+str(oid)+'/sheet',timeout=10).read().decode()
 with sqlite3.connect('/app/instance/site.db') as c:
- assert before=={t:c.execute('select count(*) from '+t).fetchone()[0] for t in before}
-print(json.dumps(dict(head='0029_order_integrations',revision=os.environ['APP_GIT_REVISION'],uid=100,counts=before,pages=True,lookup_same_job=True,outbound_disabled=True)))
+ after={t:c.execute('select count(*) from '+t).fetchone()[0] for t in before}
+ assert all(after[t]==v for t,v in before.items() if t not in ['order_work_line','order_work_outbound'])
+ assert after['order_work_line']==2 and after['order_work_outbound']==2
+print(json.dumps(dict(head='0030_order_workflow',revision=os.environ['APP_GIT_REVISION'],uid=100,counts=after,pages=True,lookup_same_job=True,outbound_disabled=True)))
 '''
 
 

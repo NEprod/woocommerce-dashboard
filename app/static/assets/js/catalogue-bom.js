@@ -37,6 +37,11 @@ export async function mountCatalogueEditor(editor,box,view,generation) {
       labelEl.append(select);policy.append(labelEl);
     }
     scope.prepend(policy);
+    const stockLabel=make('label','Finished inventory to pick (optional — replaces component picking only)'),stockPicker=make('select');stockPicker.className='form-select';stockPicker.dataset.workflow='stock_item_id';
+    stockPicker.add(new Option('Use effective BOM requirements / inherited selection',''));
+    for(const item of editor.items.filter(i=>i.kind!=='material'&&i.unit==='piece'))stockPicker.add(new Option(item.name,String(item.id)));
+    restore(stockPicker,local.workflow?.stock_item_id);stockPicker.disabled=!writable;
+    stockPicker.onchange=()=>{local.workflow??={};if(stockPicker.value)local.workflow.stock_item_id=Number(stockPicker.value);else delete local.workflow.stock_item_id;editor.changed(false);};stockLabel.append(stockPicker);policy.append(stockLabel);
     const status=make('p');status.setAttribute('role','status');scope.prepend(status);
     if(product) {
       const label=make('label','Product BOM inheritance'), mode=make('select');mode.className='form-select';mode.dataset.productBomMode='';

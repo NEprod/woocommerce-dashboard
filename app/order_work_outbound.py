@@ -27,6 +27,8 @@ def process(order_id,*,adapter=None):
     adapter=adapter or ShopifyAdapter();owner=uuid4().hex;stamp=now()
     order=db.session.get(ShopifyOrder,order_id)
     if not order or order.redacted_at:return None
+    from app.orders_workspace import order_allowed
+    if not order_allowed(order):return None
     authority=db.session.get(OrderIntegrationSettings,order.store_id)
     if not authority or not authority.projection_enabled:return None
     try:config=configuration()
@@ -100,11 +102,12 @@ def process(order_id,*,adapter=None):
 
 def tick(*,adapter=None):
     """At most two orders per existing scheduler tick; disabled means no API calls."""
+    from app.orders_workspace import include_test_orders
     ids=db.session.scalars(select(OrderWorkLine.order_id).join(WorkEvent,WorkEvent.line_id==OrderWorkLine.line_id)
         .join(WorkOutbound,WorkOutbound.event_id==WorkEvent.id).join(ShopifyOrder,ShopifyOrder.id==OrderWorkLine.order_id)
         .join(OrderIntegrationSettings,OrderIntegrationSettings.store_id==ShopifyOrder.store_id)
         .outerjoin(OrderStatusProjection,OrderStatusProjection.order_id==ShopifyOrder.id)
-        .where(OrderIntegrationSettings.projection_enabled.is_(True),ShopifyOrder.redacted_at.is_(None),WorkOutbound.channel=='shopify',
+        .where(OrderIntegrationSettings.projection_enabled.is_(True),ShopifyOrder.redacted_at.is_(None),db.true() if include_test_orders() else ShopifyOrder.test.is_(False),WorkOutbound.channel=='shopify',
                WorkOutbound.state!='delivered',or_(OrderStatusProjection.next_attempt.is_(None),OrderStatusProjection.next_attempt<=now())).distinct().limit(2)).all()
     for order_id in ids:
         try:process(order_id,adapter=adapter)

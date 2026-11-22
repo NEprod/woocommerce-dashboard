@@ -17,6 +17,9 @@ from test_shopify_orders import order, line, save as import_order, STORE, PRODUC
 def fulfilment(core, monkeypatch):
     monkeypatch.setattr(requests.Session,'request',lambda *a,**k:pytest.fail('Unexpected external request'))
     app,client,*_=core
+    with app.app_context():
+        from app.models import Settings
+        Settings.query.first().include_test_orders=True;db.session.commit()
     tub=location(client,'ORDER-TUB','Order tub')
     component=item(client,'purchased','SANTA-BODY','Santa Body',pack_qty='10',pack_price='5',minimum='2',target='10')
     transact(client,'receive',component,qty='20',destination=str(tub),cost='10')

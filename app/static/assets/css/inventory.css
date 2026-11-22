@@ -38,6 +38,9 @@
 .order-pick-sheet :is(td,th) { border:1px solid #aaa; padding:.35rem; }
 .order-pick-sheet .workshop-label { border:0; padding:0; width:auto; height:auto; }
 .order-pick-sheet img { max-width:160mm; height:20mm; object-fit:contain; }
+.order-pick-sheet { display:flex; flex-direction:column; min-height:273mm; }
+.order-pick-sheet .order-sheet-barcode { margin-top:auto; padding-top:8mm; text-align:center; }
+.order-pick-sheet + .order-pick-sheet { break-before:page; }
 @media(max-width:767px) {
  .order-fulfilment { padding-bottom:calc(var(--order-nav-clearance,5rem) + var(--space-3,.75rem)); }
  .webhooks-table,.fulfilment-table { min-width:0!important; width:100%; table-layout:fixed; }
@@ -54,8 +57,9 @@
 }
 @media print {
  @page tlc_order_pick { size:A4; margin:12mm; }
- body:has(.order-pick-sheet) :is(.app-sidebar,.mobile-bottom-nav,.app-header,.workshop-nav,.workshop-no-print,.app-footer,.workspace-breadcrumb) { display:none!important; }
- body:has(.order-pick-sheet) :is(.app-main,#main-content,.workshop) { margin:0!important; padding:0!important; width:100%!important; }
+ body:has(.order-pick-sheet) :is(.app-sidebar,.mobile-bottom-nav,.app-header,.app-utility-header,.app-offcanvas,.skip-link,.workshop-nav,.workshop-no-print,.app-footer,.workspace-breadcrumb) { display:none!important; }
+ body:has(.order-pick-sheet) :is(.app-main,#main-content,.workshop,.app-content,.app-workspace,.app-frame) { margin:0!important; padding:0!important; width:100%!important; }
+ body:has(.order-pick-sheet) .app-frame { display:block!important; }
  .order-pick-sheet { padding:0; page:tlc_order_pick; }
  .order-pick-sheet section { break-inside:avoid-page; }
  .order-pick-sheet thead { display:table-header-group; }

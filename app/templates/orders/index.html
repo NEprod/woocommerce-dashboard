@@ -1,32 +1,42 @@
 {% extends 'layouts/base.html' %}
-{% block title %}Orders{% endblock %}
+{% block title %}{{ 'Shopify Orders Settings' if order_settings else 'Orders' }}{% endblock %}
 {% block content %}
-<header class="page-header"><div><p class="eyebrow">Shopify · Read only</p><h1 class="page-title">Orders</h1><p>Saved purchases and their original personalisations. Shopify remains authoritative for payment and fulfilment.</p></div>
-<form method="post" action="{{ url_for('orders.sync_now') }}">{{ form.hidden_tag() }}<button class="btn btn-primary">Sync Now</button><details><summary>Repair recent history</summary><p>Read the configured recent window again without deleting saved orders.</p><button class="btn btn-ghost" name="rescan" value="recent">Reconcile recent history</button></details></form></header>
-<section class="table-panel order-sync" data-order-sync data-status-url="{{ url_for('orders.status') }}" data-active="{{ 'true' if sync.run_id else 'false' }}">
-<header class="table-panel-header"><h2 data-order-sync-label>{{ sync.label }}</h2></header><div class="workspace-card-body"><p data-order-sync-message>{{ sync.message }}</p>
-<p>Last complete sync: <span data-order-sync-time>{{ sync.last_successful|order_uk_time }}</span> · {{ sync.imported_orders }} saved orders</p>
-<p>Startup catch-up: {{ sync.last_startup|order_uk_time }} · Manual sync: {{ sync.last_manual|order_uk_time }}</p>
-<p>Webhook received: {{ sync.webhook_received|order_uk_time }} · Processed: {{ sync.webhook_processed|order_uk_time }} · {{ sync.webhook_pending }} pending · {{ sync.webhook_incomplete }} need reconciliation.</p>
-{% if not sync.webhook_configured %}<p class="alert alert-warning">Live webhook updates are not configured. Orders refresh only on startup or explicit Sync Now; there is no recurring Orders API polling.</p>{% endif %}
+{% if order_settings %}
+<header class="page-header"><div><p class="eyebrow">Settings</p><h1>Shopify Orders</h1></div></header>
+{% if error %}<p role="alert" class="alert alert-warning">{{ error }}</p>{% endif %}
+<form method="post" class="app-card">{{ form.hidden_tag() }}<label class="check-row"><input type="checkbox" name="include_test" value="yes" {% if include_test %}checked{% endif %}> Include Test Orders</label>
+<p>One policy for Dashboard, Orders, lookup, production, picking, replenishment and optional status projection. Enabled test orders use real inventory in this environment. Imports always retain commercial snapshots and reconciliation cursors.</p>
+<p>{{ active_test_work }} unfinished test lines. Disabling hides their operations but retains reservations, stock history and previous deductions.</p>
+{% if active_test_work %}<label class="check-row"><input type="checkbox" name="acknowledge" value="yes"> I acknowledge that unfinished test work will be hidden and reservations/history retained if disabled.</label>{% endif %}
+<button class="btn btn-primary">Save Order Settings</button></form>
+{% else %}
+<header class="page-header"><div><p class="eyebrow">Shopify · Local order management</p><h1 class="page-title">Orders</h1><p>Shopify owns commerce; local proof, picking and production remain separate.</p></div>
+<form method="post" action="{{ url_for('orders.sync_now') }}">{{ form.hidden_tag() }}<button class="btn btn-primary">Sync Now</button><details><summary>Repair recent history</summary><button class="btn btn-ghost" name="rescan" value="recent">Reconcile recent history</button></details></form></header>
+{% for category,message in get_flashed_messages(with_categories=true) %}<p class="alert alert-{{ category }}" role="status">{{ message }}</p>{% endfor %}
+<section class="table-panel order-sync" data-order-sync data-status-url="{{ url_for('orders.status') }}" data-active="{{ 'true' if sync.run_id else 'false' }}"><header class="table-panel-header"><h2 data-order-sync-label>{{ sync.label }}</h2></header><div class="workspace-card-body">
+<p data-order-sync-message>{{ sync.message }}</p><p>Last complete sync: <span data-order-sync-time>{{ sync.last_successful|order_uk_time }}</span> · {{ sync.imported_orders }} eligible saved orders.</p>
+<p>Webhook received {{ sync.webhook_received|order_uk_time }} · processed {{ sync.webhook_processed|order_uk_time }} · {{ sync.webhook_pending }} pending · {{ sync.webhook_incomplete }} need reconciliation.</p>
+{% if not sync.webhook_configured %}<p class="alert alert-warning">Live webhook updates are not configured. The existing scheduled order sync defaults to every 15 minutes; Run Now uses the same importer.</p>{% endif %}
 {% if sync.webhook_error %}<p class="alert alert-warning">{{ sync.webhook_error }}</p>{% endif %}
-{% if sync.webhook_incomplete %}<p class="alert alert-warning">Some authenticated events could not safely replace a complete order. Use Sync Now, or Repair recent history for older events. No automatic Orders API fetch was made.</p>{% endif %}
-{% if sync.error_category %}<p>Failure: {{ sync.error_category|replace('_',' ') }} · Phase: {{ sync.error_phase }}</p>{% endif %}
-<div class="panel-actions"><a href="{{ url_for('tasks.index',task='shopify_orders') }}">Sync activity</a><a href="{{ url_for('tasks.history',key='shopify_orders') }}">Import history</a><a href="{{ url_for('commerce.settings') }}">Shopify connection</a><a href="{{ url_for('orders.index',**filters) }}">Refresh local list</a></div><p data-order-sync-feedback role="status" aria-live="polite"></p></div>
-</section>
+<div class="panel-actions"><a href="{{ url_for('tasks.index',task='shopify_orders') }}">Sync activity</a><a href="{{ url_for('tasks.history',key='shopify_orders') }}">Import history</a><a href="{{ url_for('commerce.settings') }}">Shopify connection</a><a href="{{ url_for('orders.settings') }}">Global test-order setting</a><a href="{{ url_for('orders.index',**filters) }}">Refresh local list</a></div><p data-order-sync-feedback role="status" aria-live="polite"></p></div></section>
 <form class="app-card orders-filters" method="get" aria-label="Filter orders">
 <label>Order number or SKU<input class="form-control" name="q" value="{{ filters.q }}" maxlength="100" type="search"></label>
+<label>Production status<select class="form-select" name="stage"><option value="">All stages</option>{% for stage in stage_options %}<option {% if filters.stage==stage %}selected{% endif %}>{{ stage }}</option>{% endfor %}</select></label>
 <label>Fulfilment<select class="form-select" name="fulfillment"><option value="">All</option>{% for key,label in [('unfulfilled','Outstanding items'),('fulfilled','Fulfilled')] %}<option value="{{ key }}" {% if filters.fulfillment==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
 <label>Payment<select class="form-select" name="payment"><option value="">All</option>{% for status in financial_options %}<option {% if filters.payment==status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></label>
-<label>Test orders<select class="form-select" name="test"><option value="">Include all</option><option value="yes" {% if filters.test=='yes' %}selected{% endif %}>Test only</option><option value="no" {% if filters.test=='no' %}selected{% endif %}>Exclude test</option></select></label>
-<label>Personalisation<select class="form-select" name="personalised"><option value="">All</option><option value="yes" {% if filters.personalised=='yes' %}selected{% endif %}>Personalised</option></select></label><button class="btn btn-primary">Filter</button><a href="{{ url_for('orders.index') }}">Clear</a>
-</form>
-{% if orders %}
-<section class="table-panel"><header class="table-panel-header"><h2>Saved orders</h2></header><div class="table-responsive"><table class="table orders-table"><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Fulfilment</th><th>Items</th></tr></thead><tbody>
-{% for order in orders %}<tr><td data-label="Order"><a href="{{ url_for('orders.detail',order_id=order.id) }}"><strong>{{ order.name }}</strong></a><small>{{ order.created_at|order_uk_time }}</small>{% if order.test %}<span class="status-pill is-warning">Test order</span>{% endif %}{% if order.personalised %}<span class="compact-status">Personalised</span>{% endif %}{% if order.cancelled_at %}<span class="status-pill is-warning">Cancelled</span>{% endif %}</td>
-<td data-label="Customer">{{ order.customer_name or 'Not available' }}</td><td data-label="Total">{{ order.currency }} {{ '%.2f'|format(order.total) }}</td><td data-label="Payment">{{ order.financial_status|replace('_',' ')|title }}</td><td data-label="Fulfilment">{{ order.fulfillment_status|replace('_',' ')|title }}</td><td data-label="Items">{{ order.quantity }} units<small>{{ order.outstanding_quantity }} outstanding</small></td></tr>{% endfor %}
+<label>Personalisation<select class="form-select" name="personalised"><option value="">All</option><option value="yes" {% if filters.personalised=='yes' %}selected{% endif %}>Personalised</option></select></label>
+<label>Records per page<select name="per_page" class="form-select">{% for size in [10,25,50,100] %}<option {% if filters.per_page==size %}selected{% endif %}>{{ size }}</option>{% endfor %}</select></label>
+<button class="btn btn-primary">Filter</button><a href="{{ url_for('orders.index') }}">Clear</a></form>
+<form id="bulk-orders" method="post" action="{{ url_for('orders.bulk_print') }}">{{ form.hidden_tag() }}<div class="page-actions"><button class="btn btn-primary" type="submit">Print Selected Orders</button><span data-selected-count aria-live="polite">0 selected</span></div></form>
+{% if orders %}<section class="table-panel"><header class="table-panel-header"><h2>Saved orders</h2></header><div class="table-responsive"><table class="table orders-table"><thead><tr>
+<th><input type="checkbox" data-order-select-all aria-label="Select all orders on this page"></th><th>Order</th><th>Customer</th><th>Total</th><th>Payment / fulfilment</th><th>Production / printing</th><th>Items</th></tr></thead><tbody>
+{% for order in orders %}{% set prints=print_history(order) %}<tr><td data-label="Select"><input type="checkbox" name="order_id" value="{{ order.id }}" form="bulk-orders" aria-label="Select {{ order.name }}"></td>
+<td data-label="Order"><a href="{{ url_for('fulfilment.detail',order_id=order.id) }}"><strong>{{ order.name }}</strong></a><small>{{ order.created_at|order_uk_time }}</small><a href="{{ url_for('orders.detail',order_id=order.id) }}">Purchase details</a>{% if order.test %}<span class="status-pill is-warning">Test order</span>{% endif %}{% if order.cancelled_at %}<span class="status-pill is-warning">Cancelled</span>{% endif %}</td>
+<td data-label="Customer">{{ order.customer_name or 'Not available' }}</td><td data-label="Total">{{ order.currency }} {{ '%.2f'|format(order.total) }}</td><td data-label="Commerce">{{ order.financial_status }} · {{ order.fulfillment_status }}</td>
+<td data-label="Production">{{ production_status(order) }}<small>{{ 'Printed ' ~ (prints[0].at|order_uk_time) ~ ' · ' ~ (prints|length) ~ ' print confirmations' if prints else 'Not marked Printed' }}</small></td><td data-label="Items">{{ order.quantity }} units<small>{{ order.outstanding_quantity }} outstanding</small></td></tr>{% endfor %}
 </tbody></table></div></section>
-<nav class="pagination-bar" aria-label="Order pages">{% if pagination.has_prev %}<a class="btn btn-ghost" href="{{ url_for('orders.index',page=pagination.prev_num,**filters) }}">Previous</a>{% endif %}<span>Page {{ pagination.page }} · {{ pagination.total }} orders</span>{% if pagination.has_next %}<a class="btn btn-ghost" href="{{ url_for('orders.index',page=pagination.next_num,**filters) }}">Next</a>{% endif %}</nav>
-{% else %}<section class="empty-state"><h2>{{ 'No orders matching filters' if sync.imported_orders else sync.label }}</h2><p>{{ 'Try clearing the filters. Existing records are retained when Shopify is unavailable.' if sync.imported_orders else 'Use Sync Now after read_orders is approved. An empty local list is not proof that the Shopify store has no orders.' }}</p></section>{% endif %}
+<nav class="pagination-bar" aria-label="Order pages">{% if pagination.has_prev %}<a class="btn btn-ghost" href="{{ url_for('orders.index',page=pagination.prev_num,**filters) }}">Previous</a>{% endif %}<span>Page {{ pagination.page }} of {{ pagination.pages }} · {{ pagination.total }} orders</span>{% if pagination.has_next %}<a class="btn btn-ghost" href="{{ url_for('orders.index',page=pagination.next_num,**filters) }}">Next</a>{% endif %}</nav>
+{% else %}<section class="empty-state"><h2>No eligible orders matching filters</h2><p>Review the global test-order setting or use Sync Now. Imported history is never deleted.</p></section>{% endif %}
+{% endif %}
 {% endblock %}
 {% block javascripts %}<script src="{{ url_for('static',filename='assets/js/orders.js') }}" defer></script>{% endblock %}

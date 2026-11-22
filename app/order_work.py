@@ -13,7 +13,7 @@ from uuid import uuid4
 from sqlalchemy import func, select
 from app import db
 from app.models import Product, ShopifyOrder, ShopifyOrderLine, ShopifyProductIdentity
-from app.order_work_models import OrderWorkLine, WorkRequirement, WorkEvent, WorkProof, WorkPick, WorkPlan, WorkOutbound
+from app.order_work_models import OrderWorkLine, WorkRequirement, WorkEvent, WorkProof, WorkPick, WorkPlan, WorkOutbound, WorkPrint
 from app.inventory import service as stock, product_bom
 from app.inventory.models import Item, Location, Movement, ProductionBatch, Transaction
 
@@ -35,11 +35,12 @@ def actor_text(value): return stock.clean(str(value),'Operator',160,required=Tru
 
 
 def validate_policy(value):
-    if not isinstance(value,dict) or set(value)-{'type','proof_required','personalised','needs_picking'}:
-        raise ValueError('Workflow supports type, proof_required, personalised and needs_picking only.')
+    if not isinstance(value,dict) or set(value)-{'type','proof_required','personalised','needs_picking','stock_item_id'}:
+        raise ValueError('Workflow supports type, proof/personalisation/picking flags and a registered finished-stock item.')
     if 'type' in value and value['type'] not in TYPES:
         raise ValueError('Choose a supported manufacturing workflow; do not infer it from the product name.')
-    if any(type(v) is not bool for k,v in value.items() if k!='type'):
+    if 'stock_item_id' in value and (type(value['stock_item_id']) is not int or value['stock_item_id']<=0):raise ValueError('Choose a registered finished-stock inventory ID.')
+    if any(type(v) is not bool for k,v in value.items() if k not in {'type','stock_item_id'}):
         raise ValueError('Workflow/proof flags must be true or false, not text.')
 
 
@@ -81,6 +82,10 @@ def preparation(line,*,proof_override=None):
     if policy.get('type') not in TYPES:raise ValueError('Configure the product/collection manufacturing workflow first.')
     policy.setdefault('needs_picking',policy['type'] in {'assembly','stock'})
     policy.setdefault('proof_required',False);policy.setdefault('personalised',False)
+    finished=stock.item_for(policy['stock_item_id']) if policy.get('stock_item_id') else None
+    if finished:
+        if finished.kind=='material' or finished.unit!='piece':raise ValueError('Finished stock must be a registered component stocked in pieces.')
+        policy['needs_picking']=True;policy['source']='finished_stock'
     personal=json.loads(line.personalisation_json)
     preference=personal.get('proof') or {}
     if preference.get('choice') in {'required','yes'}:policy['proof_required']=True
@@ -89,16 +94,22 @@ def preparation(line,*,proof_override=None):
         raise ValueError('Purchase-time proof preference needs review; configure an audited proof override before proceeding.')
     projections=product_bom.product_costs(product,documents=(shared,local))
     resolved=projections.get(line.sku) or projections.get(product.sku)
-    if resolved and resolved['conflicts']:raise ValueError('Effective BOM has conflicting option/variant requirements. Repair the source BOM.')
-    if policy['needs_picking'] and (not resolved or not resolved['count']):
+    if not finished and resolved and resolved['conflicts']:raise ValueError('Effective BOM has conflicting option/variant requirements. Repair the source BOM.')
+    if not finished and policy['needs_picking'] and (not resolved or not resolved['count']):
         raise ValueError('This picking workflow needs a configured effective inventory BOM.')
     requirements=defaultdict(int)
-    for row in (resolved or {}).get('rows',[]):
+    for row in ([] if finished else (resolved or {}).get('rows',[])):
         if row['excluded']:continue
         item=stock.item_for(row['item_id'])
         amount=stock.converted(stock.number(row['quantity'],'BOM quantity',positive=True),row['unit'],item.unit)
         requirements[item.id]+=amount*line.current_quantity
         if requirements[item.id]>stock.MAX_QTY:raise ValueError('Order requirement exceeds the inventory range.')
+    if finished:requirements[finished.id]=line.current_quantity*stock.SCALE
+    if policy['type']=='stock':
+        if len(requirements)!=1:raise ValueError('Ready-stock workflow must identify one finished inventory item, not an assembly recipe.')
+        selected=stock.item_for(next(iter(requirements)))
+        if selected.kind=='material' or selected.unit!='piece':raise ValueError('Ready-stock picking requires a finished component stocked in pieces.')
+        policy['source']='finished_stock'
     return product,policy,dict(requirements),dict(projection=resolved,sku=line.sku,quantity=line.current_quantity,
         product_id=line.product_id,variant_id=line.variant_id,properties_digest=stock.digest(json.loads(line.properties_json)))
 
@@ -157,6 +168,8 @@ def initialise(line,*,actor='order_import'):
 def reconcile(order):
     """Called inside the existing complete-order import transaction, never from scans/printing."""
     for line in order.lines:
+        from app.orders_workspace import order_allowed
+        if not order_allowed(order) and not db.session.get(OrderWorkLine,line.id):continue
         work=initialise(line)
         changed=work.source_digest!=fingerprint(line)
         early_fulfilment=line.unfulfilled_quantity<line.current_quantity and work.state not in TERMINAL
@@ -170,6 +183,8 @@ def reconcile(order):
 
 
 def _guard(work,line):
+    from app.orders_workspace import require_order
+    require_order(line.order)
     problem=eligible(line)
     if problem:raise ValueError(problem)
     if work.source_digest!=fingerprint(line):raise ValueError('Shopify snapshot changed. Reconcile this line before progressing.')
@@ -193,8 +208,19 @@ def scan(code):
     if len(raw)>160:return []
     if re.fullmatch(r'TLC-ORDER-[1-9][0-9]{0,17}',raw.upper()):
         row=db.session.get(ShopifyOrder,int(raw.rsplit('-',1)[-1]))
-        return [row] if row else []
-    return ShopifyOrder.query.filter(ShopifyOrder.name.in_([raw,'#'+raw.lstrip('#')])).order_by(ShopifyOrder.created_at.desc()).limit(25).all()
+        from app.orders_workspace import order_allowed
+        return [row] if row and order_allowed(row) else []
+    from app.orders_workspace import operational_query
+    query=operational_query()
+    exact=query.filter(ShopifyOrder.name.in_([raw,'#'+raw.lstrip('#')])).order_by(ShopifyOrder.created_at.desc()).limit(25).all()
+    if exact:return exact
+    numeric=raw.lstrip('#')
+    if numeric.isdigit():
+        # Shopify display prefixes/suffixes are configurable; never equate a
+        # numeric display number with a local database ID or choose ambiguities.
+        candidates=query.filter(ShopifyOrder.name.contains(numeric,autoescape=True)).all()
+        return [o for o in candidates if re.findall(r'\d+',o.name)==[numeric]][:25]
+    return []
 
 
 def token(order):return f'TLC-ORDER-{order.id}'
@@ -211,6 +237,8 @@ def act(line_id,action,data,key,*,actor,version):
         return db.session.get(OrderWorkLine,line_id)
     line=db.session.get(ShopifyOrderLine,line_id)
     if not line:raise ValueError('Purchased line no longer exists.')
+    from app.orders_workspace import require_order
+    require_order(line.order)
     work=db.session.get(OrderWorkLine,line_id)
     if work and version is None:raise ValueError('Reload this existing workflow to obtain its current revision before confirming.')
     work=work or initialise(line,actor=actor)
@@ -352,7 +380,7 @@ def act(line_id,action,data,key,*,actor,version):
             elif action=='finish_picking':
                 if prior not in {'picking','waiting'} or any(remaining(r) for r in requirements(line_id)):
                     raise ValueError('Every required quantity must be confirmed; planned production is not picked stock.')
-                work.state='quality' if policy['type']=='stock' else 'ready'
+                work.state='quality' if policy.get('source')=='finished_stock' or policy['type']=='stock' else 'ready'
             elif action=='start_production':
                 if prior not in {'ready','proof_approved'}:raise ValueError('Production starts only from a ready or approved line.')
                 if policy.get('needs_picking') and any(remaining(r) for r in requirements(line_id)):
@@ -365,6 +393,11 @@ def act(line_id,action,data,key,*,actor,version):
                 edges={'assembly':{'production'},'quality':{'production','assembly'},'ready_pack':{'quality'},
                        'packing':{'ready_pack'},'ready_dispatch':{'packing'},'dispatch':{'ready_dispatch'}}
                 if prior not in edges[action]:raise ValueError('This transition skips a required production/quality/packing stage.')
+                if action in {'packing','ready_dispatch','dispatch'}:
+                    acceptable={'ready_dispatch','dispatched'} if action=='dispatch' else {'ready_pack','packing','ready_dispatch','dispatched'}
+                    if any((db.session.get(OrderWorkLine,l.id).state if db.session.get(OrderWorkLine,l.id) else 'new') not in acceptable
+                           for l in line.order.lines if l.is_current and l.current_quantity>0):
+                        raise ValueError('All applicable order lines must be ready before whole-order packing/dispatch.')
                 if action in {'assembly','quality'} and any(remaining(r) for r in requirements(line_id)):
                     raise ValueError('Confirm actual material/component issues before completing production.')
                 work.state='dispatched' if action=='dispatch' else action
@@ -390,7 +423,52 @@ def summary(order):
     if 'cancelled' in states:return 'Needs Attention'
     if any(s in {'hold','needs_configuration'} for s in states):return 'Needs Attention'
     if all(s in {'ready_dispatch','dispatched'} for s in states):return 'Ready for Dispatch'
-    return LABELS[states[0]] if len(set(states))==1 else 'Mixed — see individual lines'
+    reqs=[r for l in active for r in requirements(l.id)]
+    total=sum(r.quantity for r in reqs);done=sum(picked(r) for r in reqs)
+    if len(set(states))==1:
+        if states[0] in {'ready','picking','waiting'} and total and done:
+            return 'Picked' if done>=total else 'Partially Picked'
+        return LABELS[states[0]]
+    completed={'quality','ready_pack','packing','ready_dispatch','dispatched'}
+    if any(s in completed for s in states):return 'Partially Completed' if all(s in completed for s in states) else 'Partially Produced'
+    if any(s in {'production','assembly'} for s in states):return 'Partially Produced'
+    if done or any(s=='picking' for s in states):return 'Partially Picked'
+    return 'Mixed — see individual lines'
+
+
+ORDER_FILTERS=['New','Printed','Awaiting Proof','Proof Preparing','Proof Sent','Changes Requested','Proof Approved','Ready for Production','Picking','Partially Picked','Picked','In Production','Assembly / Finishing','Partially Produced','Partially Completed','Quality Check','Ready to Pack','Packed','Ready for Dispatch','Dispatched','Needs Attention']
+
+
+def print_history(order):
+    return WorkPrint.query.filter_by(order_id=order.id).order_by(WorkPrint.at.desc(),WorkPrint.id.desc()).all()
+
+
+def matches_status(order,status):
+    if status=='Printed':return bool(print_history(order))
+    if status=='Picked':
+        reqs=[r for line in order.lines if line.is_current and line.current_quantity>0 for r in requirements(line.id)]
+        return bool(reqs) and all(remaining(r)==0 for r in reqs)
+    if status=='New':
+        return not order.cancelled_at and order.outstanding_quantity>0 and not print_history(order) and not WorkEvent.query.join(OrderWorkLine).filter(
+            OrderWorkLine.order_id==order.id,WorkEvent.action.notin_(['import','commerce_changed'])).first()
+    value=summary(order)
+    return value=={'Picking':'Picking Started','In Production':'Production Started','Packed':'Ready for Dispatch','Dispatched':'Dispatched locally'}.get(status,status)
+
+
+def confirm_print(orders,key,actor):
+    if not re.fullmatch(r'[a-f0-9]{32}',str(key)):raise ValueError('A stable print confirmation reference is required.')
+    actor=actor_text(actor);ids=sorted(o.id for o in orders)
+    signature=stock.digest(dict(orders=ids,actor=actor))
+    stock.writer_lock()
+    existing=WorkPrint.query.filter_by(request_id=key).all()
+    if existing:
+        if any(p.selection_digest!=signature for p in existing):raise ValueError('Print reference already belongs to another selection.')
+        return
+    from app.orders_workspace import require_order
+    for order in orders:
+        require_order(order)
+        db.session.add(WorkPrint(order_id=order.id,request_id=key,selection_digest=signature,actor=actor,at=now()))
+    db.session.flush()
 
 
 def requirement_view(r):
@@ -429,6 +507,8 @@ def stock_health():
         on_hand=stock.balance(item.id);committed=reserved(item.id);avail=max(0,on_hand-committed)
         demands=WorkRequirement.query.join(OrderWorkLine).filter(WorkRequirement.item_id==item.id,WorkRequirement.active.is_(True),
             OrderWorkLine.state.notin_(['cancelled','dispatched','hold','needs_configuration'])).all()
+        from app.orders_workspace import order_allowed
+        demands=[r for r in demands if order_allowed(db.session.get(ShopifyOrder,db.session.get(OrderWorkLine,r.line_id).order_id))]
         outstanding=sum(remaining(r) for r in demands)
         uncovered=max(0,outstanding-on_hand)
         planned=ProductionBatch.query.filter_by(component_id=item.id,status='planned').all()
@@ -461,6 +541,8 @@ def plan_replenishment(item_id,key,*,actor,requirement_id=None):
     if requirement_id:
         requirement=db.session.get(WorkRequirement,requirement_id)
         if not requirement or requirement.item_id!=item.id:raise ValueError('Shortage must reference this exact requirement.')
+        from app.orders_workspace import require_order
+        require_order(db.session.get(ShopifyOrder,db.session.get(OrderWorkLine,requirement.line_id).order_id))
     row=next(r for r in stock_health()['rows'] if r['item'].id==item.id)
     if not row['need']:raise ValueError('No uncovered replenishment is required after existing planned/incoming work.')
     if item.kind=='manufactured':

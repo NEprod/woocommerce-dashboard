@@ -2,7 +2,7 @@
 from io import BytesIO
 from uuid import uuid4
 import json
-from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, Response, url_for
+from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, Response, url_for, current_app
 from flask_login import current_user, login_required
 from flask_wtf import FlaskForm
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -10,6 +10,7 @@ from app import db
 from app.models import ShopifyOrder, ShopifyOrderLine
 from app.order_work_models import WorkPlan, WorkOutbound
 from app import order_work as work
+from app import orders_workspace as workspace
 
 fulfilment=Blueprint('fulfilment',__name__,url_prefix='/production/orders')
 
@@ -40,8 +41,7 @@ def index():
         matches=work.scan(code)
         if len(matches)==1:return redirect(url_for('fulfilment.detail',order_id=matches[0].id))
     else:
-        query=ShopifyOrder.query.filter(ShopifyOrder.cancelled_at.is_(None),ShopifyOrder.outstanding_quantity>0)
-        if request.args.get('test')!='yes':query=query.filter_by(test=False)
+        query=workspace.operational_query().filter(ShopifyOrder.cancelled_at.is_(None),ShopifyOrder.outstanding_quantity>0)
         matches=query.order_by(ShopifyOrder.created_at.desc()).limit(100).all()
     return render_template('order_work/index.html',orders=matches,reference=code,summary=work.summary)
 
@@ -49,7 +49,16 @@ def index():
 @fulfilment.get('/<int:order_id>')
 def detail(order_id):
     order=db.get_or_404(ShopifyOrder,order_id)
+    if not workspace.order_allowed(order):abort(403,'Test orders are disabled in Settings → Shopify Orders.')
+    # Older imported snapshots are prepared once; repeat scans never reset work.
+    missing=[l for l in order.lines if l.is_current and l.current_quantity>0 and not db.session.get(work.OrderWorkLine,l.id)]
+    if missing:
+        work.stock.writer_lock()
+        for line in missing:work.initialise(line,actor=f'{current_user.id}:{current_user.username}')
+        work.reconcile(order)  # Existing external fulfilments must not restart physical work.
+        db.session.commit()
     return render_template('order_work/detail.html',order=order,summary=work.summary(order),
+        info=workspace.production_information(order),printed=work.print_history(order),
         lines=[work.line_view(line) for line in order.lines if line.is_current or db.session.get(work.OrderWorkLine,line.id)],
         deliveries=WorkOutbound.query.join(work.WorkEvent,WorkOutbound.event_id==work.WorkEvent.id).join(work.OrderWorkLine,
             work.WorkEvent.line_id==work.OrderWorkLine.line_id).filter(work.OrderWorkLine.order_id==order_id).order_by(WorkOutbound.id.desc()).limit(50).all())
@@ -76,13 +85,17 @@ def action(order_id,line_id,action):
 @fulfilment.get('/<int:order_id>/sheet')
 def sheet(order_id):
     order=db.get_or_404(ShopifyOrder,order_id)
-    return render_template('order_work/sheet.html',order=order,token=work.token(order),
-        lines=[work.line_view(l) for l in order.lines if l.is_current and l.current_quantity>0])
+    if not workspace.order_allowed(order):abort(403)
+    from itsdangerous import URLSafeTimedSerializer
+    selection=URLSafeTimedSerializer(current_app.secret_key,salt='order-print').dumps(dict(ids=[order.id],request=uuid4().hex,actor=current_user.id))
+    return render_template('order_work/sheet.html',sheets=[dict(order=order,info=workspace.production_information(order),
+        lines=[work.line_view(l) for l in order.lines if l.is_current and l.current_quantity>0])],selection=selection,auto_print=False)
 
 
 @fulfilment.get('/<int:order_id>/barcode.svg')
 def barcode(order_id):
     order=db.get_or_404(ShopifyOrder,order_id)
+    if not workspace.order_allowed(order):abort(403)
     from barcode import Code128
     from barcode.writer import SVGWriter
     output=BytesIO();Code128(work.token(order),writer=SVGWriter()).write(output,dict(write_text=False,module_width=.3,module_height=15,quiet_zone=4))
