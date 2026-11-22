@@ -24,7 +24,7 @@ def admin():
 
 @fulfilment.after_request
 def private(response):
-    response.headers.update({'Cache-Control':'private, no-store','X-Robots-Tag':'noindex, nofollow','Referrer-Policy':'no-referrer'})
+    response.headers.update({'Cache-Control':'private, no-store','X-Robots-Tag':'noindex, nofollow','Referrer-Policy':'same-origin'})
     return response
 
 
