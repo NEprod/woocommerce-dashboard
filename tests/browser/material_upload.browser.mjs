@@ -1,0 +1,53 @@
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {mkdirSync,statSync} from 'node:fs';
+const require=createRequire(import.meta.url);
+const {chromium}=require('/Users/dalethomas/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const browser=await chromium.launch({headless:true,executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',args:['--disable-background-networking']});
+mkdirSync('/tmp/tlc-material-form',{recursive:true});
+assert.ok(statSync('/tmp/tlc-material-form-source.jpg').size>2*1024*1024);
+try {
+ for(const [name,viewport]of [['desktop',{width:1440,height:1000}],['phone',{width:390,height:844}]]) {
+  const context=await browser.newContext({viewport});await context.route('**/*',r=>new URL(r.request().url()).origin==='http://127.0.0.1:7515'?r.continue():r.abort());
+  const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto('http://127.0.0.1:7515/production/item/4/edit');
+  const display=page.locator('[data-material-display]');
+  assert.ok(await page.locator('[data-material-fields=sheet]').isVisible());assert.equal(await page.locator('[data-material-fields=filament]').isVisible(),false);
+  await display.selectOption('other');assert.equal(await page.locator('[data-material-fields=sheet]').isVisible(),false);
+  assert.equal(await page.locator('[name=sheet_length]').inputValue(),'600');
+  assert.equal(await page.locator('[name=sheet_length]').isDisabled(),false);
+  await page.getByRole('button',{name:'Save material',exact:true}).click();await page.waitForURL(/\/production\/item\/4$/);
+  await page.goto('http://127.0.0.1:7515/production/item/4/edit');assert.ok(await page.locator('[data-material-fields=sheet]').isVisible());
+  await page.locator('[data-unit-cost]').filter({hasText:'£2.50 per sheet'}).waitFor();
+  await page.goto('http://127.0.0.1:7515/production/item/1/edit');
+  await page.locator('[name=category]').fill('Adhesive');
+  assert.equal(await page.locator('[data-material-fields=filament]').isVisible(),false);assert.equal(await page.locator('[data-material-fields=sheet]').isVisible(),false);
+  await display.selectOption('filament');assert.ok(await page.locator('[data-material-fields=filament]').isVisible());assert.equal(await page.locator('[data-material-fields=sheet]').isVisible(),false);
+  await page.locator('[name=category]').fill('Filament');await page.locator('[name=filament_type]').fill('PLA');await page.locator('[name=filament_colour]').fill('Red');await page.locator('[name=spool_grams]').fill('1000');
+  const cost=page.locator('[data-unit-cost]');
+  await page.locator('[name=pack_qty]').fill('1000');await page.locator('[name=pack_unit]').selectOption('g');await page.locator('[name=pack_price]').fill('13.99');await cost.filter({hasText:'£0.01399 per g'}).waitFor();
+  await page.locator('[name=pack_qty]').fill('1');await page.locator('[name=pack_unit]').selectOption('kg');await cost.filter({hasText:'£0.01399 per g'}).waitFor();
+  await page.locator('[name=pack_unit]').selectOption('ml');await cost.filter({hasText:'Cannot convert ml to g'}).waitFor();
+  await page.locator('[name=pack_unit]').selectOption('g');await page.locator('[name=pack_qty]').fill('1000');
+  await page.locator('[name=pack_price]').fill('');await cost.filter({hasText:'Purchase cost is unknown'}).waitFor();
+  await page.locator('[name=pack_price]').fill('0');await cost.filter({hasText:'£0.00 per g'}).waitFor();await page.locator('[name=pack_price]').fill('13.99');
+  const file=page.locator('[data-image-upload]');
+  await file.setInputFiles({name:'too-large.jpg',mimeType:'image/jpeg',buffer:Buffer.alloc(25*1024*1024+1)});
+  await page.locator('[data-image-status]').filter({hasText:'exceeds 25 MB'}).waitFor();assert.equal(await file.evaluate(input=>input.checkValidity()),false);
+  await file.setInputFiles('/tmp/tlc-material-form-source.jpg');
+  await page.locator('[data-image-preview]').evaluate(img=>img.decode());
+  assert.equal(await file.evaluate(input=>input.checkValidity()),true);
+  assert.equal(await page.locator('[data-image-preview]').evaluate(img=>getComputedStyle(img).objectFit),'contain');
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await page.screenshot({path:`/tmp/tlc-material-form/${name}-editor.png`,fullPage:true});
+  await page.getByRole('button',{name:'Save material',exact:true}).click();await page.waitForURL(/\/production\/item\/1$/);
+  const response=await context.request.get('http://127.0.0.1:7515/production/item/1/image.jpg');assert.match(response.headers()['content-type'],/image\/webp/);
+  await page.goto('http://127.0.0.1:7515/production/item/1/edit');assert.ok(await page.locator('[data-material-fields=filament]').isVisible());assert.equal(await page.locator('[name=filament_colour]').inputValue(),'Red');
+  await page.goto('http://127.0.0.1:7515/production/item/1/stock-card');const image=page.locator('.stock-card-photo');await image.evaluate(img=>img.decode());
+  assert.deepEqual(await image.evaluate(img=>[img.naturalWidth,img.naturalHeight]),[1600,1200]);
+  assert.equal(await page.locator('.stock-card-code').innerText(),'PLA-TEST');
+  await page.emulateMedia({media:'print'});assert.deepEqual(await page.locator('.inventory-stock-card').evaluate(el=>[el.offsetWidth,el.offsetHeight]),[192,336]);await page.emulateMedia({media:'screen'});
+  await page.screenshot({path:`/tmp/tlc-material-form/${name}-stock-card.png`,fullPage:true});assert.deepEqual(errors,[]);
+  await context.close();console.log(`${name}: >2MB upload/preview/save, WebP, unit costs, field visibility/preservation and portrait stock card PASS`);
+ }
+}finally{await browser.close();}

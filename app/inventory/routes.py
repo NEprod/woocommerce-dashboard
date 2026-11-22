@@ -9,9 +9,9 @@ from flask import (Blueprint, Response, abort, current_app, flash, jsonify, redi
                    render_template, request, url_for)
 from flask_login import current_user, login_required
 from itsdangerous import BadData, URLSafeTimedSerializer
-from PIL import Image, UnidentifiedImageError
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError, OperationalError
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from app import db
 from . import service as stock
@@ -39,6 +39,13 @@ def private(response):
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["X-Robots-Tag"] = "noindex, nofollow"
     return response
+
+
+@inventory.errorhandler(RequestEntityTooLarge)
+def upload_too_large(error):
+    if request.endpoint == 'inventory.edit_item':
+        return render_template('inventory/upload_error.html'), 413
+    return error
 
 
 @inventory.context_processor
@@ -69,24 +76,8 @@ def _page(statement):
 
 
 def _image(upload):
-    if not upload or not upload.filename:
-        return None
-    content = upload.stream.read(2 * 1024 * 1024 + 1)
-    if len(content) > 2 * 1024 * 1024:
-        raise ValueError("Choose an image up to 2 MB.")
-    try:
-        with Image.open(BytesIO(content), formats=("JPEG", "PNG", "WEBP")) as source:
-            if source.width * source.height > 12_000_000 or getattr(source, "is_animated", False):
-                raise ValueError("Choose a still image of at most 12 megapixels.")
-            source.thumbnail((640, 640))
-            pic = Image.new("RGB", source.size, "white")
-            layer = source.convert("RGBA")
-            pic.paste(layer, mask=layer.getchannel("A"))
-            output = BytesIO()
-            pic.save(output, "JPEG", quality=82)
-            return output.getvalue()
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
-        raise ValueError("Choose a readable JPEG, PNG or WebP image.") from None
+    from .images import optimise
+    return optimise(upload)
 
 
 @inventory.get("/")
@@ -540,7 +531,7 @@ def edit_item(record_id, kind):
     kind = row.kind if row else kind
     if kind not in stock.KINDS:
         abort(404)
-    error = ""
+    error, error_status = "", 400
     if request.method == "POST":
         values = request.form.to_dict()
         columns = [request.form.getlist(key) for key in ("material_id", "material_qty", "material_unit")]
@@ -564,6 +555,10 @@ def edit_item(record_id, kind):
             except ValueError as exc:
                 db.session.rollback()
                 error = str(exc)
+            except (IntegrityError, OperationalError, OSError):
+                db.session.rollback()
+                error = 'The item or image could not be stored. The previous saved record and image are unchanged. Check persistent appdata space and permissions, then retry.'
+                error_status = 503
     elif row:
         values = {key: getattr(row, key) if getattr(row, key) is not None else "" for key in ITEM_TEXT}
         values.update({key: stock.quantity_text(getattr(row, key)) for key in ITEM_NUMBERS})
@@ -572,10 +567,11 @@ def edit_item(record_id, kind):
     else:
         values, packed = {"active":"yes", "unit":"piece" if kind != "material" else "g"}, []
     raw_materials = _item_choices("material", include_archived=bool(row and not row.active)) if kind == "manufactured" else ()
-    return render_template("inventory/edit_item.html", row=row, kind=kind, values=values, error=error,
+    from .images import HEIF_SUPPORTED
+    return render_template("inventory/edit_item.html", row=row, kind=kind, values=values, error=error, heif_supported=HEIF_SUPPORTED,
                            materials=raw_materials, requirements=packed or [("", "", "")],
                            locations=_location_choices(),
-                           has_image=row is not None and row.image is not None), 400 if error else 200
+                           has_image=row is not None and row.image is not None), error_status if error else 200
 
 
 @inventory.get("/item/<int:record_id>/image.jpg")
@@ -583,7 +579,25 @@ def item_image(record_id):
     content = _record(Item, record_id).image
     if content is None:
         abort(404)
-    return Response(content, mimetype="image/jpeg", headers={"X-Content-Type-Options":"nosniff"})
+    from .images import stored_mime
+    return Response(content, mimetype=stored_mime(content), headers={"X-Content-Type-Options":"nosniff"})
+
+
+@inventory.post('/item/purchase-cost-preview')
+def purchase_cost_preview():
+    request.max_content_length = 16384
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error='Send purchase fields as an object.'), 400
+    try:
+        quantity = stock.number(data.get('pack_qty'), 'Purchase pack quantity', positive=True)
+        price = stock.cost_number(data.get('pack_price'), 'Purchase pack price')
+        unit = data.get('unit')
+        rate = stock.purchase_unit_rate(quantity, data.get('pack_unit') or unit, price, unit)
+        from .profitability import material_money
+        return jsonify(unit=unit, unit_cost=None if rate is None else format(rate,'f'), display_cost=material_money(rate))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
 
 
 @inventory.get("/item/barcode-check")

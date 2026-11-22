@@ -1,16 +1,21 @@
 # Storage and Retention
 
-The application has three deliberately separate persistent storage domains:
+The application uses separate persistent storage domains (see the detailed
+[material-image and appdata audit](MATERIAL_IMAGES_STORAGE_AUDIT.md)):
 
 | Container path | Owner | Purpose |
 | --- | --- | --- |
-| `/app/instance` | application | SQLite and controlled database backups |
+| `/app/instance` | application | SQLite (including inventory photo blobs), settings, receipts, backups and bounded logs |
 | `/catalogue` | catalogue/scanner | authored metadata, source images, markers, pending identity, and SKU indexes |
-| `/output` | user | copied/generated WooCommerce upload output |
+| `/intake` | catalogue intake | optional source, Prepared results and private operation workspaces |
+| `/taxonomy` | taxonomy editor | optional registry and backups |
+| `/output` | legacy compatibility only | retired WooCommerce output; no active scanner image-copy or CSV-write call site |
 
-All three paths require explicit read/write mounts. Catalogue or output content
-must not be moved beneath `/app/instance`, and persistent state must not depend
-on the writable container layer.
+Active authoritative roots require explicit read/write mounts. Catalogue, intake
+and taxonomy roots must not overlap appdata or one another. No migration or host
+path change is implied. The optional intake/taxonomy features must not be enabled
+on an unmounted container-local directory. Retained historical output files are
+not deleted. Persistent state must not depend on the writable container layer.
 
 ## Runtime configuration
 
@@ -80,8 +85,11 @@ Cleanup never targets `.scanned`, `.scanned.pending`, `.update`,
 
 ## Logging
 
-The application does not create `/app/instance/logs`. Gunicorn and application
-messages remain on stdout/stderr. Compose uses Docker's `local` logging driver
+The automatic publisher writes a payload-free technical log under
+`/app/instance/logs/publishing.log`, rotating at 512 KiB with three backups.
+Durable operation/readback evidence remains in SQLite. Gunicorn and other
+application messages remain on stdout/stderr. Compose and the checked-in Unraid
+templates use Docker's `local` logging driver
 with 10 MiB files, five retained files, and compression, for an approximate
 50 MiB pre-compression ceiling per container. Docker or Unraid—not the Python
 application—enforces this host log policy.

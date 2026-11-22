@@ -181,6 +181,14 @@ def location_balances(location_id):
         .where(Movement.location_id==location_id).group_by(Item.id).having(amount!=0).order_by(Item.name)).all()
 
 
+def purchase_unit_rate(pack_qty, pack_unit, pack_price, unit):
+    """Purchase-basis GBP per stock unit, shared by saved costs and editor preview."""
+    quantity = converted(pack_qty, pack_unit, unit)
+    if quantity <= 0:
+        raise ValueError('Enter a positive purchase pack quantity.')
+    return None if pack_price is None else Decimal(pack_price) / quantity
+
+
 def rate(item):
     """Weighted historical cost per stock unit, excluding explicitly reversed receipts."""
     reverse=aliased(Transaction)
@@ -192,7 +200,7 @@ def rate(item):
     if qty:
         return Decimal(cost)/qty
     if item.pack_price is not None and item.pack_qty:
-        return Decimal(item.pack_price)/converted(item.pack_qty,item.pack_unit,item.unit)
+        return purchase_unit_rate(item.pack_qty, item.pack_unit, item.pack_price, item.unit)
     return None
 
 

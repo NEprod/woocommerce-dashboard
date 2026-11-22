@@ -368,7 +368,7 @@ def test_item_management_pack_specs_image_location_hierarchy_and_permanent_codes
         "sheet_thickness":"3","image":(png,"picture.png")})
     assert saved.status_code == 303
     image=client.get(f"/production/item/{wood}/image.jpg")
-    assert image.mimetype == "image/jpeg" and Image.open(BytesIO(image.data)).width == 640
+    assert image.mimetype == "image/webp" and Image.open(BytesIO(image.data)).width == 800
     assert b"600 \xc3\x97 400 \xc3\x97 3 mm" in client.get(saved.location).data
     assert client.post(f"/production/item/{wood}/edit",data={"name":"Old edit","version":"1","active":"yes"}).status_code == 400
     assert client.post(f"/production/item/{switches}/edit",data={"name":"Old stock code","version":"1"}).status_code == 303

@@ -53,7 +53,9 @@ def create_app(*, recover=None):
     def taxonomy_request_bounds():
         # Apply before CSRF parses multipart/form data; other workflows unchanged.
         if request.blueprint == "inventory":
-            request.max_content_length = 3 * 1024 * 1024
+            # Raise only the image-edit request; other inventory operations keep
+            # their existing smaller bound. One MiB covers multipart form overhead.
+            request.max_content_length = (26 if request.endpoint == 'inventory.edit_item' else 3) * 1024 * 1024
             request.max_form_memory_size = 128 * 1024
             request.max_form_parts = 125
         if request.blueprint in {"taxonomy", "customisations", "packaging"}:

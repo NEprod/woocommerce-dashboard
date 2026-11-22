@@ -1,10 +1,11 @@
 {% extends 'inventory/base.html' %}
 {% from 'inventory/_fields.html' import heading,field,unit,csrf,scanner_preview,error as show_error %}
 {% set title = ('Edit ' if row else 'Add ') + kinds[kind]|lower %}
+{% block javascripts %}{{ super() }}<script type="module" src="{{ url_for('static',filename='assets/js/inventory-item-form.js') }}"></script>{% endblock %}
 {% block workshop %}
 {{ heading(title,'Saving this record does not create stock. Record opening stock or a receipt afterwards.') }}
 {{ show_error(error) }}
-<form method="post" enctype="multipart/form-data" class="workshop-form">
+<form method="post" enctype="multipart/form-data" class="workshop-form" data-inventory-item-form data-cost-preview="{{ url_for('inventory.purchase_cost_preview') }}" data-stock-unit="{{ row.unit if row else '' }}">
   {{ csrf() }}{% if row %}<input type="hidden" name="version" value="{{ values.version }}">{% endif %}
   <fieldset class="workshop-panel"><legend>Identity and storage</legend>
     <div class="workshop-fields">
@@ -25,21 +26,27 @@
       {{ field('Minimum stock','minimum',values,'decimal') }}{{ field('Preferred reorder target','reorder',values,'decimal') }}
     </div>
     <label>Description<textarea class="form-control" name="description" rows="3" maxlength="4000">{{ values.get('description','') }}</textarea></label>
-    <label>Item image (optional, JPEG, PNG or WebP up to 2 MB)<input class="form-control" type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
+    <label>Item image (optional, originals up to 25 MB)<input class="form-control" type="file" name="image" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp{% if heif_supported %},image/heic,image/heif,.heic,.heif{% endif %}" data-image-upload></label>
+    <p class="field-helper">JPEG, PNG and WebP{% if heif_supported %}, plus HEIC/HEIF{% else %}. HEIC/HEIF decoding is unavailable on this server; export as JPEG{% endif %}. Photographs are automatically resized to at most 1600 pixels and optimised; GPS and other source metadata are removed. Single still images up to 60 megapixels.</p>
+    <p data-image-status role="status" aria-live="polite"></p>
+    <img data-image-preview class="workshop-item-image-preview" {% if has_image %}src="{{ url_for('inventory.item_image',record_id=row.id) }}"{% else %}hidden{% endif %} alt="Item photograph preview">
     {% if has_image %}<label class="workshop-check"><input type="checkbox" name="remove_image" value="yes"> Remove the current image</label>{% endif %}
     <label class="workshop-check"><input type="checkbox" name="active" value="yes" {% if values.get('active') == 'yes' %}checked{% endif %}> Active (untick to archive when empty)</label>
   </fieldset>
   {% if kind != 'manufactured' %}
   <fieldset class="workshop-panel"><legend>Purchasing</legend><div class="workshop-fields">
-    {{ field('Purchase pack quantity','pack_qty',values,'decimal') }}{{ unit('Purchase pack unit','pack_unit',values.get('pack_unit'),units) }}{{ field('Purchase pack price (GBP)','pack_price',values,'decimal') }}
+    {{ field('Purchase pack quantity','pack_qty',values,'decimal') }}{{ unit('Purchase pack unit','pack_unit',values.get('pack_unit'),units,blank='Use stock unit') }}{{ field('Purchase pack price (GBP)','pack_price',values,'decimal') }}
     {{ field('Supplier name','supplier',values,limit=160) }}{{ field('Supplier SKU','supplier_sku',values) }}{{ field('Supplier purchase URL','supplier_url',values,'url',limit=500) }}
-  </div></fieldset>
+  </div><p class="alert alert-info" data-unit-cost role="status" aria-live="polite">Enter purchase quantity and price to preview the cost per stock unit.</p><p class="field-helper">Purchase-basis preview only. Existing stock valuation may use weighted receipt history. Blank price is unknown; an explicit £0 is a known zero.</p></fieldset>
   {% endif %}
   {% if kind == 'material' %}
-  <fieldset class="workshop-panel"><legend>Sheet and filament details (optional)</legend>
-    <p class="field-helper">For sheet stock, enter all three dimensions in millimetres. Use the purchase pack above for stock conversion.</p>
-    <div class="workshop-fields">
+  <fieldset class="workshop-panel"><legend>Material specifications (optional)</legend>
+    <label>Show specifications for<select class="form-select" data-material-display><option value="auto">Automatic — based on saved details / category</option><option value="filament">Filament</option><option value="sheet">Sheet material</option><option value="other">Other material</option><option value="both">Both — existing mixed specifications</option></select></label>
+    <p class="field-helper">Display only; this does not change the category. Hidden specifications are preserved and still submitted.</p>
+    <div class="workshop-fields" data-material-fields="sheet">
+      <p class="field-helper">Sheet stock requires all three dimensions in millimetres and the existing sheet stock unit.</p>
       {{ field('Sheet length (mm)','sheet_length',values,'decimal') }}{{ field('Sheet width (mm)','sheet_width',values,'decimal') }}{{ field('Sheet thickness (mm)','sheet_thickness',values,'decimal') }}
+    </div><div class="workshop-fields" data-material-fields="filament">
       {{ field('Filament type','filament_type',values) }}{{ field('Filament colour','filament_colour',values) }}{{ field('Spool or purchase weight (g)','spool_grams',values,'decimal') }}
     </div>
   </fieldset>

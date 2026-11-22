@@ -1,0 +1,2 @@
+{% extends 'inventory/base.html' %}
+{% block workshop %}<section class="workshop-panel"><h1>Image upload too large</h1><p role="alert">Choose one original image up to 25 MB. The previous saved record and image have not changed.</p><p>Return to the item form and choose a smaller photograph. The upload request also has a bounded allowance for form fields.</p><a class="btn btn-outline-primary" href="{{ url_for('inventory.items',group='catalogue') }}">Inventory Catalogue</a></section>{% endblock %}
