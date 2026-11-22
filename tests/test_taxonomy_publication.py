@@ -190,3 +190,32 @@ def test_upload_review_cancel_save_reopen_and_legacy_preservation(registry_app):
         {'name': 'Renamed', 'slug': 'seasonal', 'state': 'active'})
     assert changed['storefront_collections'][0]['image_sha256'] == digest
     assert b'type="file"' not in client.get('/taxonomy/edit/categories?key=cards').data
+
+
+def test_save_collection_persists_image_without_second_confirmation(registry_app):
+    app, client, root, data = registry_app
+    data['storefront_collections'] = [entry('seasonal')]
+    path = root / 'registry.json'
+    path.write_bytes(workspace.validate(data))
+    url = '/taxonomy/edit/storefront_collections?key=seasonal'
+    page = client.get(url)
+    assert b'Save collection' in page.data
+    response = client.post(url, data={'csrf_token': field(page, 'csrf_token'),
+        'base': field(page, 'base'), 'name': 'Seasonal', 'slug': 'seasonal', 'state': 'active',
+        'action': 'save_local', 'image': (photo().stream, 'collection.png')}, content_type='multipart/form-data')
+    assert response.status_code == 302
+    digest = json.loads(path.read_text())['storefront_collections'][0]['image_sha256']
+    assert digest.encode() in client.get(url).data
+    assert client.get('/taxonomy/images/' + digest + '.webp').status_code == 200
+    page = client.get(url)
+    # A later edit without selecting the file again preserves its saved reference.
+    response = client.post(url, data={'csrf_token': field(page, 'csrf_token'), 'base': field(page, 'base'),
+        'name': 'Seasonal renamed', 'slug': 'seasonal', 'state': 'active', 'action': 'save_local'})
+    assert response.status_code == 302
+    assert json.loads(path.read_text())['storefront_collections'][0]['image_sha256'] == digest
+    before = path.read_bytes()
+    page = client.get(url)
+    response = client.post(url, data={'csrf_token': field(page, 'csrf_token'), 'base': field(page, 'base'),
+        'name': 'Broken upload', 'slug': 'seasonal', 'state': 'active', 'action': 'save_local',
+        'image': (BytesIO(b'not an image'), 'invalid.png')}, content_type='multipart/form-data')
+    assert response.status_code == 422 and path.read_bytes() == before

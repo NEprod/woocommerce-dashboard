@@ -268,6 +268,11 @@ def edit(kind):
                 except ImageUploadError as invalid:
                     raise service.RegistryEditError(str(invalid)) from None
             proposed = service.edit_definition(json.loads(json.dumps(data)), kind, key, attribute, fields)
+            if kind == 'storefront_collections' and fields.get('action') == 'save_local':
+                with operation_context('taxonomy_registry_update', {'action': 'save_collection', 'key': key or fields.get('key')}):
+                    service.save_reviewed(proposed, revision)
+                flash('Collection saved locally, including its image reference. Shopify has not been changed.', 'success')
+                return redirect(url_for('taxonomy.edit', kind=kind, key=key or fields.get('key')))
             return review(data, proposed, revision, missing, "guided")
         except service.RegistryEditError as invalid:
             error = str(invalid)

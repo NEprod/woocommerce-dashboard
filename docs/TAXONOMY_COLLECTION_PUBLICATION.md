@@ -2,8 +2,10 @@
 
 In **Taxonomy → Storefront collections**, edit a definition and choose a JPEG,
 PNG or WebP image (up to 25 MB). The existing image optimiser preserves aspect
-ratio, limits the longest side to 1600 pixels and strips metadata. Review and
-confirm the registry change as usual. Categories do not require artwork.
+ratio, limits the longest side to 1600 pixels and strips metadata. **Save
+collection** saves the local definition and image reference together in one
+action, then reopens the editor with the saved image. Removal and Advanced JSON
+still use the existing review/confirmation flow. Categories do not require artwork.
 
 Images are immutable, content-addressed WebP files beneath
 `/app/instance/taxonomy-images`; `registry.json` retains an optional
