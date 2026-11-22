@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import stat
+import uuid
 
 
 MARKER = ".tlc-deployment.json"
@@ -82,33 +84,40 @@ def _ancestor(a, b):
     return a == b or a in b.parents
 
 
-def _mount_aliases(paths):
+def _mount_aliases(paths, *, require_mounts=False):
     """Detect nested/aliased Linux mounts even when their visible paths differ."""
     info = Path("/proc/self/mountinfo")
     if not info.is_file():
+        if require_mounts:
+            raise DeploymentError('Fresh managed storage requires verifiable Linux mount information.')
         return []
     def unescape(s):
         return re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), s)
     mounts = []
     for row in info.read_text().splitlines():
         parts = row.split()
-        mounts.append((Path(unescape(parts[4])), parts[2], Path(unescape(parts[3]))))
+        mounts.append((Path(unescape(parts[4])), parts[2], Path(unescape(parts[3])), parts[5].split(',')))
     aliases = []
     for path in paths:
+        if require_mounts and not any(path == m[0] and 'rw' in m[3] for m in mounts):
+            raise DeploymentError('Every fresh managed storage root must be its own writable persistent mount.')
         if any(path != m[0] and _ancestor(path, m[0]) for m in mounts):
             raise DeploymentError("Nested mounts under a managed storage root are not allowed.")
         points = [m for m in mounts if _ancestor(m[0], path)]
         if points:
-            point, device, source = max(points, key=lambda m: len(m[0].parts))
+            point, device, source, _ = max(points, key=lambda m: len(m[0].parts))
             aliases.append((device, source / path.relative_to(point)))
     return aliases
 
 
-def validate_storage(owner, roots):
+def validate_storage(owner, roots, *, allow_fresh=False):
     if not owner:
         if any(p and os.path.lexists(p / MARKER) for p in roots.values()):
             raise DeploymentError("Marked storage requires explicit deployment identity; legacy fallback refused.")
         return
+    if any(path is None for path in roots.values()):
+        raise DeploymentError('Managed storage roots must be configured before initialisation.')
+    fresh = allow_fresh and not any(os.path.lexists(path / MARKER) for path in roots.values())
     paths, seen = [], set()
     for role, path in roots.items():
         if not path or not path.is_absolute() or not path.is_dir() or path.resolve() != path:
@@ -119,11 +128,16 @@ def validate_storage(owner, roots):
             raise DeploymentError("Managed storage roots overlap or alias each other.")
         seen.add(alias)
         paths.append(path)
+        if fresh:
+            if not st.st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH) or not os.access(path, os.W_OK | os.R_OK | os.X_OK):
+                raise DeploymentError('Fresh managed storage must be readable and writable.')
+            if any(path.iterdir()):
+                raise DeploymentError('Unmarked managed storage is not empty; refusing to claim existing data.')
         marker = path / MARKER
         try:
-            if marker.is_symlink() or not marker.is_file() or marker.stat().st_size > 1024:
+            if not fresh and (marker.is_symlink() or not marker.is_file() or marker.stat().st_size > 1024):
                 raise ValueError()
-            if json.loads(marker.read_bytes()) != owner.marker(role):
+            if not fresh and json.loads(marker.read_bytes()) != owner.marker(role):
                 raise ValueError()
         except (OSError, ValueError):
             raise DeploymentError("A storage identity marker is missing or belongs to another environment or role.") from None
@@ -132,10 +146,67 @@ def validate_storage(owner, roots):
                 db = path / name
                 if os.path.lexists(db) and (db.is_symlink() or not db.is_file() or db.stat().st_nlink != 1):
                     raise DeploymentError("Managed SQLite storage must be a regular non-aliased file.")
-    aliases = _mount_aliases(paths)
+    aliases = _mount_aliases(paths, require_mounts=True) if fresh else _mount_aliases(paths)
     for i, (device, path) in enumerate(aliases):
         if any(device == d and (_ancestor(path, p) or _ancestor(p, path)) for d, p in aliases[:i]):
             raise DeploymentError("Managed storage resolves to overlapping host mounts.")
+    return not fresh
+
+
+def _initialise_markers(owner, roots):
+    """Publish complete files without replacement; crash/partial state stays fail-closed."""
+    import fcntl
+    opened, staged, created = [], [], []
+    try:
+        for role, path in sorted(roots.items()):
+            fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            opened.append((role, path, fd))
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Recheck after authentication and lock acquisition, not just at preflight.
+        if validate_storage(owner, roots, allow_fresh=True):
+            return  # Another successful starter may have completed the same identity.
+        for role, path, fd in opened:
+            temporary = f'.tlc-deployment-{uuid.uuid4().hex}.tmp'
+            output = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=fd)
+            staged.append((fd, temporary))
+            with os.fdopen(output, 'wb') as handle:
+                handle.write(json.dumps(owner.marker(role), sort_keys=True).encode())
+                handle.flush()
+                os.fchmod(handle.fileno(), 0o644)  # Readable after the entrypoint drops privileges.
+                os.fsync(handle.fileno())
+        for role, path, fd in opened:
+            current, pinned = path.stat(), os.fstat(fd)
+            if (current.st_dev, current.st_ino) != (pinned.st_dev, pinned.st_ino):
+                raise DeploymentError('Managed storage changed during initialisation.')
+            own = {name for directory, name in staged if directory == fd}
+            if set(os.listdir(fd)) != own:
+                raise DeploymentError('Managed storage changed during initialisation; no existing data was claimed.')
+        for fd, temporary in staged:
+            # A hard link is an atomic no-replace publication of the fully fsynced file.
+            os.link(temporary, MARKER, src_dir_fd=fd, dst_dir_fd=fd, follow_symlinks=False)
+            created.append((fd, os.stat(temporary, dir_fd=fd, follow_symlinks=False).st_ino))
+            os.fsync(fd)
+    except (OSError, DeploymentError) as exc:
+        # Never unlink a marker replaced by another actor; only undo our own inodes.
+        for fd, inode in reversed(created):
+            try:
+                if os.stat(MARKER, dir_fd=fd, follow_symlinks=False).st_ino == inode:
+                    os.unlink(MARKER, dir_fd=fd)
+                    os.fsync(fd)
+            except OSError:
+                pass  # Any remaining partial state is rejected at the next start.
+        if isinstance(exc, DeploymentError):
+            raise
+        raise DeploymentError('Fresh storage marker initialisation failed; inspect mounts/permissions. Partial markers must not be adopted.') from exc
+    finally:
+        for fd, temporary in staged:
+            try:
+                os.unlink(temporary, dir_fd=fd)
+                os.fsync(fd)
+            except OSError:
+                pass
+        for _, _, fd in reversed(opened):
+            os.close(fd)
 
 
 def _local_comparison_failure(key, raw):
@@ -187,7 +258,7 @@ def audit_database(owner, path):
 def verify_startup(instance, env, *, verify_product=None, verify_promotions=None):
     owner = identity(env)
     roots = roots_for(instance, env)
-    validate_storage(owner, roots)
+    marked = validate_storage(owner, roots, allow_fresh=True)
     if not owner:
         return None
     saved = roots["instance"] / "commerce.json"
@@ -230,6 +301,10 @@ def verify_startup(instance, env, *, verify_product=None, verify_promotions=None
         raise DeploymentError("Product app authentication or Shopify identity read failed.") from None
     if data != (owner.domain, owner.shop, owner.app, owner.environment == "development"):
         raise DeploymentError("Authenticated Shopify store or product app does not match the deployment identity.")
+    if not marked:
+        _initialise_markers(owner, roots)
+        validate_storage(owner, roots)
+        audit_database(owner, roots['instance'] / 'site.db')
     return owner, cfg.fingerprint(), promo
 
 
@@ -268,6 +343,10 @@ def promotion_transport(cfg, *, writing=False):
 
 if __name__ == "__main__":
     try:
-        validate_storage(identity(os.environ), roots_for("/app/instance", os.environ))
+        owner = identity(os.environ)
+        roots = roots_for('/app/instance', os.environ)
+        marked = validate_storage(owner, roots, allow_fresh=True)
+        if owner and not marked:
+            verify_startup('/app/instance', os.environ)
     except DeploymentError as exc:
         raise SystemExit(str(exc)) from None

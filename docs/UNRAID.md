@@ -55,6 +55,16 @@ genuinely new data, initial scanning and verification when authorised.
   container at the same SQLite database. Follow
   [deployment identity and storage requirements](ENVIRONMENT_MIGRATION.md) for a
   separate, deliberately prepared production deployment.
+- A genuinely fresh installation now initialises its own role markers after
+  complete deployment configuration and authenticated Shopify identity checks.
+  All managed roots must be separate writable Linux mounts, all markers must be
+  absent, and every managed directory must be empty. Existing databases, product
+  files, registry files, partial markers and conflicting identities are refused;
+  they are never adopted or repaired automatically. Marker files are published
+  atomically without replacement and remain readable after the privilege drop.
+  Interrupted/partial state fails closed and needs operator review, not another
+  installation's markers. This requires no new settings or mappings and does
+  not authorise Shopify writes or change normal first-run setup.
 - `TLC_DEPLOYMENT_ALLOW_WRITES` and `TLC_DEPLOYMENT_ALLOW_AUTOMATION` default to
   `false`. Keep automation off. For a running development deployment, retain its
   existing, separately authorised manual-write setting. Write permission still
