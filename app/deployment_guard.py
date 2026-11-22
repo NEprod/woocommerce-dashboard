@@ -273,9 +273,9 @@ def verify_startup(instance, env, *, verify_product=None, verify_promotions=None
     # are a separate opt-in: only the real dashboard fields are allowed, and
     # the photo client independently verifies the expected shop before use.
     if any(v for k, v in env.items() if k.startswith((
-            "SHOPIFY_ORDERS_WEBHOOK_", "WOO_", "DISCORD_WEBHOOK"))
+            "SHOPIFY_ORDERS_WEBHOOK_", "WOO_"))
             or k == "SHOPIFY_ONLINE_STORE_PUBLICATION_ID"):
-        raise DeploymentError("Managed startup requires legacy webhook, Woo, Discord and publication overrides unset.")
+        raise DeploymentError("Managed startup requires legacy Shopify webhook, Woo and publication overrides unset.")
     from app.customer_photos import ENV_KEYS as PHOTO_KEYS, parse_settings as photo_settings
     if (any(v for k, v in env.items() if k.startswith("TLC_PHOTO_") and k not in PHOTO_KEYS)
             or any(env.get(k) for k in PHOTO_KEYS) and not photo_settings(env)[0]):

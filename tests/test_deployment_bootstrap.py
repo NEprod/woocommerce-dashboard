@@ -81,6 +81,18 @@ def test_identity_and_authentication_must_pass_before_writing(fresh):
     assert not any((p/guard.MARKER).exists() for p in roots.values())
 
 
+def test_discord_notifications_do_not_block_bootstrap_or_restart(fresh):
+    instance,env,roots,owner,authenticated,_=fresh
+    notifications={key:'https://discord.com/api/webhooks/fixture/not-a-real-token'
+        for key in ('DISCORD_WEBHOOK_SCANS_ERRORS','DISCORD_WEBHOOK_OVERRIDES',
+                    'DISCORD_WEBHOOK_EDITS','DISCORD_WEBHOOK_INGEST','DISCORD_WEBHOOK_SCANS_INFO')}
+    env.update(notifications)
+    assert guard.verify_startup(instance,env,verify_product=authenticated)[0]==owner
+    assert guard.verify_startup(instance,env,verify_product=lambda _: (
+        owner.domain,owner.shop,owner.app,owner.environment=='development'))[0]==owner
+    assert {key:env[key] for key in notifications}==notifications
+
+
 @pytest.mark.parametrize('case',['unmounted','read_only','aliased','nested'])
 def test_mount_requirements(fresh,case):
     instance,env,roots,owner,_,mounts=fresh
