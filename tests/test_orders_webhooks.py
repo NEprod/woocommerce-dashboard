@@ -178,7 +178,11 @@ def test_queue_gateway_auth_dedupe_encrypted_and_ack(tmp_path):
     assert c.get('/orders/').status_code==404 and c.get('/login').status_code==404
 
 
-def test_gateway_offline_replay_expiry_marker_and_limits(tmp_path):
+def test_gateway_offline_replay_expiry_marker_and_limits(tmp_path,monkeypatch):
+    # A rate-window assertion must not depend on 70 SQLite requests finishing
+    # before the wall-clock second rolls over on a loaded test machine.
+    from types import SimpleNamespace
+    monkeypatch.setattr('app.order_webhook_gateway.time',SimpleNamespace(time=lambda:1760000000.0))
     config={'DATABASE':str(tmp_path/'gateway.db'),'KEY':Fernet.generate_key().decode(),'TOKEN':'x'*40,'SECRET':SECRET,'DOMAIN':DOMAIN}
     c=create_gateway(config).test_client();body,headers=delivery();c.post('/webhooks/shopify/orders',data=body,headers=headers)
     auth={'Authorization':'Bearer '+config['TOKEN']}
@@ -219,7 +223,7 @@ def test_transport_graphql_error_classification(orders_app,monkeypatch,errors,ca
     assert result.value.category==category and adapter.request_count==1
 
 
-def test_startup_checkpoint_overlap_no_recurring_poll(orders_app):
+def test_startup_checkpoint_overlap_and_configurable_recurring_poll(orders_app):
     run(Adapter());sync=ShopifyOrderSync.query.one();checkpoint=sync.checkpoint
     id=tasks.enqueue(tasks.ORDERS_KEY,startup=True)
     assert tasks.enqueue(tasks.ORDERS_KEY,startup=True)==id
@@ -229,8 +233,44 @@ def test_startup_checkpoint_overlap_no_recurring_poll(orders_app):
     assert (checkpoint-timedelta(hours=2)).isoformat() in query
     assert sync.startup_successful_at and sync.manual_successful_at
     assert tasks.enqueue(tasks.ORDERS_KEY) is None
-    with pytest.raises(ValueError):tasks.configure(tasks.ORDERS_KEY,enabled=True,interval=5)
+    tasks.configure(tasks.ORDERS_KEY,enabled=True,interval=15)
+    assert db.session.get(ScheduledTask,tasks.ORDERS_KEY).enabled
+    assert db.session.get(ScheduledTask,tasks.ORDERS_KEY).interval_minutes==15
+    tasks.configure(tasks.ORDERS_KEY,enabled=False,interval=15)
     assert not db.session.get(ScheduledTask,tasks.ORDERS_KEY).enabled
+
+
+def test_same_event_new_delivery_is_deduplicated_after_success(channel,monkeypatch):
+    _,_,config=channel
+    first=None
+    for delivery_id in ['repeat-event-0001','repeat-event-0002']:
+        body,headers=delivery(event=delivery_id)
+        headers['X-Shopify-Event-Id']='same-shopify-event-0001'
+        inbox.receive(seal(body,headers,config['KEY']),config)
+        event=ShopifyOrderEvent.query.filter_by(delivery_id=delivery_id).one()
+        process(event,config)
+        if first is None:
+            assert event.state=='applied';first=event.id
+            monkeypatch.setattr(inbox,'persist',lambda *a,**k:pytest.fail('An already successful event must not re-import'))
+        else:assert event.state=='duplicate' and event.payload is None
+
+
+@pytest.mark.parametrize('topic',['refunds/create','fulfillments/create','fulfillments/update'])
+def test_partial_order_events_share_canonical_task_and_order_identity(channel,topic):
+    _,_,config=channel
+    from app.order_integration_models import OrderWebhookSetting
+    db.session.add(OrderWebhookSetting(store_id=STORE,topic=topic,name='Synthetic event',endpoint='https://receiver.example/webhooks/shopify/orders',
+        enabled=True,version=1,state='local_only',error='',remote_json='{}'));db.session.commit()
+    event=ingest(config,{'id':999,'order_id':1001,'created_at':'2026-10-16T10:01:00Z'},topic=topic)
+    assert event.order_gid==ORDER  # Never fetch the refund/fulfilment ID as an Order.
+    process(event,config)
+    task=db.session.get(ScheduledTask,tasks.ORDERS_KEY)
+    assert event.state=='incomplete' and task.active_run_id
+    assert db.session.get(ScheduledTaskRun,task.active_run_id).trigger=='webhook'
+    assert tasks.enqueue(tasks.ORDERS_KEY,manual=True)==task.active_run_id
+    assert run(Adapter()).state=='completed'
+    db.session.refresh(event);assert event.state=='reconciled'
+    assert ShopifyOrder.query.count()==1 and ShopifyOrderLine.query.count()==2
 
 
 def test_manual_recent_rescan_and_no_duplicate_lines(orders_app):

@@ -45,8 +45,6 @@ def duration(value):
 
 
 def interval(task):
-    if task["key"] == "shopify_orders":
-        return "Startup/manual only"
     if not task["enabled"]:
         return "Disabled"
     minutes = task["interval"]

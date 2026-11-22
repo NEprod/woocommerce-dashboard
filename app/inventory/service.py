@@ -407,9 +407,18 @@ def _checked(moves):
         totals[move["item_id"]]+=move["qty"]
     if any(balance(item_id)+qty>MAX_QTY for item_id,qty in totals.items()):
         raise ValueError("This movement exceeds the supported total stock limit.")
+    # Reservations are claims, never physical counters. Every existing stock
+    # withdrawal uses the same fence; a picking transaction releases its own
+    # claim in the same database transaction before appending ledger movements.
+    from app.order_work_models import WorkRequirement
+    for item_id,change in totals.items():
+        if change < 0:
+            reserved=db.session.scalar(select(func.coalesce(func.sum(WorkRequirement.reserved),0)).where(WorkRequirement.item_id==item_id))
+            if balance(item_id)+change < reserved:
+                raise ValueError('This stock is reserved for order picking. Release/reconcile the reservation before other use.')
 
 
-def plan(kind, data):
+def plan(kind, data, *, order_pick_return=False):
     """Read-only preview. Recomputed under the SQLite write lock on confirmation."""
     if kind not in STEPS:
         raise ValueError("Unknown stock operation.")
@@ -418,6 +427,9 @@ def plan(kind, data):
     if kind=="reversal":
         key=data.get("original","")
         original=db.session.get(Transaction,key) if re.fullmatch(r"[a-f0-9]{32}",key) else None
+        from app.order_work_models import WorkPick
+        if original and not order_pick_return and WorkPick.query.filter_by(transaction_id=original.id).first():
+            raise ValueError('Return order picks through Order Fulfilment so picked quantities and the ledger remain reconciled.')
         if not original or original.kind=="reversal" or not original.moves or db.session.scalar(
                 select(Transaction.id).where(Transaction.reverses_id==original.id)):
             raise ValueError("That transaction cannot be reversed or already has a reversal.")
@@ -530,7 +542,7 @@ def digest(value):
     return sha256(json.dumps(value,sort_keys=True,separators=(",",":")).encode()).hexdigest()
 
 
-def post(kind, data, request_id, expected, *, actor, actor_label=None):
+def post(kind, data, request_id, expected, *, actor, actor_label=None, order_pick_return=False):
     """Atomically validate and append. An identical retry returns the original receipt."""
     if not re.fullmatch(r"[a-f0-9]{32}",request_id):
         raise ValueError("Missing stock operation reference. Start a new preview.")
@@ -540,7 +552,7 @@ def post(kind, data, request_id, expected, *, actor, actor_label=None):
         if existing.request_hash!=expected or existing.actor!=actor:
             raise ValueError("This request ID has already been used by another stock transaction.")
         return existing
-    change=plan(kind,data)
+    change=plan(kind,data,order_pick_return=order_pick_return)
     if digest(change)!=expected:
         raise ValueError("Stock, recipe or costs changed after preview. Build a fresh preview before confirming.")
     tx=Transaction(id=request_id,kind=kind,item_id=change["item_id"],actor=actor,actor_label=(actor_label or actor)[:160],

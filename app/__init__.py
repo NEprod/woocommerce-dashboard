@@ -88,6 +88,10 @@ def create_app(*, recover=None):
     app.register_blueprint(customisations)
     from .order_routes import orders
     app.register_blueprint(orders)
+    from .order_work_routes import fulfilment
+    app.register_blueprint(fulfilment)
+    from .order_webhook_routes import webhooks
+    app.register_blueprint(webhooks)
     from .packaging_routes import packaging
     app.register_blueprint(packaging)
     from .inventory.routes import inventory

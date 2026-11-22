@@ -25,6 +25,7 @@ STORE_COLUMNS = {
     "shopify_sale_schedule": "store_id", "packaging_link": "store_id",
     "shopify_order": "store_id", "shopify_order_sync": "store_id",
     "shopify_order_event": "store_id", "automatic_publishing": "store_id",
+    "order_webhook_setting": "store_id", "order_integration_settings": "store_id",
 }
 
 

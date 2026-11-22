@@ -1,0 +1,12 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading,scanner %}
+{% block title %}Order Fulfilment{% endblock %}
+{% block workshop %}<div class="order-fulfilment">
+{{ heading('Order Fulfilment','Incoming Shopify orders → proof → production / picking → quality → packing → dispatch. Local operations; commerce remains Shopify-owned.') }}
+<form method="get" class="workshop-panel workshop-form" data-inventory-lookup>
+<label>Order number / reference<input class="form-control" name="reference" data-lookup-code value="{{ reference }}" placeholder="#1001 or TLC-ORDER-123" maxlength="160" autocomplete="off" required></label>
+<div class="page-actions"><button class="btn btn-primary">Find order</button><a class="btn btn-outline-primary" href="{{ url_for('fulfilment.replenishment') }}">Stock &amp; Replenishment Tracker</a><a href="{{ url_for('fulfilment.index',test='yes') }}">Include test orders</a></div>
+{{ scanner(standalone=true,label='Scan Order Barcode') }}
+<p>Camera scanning and keyboard-wedge entry only open this same order workflow. Neither starts work nor changes stock. Duplicate display numbers require selecting the correct store/order below.</p></form>
+<section class="table-panel"><header class="table-panel-header"><h2>{{ 'Matching orders' if reference else 'Incoming orders — latest 100' }}</h2></header><div class="table-responsive"><table class="table"><thead><tr><th>Order</th><th>Date / store</th><th>Payment / Shopify fulfilment</th><th>Local workflow</th><th>Actions</th></tr></thead><tbody>{% for order in orders %}<tr><td>{{ order.name }}{% if order.test %} · Test{% endif %}</td><td>{{ order.created_at }}<br><small>{{ order.store_id }}</small></td><td>{{ order.financial_status }} · {{ order.fulfillment_status }}</td><td><span class="status-pill">{{ summary(order) }}</span></td><td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('fulfilment.detail',order_id=order.id) }}">Open workflow</a></td></tr>{% else %}<tr><td colspan="5">No saved matching orders. Import using the existing Orders → Sync Now.</td></tr>{% endfor %}</tbody></table></div></section>
+</div>{% endblock %}

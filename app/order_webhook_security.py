@@ -6,7 +6,8 @@ import json
 import re
 from cryptography.fernet import Fernet
 
-TOPICS=frozenset({'orders/create','orders/updated','orders/cancelled','orders/paid','refunds/create'})
+TOPICS=frozenset({'orders/create','orders/updated','orders/cancelled','orders/paid','refunds/create',
+                  'orders/fulfilled','orders/partially_fulfilled','fulfillments/create','fulfillments/update'})
 MAX_BODY=2*1024*1024
 
 

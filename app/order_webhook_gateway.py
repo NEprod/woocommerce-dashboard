@@ -52,7 +52,7 @@ def create_gateway(config=None):
         from app.shopify_orders import stamp
         order_gid=source_updated=None
         try:
-            order_gid=gid(raw['order_id'],'Order') if topic=='refunds/create' else identity(raw,'Order')
+            order_gid=gid(raw['order_id'],'Order') if topic=='refunds/create' or topic.startswith('fulfillments/') else identity(raw,'Order')
             source_updated=stamp(raw.get('updated_at') or raw.get('created_at')).isoformat()+'Z'
         except (ValueError,KeyError,TypeError):pass
         digest=hashlib.sha256(body).hexdigest()

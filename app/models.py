@@ -5,6 +5,8 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import synonym
 from flask import current_app, has_app_context
 from .order_models import ShopifyOrder, ShopifyOrderLine, ShopifyOrderSync, ShopifyOrderEvent, ShopifyOrderDelivery
+from .order_work_models import OrderWorkLine, WorkRequirement, WorkEvent, WorkProof, WorkPick, WorkPlan, WorkOutbound
+from .order_integration_models import OrderWebhookSetting, OrderIntegrationSettings, OrderStatusProjection
 from .packaging_models import Package, PackageLink, PackagingEvidence
 from .publishing_models import AutomaticPublishing, ShopifyPublishJob, ShopifyDueEvent, ShopifyPublishingEvent
 

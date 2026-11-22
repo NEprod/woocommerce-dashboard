@@ -299,8 +299,10 @@ def dashboard():
     if onboarding.pending():
         return redirect(url_for("main.initial_settings"))
     from app.orders_workspace import overview, include_test_orders
+    from app.order_work import stock_health
     response=current_app.make_response(render_template("dashboard.html", dashboard=build_dashboard_data(),
-        orders_overview=overview(include_test=include_test_orders(request.args)) if current_user.is_admin else None))
+        orders_overview=overview(include_test=include_test_orders(request.args)) if current_user.is_admin else None,
+        stock_overview=stock_health()['counts'] if current_user.is_admin else None))
     response.headers['Cache-Control']='no-store, private'
     return response
 

@@ -1,4 +1,4 @@
-{% macro heading(title, description='') %}<header class="page-header workshop-heading"><div><p class="eyebrow">Production &amp; Operations</p><h1>{{ title }}</h1>{% if description %}<p>{{ description }}</p>{% endif %}</div></header>{% endmacro %}
+{% macro heading(title, description='', section='Production & Operations') %}<header class="page-header workshop-heading"><div><p class="eyebrow">{{ section }}</p><h1>{{ title }}</h1>{% if description %}<p>{{ description }}</p>{% endif %}</div></header>{% endmacro %}
 {% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
 {% macro error(message) %}{% if message %}<p class="alert alert-danger" role="alert">{{ message }}</p>{% endif %}{% endmacro %}
 {% macro field(label,name,values,type='text',required=false,limit=100,placeholder='') %}
@@ -16,13 +16,13 @@
 <video data-scan-video playsinline muted autoplay hidden aria-label="Barcode scanner camera preview"></video>
 <p class="field-helper" data-scan-status role="status" aria-live="polite"></p>
 {% endmacro %}
-{% macro scanner(target='', standalone=false) %}
+{% macro scanner(target='', standalone=false, label=None, maxlength=24) %}
 <details class="workshop-scan workshop-no-print" data-workshop-scan="{{ target }}" {% if standalone %}data-lookup-scan open{% endif %} hidden>
   <summary>{{ 'Use the camera' if standalone else 'Scan or enter a barcode' }}</summary>
-  {% if not standalone %}<label>Enter barcode<input class="form-control" data-scan-manual placeholder="Type or scan the label code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24"></label>{% endif %}
+  {% if not standalone %}<label>Enter barcode<input class="form-control" data-scan-manual placeholder="Type or scan the label code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="{{ maxlength }}"></label>{% endif %}
   <div class="workshop-actions">
     {% if not standalone %}<button class="btn btn-outline-primary" type="button" data-scan-select>Use barcode</button>{% endif %}
-    <button class="btn btn-outline-primary" type="button" data-scan-open>Open camera</button>
+    <button class="btn btn-outline-primary" type="button" data-scan-open>{{ label or 'Open camera' }}</button>
     <button class="btn btn-outline-primary" type="button" data-scan-stop hidden>Stop camera</button>
   </div>
   {{ scanner_preview() }}

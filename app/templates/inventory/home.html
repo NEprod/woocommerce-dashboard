@@ -3,6 +3,7 @@
 {% block workshop %}
 {{ heading('Production & Operations','Receive materials, record completed batches and keep workshop stock accurate. All inventory here stays in TLC.') }}
 <h2>Stock operations</h2>
+<div class="workshop-grid"><a class="workshop-tile" href="{{ url_for('fulfilment.index') }}"><strong>Order Fulfilment</strong><span>Find or scan incoming orders, proofs, picking, production, quality, packing and dispatch.</span></a><a class="workshop-tile" href="{{ url_for('fulfilment.replenishment') }}"><strong>Stock &amp; Replenishment Tracker</strong><span>Available stock, reservations, uncovered order demand and planning.</span></a></div>
 <div class="workshop-grid">
   <a class="workshop-tile" href="{{ url_for('inventory.lookup') }}"><strong>Complete a Planned Batch</strong><span>Scan the batch label to record accepted output and actual materials.</span></a>
   <a class="workshop-tile" href="{{ url_for('inventory.workflow',kind='use') }}"><strong>Use / Remove Stock</strong><span>Record non-order use of unbatched components or materials. For batch stock, scan the batch label.</span></a>

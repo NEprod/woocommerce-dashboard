@@ -19,8 +19,8 @@ from app.order_personalisation import parse
 from app import customer_photos
 
 KEY = 'shopify_orders'
-DEFINITION = {'name':'Shopify Orders Reconciliation',
-              'description':'Read-only recent and updated orders; commerce and historical line-item personalisations only.'}
+DEFINITION = {'name':'Shopify Order Synchronisation',
+              'description':'Incremental read-only order reconciliation; default every 15 minutes, with webhook and manual catch-up.'}
 AUTH_ERROR = 'Shopify Orders requires authorisation: release and approve read_orders for the existing app, then use Sync Now.'
 SAFE_ERROR = 'Orders sync could not obtain complete Shopify evidence. Previously imported orders remain available. Check connection, protected customer data access and task history, then retry Sync Now.'
 
@@ -235,6 +235,11 @@ def persist(store_id, order, lines, *, fence=lambda:None, observed_before=None, 
     for line in lines:
         db.session.execute(insert(lt).values(order_id=row,**line).on_conflict_do_update(
             index_elements=['order_id','remote_id'],set_=line))
+    # Local operational projection joins the complete imported graph. This never
+    # starts physical work, reserves stock, sends a message or calls Shopify.
+    db.session.expire_all()
+    from app.order_work import reconcile
+    reconcile(db.session.get(ShopifyOrder,row))
     return True
 
 
@@ -299,6 +304,19 @@ def run_slice(run_id, owner, *, adapter=None):
                 sync.state='authorisation_required';sync.error=AUTH_ERROR
                 save_receipt(run,data,sync);fence();db.session.commit()
                 raise OrdersPermissionRequired(AUTH_ERROR)
+            # Partial refund/fulfilment/edit payloads use this same canonical,
+            # revision-verified reader. No second webhook importer or watermark.
+            from app.order_models import ShopifyOrderEvent
+            events=ShopifyOrderEvent.query.filter(ShopifyOrderEvent.store_id==store_id,
+                ShopifyOrderEvent.state.in_(['incomplete','dead_letter']),ShopifyOrderEvent.order_gid.isnot(None)).order_by(ShopifyOrderEvent.id).limit(3).all()
+            for event in events:
+                phase='order_read';observed_before=now()
+                canonical,canonical_lines=read_order(adapter,config,event.order_gid)
+                if event.source_updated_at and canonical['updated_at']<event.source_updated_at:
+                    raise ShopifyError('Canonical order is older than authenticated event evidence; retry without advancing watermark.')
+                persist(store_id,canonical,canonical_lines,fence=fence,observed_before=observed_before)
+                event.state='reconciled';event.payload=None;event.processed_at=now();event.error=None
+                fence();db.session.commit()
             if data.get('rescan_recent') and not data.get('rescan_started'):
                 sync.window_end=None;sync.window_start=None;sync.pending_json='[]';sync.cursor=None
                 data['rescan_started']=True
@@ -410,3 +428,5 @@ def redact_local_order(order):
             'error':'Local personal data was redacted.'},synchronize_session=False)
     for line in order.lines:
         line.properties_json='[]';line.personalisation_json=dumps({'fields':[],'public':[],'warnings':['Local personal data was redacted.']});line.personalised=False
+    from app.order_work import reconcile
+    reconcile(order)

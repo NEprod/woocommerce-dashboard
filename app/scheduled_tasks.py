@@ -50,6 +50,7 @@ def definition(key):
 
 
 def intervals(key):
+    if key==ORDERS_KEY:return (5,10,15,20,30,60)
     return (5,10,20,30,60) if key in {SALE_KEY,RELEASE_KEY,ORDERS_KEY,VIEW_KEY} else INTERVALS
 COUNTERS = ("considered", "skipped_recent", "checked", "up_to_date", "updates", "attention", "unavailable", "deferred", "api_requests", "throttled")
 
@@ -74,15 +75,13 @@ def snapshot(task):
         "state":task.state,"outcome":task.last_outcome,
         "summary":task_summary(run) if run and task.key in {KEY, PUBLISHER_KEY} else None,
         "duration":max(0,(now()-run.started_at).total_seconds()) if task.active_run_id and run and run.started_at else None if task.active_run_id else task.duration_seconds,
-        **{key:getattr(task,key).isoformat()+"Z" if getattr(task,key) and not (task.key==ORDERS_KEY and key in {'next_due','last_scheduled'}) else None for key in
+        **{key:getattr(task,key).isoformat()+"Z" if getattr(task,key) else None for key in
             ("next_due","last_scheduled","last_started","last_completed","last_successful")},
         "run_id":task.active_run_id,"progress":{**data.get("counts",{}),"remaining":data.get('pending_orders',len(data.get("queue",[])))} if run else {},
         "reason":json.loads(run.data_json).get("reason") if run else None,"error":run.error if run else None}
 
 
 def configure(key, *, enabled, interval):
-    if key==ORDERS_KEY:
-        raise ValueError('Orders use startup/manual catch-up and webhooks, not recurring API polling.')
     if key not in {KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY} or type(enabled) is not bool or type(interval) is not int or interval not in intervals(key):
         raise ValueError("Choose an enabled state and a supported task interval.")
     if key == PUBLISHER_KEY and enabled:
@@ -102,9 +101,11 @@ def configure(key, *, enabled, interval):
     return snapshot(db.session.get(ScheduledTask,key))
 
 
-def enqueue(key=KEY, *, manual=False, product_ids=None, startup=False, orders_rescan=False, priority=False):
+def enqueue(key=KEY, *, manual=False, product_ids=None, startup=False, orders_rescan=False, priority=False, webhook=False):
     if key not in {KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY,MANUAL_KEY}:
         raise ValueError("Unknown task.")
+    if webhook and (key!=ORDERS_KEY or manual or startup or priority or product_ids is not None):
+        raise ValueError('Webhook catch-up accepts only the existing Orders importer.')
     if key==MANUAL_KEY and not manual:raise ValueError('Manual publishing requires an accepted signed review.')
     if orders_rescan and (key!=ORDERS_KEY or not manual):raise ValueError('Recent Orders rescan requires explicit manual authority.')
     if priority and (key != PUBLISHER_KEY or manual or startup or product_ids is None):
@@ -127,20 +128,18 @@ def enqueue(key=KEY, *, manual=False, product_ids=None, startup=False, orders_re
             task.next_due = now() + timedelta(minutes=task.interval_minutes)
             db.session.commit()
             return None
-    if key==ORDERS_KEY and not (manual or startup):
-        return None  # No recurring Orders Admin API polling, even with an old enabled flag.
     run_id, stamp = uuid.uuid4().hex, now()
     conditions = [ScheduledTask.key==key, ScheduledTask.active_run_id.is_(None)]
-    if not manual:
+    if not manual and not webhook:
         if not (startup and key==ORDERS_KEY): conditions += [ScheduledTask.enabled.is_(True)]
         if not startup and not priority: conditions += [ScheduledTask.next_due<=stamp]
     values = {"active_run_id":run_id,"state":"queued","owner":None,"lease_until":None,"resume_at":None}
-    if not manual and not priority:
+    if not manual and not priority and not webhook:
         values.update(next_due=stamp+timedelta(minutes=task.interval_minutes))
         if not startup: values['last_scheduled']=stamp
     claimed = db.session.execute(update(ScheduledTask).where(*conditions).values(**values)).rowcount
     if claimed:
-        db.session.add(ScheduledTaskRun(id=run_id, task_key=key, trigger="startup" if startup else "manual" if manual else "priority" if priority else "scheduled",
+        db.session.add(ScheduledTaskRun(id=run_id, task_key=key, trigger="webhook" if webhook else "startup" if startup else "manual" if manual else "priority" if priority else "scheduled",
             state="queued",created_at=stamp,data_json=encoded({"version":1,"scope":product_ids,"counts":{k:0 for k in COUNTERS},"slices":0,"items":[],"rescan_recent":bool(orders_rescan)})))
     db.session.commit()
     db.session.expire_all()
@@ -165,13 +164,14 @@ def renew(key, run_id, owner):
         raise BackgroundYield("Scheduled execution ownership expired or changed; old worker cannot save evidence.",code='ownership')
 
 
-def claim(owner, *, manual_only=False):
+def claim(owner, *, manual_only=False, orders_read_only=False):
     stamp=now()
     candidates=ScheduledTask.query.filter(ScheduledTask.key.in_({KEY,SALE_KEY,RELEASE_KEY,ORDERS_KEY,PUBLISHER_KEY,VIEW_KEY,MANUAL_KEY}),ScheduledTask.active_run_id.isnot(None),
         or_(ScheduledTask.resume_at.is_(None),ScheduledTask.resume_at<=stamp),
         or_(ScheduledTask.owner.is_(None),ScheduledTask.lease_until<=stamp))
     if manual_only:
-        candidates=candidates.join(ScheduledTaskRun,ScheduledTask.active_run_id==ScheduledTaskRun.id).filter(ScheduledTaskRun.trigger=='manual')
+        candidates=candidates.join(ScheduledTaskRun,ScheduledTask.active_run_id==ScheduledTaskRun.id).filter(
+            or_(ScheduledTaskRun.trigger=='manual',ScheduledTask.key==ORDERS_KEY) if orders_read_only else ScheduledTaskRun.trigger=='manual')
     candidate=candidates.order_by((ScheduledTask.key==MANUAL_KEY).desc(),(ScheduledTask.key==SALE_KEY).desc(),(ScheduledTask.key==PUBLISHER_KEY).desc(),ScheduledTask.next_due).first()
     if not candidate:
         return None
@@ -480,8 +480,17 @@ def tick(owner,*,adapter=None):
         grace = now().replace(tzinfo=UTC).timestamp() < float(os.environ.get('TLC_SCHEDULER_READY_AT','0'))
     except ValueError:
         grace = True
-    if grace or deployment and not deployment[0].automation:
+    if grace:
         claimed=claim(owner,manual_only=True)
+        if claimed:run_slice(*claimed,owner,adapter=adapter)
+        return claimed
+    if deployment and not deployment[0].automation:
+        # Explicitly requested read-only Orders schedule is not publishing
+        # authority. Never enable any other automatic task or outbound writes.
+        enqueue(ORDERS_KEY)
+        from app.order_webhooks import tick as webhook_tick
+        webhook_tick(owner)
+        claimed=claim(owner,manual_only=True,orders_read_only=True)
         if claimed:run_slice(*claimed,owner,adapter=adapter)
         return claimed
     from app.catalogue_startup import retire
@@ -489,6 +498,7 @@ def tick(owner,*,adapter=None):
     enqueue()
     enqueue(SALE_KEY)
     enqueue(RELEASE_KEY)
+    enqueue(ORDERS_KEY)
     enqueue(VIEW_KEY)
     from app.automatic_publishing import enqueue_priority
     enqueue_priority()
@@ -497,6 +507,8 @@ def tick(owner,*,adapter=None):
     retry_pending(limit=2)
     from app.order_webhooks import tick as webhook_tick
     webhook_tick(owner)  # Encrypted inbox only; never Orders Admin API.
+    from app.order_work_outbound import tick as projection_tick
+    projection_tick()  # Disabled until explicit store-bound status-only authority.
     claimed=claim(owner)
     if claimed:
         run_slice(*claimed,owner,adapter=adapter)

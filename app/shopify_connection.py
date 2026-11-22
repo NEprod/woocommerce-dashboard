@@ -298,6 +298,9 @@ NAVIGATION_READ = '''query NavigationEligibility($ids: [ID!]!, $publication: ID!
  publishedOnPublication(publicationId: $publication) } }
 }'''
 READ_QUERIES |= frozenset((NAVIGATION_READ,))
+from .order_operation_queries import READ_QUERIES as ORDER_OPERATION_READS, WRITE_QUERIES as ORDER_OPERATION_WRITES
+READ_QUERIES |= ORDER_OPERATION_READS
+WRITE_QUERIES |= ORDER_OPERATION_WRITES
 
 
 def _cursor(value):

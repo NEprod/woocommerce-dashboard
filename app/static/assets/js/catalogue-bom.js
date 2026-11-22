@@ -27,6 +27,16 @@ export async function mountCatalogueEditor(editor,box,view,generation) {
     const scope=box.querySelector('[data-catalogue-costing]'), local=editor.value;
     const product=editor.kind==='override', selected=local.mode||(Object.keys(local).some(key=>key!=='mode')?'add':'inherit');
     const writable=!product||selected!=='inherit';
+    const policy=make('fieldset');policy.className='workshop-fields';policy.append(make('legend','Order production workflow — local configuration'));
+    for(const [key,label,choices] of [
+      ['type','Manufacturing route',[['','Inherited / needs configuration'],['card','Greeting card'],['print','Direct 3D production'],['assembly','3D component assembly'],['laser','Laser production'],['stock','Ready-made stock'],['mixed','Multi-process production']]],
+      ...['proof_required','personalised','needs_picking'].map(key=>[key,({proof_required:'Customer proof required',personalised:'Genuinely personalised / bespoke',needs_picking:'Pick stocked components first'})[key],[['','Inherited / unspecified'],['true','Yes'],['false','No']]])]) {
+      const labelEl=make('label',label),select=make('select');select.className='form-select';select.dataset.workflow=key;
+      for(const [value,text]of choices)select.add(new Option(text,value));select.value=String(local.workflow?.[key]??'');select.disabled=!writable;
+      select.onchange=()=>{const next={...(local.workflow||{})};if(select.value==='')delete next[key];else next[key]=key==='type'?select.value:select.value==='true';if(Object.keys(next).length)local.workflow=next;else delete local.workflow;editor.changed(false);};
+      labelEl.append(select);policy.append(labelEl);
+    }
+    scope.prepend(policy);
     const status=make('p');status.setAttribute('role','status');scope.prepend(status);
     if(product) {
       const label=make('label','Product BOM inheritance'), mode=make('select');mode.className='form-select';mode.dataset.productBomMode='';

@@ -113,7 +113,8 @@ class ShopifyOrderEvent(db.Model):
     attempts=db.Column(db.Integer,nullable=False,default=0)
     error=db.Column(db.String(500))
     __table_args__=(db.UniqueConstraint('store_id','delivery_id'),
-        db.Index('ix_order_event_pending','state','id'),db.Index('ix_order_event_order','store_id','order_gid'))
+        db.Index('ix_order_event_pending','state','id'),db.Index('ix_order_event_order','store_id','order_gid'),
+        db.Index('ix_order_event_identity','store_id','topic','event_id'))
 
 
 class ShopifyOrderDelivery(db.Model):

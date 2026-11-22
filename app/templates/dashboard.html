@@ -1,6 +1,7 @@
 {% extends "layouts/base.html" %}
 {% from 'includes/icons.html' import icon %}
 {% block content %}
+{% if stock_overview %}<section class="app-card"><h2>Stock &amp; Replenishment</h2><div class="page-actions">{% for key,label in [('total','Total stocked items'),('healthy','Healthy stock'),('low','Low stock'),('out','Out of stock'),('manufacture','Need manufacturing'),('order','Need ordering')] %}<a class="btn btn-outline-primary" href="{{ url_for('fulfilment.replenishment',filter=key) }}">{{ label }} · {{ stock_overview[key] }}</a>{% endfor %}</div></section>{% endif %}
 {% if dashboard.source_health_pending %}<p class="panel-note">{{ dashboard.source_health_pending }} products await saved source-health projection. Image-issue counts remain incomplete until that finishes. Local catalogue availability and Shopify verification are separate.</p>{% endif %}
 <header class="page-header dashboard-header">
   <div>

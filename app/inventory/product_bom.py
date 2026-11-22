@@ -22,7 +22,10 @@ def _object(value, allowed, label):
 
 
 def _layer(layer, *, rule=False, costing=True):
-    _object(layer, {'lines'} | ({'cost', 'costing'} if costing else set()) | {'mode'}, 'Production layer')
+    _object(layer, {'lines'} | ({'cost', 'costing', 'workflow'} if costing else set()) | {'mode'}, 'Production layer')
+    if 'workflow' in layer:
+        from app.order_work import validate_policy
+        validate_policy(layer['workflow'])
     if 'costing' in layer:
         from .catalogue_bom import validate_costing
         validate_costing(layer['costing'])
@@ -70,7 +73,7 @@ def option_rules(layer):
 
 
 def validate(value):
-    _object(value, {'lines', 'cost', 'variants', 'options', 'mode', 'costing'}, 'Production & Costing')
+    _object(value, {'lines', 'cost', 'variants', 'options', 'mode', 'costing', 'workflow'}, 'Production & Costing')
     _layer({k: v for k, v in value.items() if k not in {'variants', 'options'}})
     variants = value.get('variants', {})
     if not isinstance(variants, dict) or len(variants) > 160:

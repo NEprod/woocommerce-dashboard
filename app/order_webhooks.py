@@ -18,12 +18,39 @@ from app.shopify_orders import now, stamp, persist
 
 
 def settings():
-    return {k:current_app.config.get('SHOPIFY_ORDERS_WEBHOOK_'+k,'') for k in ('URL','TOKEN','KEY','SECRET','DOMAIN','STORE_ID')}
+    config={k:current_app.config.get('SHOPIFY_ORDERS_WEBHOOK_'+k,'') for k in ('URL','TOKEN','KEY','SECRET','DOMAIN','STORE_ID')}
+    from app.commerce_config import shopify_settings
+    connected=shopify_settings()
+    if connected.get('client_secret'):config['SECRET']=connected['client_secret']
+    domain=connected.get('domain')
+    if domain:
+        if config['DOMAIN'] and config['DOMAIN']!=domain:return {k:'' for k in config}
+        config['DOMAIN']=domain
+        source=ShopifyOrderSync.query.filter_by(domain=domain).first()
+        if source:
+            if config['STORE_ID'] and config['STORE_ID']!=source.store_id:return {k:'' for k in config}
+            config['STORE_ID']=source.store_id
+    return config
 
 
 def configured():
     config=settings()
     return all(config.values())
+
+
+def validate_configuration(config):
+    """Local checks only; never claims public reachability or remote delivery."""
+    from cryptography.fernet import Fernet
+    try:
+        parsed=urlsplit(config['URL'])
+        if (not all(config.values()) or parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password
+                or parsed.query or parsed.fragment or len(config['TOKEN'])<32):raise ValueError()
+        Fernet(config['KEY'].encode())
+        source=db.session.get(ShopifyOrderSync,config['STORE_ID'])
+        if not source or source.domain!=config['DOMAIN']:raise ValueError()
+    except Exception:
+        raise ValueError('Receiver configuration is invalid/incomplete. Verify HTTPS transfer URL, strong transfer token, encryption key and authenticated shop association; credentials are not displayed.') from None
+    return True
 
 
 def receive(envelope,config):
@@ -45,7 +72,7 @@ def receive(envelope,config):
         return delivery
     order_gid=None;version=None
     try:
-        order_gid=gid(raw['order_id'],'Order') if topic=='refunds/create' else identity(raw,'Order')
+        order_gid=gid(raw['order_id'],'Order') if topic=='refunds/create' or topic.startswith('fulfillments/') else identity(raw,'Order')
         value=raw.get('updated_at') or raw.get('created_at')
         version=stamp(value) if value else None
     except (KeyError,TypeError,ValueError,RuntimeError):pass
@@ -67,6 +94,19 @@ def fence(owner):
 def process(event_id,config,*,owner):
     event=db.session.get(ShopifyOrderEvent,event_id)
     if not event or event.state!='pending':return
+    if event.event_id:
+        prior=ShopifyOrderEvent.query.filter(ShopifyOrderEvent.store_id==event.store_id,
+            ShopifyOrderEvent.topic==event.topic,ShopifyOrderEvent.event_id==event.event_id,
+            ShopifyOrderEvent.digest==event.digest,ShopifyOrderEvent.id<event.id,
+            ShopifyOrderEvent.state.in_(['applied','reconciled','stale','duplicate'])).first()
+        if prior:
+            fence(owner);event.state='duplicate';event.payload=None;event.processed_at=now()
+            event.error='Same authenticated event/topic/body was already reconciled.'
+            db.session.get(ShopifyOrderDelivery,'orders').processed_at=now();db.session.commit();return
+    from app.order_integration_models import OrderWebhookSetting
+    configured_topics=OrderWebhookSetting.query.filter_by(store_id=event.store_id,topic=event.topic).all()
+    if configured_topics and not any(r.enabled for r in configured_topics):
+        fence(owner);event.state='disabled';event.payload=None;event.processed_at=now();event.error='Topic disabled locally; remote subscriptions/polling are separate.';db.session.commit();return
     try:
         body,headers=unseal(event.payload,config['KEY'])
         raw,topic,_=verified(body,headers,secret=config['SECRET'],domain=config['DOMAIN'])
@@ -75,7 +115,11 @@ def process(event_id,config,*,owner):
         # No untrusted payload/exception text enters logs or diagnostics.
         fence(owner);event.state='incomplete';event.attempts+=1
         event.error='Payload lacks a safe complete order snapshot. Use Sync Now; saved order is unchanged.'
-        db.session.commit();return
+        db.session.commit()
+        if event.order_gid and any(r.enabled for r in configured_topics):
+            from app import scheduled_tasks as tasks
+            tasks.enqueue(tasks.ORDERS_KEY,webhook=True)
+        return
     try:
         fence(owner)
         existing=ShopifyOrder.query.filter_by(store_id=event.store_id,remote_id=order['remote_id']).first()
@@ -98,6 +142,9 @@ def process(event_id,config,*,owner):
         if event.state in {'applied','stale'}:event.payload=None
         db.session.get(ShopifyOrderDelivery,'orders').processed_at=now()
         db.session.commit()
+        if event.state=='incomplete' and event.order_gid and any(r.enabled for r in configured_topics):
+            from app import scheduled_tasks as tasks
+            tasks.enqueue(tasks.ORDERS_KEY,webhook=True)
     except Exception:
         db.session.rollback()
         fence(owner);event=db.session.get(ShopifyOrderEvent,event_id);event.attempts+=1
