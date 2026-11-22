@@ -12,6 +12,7 @@ LINE_ID = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,47}\Z')
 MODES = {'unconfigured', 'calculated', 'manual'}
 BOM_MODES = {'inherit', 'add', 'replace'}
 LINE_FIELDS = {'item_id', 'quantity', 'unit'}
+ROW_FIELDS = LINE_FIELDS | {'purpose', 'print_material'}
 CENT = Decimal('.01')
 
 
@@ -21,7 +22,10 @@ def _object(value, allowed, label):
 
 
 def _layer(layer, *, rule=False, costing=True):
-    _object(layer, {'lines'} | ({'cost'} if costing else set()) | ({'mode'} if rule else set()), 'Production layer')
+    _object(layer, {'lines'} | ({'cost', 'costing'} if costing else set()) | {'mode'}, 'Production layer')
+    if 'costing' in layer:
+        from .catalogue_bom import validate_costing
+        validate_costing(layer['costing'])
     if 'cost' in layer:
         cost = layer['cost']
         _object(cost, {'mode', 'amount'}, 'Production cost')
@@ -36,17 +40,17 @@ def _layer(layer, *, rule=False, costing=True):
     mode = layer.get('mode', 'add')
     if not isinstance(mode, str) or mode not in BOM_MODES:
         raise ValueError('Choose Inherit, Add to BOM or Replace entire BOM.')
-    if mode == 'inherit' and lines:
+    if mode == 'inherit' and (lines or layer.get('costing')):
         raise ValueError('An Inherit rule must not contain BOM line instructions.')
     for key, row in lines.items():
         if not LINE_ID.fullmatch(key):
             raise ValueError('Each BOM line needs a stable line ID.')
-        _object(row, {'op', 'item_id', 'quantity', 'unit'}, 'BOM line')
+        _object(row, {'op'} | ROW_FIELDS, 'BOM line')
         op = row.get('op')
         fields = set(row) - {'op'}
         if mode == 'replace' and op != 'add':
             raise ValueError('A replacement BOM contains only independent requirements, not inherited-line changes.')
-        if (op == 'add' and fields != {'item_id', 'quantity', 'unit'} or op == 'modify' and not fields
+        if (op == 'add' and not {'item_id', 'quantity', 'unit'} <= fields or op == 'modify' and not fields
                 or op == 'remove' and fields or op not in ('add', 'modify', 'remove')):
             raise ValueError('Use an explicit add, modify or remove instruction for each BOM line.')
         if 'item_id' in row and (type(row['item_id']) is not int or not 0 < row['item_id'] < 10**13):
@@ -55,6 +59,10 @@ def _layer(layer, *, rule=False, costing=True):
             raise ValueError('Choose a supported inventory unit.')
         if 'quantity' in row:
             stock.number(row['quantity'], 'BOM quantity', positive=True)
+        if 'purpose' in row and row['purpose'] not in ('material', 'packaging'):
+            raise ValueError('Choose material or packaging purpose.')
+        if 'print_material' in row and row['print_material'] not in ('', 'yes'):
+            raise ValueError('Print waste eligibility must be explicitly marked.')
 
 
 def option_rules(layer):
@@ -62,7 +70,7 @@ def option_rules(layer):
 
 
 def validate(value):
-    _object(value, {'lines', 'cost', 'variants', 'options'}, 'Production & Costing')
+    _object(value, {'lines', 'cost', 'variants', 'options', 'mode', 'costing'}, 'Production & Costing')
     _layer({k: v for k, v in value.items() if k not in {'variants', 'options'}})
     variants = value.get('variants', {})
     if not isinstance(variants, dict) or len(variants) > 160:
@@ -145,9 +153,9 @@ def rule_mode(shared, override):
         return override['mode']
     if shared.get('mode') == 'replace':
         return 'replace'
-    if override.get('lines'):
+    if override.get('lines') or override.get('costing'):
         return 'add'
-    return shared.get('mode', 'add' if shared.get('lines') else 'inherit')
+    return shared.get('mode', 'add' if shared.get('lines') or shared.get('costing') else 'inherit')
 
 
 def _rule(shared, override, label):
@@ -218,7 +226,7 @@ def _option_state(recipe, shared, override, matches):
             continue
         patch, disagreement = {}, set()
         for change, _ in entries:
-            for field in LINE_FIELDS & change.keys():
+            for field in ROW_FIELDS & change.keys():
                 value = change[field]
                 if field == 'quantity':
                     value = format(Decimal(str(value)).normalize(), 'f')
@@ -242,9 +250,25 @@ def _option_state(recipe, shared, override, matches):
             recipe.apply(key, change, origin)
 
 
+def _requirements(shared, override):
+    if override.get('mode') == 'inherit':
+        override = {}
+    elif override.get('mode') == 'replace':
+        # A main-product rewrite is independent of collection requirements,
+        # including collection option/SKU recipes. Cost-source selection remains
+        # the established separate, inheritable projection.
+        shared = {'cost':shared['cost']} if 'cost' in shared else {}
+    return shared, override
+
+
 def _resolved(shared, override, variant_sku, matches):
+    shared, override = _requirements(shared, override)
     recipe, selected = _Recipe(), None
     for layer, label in [(shared, 'Shared'), (override, 'Product')]:
+        if layer is override and layer.get('mode') == 'inherit':
+            continue
+        if layer is override and layer.get('mode') == 'replace':
+            recipe.replace()
         for key, change in layer.get('lines', {}).items():
             recipe.apply(key, change, label)
         if 'cost' in layer:
@@ -373,6 +397,7 @@ def product_costs(product, documents=None):
     shared, override = shared_doc.get(KEY, {}), override_doc.get(KEY, {})
     validate(shared)
     validate(override)
+    shared, override = _requirements(shared, override)
     rates = {}
     if product.product_type != 'variable':
         return {product.sku: resolve(shared, override, rates=rates)}
@@ -406,8 +431,8 @@ def editor_options(product, *, document=None):
         groups = option_groups(product, document)
     except ValueError:
         groups = {}  # keep the existing metadata editor available to repair invalid drivers
-    rows = Item.query.filter(Item.active.is_(True), Item.kind.in_(('manufactured', 'purchased'))).order_by(Item.name, Item.id).all()
-    return {'items': [{'id': i.id, 'name': i.name, 'code': i.identity.code, 'supplier_sku': i.supplier_sku,
+    rows = Item.query.filter(Item.active.is_(True)).order_by(Item.name, Item.id).all()
+    return {'items': [{'id': i.id, 'kind':i.kind, 'name': i.name, 'code': i.identity.code, 'supplier_sku': i.supplier_sku,
                        'unit': i.unit, 'units': [u for u, spec in stock.UNITS.items() if spec[0] == stock.UNITS[i.unit][0]]}
                       for i in rows],
             'option_groups': groups,
@@ -422,6 +447,7 @@ def editor_preview(product, shared_document, override_document, *, shared_editor
     shared, override = shared_document.get(KEY, {}), override_document.get(KEY, {})
     validate(shared)
     validate(override)
+    shared, override = _requirements(shared, override)
     rates = {}
     parent = resolve(shared, override, rates=rates)
     local = shared if shared_editor else override
@@ -482,7 +508,17 @@ def check_changed_references(before, after, *, inherited=None, product=None, doc
                 raise ValueError(f'{choice[0]} = {choice[1]} is not a current variant option value. Reset the orphan or restore its option.')
             changes.append((None, [choice], previous, rule))
     for sku, matches, old, new in changes:
+        if new.get('costing') != old.get('costing'):
+            from .catalogue_bom import check_costing_references
+            check_costing_references(old.get('costing', {}), new.get('costing', {}))
         recipe, _ = _resolved(shared, local, sku, matches)
+        if old.get('lines', {}) != new.get('lines', {}):
+            purposes = defaultdict(set)
+            for row in recipe.lines.values():
+                if not row['excluded']:
+                    purposes[row['item_id']].add(row.get('purpose', 'material'))
+            if any(len(scopes) > 1 for scopes in purposes.values()):
+                raise ValueError('Packaging inventory is also present in materials/components. Combine its quantity in one section to avoid double-counting.')
         for line_id, line in new.get('lines', {}).items():
             if line == old.get('lines', {}).get(line_id) or line['op'] == 'remove':
                 continue
@@ -490,6 +526,8 @@ def check_changed_references(before, after, *, inherited=None, product=None, doc
             if not resolved or (line['op'] == 'add' and resolved['item_id'] != line['item_id']):
                 raise ValueError(f'BOM line {line_id} no longer has an inherited source. Reset it or add a separate line.')
             item = stock.item_for(resolved['item_id'])
-            if item.kind == 'material' and old.get('lines', {}).get(line_id, {}).get('item_id') != item.id:
-                raise ValueError('Product BOMs use manufactured or purchased components. Use the standalone planner for new direct raw-material lines.')
             stock.converted(stock.number(resolved['quantity'], 'BOM quantity', positive=True), resolved['unit'], item.unit)
+            if resolved.get('purpose') == 'packaging' and item.kind != 'purchased':
+                raise ValueError('Packaging must reference a registered purchased component.')
+            if resolved.get('print_material') == 'yes' and (item.kind != 'material' or resolved.get('purpose') == 'packaging'):
+                raise ValueError('Additional 3D-print waste applies only to explicitly marked direct raw materials.')

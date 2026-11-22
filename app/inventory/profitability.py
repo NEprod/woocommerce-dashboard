@@ -113,8 +113,8 @@ def pricing(cost, chosen, config, markup, *, complete, rounding='exact'):
                 suggested_margin=money(suggested_profit / recommended * 100) if complete and recommended else None)
 
 
-def process_cost(line, config):
-    """Shared process preview/BOM allocation; persisted runtime remains minutes."""
+def process_runtime(line):
+    """Pure runtime validation/allocation shared by JSON contracts and previews."""
     total = decimal(line['minutes'], 'Machine runtime minutes')
     minutes = total
     if line.get('timing_mode', 'item') == 'batch':
@@ -129,6 +129,12 @@ def process_cost(line, config):
         minutes /= usable
     elif line.get('timing_mode', 'item') != 'item':
         raise ValueError('Choose per-item or batch equipment timing.')
+    return total, minutes
+
+
+def process_cost(line, config):
+    """Shared process preview/BOM allocation; persisted runtime remains minutes."""
+    total, minutes = process_runtime(line)
     try:
         equipment = db.session.get(Equipment, int(line.get('equipment_id', '')))
     except (TypeError, ValueError):
@@ -274,12 +280,16 @@ def finished_product_estimate(product, sku):
         return dict(complete=False, cost=None, missing=['Finished-product BOM is missing or incomplete.'])
     profile = db.session.get(ProductCostingProfile, (product.id, sku))
     settings = db.session.get(CostingSettings, 1)
-    if not profile:
+    from .product_bom import authored
+    from .catalogue_bom import document as catalogue_document
+    shared, local = authored(product)
+    authored_layers = [shared.get('production', {}), local.get('production', {})]
+    authored_layers += [p.get('variants', {}).get(sku, {}) for p in authored_layers[:]]
+    if not profile and not any('costing' in p for p in authored_layers):
         return dict(complete=False, cost=None, missing=['Finished-product processing assumptions have not been saved.'])
-    document = json.loads(profile.document)
-    document['lines'] = [dict(item_id=r['item_id'], quantity=r['quantity'], unit=r['unit'])
-                         for r in projection['rows'] if not r['excluded']]
-    return estimate(document, json.loads(settings.document) if settings else {}, selling_fees=False)
+    document = catalogue_document(projection, shared.get('production', {}), local.get('production', {}),
+                                  sku, legacy=json.loads(profile.document) if profile else {})
+    return estimate(document, json.loads(settings.document) if settings else {}, direct_materials=True, selling_fees=False)
 
 
 def bundle_estimate(products, document, settings=None):

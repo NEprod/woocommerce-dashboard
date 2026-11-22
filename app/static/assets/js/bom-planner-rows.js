@@ -1,7 +1,7 @@
 import {materialDialog,paintMaterial} from './hypothetical-material.js';
 import {processDialog} from './production-process.js';
 async function inventoryPreview(table, row) {
-  const body={...Object.fromEntries([...row.querySelectorAll('input,select')].map(input=>[input.name,input.value])),purpose:'material'};
+  const body={...Object.fromEntries([...row.querySelectorAll('input,select')].map(input=>[input.name,input.value])),purpose:table.dataset.bomRows==='packaging'?'packaging':'material'};
   if(!body.item_id)throw new Error('Choose an inventory material / component.');
   const response=await fetch(table.dataset.hypotheticalPreview,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRFToken':document.querySelector('meta[name="csrf-token"]')?.content||''},body:JSON.stringify(body)});
   const data=await response.json();if(!response.ok)throw new Error(data.error||'Check inventory item, quantity and compatible unit.');return data;
@@ -12,9 +12,12 @@ function inventoryDialog(form,table,apply) {
   function update(){const signature=JSON.stringify([...form.querySelectorAll('input,select')].map(input=>input.value));if(signature===lastSignature)return;lastSignature=signature;ready=false;apply.disabled=true;const current=++generation;clearTimeout(timer);timer=setTimeout(async()=>{try{const data=await inventoryPreview(table,form);if(current!==generation)return;output.textContent=data.amount===null?'Cost unknown; estimate will be incomplete.':`Material/component cost: £${data.display_amount}. Recipe/print allowances are calculated separately.`;ready=true;apply.disabled=false;}catch(error){if(current===generation)output.textContent=error.message;}},200);}
   form.addEventListener('input',update);form.addEventListener('change',update);update();return()=>ready;
 }
-for (const table of document.querySelectorAll('table[data-bom-rows]')) {
+export function initBomRows(scope=document) {
+for (const table of scope.querySelectorAll('table[data-bom-rows]')) {
+  if(table.dataset.rowsInitialized)continue;
+  table.dataset.rowsInitialized='yes';
   const kind=table.dataset.bomRows, label=table.dataset.addLabel, body=table.tBodies[0];
-  const template=document.querySelector(`template[data-row-template="${kind}"]`);
+  const template=scope.querySelector(`template[data-row-template="${kind}"]`);
   if(!template)continue; // Product BOM component lines remain read-only.
   const heading=document.createElement('th');heading.textContent='Actions';table.tHead.rows[0].append(heading);
   function paint(row) {
@@ -29,7 +32,7 @@ for (const table of document.querySelectorAll('table[data-bom-rows]')) {
       cell.append(summary);
     }
     if(kind==='manual'||kind==='pack')paintMaterial(row,table);
-    if(kind==='inventory')inventoryPreview(table,row).then(data=>{row.querySelector('[data-inventory-total]').textContent=data.amount===null?'Unknown':'£'+data.display_amount;}).catch(error=>{row.querySelector('[data-inventory-total]').textContent=error.message;});
+    if(['inventory','packaging'].includes(kind))inventoryPreview(table,row).then(data=>{row.querySelector('[data-inventory-total]').textContent=data.amount===null?'Unknown':'£'+data.display_amount;}).catch(error=>{row.querySelector('[data-inventory-total]').textContent=error.message;});
     if(kind==='process') {
       row.classList.toggle('bom-single-process',row.querySelector('[name=timing_mode]').value==='item');
       const values=Object.fromEntries([...row.querySelectorAll('input,select')].map(input=>[input.name,input.value]));
@@ -50,8 +53,8 @@ for (const table of document.querySelectorAll('table[data-bom-rows]')) {
     const apply=document.createElement('button');apply.type='submit';apply.className='btn btn-primary';apply.textContent='Apply Row';
     const cancel=document.createElement('button');cancel.type='button';cancel.className='btn btn-ghost';cancel.textContent='Cancel';cancel.onclick=()=>dialog.close();footer.append(apply,cancel);form.append(footer);dialog.append(form);document.body.append(dialog);
     const canApply=['manual','pack'].includes(kind)?materialDialog(form,table,apply):kind==='process'?processDialog(form,table,apply):()=>form.reportValidity()&&inventoryReady();
-    const inventoryReady=kind==='inventory'?inventoryDialog(form,table,apply):()=>true;
-    form.onsubmit=event=>{event.preventDefault();if(!canApply())return;for(const [original,input]of pairs)original.value=input.value;if(isNew){body.append(row);actions(row);}else paint(row);table.dispatchEvent(new Event('input',{bubbles:true}));dialog.close();};
+    const inventoryReady=['inventory','packaging'].includes(kind)?inventoryDialog(form,table,apply):()=>true;
+    form.onsubmit=event=>{event.preventDefault();if(!canApply())return;if(!table.dispatchEvent(new CustomEvent('bom:before-apply',{bubbles:true,cancelable:true,detail:{row,isNew,values:Object.fromEntries(pairs.map(([original,input])=>[original.name,input.value]))}})))return;for(const [original,input]of pairs)original.value=input.value;if(isNew){body.append(row);actions(row);}else paint(row);table.dispatchEvent(new Event('input',{bubbles:true}));dialog.close();};
     dialog.addEventListener('click',event=>{if(event.target===dialog){const box=dialog.getBoundingClientRect();if(event.clientX<box.left||event.clientX>box.right||event.clientY<box.top||event.clientY>box.bottom)dialog.close();}});
     dialog.addEventListener('close',()=>dialog.remove());dialog.showModal();
   }
@@ -67,6 +70,8 @@ for (const table of document.querySelectorAll('table[data-bom-rows]')) {
   add.onclick=()=>edit(template.content.firstElementChild.cloneNode(true),true);
   table.closest('.table-responsive').before(add);
 }
+}
+initBomRows();
 for(const form of document.querySelectorAll('[data-confirm-delete]'))form.onsubmit=event=>{if(!confirm('Remove this scenario from the saved list? Historical data is retained.'))event.preventDefault();};
 const planner=document.querySelector('form[data-local-costing-form]');
 if(planner) {

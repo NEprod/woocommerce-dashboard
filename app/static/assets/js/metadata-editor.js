@@ -735,7 +735,8 @@
     productionDesigner?.dispose();
     if (productionRoot && window.TLCProduction) productionDesigner = new window.TLCProduction.Editor(productionRoot, {
       value: authored.production, shared: isShared ? {} : boot.collection?.production,
-      ...boot.production_options, kind: boot.kind, preview: boot.production_preview_url, onChange: () => setDirty(true)
+      ...boot.production_options, kind: boot.kind, preview: boot.production_preview_url,
+      workspaceUrl:boot.production_workspace_url, importUrl:boot.production_import_url, onChange: () => setDirty(true)
     });
     const parentDrivers=boot.collection?.collection_type==='Simple'?[]:boot.collection?.variation_attributes || Object.keys(boot.collection?.attributes || {});
     attributeReplacementActive = !isShared && Object.keys(authored.attributes || {}).some(name=>parentDrivers.includes(name));

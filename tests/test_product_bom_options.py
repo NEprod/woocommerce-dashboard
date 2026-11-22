@@ -143,7 +143,6 @@ def test_incompatible_targeted_instructions_need_explicit_affected_line(workshop
     {'options':{'Size':{'A3':rule('inherit',pack=add(1))}}},
     {'options':{'Size':{'A3':rule('replace',pack={'op':'remove'})}}},
     {'options':{'Size':{'A3':{**rule('add'),**manual('1')}}}},
-    {'mode':'replace','lines':{'independent':add(1)}},
 ])
 def test_invalid_rule_modes_do_not_get_silently_reinterpreted(layer):
     with pytest.raises(ValueError):

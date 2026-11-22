@@ -2,12 +2,12 @@
   'use strict';
   const own = (object, key) => Object.hasOwn(object || {}, key);
   const entry = (object, key) => own(object, key) ? object[key] : undefined;
-  const MODE = {inherit:'Inherit / No changes', add:'Add to BOM', replace:'Replace entire BOM'};
+  const MODE = {inherit:'Inherit All', add:'Inherit Plus', replace:'Rewrite'};
   const optionRef = (ref) => ref && typeof ref === 'object';
   const rule = (documentValue, ref) => ref == null ? documentValue || {} : optionRef(ref) ?
     entry(entry(documentValue?.options, ref.name), ref.value) || {} : entry(documentValue?.variants, ref) || {};
   const modeOf = (shared, local) => local.mode || (shared.mode === 'replace' ? 'replace' :
-    Object.keys(local.lines || {}).length ? 'add' : shared.mode || (Object.keys(shared.lines || {}).length ? 'add' : 'inherit'));
+    Object.keys(local.lines || {}).length || Object.keys(local.costing || {}).length ? 'add' : shared.mode || (Object.keys(shared.lines || {}).length || Object.keys(shared.costing || {}).length ? 'add' : 'inherit'));
   const refKey = (ref) => JSON.stringify(ref);
   function ensure(object, key) {
     if (!own(object, key)) Object.defineProperty(object, key, {value:{}, enumerable:true, configurable:true, writable:true});
@@ -73,6 +73,7 @@
     get() { return Object.keys(this.value).length ? structuredClone(this.value) : undefined; }
     dispose() { clearTimeout(this.timer); this.sequence++; }
     current(ref) { return rule(this.value, ref); }
+    activeShared() { return this.kind === 'override' && this.value.mode === 'replace' ? {} : this.shared; }
     layer(ref) {
       if (ref == null) return this.value;
       return optionRef(ref) ? ensure(ensure(this.value.options ??= {}, ref.name), ref.value) :
@@ -138,12 +139,23 @@
     }
     variantNeedsCard(variant) {
       return this.selectedVariants.has(variant.sku) || own(this.value.variants,variant.sku) ||
-        own(this.shared?.variants,variant.sku) || this.result(variant.sku)?.warnings.length;
+        own(this.activeShared()?.variants,variant.sku) || this.result(variant.sku)?.warnings.length;
     }
     render() {
+      this.renderGeneration = (this.renderGeneration || 0) + 1;
       const open = new Set(Array.from(this.root.querySelectorAll('details[open]'), el => el.dataset.bomKey));
       this.views = [];
       this.root.replaceChildren(make('h3','Main Product BOM'), this.panel(null));
+      if (this.kind === 'override' && (this.value.mode === 'inherit' || !Object.keys(this.value).length)) {
+        const inherited = make('div');
+        inherited.append(make('h3','Inherited variant BOMs — read-only'));
+        for (const variant of this.variants) {
+          const result=this.result(variant.sku);
+          inherited.append(make('p',variant.sku+' · '+(result?.rows||[]).filter(r=>!r.excluded).map(r=>(r.name||r.item_id)+' × '+r.quantity+' '+r.unit).join('; ')));
+        }
+        this.root.append(inherited);
+        return;
+      }
       if (Object.keys(this.option_groups).length) {
         this.root.append(make('h3','Option Materials & Components'),
           make('p','Set requirements once for each option value. They apply to every matching sellable variant.'));
@@ -231,11 +243,21 @@
     panel(sku, view) {
       const box = make('div');
       box.className = 'structured-editor-list';
+      if (sku == null && this.workspaceUrl) {
+        const mainView = view || {ref:sku, estimates:new Map()};
+        if (!view) this.views.push(mainView);
+        const generation = this.renderGeneration;
+        box.textContent = 'Loading shared BOM workspace…';
+        import('./catalogue-bom.js').then(({mountCatalogueEditor}) => {
+          if (generation === this.renderGeneration) mountCatalogueEditor(this, box, mainView, generation);
+        }).catch(error => { box.textContent = error.message; });
+        return box;
+      }
       const settings = this.current(sku);
       const result = this.result(sku);
       const isOption = optionRef(sku);
       const ownReplace = settings.mode === 'replace';
-      const sharedRule = rule(this.shared, sku);
+      const sharedRule = rule(this.activeShared(), sku);
       const currentMode = modeOf(sharedRule, settings);
       if (sku != null) {
         const choices = this.kind === 'override' && Object.keys(sharedRule).length ?
@@ -258,7 +280,7 @@
           box.append(compare);
         }
       }
-      const all = layersFor(this.shared, this.value, null);
+      const all = layersFor(this.activeShared(), this.value, null);
       const inherited = sku == null ? rows(all.slice(0,-1)) :
         new Map((result?.before?.rows || []).map(line => [line.line_id,line]));
       const resolved = sku == null ? rows(all) : new Map((result?.rows || []).map(line => [line.line_id,line]));
@@ -385,8 +407,9 @@
     }
     paint(view) {
       const result = this.result(view.ref);
+      view.workspace?.(result);
       const isOption = optionRef(view.ref);
-      const mode = view.ref == null ? null : modeOf(rule(this.shared,view.ref), this.current(view.ref));
+      const mode = view.ref == null ? null : modeOf(rule(this.activeShared(),view.ref), this.current(view.ref));
       const quote = value => value == null ? '—' : '£' + value;
       if (view.summary) {
         view.summary.textContent = ' · ' + MODE[mode] + (isOption ?
@@ -446,7 +469,7 @@
           const visible = this.variants.filter(v => this.variantNeedsCard(v)).map(v => v.sku).join('\n');
           this.previewData = data;
           const after = this.variants.filter(v => this.variantNeedsCard(v)).map(v => v.sku).join('\n');
-          if (this.rebuildOnPreview || after !== visible) {
+          if ((this.rebuildOnPreview || after !== visible) && !document.querySelector('dialog[open]')) {
             this.rebuildOnPreview = false;
             this.render();
           } else {
@@ -455,6 +478,7 @@
           }
         } catch (error) {
           if (generation === this.sequence) for (const view of this.views) {
+            view.workspaceError?.(error.message);
             if (view.total) view.total.textContent = error.message;
             if (view.summary) view.summary.textContent = ' · Check costs';
           }

@@ -22,6 +22,9 @@
 .workshop-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: .75rem; }
 .workshop-item-image-preview { display:block; width:auto; max-width:100%; height:auto; max-height:16rem; object-fit:contain; border:1px solid var(--color-border); border-radius:var(--radius-card-small); }
 .workshop [hidden] { display:none!important; }
+[data-catalogue-costing] { display:grid; gap:var(--space-4, 1rem); min-width:0; }
+[data-catalogue-costing] > * { min-width:0; }
+[data-catalogue-costing] [data-catalogue-results]:empty { display:none; }
 .bom-workspace .bom-add { margin: var(--space-4, 1rem); }
 .bom-workspace .bom-row-actions, .bom-dialog .page-actions { display: flex; flex-wrap: wrap; gap: var(--space-3, .75rem); align-items: center; }
 .bom-workspace [data-advanced] { margin: var(--space-4, 1rem); }

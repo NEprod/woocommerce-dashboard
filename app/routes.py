@@ -818,14 +818,101 @@ def product_costing_preview(product_id):
                 continue
             profile = db.session.get(ProductCostingProfile, (product.id, sku))
             assumptions = json.loads(profile.document) if profile else dict(selling_price=str(price_by_sku.get(sku) or product.regular_price or '0'))
-            assumptions['lines'] = [dict(item_id=r['item_id'], quantity=r['quantity'], unit=r['unit'])
-                                    for r in projection['rows'] if not r['excluded']]
+            from app.inventory.catalogue_bom import document as costing_document
+            assumptions = costing_document(projection, shared.get('production', {}), override.get('production', {}),
+                                           sku if sku != product.sku else None, legacy=assumptions,
+                                           price=str(price_by_sku.get(sku) if price_by_sku.get(sku) is not None else product.regular_price or ''))
+            projection['costing_inputs'] = assumptions
             try:
-                projection['profitability'] = estimate(assumptions, config)
+                projection['profitability'] = estimate(assumptions, config, direct_materials=True)
+                json_layers = [shared.get('production', {}), override.get('production', {}),
+                               shared.get('production', {}).get('variants', {}).get(sku, {}),
+                               override.get('production', {}).get('variants', {}).get(sku, {})]
+                comparison_name = ('Saved what-if selling price' if profile and not any('costing' in layer for layer in json_layers)
+                                   and override.get('production', {}).get('mode') != 'inherit' else 'Existing catalogue selling price')
+                projection['legacy_costing'] = comparison_name == 'Saved what-if selling price'
+                projection['profitability_html'] = render_template('inventory/_profitability.html', result=projection['profitability'], comparison_name=comparison_name)
             except ValueError as exc:
                 projection['profitability'] = dict(complete=False, missing=[str(exc)])
         return jsonify(result)
     except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@main.get('/api/products/<int:product_id>/bom-workspace')
+@login_required
+def catalogue_bom_workspace(product_id):
+    if not current_user.is_admin:
+        abort(403)
+    db.get_or_404(Product, product_id)
+    from app.inventory.models import Item, Equipment, BomScenario
+    from app.inventory.catalogue_bom import settings
+    from app.inventory.profitability import DEFAULTS
+    from app.inventory.service import UNITS
+    config = {**DEFAULTS, **settings()}
+    response = current_app.make_response(render_template('inventory/_catalogue_workspace.html',
+        items=Item.query.order_by(Item.name).all(),
+        equipment=Equipment.query.order_by(Equipment.name).all(), units=UNITS,
+        defaults=config, fee_profiles=config.get('fee_profiles', []),
+        scenarios=[s for s in BomScenario.query.order_by(BomScenario.name).limit(100).all()
+                   if not s.product_id and not json.loads(s.document).get('_archived')]))
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
+
+
+@main.post('/api/products/<int:product_id>/bom-import')
+@login_required
+def catalogue_bom_import(product_id):
+    if not current_user.is_admin:
+        abort(403)
+    product = db.get_or_404(Product, product_id)
+    from app.inventory.models import BomScenario
+    from app.inventory import product_bom
+    from app.inventory.catalogue_bom import import_scenario
+    request.max_content_length = 1024 * 1024
+    body = request.get_json(silent=True)
+    try:
+        if not isinstance(body, dict):
+            raise ValueError('Submit an import review object.')
+        if body.get('kind') not in ('shared', 'override') or type(body.get('scenario_id')) is not int:
+            raise ValueError('Choose an existing saved test BOM and editor scope.')
+        current = body.get('production', {})
+        product_bom.validate(current)
+        saved = db.session.get(BomScenario, body['scenario_id'])
+        if not saved or saved.product_id or json.loads(saved.document).get('_archived'):
+            raise ValueError('This saved test BOM is unavailable.')
+        append = body['kind'] == 'override' and current.get('mode', 'add') == 'add'
+        result = import_scenario(saved, current=current, append=append)
+        if result['eligible']:
+            shared, override = product_bom.authored(product)
+            if body['kind'] == 'shared':
+                shared, override = {**shared, 'production':result['production']}, {}
+            else:
+                override = {**override, 'production':result['production']}
+            preview = product_bom.editor_preview(product, shared, override, shared_editor=body['kind'] == 'shared')
+            result['effective'] = preview['parent']
+            # Inherit Plus duplicates must include the collection, not just the
+            # local draft. Intentional existing overrides remain supported.
+            active = [r for r in preview['parent']['rows'] if not r['excluded']]
+            ids = [r['item_id'] for r in active]
+            if append and len(ids) != len(set(ids)):
+                result.update(eligible=False, production=None, problems=['Duplicate inventory requirements in the resulting inherited BOM; review quantities before importing.'])
+            if result['eligible']:
+                from app.inventory.catalogue_bom import document as costing_document, settings as costing_settings
+                from app.inventory.profitability import estimate
+                assumptions = costing_document(preview['parent'], shared.get('production', {}), override.get('production', {}))
+                processes = assumptions.get('equipment', [])
+                equipment_ids = [line['equipment_id'] for line in processes]
+                if append and len(equipment_ids) != len(set(equipment_ids)):
+                    result.update(eligible=False, production=None, problems=['Duplicate inherited equipment processes require explicit review.'])
+                else:
+                    result['result'] = estimate(assumptions, costing_settings(), direct_materials=True)
+                    if not result['result']['complete'] or preview['parent']['conflicts']:
+                        result.update(eligible=False, production=None, problems=preview['parent']['warnings'] + result['result']['missing'])
+        response = jsonify(result)
+        response.headers['Cache-Control'] = 'private, no-store'
+        return response
+    except (ValueError, TypeError, KeyError) as exc:
         return jsonify(error=str(exc)), 400
 
 
