@@ -28,9 +28,29 @@ patch.setattr(module,'Flask',lambda *a,**kw:flask(*a,instance_path=str(directory
 fixture=core.__wrapped__(directory,patch);world=next(fixture)
 world,oid,lid,iid,tub=fulfilment.__wrapped__(world,patch)
 app=world[0];app.config['TEMPLATES_AUTO_RELOAD']=True
+if '--simple' in sys.argv:
+    from test_inventory import item, transact
+    from test_fulfilment_simple import configure
+    iid=item(world[1],'material','GLOSS-SHEET','6x6 Gloss Card',unit='piece',pack_qty='10',pack_unit='piece',pack_price='5')
+    transact(world[1],'receive',iid,qty='10',destination=str(tub),cost='5')
+    configure((world,oid,lid,iid,tub),{'type':'card'},item_id=iid)
 if '--workflow' in sys.argv:
     from test_order_workflow_corrections import add_order
     with app.app_context():add_order((world,oid,lid,iid,tub))
+if '--print-layout' in sys.argv:
+    import json
+    from test_shopify_orders import order, line, save as import_order
+    from app.models import ShopifyOrderLine
+    with app.app_context():
+        sku=db.session.get(ShopifyOrderLine,lid).sku
+        for number,count in [(1001,1),(1002,2)]:
+            raw=order(number);rows=[]
+            for index in range(count):
+                purchased=line(number*10+index);purchased['sku']=sku;purchased['title']='Anniversary Level Complete Card'
+                snapshot=dict(schema_version=1,revision='a'*64,fields=[],proof=dict(policy='optional',choice='no',display='No, proceed without a proof.',property_key='Digital proof'))
+                purchased['customAttributes']=[dict(key='_tlc_configuration',value='a'*64),dict(key='_tlc_personalisation',value=json.dumps(snapshot)),dict(key='Digital proof',value='No, proceed without a proof.'),dict(key='Recipient',value='Synthetic recipient'),dict(key='Years together',value='25')]
+                rows.append(purchased)
+            raw['lineItems']['nodes']=rows;import_order(raw)
 patch.setattr(integration,'shopify_settings',lambda:dict(domain='fictional.myshopify.com',client_secret='private-test-key'))
 with app.app_context():
     db.session.add(ShopifyOrderSync(store_id=STORE,domain='fictional.myshopify.com'));db.session.commit()

@@ -27,6 +27,56 @@ LABELS={k:v for k,v in [('new','New Order'),('needs_configuration','Needs Config
     ('ready_dispatch','Ready for Dispatch'),('dispatched','Dispatched'),('hold','On Hold / Needs Attention'),('cancelled','Cancelled')]}
 TERMINAL={'cancelled','dispatched'}
 PAYMENT={'PAID','PARTIALLY_REFUNDED'}
+MANUAL_STAGES={'new':'New Order','printed':'Printed (pick sheet)','awaiting_proof':'Awaiting Proof',
+    'proof_sent':'Proof Sent','proof_approved':'Proof Approved','picking':'Picking Started','picked':'Picked',
+    'production':'In Production','produced':'Produced','quality_checked':'Quality Checked',
+    'packed':'Packed','ready_dispatch':'Ready for Dispatch','dispatched':'Dispatched','hold':'On Hold'}
+LABELS.update({k:v for k,v in MANUAL_STAGES.items() if k not in LABELS})
+
+
+def manual_status(work,line,data,actor,reason):
+    """Operator stages share the existing history; never post inventory movements."""
+    target=data.get('status')
+    if target not in MANUAL_STAGES:raise ValueError('Choose a supported order stage.')
+    _guard(work,line)
+    if target=='printed':return dict(print_milestone=True)
+    proof=latest_proof(line.id)
+    if target in {'awaiting_proof','proof_sent','proof_approved'}:
+        if work.committed_at:raise ValueError('Production is committed; reconcile proof requirements explicitly before changing them.')
+        work.proof_required=True
+        if target=='awaiting_proof' and proof and proof.state=='approved':
+            raise ValueError('This proof is already approved. Record a revised Proof Sent to begin a new approval cycle; historical approval is retained.')
+        if target=='proof_sent':
+            reference=stock.clean(data.get('reference'),'Private proof reference',100,required=True)
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{2,99}',reference):raise ValueError('Use an opaque private proof reference, not a URL or path.')
+            method=stock.clean(data.get('method'),'Proof communication channel',100,required=True)
+            proof=WorkProof(line_id=line.id,version=proof.version+1 if proof else 1,reference=reference,
+                state='sent',method=method,actor=actor,created_at=now(),sent_at=now(),evidence=reason)
+            db.session.add(proof)
+        elif target=='proof_approved':
+            if not proof or proof.state!='sent':raise ValueError('Record the current proof sent before recording actual customer approval.')
+            if data.get('approval_received')!='yes':raise ValueError('Explicitly confirm actual customer approval was received.')
+            proof.state='approved';proof.approved_at=now();proof.actor=actor;proof.evidence=reason
+            proof.method=stock.clean(data.get('method'),'Approval channel',100,required=True)
+    elif target not in {'new','hold'} and work.proof_required and (not proof or proof.state!='approved'):
+        raise ValueError('Awaiting Proof Approval: record actual approval before picking or production.')
+    if target in {'picked','produced','quality_checked','packed','ready_dispatch','dispatched'} and any(remaining(r) for r in requirements(line.id)):
+        raise ValueError('Confirm outstanding materials/components first; changing status never deducts stock.')
+    if target in {'packed','ready_dispatch','dispatched'}:
+        allowed={'packed','ready_dispatch','dispatched'} if target=='dispatched' else {'quality_checked','packed','ready_dispatch','dispatched','ready_pack','packing'}
+        if any((db.session.get(OrderWorkLine,l.id).state if db.session.get(OrderWorkLine,l.id) else '') not in allowed
+               for l in line.order.lines if l.id!=line.id and l.is_current and l.current_quantity>0):
+            raise ValueError('All applicable order lines must be ready before whole-order packing/dispatch.')
+    details=dict(manual_stage=True)
+    if target in {'production','produced'} and not work.committed_at:
+        work.committed_at=now();work.committed_by=actor
+    if target=='dispatched':
+        details.update(carrier=stock.clean(data.get('carrier'),'Actual carrier handoff',100,required=True),
+            tracking=stock.clean(data.get('tracking'),'Tracking / dispatch reference',160,required=True),
+            handoff_at=now().isoformat(),shopify_fulfilled=False)
+    if target=='hold':work.prior_state=work.state;work.hold_reason=reason;_release(work)
+    work.state=target
+    return details
 
 
 def now(): return datetime.now(UTC).replace(tzinfo=None)
@@ -79,8 +129,8 @@ def preparation(line,*,proof_override=None):
                   local.get('production',{}).get('variants',{}).get(line.sku,{})):
         policy.update(layer.get('workflow',{}))
     validate_policy(policy)
-    if policy.get('type') not in TYPES:raise ValueError('Configure the product/collection manufacturing workflow first.')
-    policy.setdefault('needs_picking',policy['type'] in {'assembly','stock'})
+    # Route is optional reference metadata, not an order eligibility gate.
+    policy.setdefault('needs_picking',policy.get('type') in {'assembly','stock'})
     policy.setdefault('proof_required',False);policy.setdefault('personalised',False)
     finished=stock.item_for(policy['stock_item_id']) if policy.get('stock_item_id') else None
     if finished:
@@ -88,15 +138,19 @@ def preparation(line,*,proof_override=None):
         policy['needs_picking']=True;policy['source']='finished_stock'
     personal=json.loads(line.personalisation_json)
     preference=personal.get('proof') or {}
-    if preference.get('choice') in {'required','yes'}:policy['proof_required']=True
-    if proof_override is not None:policy['proof_required']=proof_override
+    if preference.get('choice') in {'required','yes','no'}:
+        policy['proof_required']=preference['choice']!='no'
+        policy['proof_source']='Validated purchased customer choice: '+preference['choice']
+    else:
+        policy['proof_source']='No validated purchased proof choice; legacy/default policy applies. Review original purchase details if uncertain.'
+    if proof_override is not None:
+        policy['proof_required']=proof_override
+        policy['proof_source']='Audited operator override'
     if proof_override is None and any('proof' in str(w).lower() for w in personal.get('warnings',[])):
         raise ValueError('Purchase-time proof preference needs review; configure an audited proof override before proceeding.')
     projections=product_bom.product_costs(product,documents=(shared,local))
     resolved=projections.get(line.sku) or projections.get(product.sku)
     if not finished and resolved and resolved['conflicts']:raise ValueError('Effective BOM has conflicting option/variant requirements. Repair the source BOM.')
-    if not finished and policy['needs_picking'] and (not resolved or not resolved['count']):
-        raise ValueError('This picking workflow needs a configured effective inventory BOM.')
     requirements=defaultdict(int)
     for row in ([] if finished else (resolved or {}).get('rows',[])):
         if row['excluded']:continue
@@ -105,7 +159,7 @@ def preparation(line,*,proof_override=None):
         requirements[item.id]+=amount*line.current_quantity
         if requirements[item.id]>stock.MAX_QTY:raise ValueError('Order requirement exceeds the inventory range.')
     if finished:requirements[finished.id]=line.current_quantity*stock.SCALE
-    if policy['type']=='stock':
+    if policy.get('type')=='stock':
         if len(requirements)!=1:raise ValueError('Ready-stock workflow must identify one finished inventory item, not an assembly recipe.')
         selected=stock.item_for(next(iter(requirements)))
         if selected.kind=='material' or selected.unit!='piece':raise ValueError('Ready-stock picking requires a finished component stocked in pieces.')
@@ -246,7 +300,10 @@ def act(line_id,action,data,key,*,actor,version):
     if data.get('confirmed')!='yes':raise ValueError('Explicit operator confirmation is required; scanning alone never starts work.')
     reason=stock.clean(data.get('reason'),'Reason / evidence',400,required=True)
     prior=work.state;details={};new_pick=None
-    if action in {'refresh','replan'}:
+    if action=='status':
+        details=manual_status(work,line,data,actor,reason)
+        if details.get('print_milestone'):confirm_print([line.order],key,actor)
+    elif action in {'refresh','replan'}:
         if action=='replan' and (work.state not in {'cancelled','hold'} or data.get('exception')!='yes'):
             raise ValueError('Re-planning requires an authorised held/cancelled-work correction.')
         if (work.committed_at and action!='replan') or any(picked(r) for r in requirements(line_id)):
@@ -269,7 +326,8 @@ def act(line_id,action,data,key,*,actor,version):
         if work.committed_at:raise ValueError('Cannot change proof requirements after production commitment.')
         if data.get('required') not in {'yes','no'}:raise ValueError('Choose an explicit proof requirement.')
         if work.state not in {'ready','awaiting_proof','needs_configuration','proof_approved'}:raise ValueError('Proof override is unavailable at this stage.')
-        if not json.loads(work.policy_json).get('type'):
+        if work.state=='needs_configuration':
+            if any(picked(r) for r in requirements(line_id)):raise ValueError('Reconcile picked stock before rebuilding requirements.')
             product,policy,req,bom=preparation(line,proof_override=data['required']=='yes')
             work.product_id=product.id;work.policy_json=dumps(policy);work.bom_json=dumps(bom)
             for r in requirements(line_id):db.session.delete(r)
@@ -277,6 +335,7 @@ def act(line_id,action,data,key,*,actor,version):
             for iid,amount in req.items():db.session.add(WorkRequirement(line_id=line_id,item_id=iid,quantity=amount,reserved=0,unit=stock.item_for(iid).unit))
             work.source_digest=fingerprint(line)
         work.proof_required=data['required']=='yes';work.state='awaiting_proof' if work.proof_required else 'ready'
+        policy=json.loads(work.policy_json);policy['proof_source']='Audited operator override';work.policy_json=dumps(policy)
         details=dict(required=work.proof_required,method='Operator override',evidence=reason)
     elif action=='cancel':
         if work.state in TERMINAL:raise ValueError('Completed/cancelled work requires explicit reconciliation, not routine cancellation.')
@@ -351,7 +410,7 @@ def act(line_id,action,data,key,*,actor,version):
                 if not requirements(line_id):raise ValueError('No inventory requirements are configured for picking.')
                 _reserve(work);work.state='waiting' if any(r.reserved<remaining(r) for r in requirements(line_id)) else 'picking'
             elif action=='pick':
-                if prior not in {'picking','waiting','production'}:raise ValueError('Start picking/production before confirming a stock issue.')
+                if prior not in {'new','ready','proof_approved','picking','waiting','production','picked','produced','quality','quality_checked','ready_pack'}:raise ValueError('Resolve the blocked/completed order before confirming a stock issue.')
                 r=db.session.get(WorkRequirement,int(data.get('requirement_id','0')))
                 if not r or r.line_id!=line_id:raise ValueError('Choose a requirement from this purchased line.')
                 code=str(data.get('code') or '').strip().upper()
@@ -380,14 +439,14 @@ def act(line_id,action,data,key,*,actor,version):
             elif action=='finish_picking':
                 if prior not in {'picking','waiting'} or any(remaining(r) for r in requirements(line_id)):
                     raise ValueError('Every required quantity must be confirmed; planned production is not picked stock.')
-                work.state='quality' if policy.get('source')=='finished_stock' or policy['type']=='stock' else 'ready'
+                work.state='quality' if policy.get('source')=='finished_stock' or policy.get('type')=='stock' else 'ready'
             elif action=='start_production':
                 if prior not in {'ready','proof_approved'}:raise ValueError('Production starts only from a ready or approved line.')
                 if policy.get('needs_picking') and any(remaining(r) for r in requirements(line_id)):
                     raise ValueError('Finish picking the actual component requirements first.')
                 work.state='production'
                 if not work.committed_at:work.committed_at=now();work.committed_by=actor
-                details=dict(type=policy['type'],personalised=policy.get('personalised',False),
+                details=dict(type=policy.get('type'),personalised=policy.get('personalised',False),
                              policy='Internal review lock only; statutory remedies and external Shopify authority remain unchanged.')
             elif action in {'assembly','quality','ready_pack','packing','ready_dispatch','dispatch'}:
                 edges={'assembly':{'production'},'quality':{'production','assembly'},'ready_pack':{'quality'},
@@ -429,10 +488,10 @@ def summary(order):
         if states[0] in {'ready','picking','waiting'} and total and done:
             return 'Picked' if done>=total else 'Partially Picked'
         return LABELS[states[0]]
-    completed={'quality','ready_pack','packing','ready_dispatch','dispatched'}
+    completed={'produced','quality','quality_checked','ready_pack','packing','packed','ready_dispatch','dispatched'}
     if any(s in completed for s in states):return 'Partially Completed' if all(s in completed for s in states) else 'Partially Produced'
     if any(s in {'production','assembly'} for s in states):return 'Partially Produced'
-    if done or any(s=='picking' for s in states):return 'Partially Picked'
+    if done or any(s in {'picking','picked'} for s in states):return 'Partially Picked'
     return 'Mixed — see individual lines'
 
 
@@ -447,12 +506,13 @@ def matches_status(order,status):
     if status=='Printed':return bool(print_history(order))
     if status=='Picked':
         reqs=[r for line in order.lines if line.is_current and line.current_quantity>0 for r in requirements(line.id)]
-        return bool(reqs) and all(remaining(r)==0 for r in reqs)
+        return (bool(reqs) and all(remaining(r)==0 for r in reqs)) or summary(order)=='Picked'
     if status=='New':
         return not order.cancelled_at and order.outstanding_quantity>0 and not print_history(order) and not WorkEvent.query.join(OrderWorkLine).filter(
             OrderWorkLine.order_id==order.id,WorkEvent.action.notin_(['import','commerce_changed'])).first()
     value=summary(order)
-    return value=={'Picking':'Picking Started','In Production':'Production Started','Packed':'Ready for Dispatch','Dispatched':'Dispatched locally'}.get(status,status)
+    if status=='Packed':return value in {'Packed','Ready for Dispatch'}
+    return value=={'Picking':'Picking Started','In Production':'Production Started','Dispatched':'Dispatched locally'}.get(status,status)
 
 
 def confirm_print(orders,key,actor):
@@ -481,6 +541,7 @@ def requirement_view(r):
 
 def line_view(line):
     work=db.session.get(OrderWorkLine,line.id)
+    purchased_proof=(json.loads(line.personalisation_json).get('proof') or {}).get('choice')
     if not work:
         try:
             product,policy,req,bom=preparation(line)
@@ -492,8 +553,8 @@ def line_view(line):
             for iid,amount in req.items():
                 transient=WorkRequirement(line_id=line.id,item_id=iid,quantity=amount,reserved=0,active=True,unit=stock.item_for(iid).unit)
                 previews.append(requirement_view(transient))
-        return dict(line=line,work=None,state=state,issue=issue,policy=policy,requirements=previews,proofs=[],events=[],picks=[])
-    return dict(line=line,work=work,state=work.state,issue=work.hold_reason,policy=json.loads(work.policy_json),
+        return dict(line=line,work=None,state=state,issue=issue,policy=policy,requirements=previews,proofs=[],events=[],picks=[],purchased_proof=purchased_proof)
+    return dict(line=line,work=work,state=work.state,issue=work.hold_reason,policy=json.loads(work.policy_json),purchased_proof=purchased_proof,
         requirements=[requirement_view(r) for r in requirements(line.id)],
         proofs=WorkProof.query.filter_by(line_id=line.id).order_by(WorkProof.version.desc()).all(),
         events=WorkEvent.query.filter_by(line_id=line.id).order_by(WorkEvent.at.desc()).limit(100).all(),

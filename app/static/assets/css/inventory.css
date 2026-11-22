@@ -60,8 +60,23 @@
  body:has(.order-pick-sheet) :is(.app-sidebar,.mobile-bottom-nav,.app-header,.app-utility-header,.app-offcanvas,.skip-link,.workshop-nav,.workshop-no-print,.app-footer,.workspace-breadcrumb) { display:none!important; }
  body:has(.order-pick-sheet) :is(.app-main,#main-content,.workshop,.app-content,.app-workspace,.app-frame) { margin:0!important; padding:0!important; width:100%!important; }
  body:has(.order-pick-sheet) .app-frame { display:block!important; }
- .order-pick-sheet { padding:0; page:tlc_order_pick; }
- .order-pick-sheet section { break-inside:avoid-page; }
+ body:has(.order-pick-sheet) { background:#fff!important; color:#111!important; }
+ body:has(.order-pick-sheet) .workshop { display:block!important; }
+ .order-pick-sheet { padding:0!important; page:tlc_order_pick; display:block; min-height:0; width:100%; box-sizing:border-box; font:9pt/1.25 Arial,sans-serif; color:#111; }
+ .order-pick-sheet :is(header,section,footer) { padding:0; margin:0; background:none; box-shadow:none; border-radius:0; flex:0 0 auto; }
+ .order-pick-sheet :is(h1,h2,p) { padding:0; margin:0 0 1.5mm!important; color:#111!important; line-height:1.25!important; }
+ .order-pick-sheet h1 { font-size:13pt!important; }
+ .order-pick-sheet h2 { font-size:11pt!important; }
+ .order-pick-sheet .order-sheet-heading { border-bottom:1px solid #bbb; margin-bottom:3mm; padding-bottom:2mm; }
+ .order-sheet-heading > div { display:flex; justify-content:space-between; gap:5mm; }
+ .order-pick-sheet .order-sheet-line { margin-bottom:3mm; break-inside:auto; }
+ .order-pick-sheet table { margin:2mm 0; width:100%; min-width:0; font:8.5pt/1.2 Arial,sans-serif; table-layout:fixed; }
+ .order-pick-sheet :is(td,th) { padding:1.2mm; white-space:normal; overflow-wrap:anywhere; border:1px solid #bbb; }
+ .order-pick-sheet :is(td,th):first-child { width:10mm; }
+ .order-pick-sheet .order-sheet-barcode { margin-top:3mm; padding-top:0; break-inside:avoid; }
+ .order-pick-sheet .order-sheet-customer { border-top:1px solid #bbb; padding-top:2mm; margin-bottom:2mm; text-align:left; }
+ .order-pick-sheet .order-sheet-note { font-size:7.5pt; }
+ .order-pick-sheet .order-sheet-barcode img { display:block; width:auto; max-width:160mm; height:18mm; margin:0 auto 1mm; object-fit:contain; }
  .order-pick-sheet thead { display:table-header-group; }
  .order-pick-sheet tr { break-inside:avoid; }
 }

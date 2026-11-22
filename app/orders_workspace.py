@@ -140,14 +140,15 @@ def production_information(order):
     instructions={}
     for line in order.lines:
         personal=line_view(line)['personalisation']
-        fields=personal.get('fields') or personal.get('public') or []
+        fields=(personal.get('fields') or [])+(personal.get('public') or [])
         safe=[]
         for field in fields:
             value=field.get('display',field.get('value',''))
             if field.get('type')=='file_upload' or isinstance(value,(dict,list)):continue
             value=str(value)
             if any(marker in value.lower() for marker in ('http://','https://','plugin://')) or REF.search(value):continue
-            safe.append(dict(label=field.get('label') or field.get('id') or 'Instruction',value=value))
+            record=dict(label=field.get('label') or field.get('id') or 'Instruction',value=value)
+            if record not in safe:safe.append(record)
         instructions[line.id]=safe
     address=json.loads(order.delivery_json) if not order.redacted_at else None
     return dict(customer=order.customer_name if not order.redacted_at else None,

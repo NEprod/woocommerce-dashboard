@@ -30,7 +30,7 @@ def private(response):
 
 @fulfilment.context_processor
 def helpers():
-    return dict(labels=work.LABELS,workflow_types=work.TYPES,qty=work.stock.quantity_text,
+    return dict(labels=work.LABELS,manual_stages=work.MANUAL_STAGES,workflow_types=work.TYPES,qty=work.stock.quantity_text,
                 action_key=lambda:uuid4().hex,form=FlaskForm())
 
 
@@ -57,9 +57,15 @@ def detail(order_id):
         for line in missing:work.initialise(line,actor=f'{current_user.id}:{current_user.username}')
         work.reconcile(order)  # Existing external fulfilments must not restart physical work.
         db.session.commit()
+    lines=[work.line_view(line) for line in order.lines if line.is_current or db.session.get(work.OrderWorkLine,line.id)]
+    from app.catalogue_images import product_thumbnail_url, variation_thumbnail_url
+    for entry in lines:
+        product=db.session.get(work.Product,entry['work'].product_id) if entry['work'] and entry['work'].product_id else None
+        variant=next((v for v in product.variations if v.sku==entry['line'].sku),None) if product else None
+        entry['product_image']=(variation_thumbnail_url(variant) if variant else None) or (product_thumbnail_url(product) if product else None)
     return render_template('order_work/detail.html',order=order,summary=work.summary(order),
-        info=workspace.production_information(order),printed=work.print_history(order),
-        lines=[work.line_view(line) for line in order.lines if line.is_current or db.session.get(work.OrderWorkLine,line.id)],
+        info=workspace.production_information(order),customer_email=order.email if not order.redacted_at else None,printed=work.print_history(order),
+        lines=lines,
         deliveries=WorkOutbound.query.join(work.WorkEvent,WorkOutbound.event_id==work.WorkEvent.id).join(work.OrderWorkLine,
             work.WorkEvent.line_id==work.OrderWorkLine.line_id).filter(work.OrderWorkLine.order_id==order_id).order_by(WorkOutbound.id.desc()).limit(50).all())
 
