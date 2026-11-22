@@ -30,7 +30,7 @@ def fulfilment(core, monkeypatch):
         db.session.add(ShopifyProductIdentity(product_id=p.id,source_identity=p.source_relpath,sku=p.sku,
             store_key='fixture',store_id=STORE,store_domain='fictional.myshopify.com',shopify_product_id=PRODUCT,
             state='verified',verification_state='verified',reviewed_digest='a'*64,
-            media_evidence_json=json.dumps({'variant_id':VARIANT})))
+            media_evidence_json=json.dumps({'version':1,'variant_id':VARIANT})))
         db.session.commit()
         raw=order();purchased=line();purchased['sku']=p.sku;purchased['customAttributes']=[]
         raw['lineItems']['nodes']=[purchased];import_order(raw)
@@ -247,7 +247,7 @@ def test_variant_workflow_overrides_collection_policy_without_copying_bom(fulfil
         db.session.add(ShopifyProductIdentity(product_id=pid,source_identity=product.source_relpath,sku=product.sku,
             store_key='fixture-variable',store_id=STORE,store_domain='fictional.myshopify.com',shopify_product_id='gid://shopify/Product/101',
             state='verified',verification_state='verified',reviewed_digest='a'*64,
-            media_evidence_json=json.dumps({'variant_maps':{source:{'id':'gid://shopify/ProductVariant/201','sku':sku}}})))
+            media_evidence_json=json.dumps({'version':1,'variant_maps':{source:{'id':'gid://shopify/ProductVariant/201','sku':sku}}})))
         db.session.commit()
         raw=order(1002);purchased=line(3);purchased.update(sku=sku,product={'id':'gid://shopify/Product/101'},variant={'id':'gid://shopify/ProductVariant/201'},customAttributes=[])
         raw['lineItems']['nodes']=[purchased];import_order(raw)

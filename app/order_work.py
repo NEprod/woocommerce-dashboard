@@ -109,7 +109,12 @@ def local_product(line):
     if len(links)!=1:raise ValueError('No unique verified store-bound local product mapping. Review Product Review & Sync.')
     link=links[0];product=db.session.get(Product,link.product_id)
     if not product or product.catalogue_status!='active':raise ValueError('The mapped local product is missing/inactive.')
-    evidence=json.loads(link.media_evidence_json)
+    from app.shopify_drafts import evidence as identity_evidence
+    from app.shopify_connection import ShopifyError
+    try:
+        evidence=identity_evidence(link)
+    except ShopifyError as exc:
+        raise ValueError(str(exc)) from exc
     if product.product_type=='variable':
         matches=[v for v in product.variations if v.catalogue_status=='active' and v.sku==line.sku
             and evidence.get('variant_maps',{}).get(v.source_identity,{}).get('id')==line.variant_id]
