@@ -6,6 +6,26 @@ required. Existing route metadata, BOM inheritance and costing are retained.
 
 ## Operator controls
 
+The working sheet uses the existing dark-green table headers and status pills.
+Products, quantities and captured personalisation are shown alongside the stage
+selector. Customer email has Copy Email and a mailto link (no server-side sender).
+Routine status, stock confirmation and uncommitted refresh need no typed reason;
+their operator/timestamp/action are still audited. Correction tools stay collapsed
+and retain their reasons/authorisation checks.
+
+The camera icon opens the existing on-device barcode scanner. Scanning selects
+the stock source; Confirm Materials Used / Confirm Picked posts the deduction.
+A sole stocked location is preselected; multiple locations require a choice.
+Reversible stock picking can be recorded while a proof is pending, but required
+proof approval still gates physical production/completion.
+
+Attach Proof accepts JPEG/PNG/WebP images up to 10 MB, optimises them using the
+existing inventory image helper, and stores the private result on the existing
+proof version in persistent SQLite. Previous versions remain available only to
+authorised order operators. Attachment is not sending or approval. PDFs are not
+accepted by this image upload. Migration 0031 adds one nullable binary column;
+existing proof references and history remain valid. No new volume is needed.
+
 - Update Status records a per-line stage, actor, reason and timestamp using the
   existing workflow history. It never issues or returns inventory.
 - Printed is a separate explicit print confirmation, not a production stage.

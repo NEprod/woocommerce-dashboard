@@ -3,14 +3,19 @@ import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const {chromium}=require('/Users/dalethomas/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 const origin='http://127.0.0.1:7522';
-const browser=await chromium.launch({headless:true,executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',args:['--disable-background-networking']});
+const browser=await chromium.launch({headless:true,executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',args:['--disable-background-networking','--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']});
 try{
  const context=await browser.newContext({viewport:{width:1280,height:900}});
  await context.route('**/*',r=>new URL(r.request().url()).origin===origin?r.continue():r.abort());
+ await context.addInitScript(()=>{window.BarcodeDetector=class{static async getSupportedFormats(){return ['code_128','qr_code'];}async detect(){return [{rawValue:'GLOSS-SHEET',format:'code_128'}];}};});
  const page=await context.newPage();const initial=await(await context.request.get(origin+'/fixture')).json();
  await page.goto(`${origin}/production/orders/${initial.order}`);
  assert.equal(await page.getByRole('button',{name:'Copy Email',exact:true}).count(),1);
  assert.equal(await page.locator('[data-action=status]').count(),1);
+ assert.equal(await page.locator('[data-action=status] [name=reason]').count(),0);
+ assert.equal(await page.locator('.fulfilment-product-table').count(),1);
+ assert.ok((await page.locator('.fulfilment-product-table').innerText()).includes('Synthetic recipient'));
+ assert.ok(await page.locator('#order-customer-email').getAttribute('href').then(h=>h.startsWith('mailto:')));
  assert.equal(await page.getByRole('button',{name:'Confirm Materials Used',exact:true}).count(),1);
  assert.equal(await page.getByText('Advanced / Troubleshooting',{exact:true}).evaluate(e=>e.parentElement.open),false);
  assert.equal(await page.locator('[data-stage-fields="dispatched"]').isVisible(),false);
@@ -19,21 +24,20 @@ try{
  await page.setViewportSize({width:390,height:844});
  const form=page.locator('[data-action=status]');
  await form.locator('[data-manual-stage]').selectOption('production');
- await form.locator('[name=reason]').fill('Synthetic physical print start');
- await form.locator('[name=confirmed]').check();
  await form.getByRole('button',{name:'Update Status',exact:true}).click();
  assert.equal(await page.locator('[data-line-state]').innerText(),'Production Started');
  let current=await(await context.request.get(origin+'/fixture')).json();
  assert.equal(current.transactions,initial.transactions,'Status must not deduct stock');
  const issue=page.locator('[data-action=pick]');
- await issue.locator('[name=code]').selectOption('GLOSS-SHEET');
- await issue.locator('[name=location_id]').selectOption(String(initial.tub));
- await issue.locator('[name=reason]').fill('One gloss sheet physically used');await issue.locator('[name=confirmed]').check();
+ await issue.locator('[name=code]').selectOption('');
+ await issue.getByRole('button',{name:'Scan barcode for 6x6 Gloss Card',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('[name=code]').value==='GLOSS-SHEET');
+ assert.equal((await(await context.request.get(origin+'/fixture')).json()).transactions,initial.transactions,'Scanning alone must not deduct stock');
+ assert.equal(await issue.locator('[name=location_id]').inputValue(),String(initial.tub),'Single stocked location is selected');
  await issue.getByRole('button',{name:'Confirm Materials Used',exact:true}).click();
  current=await(await context.request.get(origin+'/fixture')).json();assert.equal(current.transactions,initial.transactions+1);
  assert.equal(current.picks,initial.picks+1);
  const stages=page.locator('[data-action=status]');await stages.locator('[data-manual-stage]').selectOption('produced');
- await stages.locator('[name=reason]').fill('Synthetic print completed');await stages.locator('[name=confirmed]').check();
  // A short viewport approximates keyboard clearance; no physical iPhone claim.
  await page.setViewportSize({width:390,height:500});
  const button=stages.getByRole('button',{name:'Update Status',exact:true});await button.scrollIntoViewIfNeeded();
@@ -41,6 +45,8 @@ try{
  await button.click();assert.equal(await page.locator('[data-line-state]').innerText(),'Produced');
  await page.waitForFunction(()=>document.documentElement.scrollWidth<=innerWidth+1);
  assert.equal((await(await context.request.get(origin+'/fixture')).json()).transactions,initial.transactions+1);
+ await page.screenshot({path:'/tmp/tlc-working-sheet-mobile.png',fullPage:true});
+ await page.setViewportSize({width:1440,height:1000});await page.reload();await page.screenshot({path:'/tmp/tlc-working-sheet-desktop.png',fullPage:true});
  console.log('PASS focused desktop/mobile stage controls, private email, collapsed troubleshooting, card sheet issue, fixed navigation and no stock mutation on status');
  await context.close();
 }finally{await browser.close();}

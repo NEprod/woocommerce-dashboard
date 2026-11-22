@@ -47,18 +47,21 @@ def manual_status(work,line,data,actor,reason):
         if target=='awaiting_proof' and proof and proof.state=='approved':
             raise ValueError('This proof is already approved. Record a revised Proof Sent to begin a new approval cycle; historical approval is retained.')
         if target=='proof_sent':
-            reference=stock.clean(data.get('reference'),'Private proof reference',100,required=True)
+            reference=stock.clean(data.get('reference') or f'PROOF-{uuid4().hex}','Private proof reference',100,required=True)
             if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{2,99}',reference):raise ValueError('Use an opaque private proof reference, not a URL or path.')
-            method=stock.clean(data.get('method'),'Proof communication channel',100,required=True)
-            proof=WorkProof(line_id=line.id,version=proof.version+1 if proof else 1,reference=reference,
-                state='sent',method=method,actor=actor,created_at=now(),sent_at=now(),evidence=reason)
-            db.session.add(proof)
+            method=stock.clean(data.get('method') or 'Operator recorded proof sent externally','Proof communication channel',100,required=True)
+            if proof and proof.state=='preparing' and proof.file_data:
+                proof.state='sent';proof.method=method;proof.sent_at=now();proof.evidence=reason;proof.actor=actor
+            else:
+                proof=WorkProof(line_id=line.id,version=proof.version+1 if proof else 1,reference=reference,
+                    state='sent',method=method,actor=actor,created_at=now(),sent_at=now(),evidence=reason)
+                db.session.add(proof)
         elif target=='proof_approved':
             if not proof or proof.state!='sent':raise ValueError('Record the current proof sent before recording actual customer approval.')
             if data.get('approval_received')!='yes':raise ValueError('Explicitly confirm actual customer approval was received.')
             proof.state='approved';proof.approved_at=now();proof.actor=actor;proof.evidence=reason
-            proof.method=stock.clean(data.get('method'),'Approval channel',100,required=True)
-    elif target not in {'new','hold'} and work.proof_required and (not proof or proof.state!='approved'):
+            proof.method=stock.clean(data.get('method') or 'Operator recorded actual customer approval','Approval channel',100,required=True)
+    elif target not in {'new','hold','picking','picked'} and work.proof_required and (not proof or proof.state!='approved'):
         raise ValueError('Awaiting Proof Approval: record actual approval before picking or production.')
     if target in {'picked','produced','quality_checked','packed','ready_dispatch','dispatched'} and any(remaining(r) for r in requirements(line.id)):
         raise ValueError('Confirm outstanding materials/components first; changing status never deducts stock.')
@@ -71,8 +74,8 @@ def manual_status(work,line,data,actor,reason):
     if target in {'production','produced'} and not work.committed_at:
         work.committed_at=now();work.committed_by=actor
     if target=='dispatched':
-        details.update(carrier=stock.clean(data.get('carrier'),'Actual carrier handoff',100,required=True),
-            tracking=stock.clean(data.get('tracking'),'Tracking / dispatch reference',160,required=True),
+        details.update(carrier=stock.clean(data.get('carrier') or 'Operator recorded dispatched','Actual carrier handoff',100,required=True),
+            tracking=stock.clean(data.get('tracking'),'Tracking / dispatch reference',160),
             handoff_at=now().isoformat(),shopify_fulfilled=False)
     if target=='hold':work.prior_state=work.state;work.hold_reason=reason;_release(work)
     work.state=target
@@ -285,10 +288,12 @@ def scan(code):
 def token(order):return f'TLC-ORDER-{order.id}'
 
 
-def act(line_id,action,data,key,*,actor,version):
+def act(line_id,action,data,key,*,actor,version,proof_image=None):
     actor=actor_text(actor)
     if not re.fullmatch(r'[a-f0-9]{32}',str(key)):raise ValueError('A stable action reference is required.')
-    signature=stock.digest(dict(line_id=line_id,action=action,data=data,actor=actor,version=version))
+    from hashlib import sha256
+    signature=stock.digest(dict(line_id=line_id,action=action,data=data,actor=actor,version=version,
+        **({'proof_image':sha256(proof_image).hexdigest()} if proof_image is not None else {})))
     stock.writer_lock()
     previous_event=db.session.get(WorkEvent,key)
     if previous_event:
@@ -303,11 +308,27 @@ def act(line_id,action,data,key,*,actor,version):
     work=work or initialise(line,actor=actor)
     if version is not None and work.version!=int(version):raise ValueError('This workflow changed in another session. Reload before confirming.')
     if data.get('confirmed')!='yes':raise ValueError('Explicit operator confirmation is required; scanning alone never starts work.')
-    reason=stock.clean(data.get('reason'),'Reason / evidence',400,required=True)
+    reason=data.get('reason')
+    if not str(reason or '').strip() and action in {'status','pick','refresh','attach_proof'}:
+        reason={'status':'Operator updated order stage: '+MANUAL_STAGES.get(data.get('status'),''),
+            'pick':'Operator confirmed materials/components used or picked.',
+            'refresh':'Refresh uncommitted order from saved local requirements.',
+            'attach_proof':'Operator attached a private proof image.'}[action]
+    reason=stock.clean(reason,'Reason / evidence',400,required=True)
     prior=work.state;details={};new_pick=None
     if action=='status':
         details=manual_status(work,line,data,actor,reason)
         if details.get('print_milestone'):confirm_print([line.order],key,actor)
+    elif action=='attach_proof':
+        _guard(work,line)
+        if work.committed_at:raise ValueError('Attach or revise the proof before production starts; earlier proof history is retained.')
+        if not proof_image or len(proof_image)>4*1024*1024:raise ValueError('Choose a valid proof image up to 4 MB after optimisation.')
+        previous=latest_proof(line_id)
+        proof=WorkProof(line_id=line_id,version=previous.version+1 if previous else 1,
+            reference=f'PROOF-{key}',state='preparing',actor=actor,created_at=now(),
+            method='',evidence=reason,file_data=proof_image)
+        db.session.add(proof);details=dict(proof_version=proof.version,attached=True,sent=False)
+        if work.proof_required:work.state='awaiting_proof'
     elif action in {'refresh','replan'}:
         if action=='replan' and (work.state not in {'cancelled','hold'} or data.get('exception')!='yes'):
             raise ValueError('Re-planning requires an authorised held/cancelled-work correction.')
@@ -404,7 +425,7 @@ def act(line_id,action,data,key,*,actor,version):
                 details['contact_required']=True
             details['proof_version']=proof.version
         else:
-            if work.proof_required and (not proof or proof.state!='approved'):
+            if action!='pick' and work.proof_required and (not proof or proof.state!='approved'):
                 raise ValueError('Awaiting Proof Approval: the current proof must be explicitly approved before picking or production.')
             policy=json.loads(work.policy_json)
             if action=='ready':
@@ -415,7 +436,7 @@ def act(line_id,action,data,key,*,actor,version):
                 if not requirements(line_id):raise ValueError('No inventory requirements are configured for picking.')
                 _reserve(work);work.state='waiting' if any(r.reserved<remaining(r) for r in requirements(line_id)) else 'picking'
             elif action=='pick':
-                if prior not in {'new','ready','proof_approved','picking','waiting','production','picked','produced','quality','quality_checked','ready_pack'}:raise ValueError('Resolve the blocked/completed order before confirming a stock issue.')
+                if prior not in {'new','ready','awaiting_proof','proof_preparing','proof_sent','changes_requested','proof_approved','picking','waiting','production','picked','produced','quality','quality_checked','ready_pack'}:raise ValueError('Resolve the blocked/completed order before confirming a stock issue.')
                 r=db.session.get(WorkRequirement,int(data.get('requirement_id','0')))
                 if not r or r.line_id!=line_id:raise ValueError('Choose a requirement from this purchased line.')
                 code=str(data.get('code') or '').strip().upper()

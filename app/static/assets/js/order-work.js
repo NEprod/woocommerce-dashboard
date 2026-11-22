@@ -1,10 +1,19 @@
 // Preserve fixed navigation; measure its actual safe-area footprint, not a device height.
 const scopes=[...document.querySelectorAll('.order-fulfilment')];
 const nav=document.querySelector('.mobile-bottom-nav');
+for(const button of document.querySelectorAll('[data-quick-scan]')){
+ button.addEventListener('click',()=>{
+  const scanner=document.querySelector(`[data-workshop-scan="${CSS.escape(button.dataset.quickScan)}"]`);
+  if(scanner){scanner.open=true;scanner.querySelector('[data-scan-open]').click();}
+ });
+}
+for(const input of document.querySelectorAll('[name=proof_file]')){
+ input.addEventListener('change',()=>{input.setCustomValidity(input.files[0]?.size>10*1024*1024?'Choose a proof image up to 10 MB.':'');});
+}
 for(const select of document.querySelectorAll('[data-manual-stage]')){
  const update=()=>{for(const fields of select.form.querySelectorAll('[data-stage-fields]')){
   const shown=fields.dataset.stageFields.split(' ').includes(select.value);fields.hidden=!shown;
-  for(const input of fields.querySelectorAll('input'))input.disabled=!shown;
+  for(const input of fields.querySelectorAll('input')){input.disabled=!shown;if(input.name==='approval_received')input.required=shown;}
  }};
  select.addEventListener('change',update);update();
 }

@@ -19,7 +19,7 @@ fulfilment=Blueprint('fulfilment',__name__,url_prefix='/production/orders')
 @login_required
 def admin():
     if not current_user.is_admin:abort(403)
-    request.max_content_length=128*1024
+    request.max_content_length=(10*1024*1024+128*1024) if (request.view_args or {}).get('action')=='attach_proof' else 128*1024
 
 
 @fulfilment.after_request
@@ -63,6 +63,8 @@ def detail(order_id):
         product=db.session.get(work.Product,entry['work'].product_id) if entry['work'] and entry['work'].product_id else None
         variant=next((v for v in product.variations if v.sku==entry['line'].sku),None) if product else None
         entry['product_image']=(variation_thumbnail_url(variant) if variant else None) or (product_thumbnail_url(product) if product else None)
+        for requirement in entry['requirements']:
+            requirement['source_locations']=[(location,amount) for location,amount in requirement['locations'] if location.id and amount>0]
     return render_template('order_work/detail.html',order=order,summary=work.summary(order),
         info=workspace.production_information(order),customer_email=order.email if not order.redacted_at else None,printed=work.print_history(order),
         lines=lines,
@@ -77,15 +79,37 @@ def action(order_id,line_id,action):
     if line.order_id!=order_id:abort(404)
     data={k:v for k,v in request.form.items() if k not in {'csrf_token','request_id','version'}}
     try:
+        proof_image=None
+        if action=='attach_proof':
+            upload=request.files.get('proof_file')
+            if not upload or not upload.filename:raise ValueError('Choose a JPEG, PNG or WebP proof image.')
+            from app.inventory.images import optimise
+            # Bound source bytes separately from decoded image/pixel limits.
+            source=upload.stream.read(10*1024*1024+1)
+            if len(source)>10*1024*1024:raise ValueError('Proof image exceeds 10 MB.')
+            from werkzeug.datastructures import FileStorage
+            proof_image=optimise(FileStorage(stream=BytesIO(source),filename=upload.filename))
         result=work.act(line_id,action,data,request.form.get('request_id'),
-            actor=f'{current_user.id}:{current_user.username}',version=request.form.get('version') or None)
-        db.session.commit();flash(f'{work.LABELS[result.state]}. Local records saved; Shopify and stock change only as explicitly indicated.','success')
+            actor=f'{current_user.id}:{current_user.username}',version=request.form.get('version') or None,proof_image=proof_image)
+        db.session.commit();flash('Proof attached. Nothing has been sent.' if action=='attach_proof' else 'Stock confirmed.' if action=='pick' else f'Saved: {work.LABELS[result.state]}.','success')
     except (ValueError,TypeError,IntegrityError,OperationalError) as error:
         db.session.rollback()
         message=str(error) if isinstance(error,(ValueError,TypeError)) else 'Concurrent update or database conflict. Reload and review; no partial operation was committed.'
         if request.accept_mimetypes.best=='application/json':return jsonify(error=message),400
         flash(message,'warning')
     return redirect(url_for('fulfilment.detail',order_id=order_id),code=303)
+
+
+@fulfilment.get('/<int:order_id>/proof/<int:proof_id>')
+def proof_file(order_id,proof_id):
+    order=db.get_or_404(ShopifyOrder,order_id)
+    if not workspace.order_allowed(order):abort(403)
+    if order.redacted_at:abort(410)
+    proof=db.get_or_404(work.WorkProof,proof_id)
+    line=db.get_or_404(ShopifyOrderLine,proof.line_id)
+    if line.order_id!=order.id or not proof.file_data:abort(404)
+    return Response(proof.file_data,mimetype='image/webp',headers={
+        'X-Content-Type-Options':'nosniff','Content-Disposition':f'inline; filename="proof-{proof.id}.webp"'})
 
 
 @fulfilment.get('/<int:order_id>/sheet')

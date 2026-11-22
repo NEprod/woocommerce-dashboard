@@ -71,6 +71,7 @@ class WorkProof(db.Model):
     sent_at = db.Column(db.DateTime)
     approved_at = db.Column(db.DateTime)
     actor = db.Column(db.String(160), nullable=False)
+    file_data = db.Column(db.LargeBinary)
     __table_args__ = (db.UniqueConstraint('line_id','version'),)
 
 

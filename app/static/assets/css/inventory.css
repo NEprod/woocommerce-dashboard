@@ -28,6 +28,28 @@
 .order-fulfilment .page-actions { display:flex; flex-wrap:wrap; gap:.75rem; }
 .order-fulfilment .table-panel { margin-block:.5rem; }
 .order-fulfilment pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+.fulfilment-sheet .fulfilment-customer { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr)); gap:var(--space-4,1rem); }
+.fulfilment-sheet .fulfilment-customer h2 { font-size:1rem; margin:0 0 var(--space-2,.5rem); }
+.fulfilment-sheet .fulfilment-customer p { margin:.4rem 0; overflow-wrap:anywhere; }
+.fulfilment-sheet .fulfilment-routine { padding:0; margin:0; border:0; background:transparent; }
+.fulfilment-sheet .fulfilment-product-table { table-layout:fixed; }
+.fulfilment-sheet .fulfilment-product-table th:nth-child(1) { width:28%; }
+.fulfilment-sheet .fulfilment-product-table th:nth-child(2) { width:6%; }
+.fulfilment-sheet .fulfilment-product-table th:nth-child(3) { width:36%; }
+.fulfilment-sheet .fulfilment-product-table th:nth-child(4) { width:30%; }
+.fulfilment-sheet .fulfilment-product-table td { vertical-align:top; overflow-wrap:anywhere; }
+.fulfilment-sheet .fulfilment-product-table img { float:left; margin:0 var(--space-2,.5rem) var(--space-2,.5rem) 0; max-height:5rem; object-fit:contain; }
+.fulfilment-sheet .fulfilment-proofs { display:flex; align-items:center; flex-wrap:wrap; gap:var(--space-3,.75rem); }
+.fulfilment-sheet .fulfilment-scan-choice { display:flex; gap:var(--space-2,.5rem); min-width:0; }
+.fulfilment-sheet .fulfilment-scan-choice select { min-width:0; }
+.fulfilment-sheet [data-quick-scan] { flex:0 0 44px; padding:.5rem; }
+.fulfilment-sheet [data-workshop-scan] > summary { display:none; }
+.fulfilment-sheet .fulfilment-stock-table td:last-child { min-width:13rem; }
+.fulfilment-sheet > .page-actions { justify-content:flex-start; }
+.fulfilment-sheet > .page-actions > a { flex:0 1 auto; }
+@media(max-width:767px) {
+ .fulfilment-sheet .fulfilment-table td::before { content:attr(data-column); display:block; font-size:.75rem; color:var(--color-text-secondary); margin-bottom:var(--space-1,.25rem); }
+}
 .webhook-settings .status-pill { background:var(--color-surface-elevated); color:var(--color-text-secondary); }
 .webhooks-table :is(td,th) { white-space:normal; overflow-wrap:anywhere; }
 .webhooks-table small { display:block; }

@@ -34,6 +34,17 @@ if '--simple' in sys.argv:
     iid=item(world[1],'material','GLOSS-SHEET','6x6 Gloss Card',unit='piece',pack_qty='10',pack_unit='piece',pack_price='5')
     transact(world[1],'receive',iid,qty='10',destination=str(tub),cost='5')
     configure((world,oid,lid,iid,tub),{'type':'card'},item_id=iid)
+    from app import order_work as work
+    from app.models import ShopifyOrderLine
+    from app.order_personalisation import parse
+    import json
+    with app.app_context():
+        purchased=db.session.get(ShopifyOrderLine,lid)
+        properties=[dict(key='Recipients Name',value='Synthetic recipient'),dict(key='Years together',value='25')]
+        purchased.properties_json=json.dumps(properties);purchased.personalisation_json=json.dumps(parse(properties))
+        db.session.commit()
+        from test_order_fulfilment import act
+        act(lid,'refresh')
 if '--workflow' in sys.argv:
     from test_order_workflow_corrections import add_order
     with app.app_context():add_order((world,oid,lid,iid,tub))
