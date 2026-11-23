@@ -56,8 +56,8 @@ export async function mountCatalogueEditor(editor,box,view,generation) {
         editor.changed();
       });
     }
-    const costLabel=make('label','Shopify Cost per item source (separate from full profitability)'),cost=make('select');cost.className='form-select';
-    for(const [v,label]of [['','Automatic / inherited material cost'],['unconfigured','Unconfigured — leave Shopify unchanged'],['calculated','Calculated from BOM materials'],['manual','Manual cost']])cost.add(new Option(label,v));cost.value=local.cost?.mode||'';costLabel.append(cost);scope.append(costLabel);
+    const costLabel=make('label','Shopify Cost per item source'),cost=make('select');cost.className='form-select';
+    for(const [v,label]of [['','Automatic / inherited full BOM production cost'],['unconfigured','Unconfigured — leave Shopify unchanged'],['calculated','Calculated from full BOM production cost'],['manual','Manual cost override']])cost.add(new Option(label,v));cost.value=local.cost?.mode||'';costLabel.append(cost);scope.append(costLabel);
     const manual=make('input');manual.className='form-control';manual.inputMode='decimal';manual.value=local.cost?.amount??'';manual.setAttribute('aria-label','Manual Shopify cost £');manual.hidden=cost.value!=='manual';scope.append(manual);
     cost.disabled=!writable;manual.disabled=!writable;
     cost.onchange=()=>{manual.hidden=cost.value!=='manual';if(cost.value)local.cost=cost.value==='manual'?{mode:'manual',amount:manual.value}:{mode:cost.value};else delete local.cost;editor.changed(false);};

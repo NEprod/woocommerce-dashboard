@@ -316,13 +316,13 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
                 assumption='One finished product / bundle per transaction; fixed payment charge applied once. No VAT assumed.')
 
 
-def finished_product_estimate(product, sku):
+def finished_product_estimate(product, sku, *, documents=None, projection=None):
     """Current unit cost shared by product profitability and bundles, before selling fees."""
     import json
     from .models import CostingSettings, ProductCostingProfile
     from .product_bom import product_costs
     try:
-        projection = product_costs(product).get(sku)
+        projection = projection if projection is not None else product_costs(product, documents).get(sku)
     except (ValueError, OSError):
         return dict(complete=False, cost=None, missing=['Finished-product BOM cannot currently be resolved.'])
     if not projection or projection.get('state') != 'complete':
@@ -331,11 +331,7 @@ def finished_product_estimate(product, sku):
     settings = db.session.get(CostingSettings, 1)
     from .product_bom import authored
     from .catalogue_bom import document as catalogue_document
-    shared, local = authored(product)
-    authored_layers = [shared.get('production', {}), local.get('production', {})]
-    authored_layers += [p.get('variants', {}).get(sku, {}) for p in authored_layers[:]]
-    if not profile and not any('costing' in p for p in authored_layers):
-        return dict(complete=False, cost=None, missing=['Finished-product processing assumptions have not been saved.'])
+    shared, local = documents if documents is not None else authored(product)
     document = catalogue_document(projection, shared.get('production', {}), local.get('production', {}),
                                   sku, legacy=json.loads(profile.document) if profile else {})
     return estimate(document, json.loads(settings.document) if settings else {}, direct_materials=True, selling_fees=False)

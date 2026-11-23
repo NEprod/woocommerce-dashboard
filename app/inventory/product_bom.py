@@ -420,10 +420,24 @@ def product_costs(product, documents=None):
 
 def contract(product, documents=None):
     """Small, private plan projection; never pass inventory/BOM records to Shopify."""
-    return {sku: {'mode': v['mode'], 'value': v['shopify'],
-                  **({'problem': (v['warnings'][0] if v['warnings'] else 'No costed components are configured.')[:220]}
-                     if v['mode'] == 'calculated' and v['shopify'] is None else {})}
-            for sku, v in product_costs(product, documents).items() if v['mode'] != 'unconfigured'}
+    from .profitability import finished_product_estimate
+    documents = documents if documents is not None else authored(product)
+    result = {}
+    for sku, projection in product_costs(product, documents).items():
+        if projection['mode'] == 'unconfigured':
+            continue
+        value, problems = projection['shopify'], projection['warnings']
+        if projection['mode'] == 'calculated':
+            try:
+                full = finished_product_estimate(product, sku, documents=documents, projection=projection)
+                value = full.get('cost') if full['complete'] else None
+                problems = full['missing']
+            except (ValueError, OSError) as exc:
+                value, problems = None, [str(exc)]
+        result[sku] = {'mode': projection['mode'], 'value': value}
+        if projection['mode'] == 'calculated' and value is None:
+            result[sku]['problem'] = (problems[0] if problems else 'Full BOM production cost is incomplete.')[:220]
+    return result
 
 
 def editor_options(product, *, document=None):
