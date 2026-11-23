@@ -33,6 +33,12 @@ def quantity_text(value):
     return format(Decimal(value) / SCALE, "f")
 
 
+def recipe_piece_text(qty, good):
+    """Form precision only; unchanged legacy batch totals remain authoritative."""
+    return format((Decimal(qty) / SCALE / good).quantize(
+        Decimal('.000001'), rounding=ROUND_HALF_UP), 'f')
+
+
 def money_text(value):
     if value is None:
         return "Not known"
@@ -316,11 +322,22 @@ def save_item(kind, data, *, row=None, requirements=(), image=None, remove_image
         values["yield_qty"]=value//SCALE
         if not 1<=len(requirements)<=30:
             raise ValueError("Configure between 1 and 30 distinct source materials.")
+        basis = data.get('recipe_quantity_basis', 'batch')
+        if basis not in {'batch', 'piece'}:
+            raise ValueError('Choose a valid recipe quantity basis.')
+        previous = {r.material_id: r for r in row.materials} if row else {}
         for mid,raw,usage_unit in requirements:
             material=item_for(mid,active=active)
             if material.kind!="material" or material.id in recipe:
                 raise ValueError("Each recipe line must be a distinct raw material.")
-            used=number(raw,"Expected material consumption",positive=True)
+            old = previous.get(material.id)
+            if (basis == 'piece' and old and row.yield_qty == values['yield_qty']
+                    and usage_unit == old.unit and str(raw).strip() == recipe_piece_text(old.qty, row.yield_qty)):
+                used = old.qty  # Preserve indivisible legacy totals, e.g. 1 g / 3 pieces.
+            else:
+                used=number(raw,"Expected material consumption",positive=True)
+                if basis == 'piece':
+                    used *= values['yield_qty']
             converted(used,usage_unit,material.unit)
             recipe[material.id]=(used,usage_unit)
     else:

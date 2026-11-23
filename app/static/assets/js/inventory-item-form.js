@@ -1,6 +1,20 @@
 // Presentation and read-only previews only. No auto-save or stock requests.
+import {batchMaterial} from './recipe-quantity.mjs';
 const form=document.querySelector('[data-inventory-item-form]');
 if(form) {
+  const recipeLines=form.querySelectorAll('[data-recipe-line]');
+  function recipeTotals(){
+    for(const line of recipeLines){
+      const quantity=line.querySelector('[name="material_qty"]').value.trim();
+      const unit=line.querySelector('[name="material_unit"]').value;
+      const original=JSON.parse(line.dataset.recipeOriginal);
+      const total=batchMaterial(quantity, form.elements.namedItem('yield_qty').value.trim(), unit,
+        original.material===line.querySelector('[name="material_id"]').value?original:{});
+      line.querySelector('[data-recipe-total]').textContent=total===null?
+        'Enter a positive per-component quantity, whole batch yield and recipe unit.':`Total expected batch material: ${total} ${unit}`;
+    }
+  }
+  if(recipeLines.length){form.addEventListener('input',recipeTotals);form.addEventListener('change',recipeTotals);recipeTotals();}
   const value=name=>form.elements.namedItem(name)?.value||'';
   const photo=form.querySelector('[data-image-upload]'), preview=form.querySelector('[data-image-preview]'), status=form.querySelector('[data-image-status]');
   const original=preview.getAttribute('src');let objectUrl;

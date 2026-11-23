@@ -53,14 +53,15 @@
   {% endif %}
   {% if kind == 'manufactured' %}
   <fieldset class="workshop-panel"><legend>Material recipe</legend>
+    <input type="hidden" name="recipe_quantity_basis" value="piece">
     {{ field('Expected good components per batch','yield_qty',values,'decimal',true) }}
-    <p class="field-helper">Enter estimated use for the whole batch, including purge, supports and waste. To remove a line, clear both its material and quantity. If you add a line, reselect any new image before saving.</p>
+    <p class="field-helper">Enter material required for ONE good component, including its share of purge, supports and waste. Batch material = per-component quantity × expected good components; no extra waste is added here. Existing batch totals are preserved on an unchanged save. To remove a line, clear both its material and quantity. If you add a line, reselect any new image before saving.</p>
     {% if not materials %}<p class="alert alert-warning">Add at least one active raw material before saving a manufactured component.</p>{% endif %}
-    {% for material_id,amount,selected_unit in requirements %}<fieldset class="workshop-recipe">
+    {% for material_id,amount,selected_unit in requirements %}<fieldset class="workshop-recipe" data-recipe-line data-recipe-original='{{ recipe_originals.get(material_id|string, {})|tojson }}'>
       <legend>Material {{ loop.index }}</legend><div class="workshop-fields">
       <label>Raw material<select class="form-select" name="material_id"><option value="">Choose a material</option>{% for material in materials %}<option value="{{ material.id }}" {% if material.id|string == material_id|string %}selected{% endif %}>{{ material.name }} ({{ material.unit }})</option>{% endfor %}</select></label>
-      {{ field('Expected quantity','material_qty',dict(material_qty=amount),'decimal') }}{{ unit('Recipe unit','material_unit',selected_unit,units,blank='Choose a unit') }}
-    </div></fieldset>{% endfor %}
+      {{ field('Expected quantity per good component','material_qty',dict(material_qty=amount),'decimal') }}{{ unit('Recipe unit','material_unit',selected_unit,units,blank='Choose a unit') }}
+    </div><p class="field-helper" data-recipe-total role="status" aria-live="polite">Calculated batch material appears here.</p></fieldset>{% endfor %}
     {% if requirements|length < 30 %}<button class="btn btn-outline-primary" name="action" value="add-line" formnovalidate>Add another material</button>{% endif %}
   </fieldset>
   {% endif %}

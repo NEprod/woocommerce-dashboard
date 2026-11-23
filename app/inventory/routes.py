@@ -564,12 +564,18 @@ def edit_item(record_id, kind):
         values.update({key: stock.quantity_text(getattr(row, key)) for key in ITEM_NUMBERS})
         values.update(version=row.version, active="yes" if row.active else "", code=row.identity.code)
         packed = [(str(r.material_id), stock.quantity_text(r.qty), r.unit) for r in row.materials]
+        if kind == 'manufactured':
+            packed = [(str(r.material_id), stock.recipe_piece_text(r.qty, row.yield_qty), r.unit)
+                      for r in row.materials]
     else:
         values, packed = {"active":"yes", "unit":"piece" if kind != "material" else "g"}, []
     raw_materials = _item_choices("material", include_archived=bool(row and not row.active)) if kind == "manufactured" else ()
+    recipe_originals = {str(r.material_id): {'material': str(r.material_id), 'piece': stock.recipe_piece_text(r.qty, row.yield_qty),
+        'total': stock.quantity_text(r.qty), 'unit': r.unit, 'good': row.yield_qty}
+        for r in row.materials} if row and kind == 'manufactured' else {}
     from .images import HEIF_SUPPORTED
     return render_template("inventory/edit_item.html", row=row, kind=kind, values=values, error=error, heif_supported=HEIF_SUPPORTED,
-                           materials=raw_materials, requirements=packed or [("", "", "")],
+                           materials=raw_materials, requirements=packed or [("", "", "")], recipe_originals=recipe_originals,
                            locations=_location_choices(),
                            has_image=row is not None and row.image is not None), error_status if error else 200
 
