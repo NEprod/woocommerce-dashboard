@@ -82,6 +82,43 @@ def material_money(value):
     return text + '.00' if '.' not in text else text + '0' if len(text.split('.')[1]) == 1 else text
 
 
+def material_allowance(amount, rate):
+    return amount * rate / 100
+
+
+def component_breakdown(item, settings=None):
+    """Read-only recipe estimate; allowance never enters stored recipes or stock rates."""
+    rate = decimal((settings or {}).get('buffer', DEFAULTS['buffer']), 'Manufactured-recipe material allowance')
+    rows = []
+    base = stock.recipe_estimate(item)
+    if not item.yield_qty:
+        return None
+    with localcontext() as context:
+        context.prec = 40
+        for recipe in item.materials:
+            batch_qty = Decimal(recipe.qty) / stock.SCALE
+            unit_rate = stock.rate(recipe.material)
+            batch_cost = None if unit_rate is None else Decimal(stock.converted(
+                recipe.qty, recipe.unit, recipe.material.unit)) / stock.SCALE * unit_rate
+            scopes = {}
+            for scope, divisor in (('piece', Decimal(item.yield_qty)), ('batch', Decimal(1))):
+                quantity = batch_qty / divisor
+                waste_qty = material_allowance(quantity, rate)
+                cost = None if batch_cost is None else batch_cost / divisor
+                waste_cost = None if cost is None else material_allowance(cost, rate)
+                scopes[scope] = dict(quantity=material_money(quantity), waste_quantity=material_money(waste_qty),
+                    total_quantity=material_money(quantity + waste_qty), base=material_money(cost),
+                    waste=material_money(waste_cost), total=material_money(None if cost is None else cost + waste_cost))
+            rows.append(dict(name=recipe.material.name, item_id=recipe.material_id, unit=recipe.unit, **scopes))
+        totals = {}
+        for scope, multiplier in (('piece', Decimal(1)), ('batch', Decimal(item.yield_qty))):
+            cost = None if base is None else base * multiplier
+            waste = None if cost is None else material_allowance(cost, rate)
+            totals[scope] = dict(base=material_money(cost), waste=material_money(waste),
+                total=material_money(None if cost is None else cost + waste))
+    return dict(rate=str(rate), rows=rows, totals=totals)
+
+
 def pricing(cost, chosen, config, markup, *, complete, rounding='exact'):
     percent = decimal(config['fee_percent'], 'Payment fee percentage', maximum='99.99') / 100
     fixed = decimal(config['fee_fixed'], 'Fixed transaction charge')
@@ -149,6 +186,7 @@ def process_cost(line, config):
         if equipment.source != 'measured':
             provisional.append(f'{equipment.name} / {equipment.profile}: {equipment.source} watts.')
     return dict(total_minutes=total, attributable_minutes=minutes, electricity=electricity,
+                name=f'{equipment.name} / {equipment.profile}' if equipment else 'Unavailable equipment',
                 missing=missing, provisional=provisional)
 
 
@@ -167,6 +205,7 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
         config.update(fee_percent=profile['percent'], fee_fixed=profile['fixed'])
     missing, provisional, rows, base, manufactured = [], [], [], Decimal(0), Decimal(0)
     print_material = Decimal(0)
+    buffer_rate = decimal(document.get('buffer', config['buffer']), 'Manufacturing buffer')
     subtotals = {key: Decimal(0) for key in ('raw_material','purchased_component','manufactured_component','packaging')}
     lines = document.get('lines', [])
     if not isinstance(lines, list) or len(lines) > 80:
@@ -223,18 +262,26 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
             manufactured += amount
         elif item.kind == 'material' and group != 'packaging' and line.get('print_material') == 'yes' and direct_materials:
             print_material += amount
-        rows.append(dict(name=item.name, cost=money(amount), source='Inventory / saved recipe',
+        allowance = material_allowance(amount, buffer_rate) if item.kind == 'manufactured' else Decimal(0)
+        rows.append(dict(name=item.name, cost=material_money(amount), source='Inventory / saved recipe',
+                         allowance=material_money(allowance), allowance_exact=str(allowance),
+                         allowance_rate=str(buffer_rate) if item.kind == 'manufactured' else None,
+                         with_allowance=material_money(amount + allowance),
                          quantity=str(line['quantity']), unit=line['unit'],
                          unit_cost=format(amount / Decimal(str(line['quantity'])), '.6g')))
-    buffer = manufactured * decimal(document.get('buffer', config['buffer']), 'Manufacturing buffer') / 100
+    buffer = material_allowance(manufactured, buffer_rate)
     waste_rate = decimal(document.get('print_waste_rate', config['print_waste_rate']), '3D-print material waste allowance', maximum='100')
     print_waste = print_material * waste_rate / 100
     electricity = Decimal(0)
+    processes = []
     usage = document.get('equipment', [])
     if not isinstance(usage, list) or len(usage) > 40:
         raise ValueError('Use at most 40 equipment usage lines.')
     for line in usage:
         calculation = process_cost(line, config)
+        processes.append(dict(name=calculation['name'], total_minutes=str(calculation['total_minutes']),
+            attributable_minutes=str(calculation['attributable_minutes']),
+            electricity=material_money(calculation['electricity'])))
         missing.extend(calculation['missing'])
         provisional.extend(calculation['provisional'])
         if calculation['electricity'] is not None:
@@ -259,7 +306,9 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
     return dict(complete=not missing, state='incomplete' if missing else 'provisional' if provisional else 'complete',
                 provisional=provisional, missing=missing, lines=rows, material_component=money(base),
                 subtotals={k:money(v) for k,v in subtotals.items()}, markup=format(markup,'f'),
-                buffer=money(buffer), electricity=money(electricity), labour=money(labour), other=money(other),
+                buffer=money(buffer), buffer_exact=str(buffer), buffer_rate=str(buffer_rate),
+                electricity=money(electricity), labour=money(labour), other=money(other),
+                processes=processes, labour_minutes=str(labour_minutes), labour_rate=labour_rate,
                 print_waste=money(print_waste), print_waste_exact=str(print_waste),
                 print_material_exact=str(print_material), print_waste_rate=str(waste_rate),
                 packaging_included=any(line.get('purpose') == 'packaging' for line in lines) or subtotals['packaging'] > 0,

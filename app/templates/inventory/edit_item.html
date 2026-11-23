@@ -55,7 +55,7 @@
   <fieldset class="workshop-panel"><legend>Material recipe</legend>
     <input type="hidden" name="recipe_quantity_basis" value="piece">
     {{ field('Expected good components per batch','yield_qty',values,'decimal',true) }}
-    <p class="field-helper">Enter material required for ONE good component, including its share of purge, supports and waste. Batch material = per-component quantity × expected good components; no extra waste is added here. Existing batch totals are preserved on an unchanged save. To remove a line, clear both its material and quantity. If you add a line, reselect any new image before saving.</p>
+    <p class="field-helper">Enter material required for ONE good component, including known purge/support use. Batch recipe material = per-component quantity × expected good components. The additional percentage waste allowance from Settings is shown separately on the component page and in BOM costing; do not manually add that same percentage here. Existing batch totals are preserved on an unchanged save. To remove a line, clear both its material and quantity. If you add a line, reselect any new image before saving.</p>
     {% if not materials %}<p class="alert alert-warning">Add at least one active raw material before saving a manufactured component.</p>{% endif %}
     {% for material_id,amount,selected_unit in requirements %}<fieldset class="workshop-recipe" data-recipe-line data-recipe-original='{{ recipe_originals.get(material_id|string, {})|tojson }}'>
       <legend>Material {{ loop.index }}</legend><div class="workshop-fields">

@@ -115,7 +115,9 @@ export async function mountCatalogueEditor(editor,box,view,generation) {
     view.workspaceError=message=>{status.textContent=message;scope.querySelector('[data-catalogue-advanced]').open=true;scope.querySelector('[data-catalogue-results]').textContent='Costing preview unavailable until the inputs above are valid.';};
     show(editor.result(null));
     if(!writable) {
-      for(const section of scope.querySelectorAll('section,details,.workshop-fields'))section.hidden=true;
+      for(const section of scope.querySelectorAll('section,details,.workshop-fields')){
+        if(!section.closest('[data-catalogue-results]'))section.hidden=true;
+      }
       scope.querySelector('[data-import-test]').disabled=true;
       scope.querySelector('[data-import-scenario]').disabled=true;
     } else {

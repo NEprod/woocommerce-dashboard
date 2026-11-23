@@ -10,7 +10,7 @@
   <a class="btn btn-outline-primary" href="{{ url_for('inventory.label',record_id=row.id) }}">Print barcode label</a>
   <a class="btn btn-outline-primary" href="{{ url_for('inventory.history',item_id=row.id) }}">Item stock history</a>
 </div>
-<div class="workshop-grid">
+<div class="workshop-grid{% if row.kind == 'manufactured' %} workshop-component-grid{% endif %}">
   <section class="workshop-panel"><h2>Stock by location</h2>
     <p class="workshop-total">Total on hand: {{ qty(total) }} {{ row.unit }}{% if row.active and total <= row.minimum %} <span class="workshop-warning">Low stock</span>{% endif %}</p>
     {% if balances %}<dl class="workshop-facts">{% for loc,amount in balances %}
@@ -18,10 +18,10 @@
     {% endfor %}</dl>{% else %}<p>No stock recorded at any location.</p>{% endif %}
     <dl class="workshop-facts"><dt>Minimum</dt><dd>{{ qty(row.minimum) }} {{ row.unit }}</dd>{% if row.reorder is not none %}<dt>Reorder target</dt><dd>{{ qty(row.reorder) }} {{ row.unit }}</dd>{% endif %}</dl>
   </section>
-  <section class="workshop-panel"><h2>{{ 'Recipe & estimated cost' if row.kind == 'manufactured' else 'Purchase & unit cost' }}</h2>
+  <section class="workshop-panel{% if row.kind == 'manufactured' %} workshop-component-recipe{% endif %}"><h2>{{ 'Recipe & estimated cost' if row.kind == 'manufactured' else 'Purchase & unit cost' }}</h2>
   {% if row.kind == 'manufactured' %}
-    <p>{{ row.yield_qty }} expected good pieces per batch. Estimates include waste where entered.</p>
-    <dl class="workshop-facts">{% for r in row.materials %}<dt><a href="{{ url_for('inventory.item',record_id=r.material_id) }}">{{ r.material.name }}</a></dt><dd>{{ qty(r.qty) }} {{ r.unit }}</dd>{% endfor %}<dt>Estimated cost per good piece</dt><dd>{{ pounds(estimate) }}</dd></dl>
+    <p>{{ row.yield_qty }} expected good pieces per batch.</p>
+    {% if recipe_breakdown %}{% include 'inventory/_component_breakdown.html' %}{% else %}<p>Configure a material recipe and expected batch yield to calculate costs.</p>{% endif %}
     <p class="field-helper">Actual costs are on each completed batch in Item stock history.</p>
   {% else %}
     <dl class="workshop-facts">

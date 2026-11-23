@@ -5,6 +5,13 @@
 .workshop-nav { margin-bottom: 1.25rem; }
 .workshop-search { align-items: end; margin-block: 1rem; }
 .workshop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: var(--workshop-gap); }
+.workshop-component-recipe { grid-column: 1 / -1; order: 1; }
+.workshop-component-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.workshop-component-recipe .table { min-width: 44rem; }
+.workshop-component-recipe .table td:not(:first-child) { white-space: nowrap; }
+.table.bom-cost-summary { width: 100%; min-width: 0; table-layout: fixed; }
+.table.bom-cost-summary th { width: 70%; white-space: normal; overflow-wrap: anywhere; }
+.table.bom-cost-summary td { width: 30%; white-space: nowrap; }
 .workshop-tile, .workshop-panel, .workshop-list-row {
   background: var(--color-surface-primary); border: 1px solid var(--color-border); border-radius: 1rem; padding: 1rem;
   overflow-wrap: anywhere; min-width: 0;

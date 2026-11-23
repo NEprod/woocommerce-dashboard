@@ -519,8 +519,13 @@ def catalogue():
 def item(record_id):
     row = _record(Item, record_id)
     estimate = stock.recipe_estimate(row) if row.kind == "manufactured" else stock.rate(row)
+    recipe_breakdown = None
+    if row.kind == 'manufactured':
+        from .profitability import component_breakdown
+        from .catalogue_bom import settings
+        recipe_breakdown = component_breakdown(row, settings())
     return render_template("inventory/item.html", row=row, balances=stock.item_balances(row.id),
-                           total=stock.balance(row.id), has_image=row.image is not None,
+                           total=stock.balance(row.id), has_image=row.image is not None, recipe_breakdown=recipe_breakdown,
                            estimate=None if estimate is None else int((estimate * stock.SCALE).to_integral_value(rounding=ROUND_HALF_UP)))
 
 
