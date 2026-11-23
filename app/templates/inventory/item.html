@@ -7,6 +7,7 @@
   <a class="btn btn-outline-primary" href="{{ url_for('inventory.stock_card',record_id=row.id) }}">View Stock Card</a>
   <a class="btn btn-outline-primary" href="{{ url_for('inventory.stock_card',record_id=row.id) }}#print-controls">Print Stock Card</a>
   <a class="btn btn-primary" href="{{ url_for('inventory.edit_item',record_id=row.id) }}">Edit item</a>
+  <a class="btn btn-outline-danger" href="{{ url_for('inventory.edit_item',record_id=row.id) }}#delete-item">Delete unused item</a>
   <a class="btn btn-outline-primary" href="{{ url_for('inventory.label',record_id=row.id) }}">Print barcode label</a>
   <a class="btn btn-outline-primary" href="{{ url_for('inventory.history',item_id=row.id) }}">Item stock history</a>
 </div>

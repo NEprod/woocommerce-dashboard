@@ -391,13 +391,14 @@ def test_item_barcode_scanner_present_on_new_and_existing_editors(workshop):
         edit = client.get(f"/production/item/{record_id}/edit")
         for page in (new, edit):
             assert page.status_code == 200
-            assert b'data-editor-scan="/production/item/barcode-check"' in page.data
+            assert b'data-editor-scan="/production/item/barcode-check' in page.data
             assert b'type="button" data-scan-open hidden>Scan Barcode' in page.data
             assert b'type="button" data-scan-stop hidden>Cancel scan' in page.data
         new_input = re.search(rb'<input[^>]*id="inventory-item-barcode"[^>]*>', new.data).group()
         edit_input = re.search(rb'<input[^>]*id="inventory-item-barcode"[^>]*>', edit.data).group()
         assert b'name="code"' in new_input and b'readonly' not in new_input
-        assert b'readonly' in edit_input and b'name=' not in edit_input
+        assert b'readonly' not in edit_input and b'name="code"' in edit_input
+        assert b'name="confirm_barcode"' in edit.data
 
 
 def test_item_barcode_check_is_read_only_and_creates_only_on_save(workshop):
@@ -426,10 +427,10 @@ def test_item_barcode_check_is_read_only_and_creates_only_on_save(workshop):
     assert client.get("/production/lookup?code=00042").location.endswith(f"/item/{raw}")
     assert f'value="{raw}" data-code="00042"'.encode() in client.get("/production/stock/receive").data
     transact(client, "receive", raw, destination=rack, qty="2")
-    edited = client.post(f"/production/item/{raw}/edit", data={"name":"Filament renamed","version":"1","active":"yes","code":"NEW"})
+    edited = client.post(f"/production/item/{raw}/edit", data={"name":"Filament renamed","version":"1","active":"yes","code":"NEW","confirm_barcode":"yes"})
     assert row_id(edited) == raw
     with workshop.app_context():
-        assert db.session.get(Item, raw).identity.code == "00042"
+        assert db.session.get(Item, raw).identity.code == "NEW"
         assert db.session.get(Item, comp).materials[0].material_id == raw
         assert stock.balance(raw, rack) == 2 * stock.SCALE
         assert db.session.scalar(select(func.count(Transaction.id))) == 1

@@ -10,15 +10,15 @@
   <fieldset class="workshop-panel"><legend>Identity and storage</legend>
     <div class="workshop-fields">
       {{ field('Name','name',values,required=true,limit=160) }}
-      <div class="workshop-barcode-editor" data-workshop-scan="inventory-item-barcode" data-editor-scan="{{ url_for('inventory.item_barcode_check') }}">
-        <label for="inventory-item-barcode">Permanent barcode</label>
-        <input class="form-control" id="inventory-item-barcode" type="text" value="{{ row.identity.code if row else values.get('code','') }}" autocomplete="off" spellcheck="false"
-               {% if row %}readonly{% else %}name="code" maxlength="24" placeholder="e.g. PLA-BLACK (blank generates a code)"{% endif %}>
+      <div class="workshop-barcode-editor" data-workshop-scan="inventory-item-barcode" data-editor-scan="{{ url_for('inventory.item_barcode_check', item_id=row.id) if row else url_for('inventory.item_barcode_check') }}">
+        <label for="inventory-item-barcode">Item barcode</label>
+        <input class="form-control" id="inventory-item-barcode" type="text" value="{{ values.get('code','') }}" autocomplete="off" spellcheck="false"
+               name="code" maxlength="24" placeholder="e.g. PLA-BLACK (blank generates a code on new records)">
         <button class="btn btn-outline-primary" type="button" data-scan-open hidden>Scan Barcode</button>
         <button class="btn btn-outline-primary" type="button" data-scan-stop hidden>Cancel scan</button>
         {{ scanner_preview() }}
         <button class="btn btn-outline-primary" type="button" data-scan-use hidden>Use scanned barcode</button>
-        {% if row %}<p class="field-helper">Scan to check the saved barcode. This identity cannot be changed.</p>{% endif %}
+        {% if row %}<p class="field-helper">Current saved barcode: {{ row.identity.code }}. Changing it preserves the internal item ID, recipes, stock history and existing batch barcodes. Old item labels stop matching: replace them.</p><label class="workshop-check"><input type="checkbox" name="confirm_barcode" value="yes" {% if values.get('confirm_barcode') == 'yes' %}checked{% endif %}> I confirm any barcode correction and will replace old item labels.</label>{% endif %}
       </div>
       {{ field('Category','category',values) }}{{ field('Brand or specification','specification',values,limit=250) }}
       <label>Default storage location / tub (optional)<select class="form-select" name="default_location_id"><option value="">No default</option>{% for loc in locations %}<option value="{{ loc.id }}" {% if values.get('default_location_id')|string == loc.id|string %}selected{% endif %}>{{ breadcrumbs(loc) }} · {{ loc.identity.code }}</option>{% endfor %}</select></label>
@@ -67,4 +67,5 @@
   {% endif %}
   <div class="workshop-actions"><button class="btn btn-primary">Save {{ kinds[kind]|lower }}</button><a class="btn btn-outline-primary" href="{{ url_for('inventory.items',group='materials' if kind == 'material' else 'components') }}">Cancel</a></div>
 </form>
+{% if row %}<details class="workshop-panel" id="delete-item"><summary>Delete unused {{ kinds[kind]|lower }}</summary><p>Only mistaken records with no stock history, batches, recipes using them, saved BOMs or order references can be deleted. Otherwise archive the item. Deletion removes the item and its image/own recipe; its internal ID and barcode stay reserved to prevent accidental reuse.</p><form method="post" action="{{ url_for('inventory.delete_item', record_id=row.id) }}">{{ csrf() }}<input type="hidden" name="version" value="{{ row.version }}"><label>Enter current barcode to confirm<input class="form-control" name="confirm_code" autocomplete="off" required></label><label class="workshop-check"><input type="checkbox" name="confirmed" value="yes" required> Permanently delete this unused item.</label><button class="btn btn-outline-danger" type="submit">Delete unused item</button></form></details>{% endif %}
 {% endblock %}

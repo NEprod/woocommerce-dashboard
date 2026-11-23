@@ -282,6 +282,13 @@ def save_item(kind, data, *, row=None, requirements=(), image=None, remove_image
     if kind not in KINDS:
         raise ValueError("Choose a valid item type.")
     _check_version(row,data)
+    corrected_code = None
+    if row and 'code' in data:
+        corrected_code = identifier(data['code'])
+        if corrected_code != row.identity.code:
+            if data.get('confirm_barcode') != 'yes':
+                raise ValueError('Confirm the barcode correction and replacement of old item labels before saving.')
+            _new_identity(corrected_code, 'item')
     active=data.get("active")=="yes"
     if row and not active:
         referenced=db.session.scalar(select(RecipeMaterial.id).join(Item,Item.id==RecipeMaterial.component_id)
@@ -356,6 +363,8 @@ def save_item(kind, data, *, row=None, requirements=(), image=None, remove_image
         row.version+=1
     for k,v in values.items():
         setattr(row,k,v)
+    if corrected_code is not None:
+        row.identity.code = corrected_code
     if image is not None or remove_image:
         row.image=image
     current={r.material_id:r for r in row.materials}

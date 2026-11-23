@@ -552,6 +552,11 @@ def edit_item(record_id, kind):
                 stock.writer_lock()
                 if row:
                     db.session.refresh(row)
+                old_code = row.identity.code if row else None
+                if old_code and 'code' in values and stock.identifier(values['code']) != old_code:
+                    from .item_maintenance import audit
+                    audit('barcode_correction', row, current_user, before=old_code, after=stock.identifier(values['code']))
+                    db.session.flush()  # The database correction fence requires this audit in the same transaction.
                 saved = stock.save_item(kind, values, row=row, requirements=[line for line in packed if line[0] or line[1]],
                                         image=image, remove_image=values.get("remove_image") == "yes")
                 db.session.commit()
@@ -583,6 +588,25 @@ def edit_item(record_id, kind):
                            materials=raw_materials, requirements=packed or [("", "", "")], recipe_originals=recipe_originals,
                            locations=_location_choices(),
                            has_image=row is not None and row.image is not None), error_status if error else 200
+
+
+@inventory.post('/item/<int:record_id>/delete')
+def delete_item(record_id):
+    from .item_maintenance import delete_unused, audit
+    row = _record(Item, record_id)
+    group = 'materials' if row.kind == 'material' else 'components'
+    try:
+        stock.writer_lock()
+        db.session.refresh(row)
+        audit('delete_unused', row, current_user, before=row.identity.code)
+        delete_unused(row, request.form)
+        db.session.commit()
+    except (ValueError, IntegrityError, OperationalError) as exc:
+        db.session.rollback()
+        flash(str(exc) if isinstance(exc, ValueError) else 'Deletion could not be completed safely. No record was removed.', 'error')
+        return redirect(url_for('inventory.edit_item', record_id=record_id), code=303)
+    flash('Unused item deleted. Its internal ID and barcode remain reserved. No stock or historical records were removed.', 'success')
+    return redirect(url_for('inventory.items', group=group), code=303)
 
 
 @inventory.get("/item/<int:record_id>/image.jpg")
@@ -622,7 +646,7 @@ def item_barcode_check():
         assigned = stock.lookup(request.args.get("code"))
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
-    if assigned is not None:
+    if assigned is not None and not (assigned.kind == 'item' and str(assigned.id) == request.args.get('item_id')):
         return jsonify(error=stock.item_barcode_conflict(assigned)), 409
     return jsonify(available=True)
 
@@ -688,6 +712,8 @@ def lookup():
             if batch:
                 return redirect(url_for("inventory.batch_detail", batch_id=batch.id))
             identity = stock.lookup(code)
+            if identity and identity.kind == 'item' and db.session.get(Item, identity.id) is None:
+                raise ValueError('This barcode belongs to a deleted unused item and remains reserved. Choose another item.')
             if identity:
                 return redirect(url_for(f"inventory.{identity.kind}", record_id=identity.id))
             error = "No item or location has that barcode. Check the label, or search Materials, Components or Locations."
