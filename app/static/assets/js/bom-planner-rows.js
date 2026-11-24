@@ -1,5 +1,6 @@
 import {materialDialog,paintMaterial} from './hypothetical-material.js';
 import {processDialog} from './production-process.js';
+import {bulkComponentDialog} from './bulk-bom-components.js';
 async function inventoryPreview(table, row) {
   const body={...Object.fromEntries([...row.querySelectorAll('input,select')].map(input=>[input.name,input.value])),purpose:table.dataset.bomRows==='packaging'?'packaging':'material'};
   if(!body.item_id)throw new Error('Choose an inventory material / component.');
@@ -71,6 +72,11 @@ for (const table of scope.querySelectorAll('table[data-bom-rows]')) {
   // A new row exists ONLY in detached modal state until successful Apply.
   add.onclick=()=>edit(template.content.firstElementChild.cloneNode(true),true);
   table.closest('.table-responsive').before(add);
+  if(kind==='inventory'&&scope.matches?.('[data-catalogue-costing]')){
+    const bulk=document.createElement('button');bulk.type='button';bulk.className='btn btn-outline-primary bom-add';bulk.textContent='Add Multiple Materials / Components';
+    bulk.onclick=()=>bulkComponentDialog({table,template,preview:inventoryPreview,applyRows:rows=>{for(const row of rows){body.append(row);actions(row);}table.dispatchEvent(new Event('input',{bubbles:true}));}});
+    table.closest('.table-responsive').before(bulk);
+  }
 }
 }
 initBomRows();

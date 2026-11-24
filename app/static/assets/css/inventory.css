@@ -119,6 +119,10 @@
 .bom-dialog { max-height: calc(100dvh - 2 * var(--space-4, 1rem)); overscroll-behavior: contain; }
 .bom-dialog label { display: grid; min-width: 0; gap: .3rem; }
 .bom-dialog fieldset { min-width: 0; }
+.bom-bulk-options { max-height: 14rem; overflow-y: auto; margin-block: .75rem; }
+.bom-dialog .bom-bulk-options label { display: flex; align-items: center; gap: .6rem; padding: .4rem; }
+.bom-dialog .bom-bulk-options label[hidden] { display: none; }
+.bom-bulk-options input { flex: 0 0 auto; }
 .bom-dialog .form-control, .bom-dialog .form-select { min-height: 44px; }
 @media (max-width: 767px) {
   body:has(.bom-workspace) { padding-bottom: 0; }
