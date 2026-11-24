@@ -33,6 +33,9 @@ app.jinja_env.auto_reload=True
 ids=seed(app,client)
 source=production(*ids)
 assert save(world,'Simple Collection/Blue Token',kind='shared',data={'production':source}).status_code==200
+if '--rewrite-fixture' in sys.argv:
+    for path in ('Simple Collection/Blue Token', 'Simple Collection/Green Token'):
+        assert save(world,path,data={'production':{'mode':'replace',**source}}).status_code==200
 saved=scenario(app,dict(**source['costing'],lines=[{k:v for k,v in line.items() if k!='op'} for line in source['lines'].values()],selling_price='99.99',_snapshot={'result':{'cost':'historical'}}))
 blocked=scenario(app,dict(lines=[dict(source='manual',name='Hypothetical',quantity='1',unit='g',unit_cost='1')]))
 with app.app_context():

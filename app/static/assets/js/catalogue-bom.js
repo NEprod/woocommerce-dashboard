@@ -49,10 +49,19 @@ export async function mountCatalogueEditor(editor,box,view,generation) {
       for(const [v,label]of [['inherit','Inherit All'],['add','Inherit Plus'],['replace','Rewrite']])mode.add(new Option(label,v));mode.value=selected;label.append(mode);scope.prepend(label);
       mode.addEventListener('change',()=>{
         const next=mode.value;editor.modeDrafts??={};
-        if((Object.keys(local.lines||{}).length||local.costing)&&!confirm('Switch BOM mode? Your current working BOM will be retained as an unsaved draft for this editor session; only the selected mode is saved.')){mode.value=selected;return;}
+        const carry=selected==='replace'&&next==='add';
+        const message=carry?'Switch to Inherit Plus with the current Rewrite entries? Collection requirements will be added alongside them. Review overlaps to avoid double-counting. This replaces any previous unsaved Inherit Plus draft; your Rewrite draft is retained. Nothing is saved until Save Metadata.':'Switch BOM mode? Your current working BOM will be retained as an unsaved draft for this editor session; only the selected mode is saved.';
+        if((Object.keys(local.lines||{}).length||local.costing)&&!confirm(message)){mode.value=selected;return;}
         editor.modeDrafts[selected]=clone(Object.fromEntries(Object.entries(local).filter(([key])=>key!=='mode')));
+        const draft=clone(editor.modeDrafts[carry?'replace':next]||{});
+        // A replacement can reuse collection line IDs. Keep both requirements
+        // when adding inheritance, rather than turning a collision into a merge.
+        if(carry&&draft.lines){const shared=window.TLCProduction.rows([editor.shared||{}]);for(const key of Object.keys(draft.lines))if(shared.has(key)&&draft.lines[key].op==='add'){
+          const nextId=id();draft.lines[nextId]=draft.lines[key];delete draft.lines[key];
+          for(const layer of [...Object.values(draft.variants||{}),...Object.values(draft.options||{}).flatMap(Object.values)])if(Object.hasOwn(layer.lines||{},key)){layer.lines[nextId]=layer.lines[key];delete layer.lines[key];}
+        }}
         for(const key of Object.keys(local))delete local[key];local.mode=next;
-        if(next!=='inherit')Object.assign(local,clone(editor.modeDrafts[next]||{}));
+        if(next!=='inherit')Object.assign(local,draft);
         editor.changed();
       });
     }
@@ -106,6 +115,12 @@ export async function mountCatalogueEditor(editor,box,view,generation) {
     const inherited=scope.querySelector('[data-inherited-costing]');
     const show=result=>{
       status.textContent=product&&!writable?'Inherit All: collection requirements and costing are read-only. No inherited copy is saved in this product override.':'';
+      if(product&&selected==='add'){
+        const rows=(result?.rows||[]).filter(r=>!r.excluded),processes=result?.costing_inputs?.equipment||[];
+        const repeated=rows.some((r,i)=>rows.slice(0,i).some(other=>other.item_id===r.item_id));
+        const equipment=processes.some((p,i)=>processes.slice(0,i).some(other=>other.equipment_id===p.equipment_id));
+        if(repeated||equipment)status.textContent='Review overlapping requirements: '+[repeated?'the same inventory item appears more than once':null,equipment?'the same equipment profile appears more than once':null].filter(Boolean).join('; ')+'. Inherited and product quantities/runtime are added together. Remove unwanted product entries before saving to avoid double-counting.';
+      }
       inherited.replaceChildren();
       const h=make('h4',product?(selected==='replace'?'Effective replacement BOM':'Effective BOM — inherited lines are read-only'):'Effective collection BOM');inherited.append(h);
       if(product&&!writable&&result?.legacy_costing){
