@@ -63,11 +63,12 @@ try {
     assert.equal(await workspace.getByRole('button',{name:'Import Saved Test BOM',exact:true}).isDisabled(),true);
     assert.equal(await workspace.getByRole('button',{name:'Add Material / Component',exact:true}).count(),0);
     await workspace.locator('[data-product-bom-mode]').selectOption('add');await workspace.getByRole('button',{name:'Add Material / Component',exact:true}).waitFor();
-    assert.equal(await workspace.locator('[data-bom-rows=inventory] tbody tr').count(),0);
+    assert.equal(await workspace.locator('[data-bom-rows=inventory] tbody tr[data-inherited]').count(),2);
+    assert.equal(await workspace.locator('[data-bom-rows=inventory] tbody tr:not([data-inherited])').count(),0);
     await workspace.getByRole('button',{name:'Add Material / Component',exact:true}).click();modal=page.getByRole('dialog');await modal.locator('[name=item_id]').selectOption(String(seed.items[1]));await modal.locator('[name=quantity]').fill('1');await modal.locator('[name=unit]').selectOption('piece');await modal.getByRole('button',{name:'Apply Row',exact:true}).click();
-    assert.equal(await workspace.locator('[data-bom-rows=inventory] tbody tr').count(),1);
+    assert.equal(await workspace.locator('[data-bom-rows=inventory] tbody tr:not([data-inherited])').count(),1);
     await workspace.locator('[data-product-bom-mode]').selectOption('inherit');await workspace.locator('[data-product-bom-mode]').waitFor();
-    await workspace.locator('[data-product-bom-mode]').selectOption('add');await workspace.getByRole('button',{name:'Add Material / Component',exact:true}).waitFor();assert.equal(await workspace.locator('[data-bom-rows=inventory] tbody tr').count(),1);
+    await workspace.locator('[data-product-bom-mode]').selectOption('add');await workspace.getByRole('button',{name:'Add Material / Component',exact:true}).waitFor();assert.equal(await workspace.locator('[data-bom-rows=inventory] tbody tr:not([data-inherited])').count(),1);
     await workspace.locator('[data-product-bom-mode]').selectOption('replace');await workspace.getByRole('button',{name:'Add Material / Component',exact:true}).waitFor();assert.equal(await workspace.locator('[data-bom-rows=inventory] tbody tr').count(),0);
     await workspace.locator('[data-import-scenario]').selectOption(String(seed.scenario));await workspace.getByRole('button',{name:'Import Saved Test BOM',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'Apply Import',exact:true}).click();await workspace.getByRole('button',{name:'Add Production Process',exact:true}).waitFor();
     assert.equal(await workspace.locator('[data-bom-rows=inventory] tbody tr').count(),2);

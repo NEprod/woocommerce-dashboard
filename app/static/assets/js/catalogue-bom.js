@@ -68,7 +68,16 @@ export async function mountCatalogueEditor(editor,box,view,generation) {
       for(const option of [...picker.options])if(option.value&&option.dataset.kind!=='purchased')option.remove();
     }
     const preserved={}, baseLines=window.TLCProduction.rows([editor.shared||{}]);
-    for(const [key,line]of Object.entries(local.lines||{})) {
+    // Display the inherited source in its normal section, never as local JSON.
+    if(product&&selected!=='replace')for(const [key,line]of baseLines){
+      if(line.excluded||(writable&&Object.hasOwn(local.lines||{},key)))continue;
+      const kind=line.purpose==='packaging'?'packaging':'inventory';
+      const row=scope.querySelector(`template[data-row-template="${kind}"]`).content.firstElementChild.cloneNode(true);
+      row.dataset.inherited='yes';row.dataset.lineId=key;
+      for(const control of row.querySelectorAll('input,select'))restore(control,line[control.name]);
+      scope.querySelector(`[data-bom-rows="${kind}"] tbody`).append(row);
+    }
+    for(const [key,line]of Object.entries(writable?local.lines||{}:{})) {
       if(line.op==='remove'||line.op==='modify'&&!baseLines.has(key)){preserved[key]=clone(line);continue;}
       const displayed=line.op==='modify'?{...baseLines.get(key),...line}:line;
       const kind=displayed.purpose==='packaging'?'packaging':'inventory';
@@ -77,13 +86,22 @@ export async function mountCatalogueEditor(editor,box,view,generation) {
       for(const control of row.querySelectorAll('input,select'))restore(control,displayed[control.name]);
       scope.querySelector(`table[data-bom-rows="${kind}"] tbody`).append(row);
     }
-    for(const line of local.costing?.equipment||[]) {
+    const inheritedProcesses=product&&selected!=='replace'?editor.shared?.costing?.equipment||[]:[];
+    for(const [line,isInherited]of [...inheritedProcesses.map(line=>[line,true]),...(writable?local.costing?.equipment||[]:[]).map(line=>[line,false])]) {
       const row=scope.querySelector('template[data-row-template="process"]').content.firstElementChild.cloneNode(true);
+      if(isInherited)row.dataset.inherited='yes';
       for(const c of row.querySelectorAll('input,select'))restore(c,line[c.name]??c.value);
       scope.querySelector('[data-bom-rows="process"] tbody').append(row);
     }
-    for(const key of keys)restore(scope.querySelector(`[name="${key}"]`),local.costing?.[key]);
-    function overrideCount(){scope.querySelector('[data-override-count]').textContent=`(${[...scope.querySelectorAll('[data-override]')].filter(c=>c.value.trim()!=='').length} active overrides)`;}
+    for(const key of keys){
+      const control=scope.querySelector(`[name="${key}"]`);
+      restore(control,(!writable?editor.shared:local)?.costing?.[key]);
+      if(product&&selected!=='replace'&&editor.shared?.costing?.[key]!=null){
+        const note=make('small',`Inherited: ${control.tagName==='SELECT'?[...control.options].find(o=>o.value===String(editor.shared.costing[key]))?.textContent||editor.shared.costing[key]:editor.shared.costing[key]} (read-only)`);
+        note.dataset.inheritedValue=key;control.closest('label').append(note);
+      }
+    }
+    function overrideCount(){scope.querySelector('[data-override-count]').textContent=`(${writable?[...scope.querySelectorAll('[data-override]')].filter(c=>c.value.trim()!=='').length:0} active overrides)`;}
     overrideCount();
     const inherited=scope.querySelector('[data-inherited-costing]');
     const show=result=>{
@@ -115,9 +133,8 @@ export async function mountCatalogueEditor(editor,box,view,generation) {
     view.workspaceError=message=>{status.textContent=message;scope.querySelector('[data-catalogue-advanced]').open=true;scope.querySelector('[data-catalogue-results]').textContent='Costing preview unavailable until the inputs above are valid.';};
     show(editor.result(null));
     if(!writable) {
-      for(const section of scope.querySelectorAll('section,details,.workshop-fields')){
-        if(!section.closest('[data-catalogue-results]'))section.hidden=true;
-      }
+      initBomRows(scope,{readOnly:true});
+      for(const key of keys)scope.querySelector(`[name="${key}"]`).disabled=true;
       scope.querySelector('[data-import-test]').disabled=true;
       scope.querySelector('[data-import-scenario]').disabled=true;
     } else {
@@ -130,7 +147,7 @@ export async function mountCatalogueEditor(editor,box,view,generation) {
       });
       function serialize(){
         const lines=clone(preserved);
-        for(const kind of ['inventory','packaging'])for(const row of scope.querySelectorAll(`[data-bom-rows="${kind}"] tbody tr`)){
+        for(const kind of ['inventory','packaging'])for(const row of scope.querySelectorAll(`[data-bom-rows="${kind}"] tbody tr:not([data-inherited])`)){
           row.dataset.lineId ||= id();const v=values(row), line={item_id:Number(v.item_id),quantity:v.quantity,unit:v.unit};
           if(kind==='packaging')line.purpose='packaging';
           if(v.print_material)line.print_material=v.print_material;
@@ -142,7 +159,7 @@ export async function mountCatalogueEditor(editor,box,view,generation) {
         }
         local.lines=lines;
         const costing={};for(const key of keys){const c=scope.querySelector(`[name="${key}"]`);if(c.value.trim()!=='')costing[key]=c.value;}
-        costing.equipment=[...scope.querySelectorAll('[data-bom-rows="process"] tbody tr')].map(row=>{const v=values(row);return {...v,equipment_id:Number(v.equipment_id)};});
+        costing.equipment=[...scope.querySelectorAll('[data-bom-rows="process"] tbody tr:not([data-inherited])')].map(row=>{const v=values(row);return {...v,equipment_id:Number(v.equipment_id)};});
         local.costing=costing;
         overrideCount();
         editor.changed(false);

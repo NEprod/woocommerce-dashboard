@@ -12,7 +12,7 @@ function inventoryDialog(form,table,apply) {
   function update(){const signature=JSON.stringify([...form.querySelectorAll('input,select')].map(input=>input.value));if(signature===lastSignature)return;lastSignature=signature;ready=false;apply.disabled=true;const current=++generation;clearTimeout(timer);timer=setTimeout(async()=>{try{const data=await inventoryPreview(table,form);if(current!==generation)return;output.textContent=data.amount===null?'Cost unknown; estimate will be incomplete.':`Material/component cost: £${data.display_amount}. Recipe/print allowances are calculated separately.`;ready=true;apply.disabled=false;}catch(error){if(current===generation)output.textContent=error.message;}},200);}
   form.addEventListener('input',update);form.addEventListener('change',update);update();return()=>ready;
 }
-export function initBomRows(scope=document) {
+export function initBomRows(scope=document,{readOnly=false}={}) {
 for (const table of scope.querySelectorAll('table[data-bom-rows]')) {
   if(table.dataset.rowsInitialized)continue;
   table.dataset.rowsInitialized='yes';
@@ -60,11 +60,13 @@ for (const table of scope.querySelectorAll('table[data-bom-rows]')) {
   }
   function actions(row) {
     const cell=document.createElement('td');cell.className='bom-row-actions';
+    if(readOnly||row.hasAttribute('data-inherited')){const badge=document.createElement('span');badge.className='status-badge';badge.textContent='Inherited';cell.append(badge);row.append(cell);for(const control of row.querySelectorAll('input,select'))control.disabled=true;paint(row);return;}
     const pencil=document.createElement('button');pencil.type='button';pencil.className='btn btn-sm btn-outline-primary';pencil.textContent='✎';pencil.setAttribute('aria-label',label.replace('Add','Edit'));pencil.title=label.replace('Add','Edit');pencil.onclick=()=>edit(row);
     const remove=document.createElement('button');remove.type='button';remove.className='btn btn-sm btn-outline-danger';remove.textContent='Remove';remove.onclick=()=>{row.remove();table.dispatchEvent(new Event('input',{bubbles:true}));};
     cell.append(pencil,remove);row.append(cell);paint(row);
   }
   for(const row of body.rows)actions(row);
+  if(readOnly)continue;
   const add=document.createElement('button');add.type='button';add.className='btn btn-outline-primary bom-add';add.textContent=label;
   // A new row exists ONLY in detached modal state until successful Apply.
   add.onclick=()=>edit(template.content.firstElementChild.cloneNode(true),true);
