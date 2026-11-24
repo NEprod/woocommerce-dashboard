@@ -1,0 +1,28 @@
+{% extends 'inventory/base.html' %}
+{% from 'inventory/_fields.html' import heading,field,csrf,error as show_error %}
+{% set title='Add component group' %}
+{% block javascripts %}{{ super() }}<script type="module" src="{{ url_for('static',filename='assets/js/inventory-item-form.js') }}"></script><script type="module" src="{{ url_for('static',filename='assets/js/component-group.js') }}"></script>{% endblock %}
+{% block workshop %}
+{{ heading(title,'Enter shared details once, then add Eyes, Feet, Body and other parts. Each becomes a separate, normally editable manufactured component. No combined stock item or stock receipt is created.') }}
+{{ show_error(error) }}
+<form method="post" enctype="multipart/form-data" class="workshop-form bom-workspace" data-component-group data-inventory-item-form>
+{{ csrf() }}<input type="hidden" name="components" value="{{ parts|tojson|forceescape }}">
+<fieldset class="workshop-panel"><legend>Shared details</legend><div class="workshop-fields">
+{{ field('Group name — e.g. Gingerbread Man','group_name',values,required=true,limit=120) }}
+{{ field('Category','category',values) }}{{ field('Brand or specification','specification',values,limit=250) }}
+{{ field('Default expected good pieces per batch','yield_qty',values,'decimal',true) }}
+{{ field('Minimum stock per component','minimum',values,'decimal') }}{{ field('Preferred reorder target per component','reorder',values,'decimal') }}
+<label>Default storage location / tub<select class="form-select" name="default_location_id"><option value="">No default</option>{% for loc in locations %}<option value="{{ loc.id }}" {% if values.get('default_location_id')|string == loc.id|string %}selected{% endif %}>{{ breadcrumbs(loc) }} · {{ loc.identity.code }}</option>{% endfor %}</select></label>
+</div><p class="field-helper">Stock unit: pieces. Each part can override the batch yield. Names are saved as “Group name - Component name”. Minimum stock and reorder targets are defaults, not opening stock.</p>
+<label>Description / notes shared by all components<textarea class="form-control" name="description" maxlength="4000" rows="2">{{ values.get('description','') }}</textarea></label>
+<label>Shared image (optional)<input class="form-control" type="file" name="image" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp{% if heif_supported %},image/heic,image/heif,.heic,.heif{% endif %}" data-image-upload></label>
+<p class="field-helper">Up to 25 MB, automatically optimised. The image is copied to each component. Reselect the image after a failed save.</p><p data-image-status role="status" aria-live="polite"></p><img data-image-preview class="workshop-item-image-preview" hidden alt="Shared component photograph preview">
+<label class="workshop-check"><input type="checkbox" name="active" value="yes" {% if values.get('active')=='yes' %}checked{% endif %}> Active components</label></fieldset>
+<section class="workshop-panel"><h2>Components</h2><div class="workshop-actions"><button type="button" class="btn btn-outline-primary" data-add-component>Add Component</button></div>
+<p>Give each component a unique barcode. Material quantities are for ONE good component; batch totals use that component’s yield. The configured waste allowance is applied separately in costing, exactly as on the single-component form.</p>
+<div class="table-responsive"><table class="table bom-lines" data-component-table><thead><tr><th>Component</th><th>Barcode</th><th>Good pieces / batch</th><th>Materials per component</th><th>Actions</th></tr></thead><tbody></tbody></table></div><p data-group-empty>No components added yet.</p></section>
+<div class="workshop-actions"><button class="btn btn-primary" type="submit">Create separate components</button><a class="btn btn-outline-primary" href="{{ url_for('inventory.items',group='components') }}">Cancel</a></div>
+</form>
+<template data-group-material-options><option value="">Choose raw material</option>{% for material in materials %}<option value="{{ material.id }}" data-unit="{{ material.unit }}">{{ material.name }} ({{ material.unit }})</option>{% endfor %}</template>
+<template data-group-unit-options>{% for key,label in units.items() %}<option value="{{ key }}">{{ key }}</option>{% endfor %}</template>
+{% endblock %}

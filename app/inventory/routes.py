@@ -529,6 +529,35 @@ def item(record_id):
                            estimate=None if estimate is None else int((estimate * stock.SCALE).to_integral_value(rounding=ROUND_HALF_UP)))
 
 
+@inventory.route('/components/new-group', methods=['GET', 'POST'])
+def component_group():
+    from .component_group import save_group
+    from .images import HEIF_SUPPORTED
+    values, parts, error = dict(active='yes', yield_qty='1'), [], ''
+    if request.method == 'POST':
+        values = request.form.to_dict()
+        try:
+            raw = request.form.get('components', '[]')
+            if len(raw.encode()) > 262144:
+                raise ValueError('Component group is too large; use at most 30 components.')
+            parts = json.loads(raw)
+            if not isinstance(parts, list):
+                parts = []
+                raise ValueError('Send a list of component details.')
+            image = _image(request.files.get('image'))
+            stock.writer_lock()
+            created = save_group(values, parts, image=image)
+            db.session.commit()
+            flash(f'{len(created)} separate manufactured components created. No stock was added.', 'success')
+            return redirect(url_for('inventory.items', group='components', q=values['group_name']), code=303)
+        except (ValueError, IntegrityError, OperationalError, OSError) as exc:
+            db.session.rollback()
+            error = str(exc) if isinstance(exc, ValueError) else 'The group could not be saved. No components were created. Check the barcodes and storage, then retry.'
+    return render_template('inventory/component_group.html', values=values, parts=parts,
+        error=error, materials=_item_choices('material'), locations=_location_choices(),
+        heif_supported=HEIF_SUPPORTED), 400 if error else 200
+
+
 @inventory.route("/item/new/<kind>", methods=["GET", "POST"], defaults={"record_id": None})
 @inventory.route("/item/<int:record_id>/edit", methods=["GET", "POST"], defaults={"kind": None})
 def edit_item(record_id, kind):

@@ -7,6 +7,7 @@
   {% if group == 'catalogue' %}<a class="btn btn-outline-primary" href="{{ url_for('inventory.edit_item',kind='material') }}">Add raw material</a>{% endif %}
   {% if group == 'materials' %}<a class="btn btn-primary" href="{{ url_for('inventory.edit_item',kind='material') }}">Add material</a>
   {% else %}<a class="btn btn-primary" href="{{ url_for('inventory.edit_item',kind='purchased') }}">Add purchased component</a><a class="btn btn-outline-primary" href="{{ url_for('inventory.edit_item',kind='manufactured') }}">Add manufactured component</a>{% endif %}
+{% if group != 'materials' %}<a class="btn btn-outline-primary" href="{{ url_for('inventory.component_group') }}">Add component group</a>{% endif %}
 </div>
 <form method="get" class="workshop-search workshop-actions">
   <label>Search<input type="search" class="form-control" name="q" value="{{ search }}" maxlength="120"></label>
