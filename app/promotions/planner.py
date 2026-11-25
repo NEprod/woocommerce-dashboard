@@ -37,8 +37,8 @@ def review(definition, rows):
                    'Payment fees, postage, labour, electricity, wear and waste are excluded unless already represented by a costed BOM item.',
                    'The selected product mix is not assigned a probability or unweighted average.']
     if any(row['costing'].get('finished_product') for row in variants):
-        assumptions[1] = 'Saved finished-product profitability profiles use the shared BOM engine, before transaction fees; other products retain their existing cost source.'
-        assumptions[3] = 'Saved finished-product profiles include configured buffer, equipment and labour. Transaction fees, postage and other unconfigured costs are not included here. Use the fixed Bundle planner for transaction-level fees.'
+        assumptions[1] = 'Calculated product costs use the full shared BOM engine, before transaction fees; manual costs use the entered amount.'
+        assumptions[3] = 'Calculated costs include configured manufacturing and print-waste allowances, equipment, labour and overhead. Transaction fees, postage and other unconfigured costs are not included here. Use the fixed Bundle planner for transaction-level fees.'
     tiers = []
     if definition['kind'] == 'exact' and variants:
         prices = [row['price_pence'] for row in variants]

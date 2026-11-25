@@ -4,7 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from app import db
 from app.models import Product
-from .models import Item, ProductCostingProfile
+from .models import Item
 from .product_bom import product_costs
 
 
@@ -61,12 +61,16 @@ def variant_costs(variants):
                        'material_component':pennies(material) if itemized else None,
                        'packaging':pennies(packaging) if itemized and packaging_seen else None,
                        'lines':lines, 'missing':missing}
-        if db.session.get(ProductCostingProfile, (product_id, sku)):
+        if mode == 'calculated':
             from .profitability import finished_product_estimate
-            planned = finished_product_estimate(db.session.get(Product, product_id), sku)
+            try:
+                planned = finished_product_estimate(db.session.get(Product, product_id), sku, projection=projection)
+            except (ValueError, OSError) as exc:
+                planned = dict(complete=False, cost=None, missing=[str(exc)[:220]])
             result[sku].update(cost=pennies(planned['cost']) if planned.get('cost') is not None else None,
                                bom_complete=planned['complete'], missing=planned['missing'], finished_product=True)
-            for key, label in [('buffer','Manufacturing allowance'), ('electricity','Equipment electricity'),
+            for key, label in [('buffer','Manufacturing allowance'), ('print_waste','3D-print material waste allowance'),
+                               ('electricity','Equipment electricity'),
                                ('labour','Hands-on labour'), ('other','Other / overhead')]:
                 if key in planned:
                     result[sku]['lines'].append(dict(name=label, category='Finished-product planning',

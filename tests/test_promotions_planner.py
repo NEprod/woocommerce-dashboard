@@ -66,9 +66,12 @@ def test_effective_local_cost_matches_shopify_contract_projection(world, monkeyp
         return {product.sku:{'rows':[], 'state':'complete','mode':'calculated',
                              'shopify':'2.47','warnings':[]}}
     monkeypatch.setattr(costing, 'product_costs', product_costs)
+    from app.inventory import profitability
+    monkeypatch.setattr(profitability, 'finished_product_estimate',
+                        lambda *args, **kwargs: dict(complete=True, cost='3.47', missing=[], labour='1.00'))
     found = costing.variant_costs([{'local_id':product.id,'sku':product.sku}])
     assert calls == [product.id]
-    assert found[product.sku]['cost'] == 247
+    assert found[product.sku]['cost'] == 347
     assert found[product.sku]['bom_complete']
     assert found[product.sku]['packaging'] is None
 

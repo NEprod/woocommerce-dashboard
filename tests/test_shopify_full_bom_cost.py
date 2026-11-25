@@ -105,3 +105,34 @@ def test_variant_quantities_and_labour_use_full_inherited_costs(variable_world):
     assert drafts.confirm(token,True,adapter).state=='verified'
     assert sorted(value for _,value in adapter.cost_writes)==sorted(row['value'] for row in costs.values())
     assert Movement.query.count()==0
+
+
+def test_promotions_use_full_bom_without_saved_profile(world):
+    from app.inventory.costing import variant_costs, pennies
+    from app.inventory.models import ProductCostingProfile
+    from app.promotions.planner import review
+    product, _, shared = world
+    source(product, shared)
+    assert db.session.get(ProductCostingProfile, (product.id, product.sku)) is None
+    row = dict(local_id=product.id, sku=product.sku, price='6.00')
+    cost = variant_costs([row])[product.sku]
+    assert cost['cost'] == pennies(bom.contract(product)[product.sku]['value']) == 205
+    assert cost['bom_complete'] and cost['finished_product']
+    assert {'Hands-on labour', 'Equipment electricity', 'Other / overhead',
+            '3D-print material waste allowance'} <= {line['name'] for line in cost['lines']}
+    tier = review(dict(kind='exact', tiers=[dict(qty=3, total=1600)]), [row])['tiers'][0]
+    assert tier['worst_cost'] == 615 and tier['worst_contribution'] == 985
+
+
+def test_promotions_block_incomplete_full_bom(world):
+    from app.inventory.costing import variant_costs
+    from app.promotions.planner import review
+    product, _, shared = world
+    source(product, shared)
+    settings(tariff=None)
+    row = dict(local_id=product.id, sku=product.sku, price='6.00')
+    cost = variant_costs([row])[product.sku]
+    assert cost['cost'] is None and not cost['bom_complete']
+    assert any('tariff' in message for message in cost['missing'])
+    tier = review(dict(kind='exact', tiers=[dict(qty=3, total=1600)]), [row])['tiers'][0]
+    assert tier['worst_contribution'] is None and tier['worst_margin'] is None
