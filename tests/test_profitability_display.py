@@ -8,17 +8,19 @@ import pytest
 
 
 def example():
-    return dict(complete=True, missing=[], lines=[], selling_price='5.00', margin='50',
+    return dict(complete=True, missing=[], lines=[], selling_price='5.00', margin='53.20',
+                profit='2.66', fees='0.35', recommended_price='7.00', suggested_fees='0.39',
+                suggested_profit='4.62', suggested_margin='66.00',
                 subtotals=dict(raw_material='0.00', purchased_component='0.01',
                                manufactured_component='0.35', packaging='0.38'),
                 buffer='0.04', buffer_rate='11', print_waste='0.00', print_waste_rate='11',
                 electricity='0.21', labour='1.00', other='0.00', cost='1.99')
 
 
-def render(result):
+def render(result, **context):
     app = Flask(__name__, template_folder=str(Path(__file__).resolve().parents[1]/'app/templates'))
     with app.app_context():
-        return render_template('inventory/_profitability.html', result=result)
+        return render_template('inventory/_profitability.html', result=result, **context)
 
 
 def summary(html):
@@ -63,3 +65,32 @@ def test_legacy_snapshot_without_subtotals_still_renders():
     assert 'Materials / components including packaging' not in summary(render(result))
     result['material_component'] = None
     assert 'Materials / components including packaging' in summary(render(result))
+
+
+@pytest.mark.parametrize('profit,label', [('2.66','Estimated profit per item'),('0.00','Estimated profit per item'),('-1.00','Estimated loss per item')])
+def test_profit_summary_uses_existing_values_without_recalculation(profit,label):
+    result=example()
+    result.update(profit=profit,fees='0.35',recommended_price='7.00',suggested_profit='4.62',suggested_fees='0.39',suggested_margin='66.00')
+    before=deepcopy(result)
+    html=render(result,comparison_name='Existing catalogue selling price')
+    highlight=re.search(r'data-profit-summary>(.*?)</div>',html,re.S)[1]
+    assert label in highlight and f'<strong>£{profit}</strong>' in highlight
+    assert '4.62' not in highlight
+    assert 'Based on: Existing catalogue selling price.' in html
+    assert html.index('data-profit-summary') < html.index('Suggested-price comparison')
+    assert 'Estimated profit per item at suggested price</dt><dd>£4.62' in html
+    assert 'not net business profit' in html and result==before
+
+
+def test_profit_not_invented_for_missing_price_incomplete_or_legacy_estimates():
+    result=example();result['selling_price']=None
+    html=render(result)
+    assert 'Enter a selling price to calculate profit per item.' in html
+    assert '<strong>Not calculated</strong>' in html
+    result.update(complete=False, selling_price='5',profit='2.66',margin='50',missing=['Missing tariff'])
+    html=render(result)
+    highlight=re.search(r'data-profit-summary>(.*?)</div>',html,re.S)[1]
+    assert '£2.66' not in highlight and 'Complete the missing cost inputs' in highlight
+    assert 'Missing tariff' in html
+    result.update(complete=True);result.pop('profit')
+    assert 'Profit was not calculated or retained' in render(result)

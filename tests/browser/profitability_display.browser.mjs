@@ -13,6 +13,12 @@ try{
     const page=await browser.newPage({viewport:{width,height:1000}});
     await page.setContent(`<style>${css}</style><main style="max-width:900px;margin:16px">${html}</main>`);
     const table=page.locator('.bom-cost-summary');
+    const profit=page.locator('[data-profit-summary]');
+    assert.match(await profit.innerText(),/Estimated profit per item\s+£2.66/);
+    assert.doesNotMatch(await profit.innerText(),/4.62/);
+    assert.ok(await profit.locator('strong').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>=24),'Profit is prominent');
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+    await profit.screenshot({path:`/tmp/profit-per-item-${width}.png`});
     assert.equal(await table.locator('tbody tr').count(),7);
     assert.doesNotMatch(await table.innerText(),/Direct raw materials|Direct 3D-print material failure|Other \/ overhead/);
     const box=await table.evaluate(el=>{
@@ -22,7 +28,7 @@ try{
     assert.ok(box.left<=2&&box.right<=2,`Full-width header at ${width}px: ${JSON.stringify(box)}`);
     assert.ok(box.padding>0,'Readable cell padding preserved');
     await table.screenshot({path:`/tmp/production-cost-breakdown-${width}.png`});
-    console.log(`PASS ${width}px: zero categories hidden, total retained, header edge-to-edge with readable padding`);
+    console.log(`PASS ${width}px: clear prominent profit, separate suggested comparison, zero categories hidden, full-width header`);
     await page.close();
   }
 }finally{await browser.close();}

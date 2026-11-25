@@ -1,11 +1,20 @@
 <section class="table-panel"><header class="table-panel-header"><h2>Profitability Preview</h2></header><div class="workspace-card-body">
 {% if not result.complete %}<p class="alert alert-warning">Cost data incomplete. Profit and suggested prices are withheld.</p><ul>{% for warning in result.missing %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
 <p>Estimate: {{ result.get('state','complete' if result.complete else 'incomplete')|title }}. {% if not result.get('packaging_included',true) %}Packaging not included.{% endif %}</p>
-<h3>Suggested selling price</h3><dl class="workshop-facts">
-{% for key,label in [('cost','Estimated production cost'),('recommended_price','Suggested selling price after applicable fees'),('suggested_fees','Payment fees at suggested price'),('suggested_profit','Estimated profit at suggested price')] %}<dt>{{ label }}</dt><dd>{{ '£' ~ result.get(key) if result.get(key) is not none else 'Not calculated / not retained' }}</dd>{% endfor %}
-<dt>Profit margin at suggested price</dt><dd>{{ result.suggested_margin ~ '%' if result.get('suggested_margin') is not none else 'Not calculated / not retained' }}</dd></dl>
-<h3>{{ comparison_name|default('Chosen selling price') }} comparison</h3><dl class="workshop-facts"><dt>{{ comparison_name|default('Chosen selling price') }}</dt><dd>{{ '£' ~ result.selling_price if result.selling_price is not none else 'Not entered' }}</dd>
-{% for key,label in [('fees','Estimated payment fees'),('profit','Profit at chosen price')] %}<dt>{{ label }}</dt><dd>{{ '£' ~ result[key] if result[key] is not none else 'Not calculated' }}</dd>{% endfor %}<dt>Chosen-price margin</dt><dd>{{ result.margin ~ '%' if result.margin is not none else 'Not calculated' }}</dd></dl>
+<h3>Your selling price — profit per item</h3>
+<p>Based on: {{ comparison_name|default('Chosen selling price') }}. The suggested-price comparison is shown separately below.</p>
+{% set chosen_profit = result.get('profit') if result.complete and result.get('selling_price') is not none else none %}
+<div class="summary-stat" data-profit-summary>
+<span>{{ 'Estimated loss per item' if chosen_profit is not none and chosen_profit|float < 0 else 'Estimated profit per item' }}</span>
+<strong>{{ '£' ~ chosen_profit if chosen_profit is not none else 'Not calculated' }}</strong>
+{% if result.get('selling_price') is none %}<span>Enter a selling price to calculate profit per item.</span>{% elif not result.complete %}<span>Complete the missing cost inputs above to calculate profit.</span>{% elif result.get('profit') is none %}<span>Profit was not calculated or retained for this estimate.</span>{% endif %}
+</div>
+<dl class="workshop-facts"><dt>{{ comparison_name|default('Chosen selling price') }}</dt><dd>{{ '£' ~ result.selling_price if result.get('selling_price') is not none else 'Not entered' }}</dd>
+{% for key,label in [('cost','Production cost per item'),('fees','Estimated payment fees per item')] %}<dt>{{ label }}</dt><dd>{{ '£' ~ result.get(key) if result.get(key) is not none else 'Not calculated' }}</dd>{% endfor %}<dt>Profit margin at this selling price</dt><dd>{{ result.margin ~ '%' if chosen_profit is not none and result.get('margin') is not none else 'Not calculated' }}</dd></dl>
+<p class="field-helper">Estimated profit per item = selling price minus production cost minus payment fees. Production cost includes materials, components, waste allowances, packaging, electricity and labour where entered. This is not net business profit: tax and any business expenses not entered in the BOM/settings are excluded.</p>
+<h3>Suggested-price comparison — advisory only</h3><dl class="workshop-facts">
+{% for key,label in [('recommended_price','Suggested selling price'),('cost','Production cost per item'),('suggested_fees','Payment fees at suggested price'),('suggested_profit','Estimated profit per item at suggested price')] %}<dt>{{ label }}</dt><dd>{{ '£' ~ result.get(key) if result.complete and result.get(key) is not none else 'Not calculated / not retained' }}</dd>{% endfor %}
+<dt>Profit margin at suggested price</dt><dd>{{ result.suggested_margin ~ '%' if result.complete and result.get('suggested_margin') is not none else 'Not calculated / not retained' }}</dd></dl>
 <h3>Production cost breakdown</h3>
 {% if not result.complete %}<p>Amounts below are known partial subtotals only; missing inputs are listed above.</p>{% endif %}
 </div>
