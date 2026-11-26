@@ -1,0 +1,13 @@
+{% if result.get('channels') %}
+<section aria-label="Shopify and Etsy profitability" data-channel-comparison>
+<h3>Shopify &amp; Etsy — estimated profit per item</h3>
+{% if result.channels.complete %}
+<div class="table-responsive"><table class="table bom-lines"><thead><tr>{% for label in ['Channel','Selling price','Production cost','Channel fees','Profit per item','Margin'] %}<th>{{ label }}</th>{% endfor %}</tr></thead><tbody>
+{% for channel in result.channels.rows %}<tr><th scope="row" data-column="Channel">{{ channel.name }}<small class="d-block">{{ channel.basis }}</small></th>{% for key,label in [('price','Selling price'),('cost','Production cost'),('fees','Channel fees'),('profit','Profit per item'),('margin','Margin')] %}<td data-column="{{ label }}">{% if channel[key] is not none %}{{ channel[key] ~ '%' if key == 'margin' else '£' ~ channel[key] }}{% else %}Not calculated{% endif %}</td>{% endfor %}</tr>{% endfor %}
+</tbody></table></div>
+<p>Etsy suggested selling price: <strong>£{{ result.channels.etsy_suggested }}</strong> — advisory only.</p>
+<details class="operator-help"><summary>Etsy fee breakdown, uplift rule and assumptions</summary><p>Starting Shopify price £{{ result.channels.base }}; uplift {{ result.channels.uplift_percent }}% or £{{ result.channels.minimum_uplift }}, whichever is greater (increase £{{ result.channels.uplift }}), then round upwards using Settings. Fee components display rounded amounts; totals use full precision.</p><dl class="workshop-facts">{% for fee in result.channels.etsy_fees %}<dt>{{ fee.name }}{% if fee.rate|float != 0 %} · {{ fee.rate }}%{% endif %}{% if fee.fixed|float != 0 %} · £{{ fee.fixed }}{% endif %}{{ ' · VAT applies' if fee.vat else ' · no VAT' }}</dt><dd>£{{ fee.amount }}</dd>{% endfor %}<dt>VAT on selected fees ({{ result.channels.vat_percent }}%)</dt><dd>£{{ result.channels.vat }}</dd><dt>Total Etsy fees including applicable VAT</dt><dd>£{{ result.channels.rows[1].fees }}</dd></dl><p>{{ result.channels.notice }}</p></details>
+<p class="field-helper">Product-only estimate — postage excluded. Shopify fees use the selected payment profile/defaults. Both channels use the same full production cost. These are planning estimates only; listing and selling prices remain unchanged.</p>
+{% else %}<p class="alert alert-warning">{{ result.channels.notice }}</p>{% endif %}
+</section>
+{% else %}<p class="field-helper">This retained result has no channel comparison. Calculate Preview to compare Shopify and Etsy using current settings; the saved snapshot is unchanged until you save.</p>{% endif %}

@@ -13,7 +13,7 @@ from .models import CostingSettings, Equipment, Item
 from .profitability import decimal, estimate, process_runtime
 
 COSTING_FIELDS = {'equipment', 'labour_minutes', 'labour_rate', 'buffer',
-                  'print_waste_rate', 'markup', 'other', 'fee_profile', 'price_rounding'}
+                  'print_waste_rate', 'markup', 'other', 'fee_profile', 'price_rounding', 'etsy_price'}
 PROCESS_FIELDS = {'equipment_id', 'minutes', 'timing_mode', 'usable_units', 'allocation', 'share_percent'}
 INVENTORY_FIELDS = {'item_id', 'quantity', 'unit', 'purpose', 'print_material'}
 
@@ -29,7 +29,7 @@ def validate_costing(value):
     for key, number in value.items():
         if key not in {'equipment', 'fee_profile', 'price_rounding'}:
             decimal(number, key, maximum='100' if key == 'print_waste_rate' else '1000000000')
-    if value.get('price_rounding', 'exact') not in {'exact', 'half', 'whole', '95'}:
+    if value.get('price_rounding', 'exact') not in {'exact', 'half', 'whole', '95', '49_99'}:
         raise ValueError('Choose a supported price presentation.')
     if 'fee_profile' in value and not isinstance(value['fee_profile'], str):
         raise ValueError('Choose a saved payment fee profile.')

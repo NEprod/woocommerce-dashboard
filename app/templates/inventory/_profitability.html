@@ -15,6 +15,7 @@
 <h3>Suggested-price comparison — advisory only</h3><dl class="workshop-facts">
 {% for key,label in [('recommended_price','Suggested selling price'),('cost','Production cost per item'),('suggested_fees','Payment fees at suggested price'),('suggested_profit','Estimated profit per item at suggested price')] %}<dt>{{ label }}</dt><dd>{{ '£' ~ result.get(key) if result.complete and result.get(key) is not none else 'Not calculated / not retained' }}</dd>{% endfor %}
 <dt>Profit margin at suggested price</dt><dd>{{ result.suggested_margin ~ '%' if result.complete and result.get('suggested_margin') is not none else 'Not calculated / not retained' }}</dd></dl>
+{% include 'inventory/_channels.html' %}
 <h3>Production cost breakdown</h3>
 {% if not result.complete %}<p>Amounts below are known partial subtotals only; missing inputs are listed above.</p>{% endif %}
 </div>

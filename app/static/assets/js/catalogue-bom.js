@@ -1,6 +1,6 @@
 // JSON-owner adapter only. Row modals, timing and all arithmetic are shared.
 import {initBomRows} from './bom-planner-rows.js';
-const keys=['labour_minutes','fee_profile','price_rounding','labour_rate','buffer','print_waste_rate','markup','other'];
+const keys=['labour_minutes','fee_profile','price_rounding','labour_rate','buffer','print_waste_rate','markup','other','etsy_price'];
 const clone=value=>structuredClone(value);
 const make=(tag,text)=>{const el=document.createElement(tag);if(text!=null)el.textContent=text;return el;};
 const id=()=> 'line-'+crypto.randomUUID().replaceAll('-','').slice(0,24);

@@ -94,7 +94,20 @@ def costing_settings():
     if request.method == "POST":
         try:
             stock.writer_lock()
-            if request.form.get("action") == "fee_profile":
+            if request.form.get('action') == 'channel_pricing':
+                from .channels import DEFAULTS as CHANNEL_DEFAULTS, validate
+                row = db.session.get(CostingSettings, 1)
+                if row: db.session.refresh(row)
+                if int(request.form.get('version','0')) != (row.version if row else 0):
+                    raise ValueError('Settings changed in another session. Reload before saving.')
+                config = json.loads(row.document) if row else {}
+                entered = {key:request.form.get('channel_'+key, str(value)) for key,value in CHANNEL_DEFAULTS.items()}
+                for key in CHANNEL_DEFAULTS:
+                    if key.startswith('vat_') and key != 'vat_percent': entered[key] = request.form.get('channel_'+key) == 'yes'
+                config['channel_pricing'] = validate(entered)
+                if row: row.document, row.version = json.dumps(config), row.version+1
+                else: db.session.add(CostingSettings(id=1,document=json.dumps(config),version=1))
+            elif request.form.get("action") == "fee_profile":
                 row = db.session.get(CostingSettings, 1)
                 if row:
                     db.session.refresh(row)
@@ -164,7 +177,8 @@ def costing_settings():
         except (ValueError, IntegrityError, OperationalError) as exc:
             db.session.rollback()
             error = str(exc) if isinstance(exc, ValueError) else "Settings could not be saved; reload and retry."
-    return render_template("inventory/costing_settings.html", values=values, version=row.version if row else 0,
+    from .channels import settings as channel_settings
+    return render_template("inventory/costing_settings.html", values=values, channels=channel_settings(values), version=row.version if row else 0,
                            equipment=Equipment.query.order_by(Equipment.name).all(), error=error,
                            selected_equipment=db.session.get(Equipment, request.args.get('equipment', type=int)) if request.args.get('equipment') else None), 400 if error else 200
 
@@ -218,7 +232,8 @@ def bom_planner(scenario_id, product_id=None):
                             equipment=[dict(equipment_id=int(i), minutes=m) for i, m in zip(*equipment_columns) if i],
                             **{key: request.form.get(key) or "0" for key in ("labour_minutes", "other")},
                             selling_price=request.form.get('selling_price',''),
-                            price_rounding=request.form.get('price_rounding','exact'))
+                            price_rounding=request.form.get('price_rounding',''))
+            if request.form.get('etsy_price','').strip(): document['etsy_price'] = request.form['etsy_price'].strip()
             print_flags = request.form.getlist('print_material')
             if print_flags:
                 if len(print_flags) != len(columns[0]):
@@ -307,12 +322,33 @@ def bom_planner(scenario_id, product_id=None):
             result = estimate(document, config, direct_materials=not bool(product))
             if not product:
                 result['historical_context_missing'] = True
+    loader_products, loader_variants, loader_selected, source_note = [], {}, None, ''
+    loader_search = request.args.get('product_search','').strip()[:120]
+    if not product and not scenario and request.method == 'GET':
+        if loader_search:
+            loader_products = Product.query.filter(Product.catalogue_status=='active',or_(Product.title.icontains(loader_search,autoescape=True),Product.sku.icontains(loader_search,autoescape=True))).order_by(Product.title).limit(20).all()
+        selected_id = request.args.get('select_product',type=int) or request.args.get('load_product',type=int)
+        if selected_id:
+            loader_selected = _record(Product, selected_id)
+            try:
+                if loader_selected.catalogue_status != 'active': raise ValueError('Choose an active catalogue product.')
+                loader_variants = product_costs(loader_selected)
+                if not loader_variants: raise ValueError('This product has no configured BOM to copy.')
+                if request.args.get('load_product'):
+                    from .what_if import load
+                    document = load(loader_selected, request.args.get('load_sku',''))
+                    name = f'What-if · {loader_selected.title} · {request.args.get("load_sku", "")}'[:160]
+                    source_note = f'Independent copy of {loader_selected.title} · {request.args.get("load_sku", "")}. Changes here do not update the source product or its collection.'
+                    settings = db.session.get(CostingSettings, 1)
+                    result = estimate(document, json.loads(settings.document) if settings else {}, direct_materials=True)
+            except (ValueError, OSError) as exc: error = str(exc)
     from .profitability import DEFAULTS
     settings = db.session.get(CostingSettings, 1)
     defaults = {**DEFAULTS, **(json.loads(settings.document) if settings else {})}
     return render_template("inventory/bom_planner.html", scenario=scenario, name=name, document=document, defaults=defaults,
                            result=result, error=error, items=_item_choices(include_archived=True), equipment=Equipment.query.order_by(Equipment.name).all(),
-                           product=product, sku=sku, costs=costs,
+                           product=product, sku=sku, costs=costs, loader_search=loader_search,
+                           loader_products=loader_products,loader_variants=loader_variants,loader_selected=loader_selected,source_note=source_note,
                            fee_profiles=json.loads(db.session.get(CostingSettings, 1).document).get('fee_profiles', []) if db.session.get(CostingSettings, 1) else [],
                            scenarios=[s for s in BomScenario.query.order_by(BomScenario.name).limit(100).all()
                                       if json.loads(s.document).get('kind') != 'bundle' and not json.loads(s.document).get('_archived')]), 400 if error else 200

@@ -127,6 +127,9 @@ def pricing(cost, chosen, config, markup, *, complete, rounding='exact'):
     exact = (cost * (1 + markup / 100) + fixed) / (1 - percent)
     if rounding == 'exact':
         recommended = exact.quantize(Decimal('.01'), rounding=ROUND_CEILING)
+    elif rounding == '49_99':
+        from .channels import round_49_99
+        recommended = round_49_99(exact)
     elif rounding in {'half','whole'}:
         step = Decimal('.50') if rounding == 'half' else Decimal(1)
         recommended = (exact / step).to_integral_value(rounding=ROUND_CEILING) * step
@@ -296,13 +299,16 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
     markup = decimal(document.get('markup', config['markup']), 'Markup')
     entered_price = document.get('selling_price', '0')
     chosen = None if entered_price is None or str(entered_price).strip() == '' else decimal(entered_price, 'Chosen selling price')
-    amounts = pricing(total, chosen, config, markup, complete=not missing, rounding=document.get('price_rounding','exact'))
+    from .channels import settings as channel_settings, comparison
+    amounts = pricing(total, chosen, config, markup, complete=not missing,
+                      rounding=document.get('price_rounding') or channel_settings(config)['shopify_rounding'])
     if selling_fees and not document.get('fee_profile') and not {'fee_percent', 'fee_fixed'} <= (settings or {}).keys():
         missing.append('Payment fees are not configured. Save applicable defaults or choose a fee profile; fees are not assumed free.')
         amounts.update(fees=None, fee_adjusted=None, profit=None, margin=None)
         amounts.update(recommended_price=None, suggested_fees=None, suggested_profit=None, suggested_margin=None, suggestion_exact=None)
     if not selling_fees:
         amounts.update(fees=None, fee_adjusted=None, profit=None, margin=None)
+    channels = comparison(total, chosen, config, amounts, document, complete=not missing) if selling_fees else None
     return dict(complete=not missing, state='incomplete' if missing else 'provisional' if provisional else 'complete',
                 provisional=provisional, missing=missing, lines=rows, material_component=money(base),
                 subtotals={k:money(v) for k,v in subtotals.items()}, markup=format(markup,'f'),
@@ -312,7 +318,7 @@ def estimate(document, settings=None, *, direct_materials=False, selling_fees=Tr
                 print_waste=money(print_waste), print_waste_exact=str(print_waste),
                 print_material_exact=str(print_material), print_waste_rate=str(waste_rate),
                 packaging_included=any(line.get('purpose') == 'packaging' for line in lines) or subtotals['packaging'] > 0,
-                **amounts,
+                channels=channels, **amounts,
                 assumption='One finished product / bundle per transaction; fixed payment charge applied once. No VAT assumed.')
 
 
@@ -373,5 +379,8 @@ def bundle_estimate(products, document, settings=None):
     cost = total + additional
     markup = decimal(document.get('markup', config['markup']), 'Markup')
     price = Decimal(result['selling_price'])
-    result.update(constituent_cost=money(total), **pricing(cost, price, config, markup, complete=result['complete']))
+    from .channels import settings as channel_settings, comparison
+    result.update(constituent_cost=money(total), **pricing(cost, price, config, markup, complete=result['complete'],
+                  rounding=document.get('price_rounding') or channel_settings(config)['shopify_rounding']))
+    result['channels'] = comparison(cost, price, config, result, document, complete=result['complete'])
     return result
