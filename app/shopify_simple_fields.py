@@ -280,7 +280,9 @@ def field_rows(managed, remote):
         before = remote["seo"][key]
         if before is not None and not isinstance(before, str):
             raise ShopifyError("Remote SEO evidence is invalid.")
-        add(f"seo.{key}", before, value, (before or "") == value)
+        # Shopify may omit an explicit SEO title identical to its default title.
+        default_title = key == 'title' and before is None and value == remote.get('title')
+        add(f"seo.{key}", before, value, (before or "") == value or default_title)
     for item in product.get("metafields", []):
         key = item["key"].removeprefix("product_")
         if key not in remote:

@@ -434,6 +434,7 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
         if not resume_creation:
             from app.shopify_handles import prepare as prepare_handle
             prepare_handle(plan,config,adapter,remote=remote)
+        plan['remote_seo'] = dict(remote.get('seo') or {})
         identity_digest=drafts.digest(data)
         initial_variant=_creation_resume(row,data,plan,remote) if resume_creation else None
         compare(plan,row,data,remote,initial_variant=initial_variant)

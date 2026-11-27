@@ -8,6 +8,17 @@ Generated SEO titles are limited to 70 characters; the normal product title is
 unchanged. Meta descriptions and saved catalogue JSON are unchanged. The normal
 review shows the exact SEO title before writing it.
 
+SEO updates send title and description together, retaining a remote-only sibling
+when it is unmanaged. Shopify can return a null SEO title for the normal product
+title; this exact fallback is treated as equal, not as missing custom SEO copy.
+Other SEO differences remain blocking and their field names are retained.
+
+`shopify_drafts.repair_reviewed_seo` is an explicit operator-only repair for an
+acknowledged Simple update stopped at SEO verification. It refuses changed local
+source/configuration, other field differences, wrong identities/status and repeat
+repair attempts. Only the retained SEO pair can be sent; full normal readback is
+required before clearing identity/queue recovery. It is never scheduler-invoked.
+
 New simple/variable parents use the explicitly authored SEO `handle`, or a
 lowercase ASCII slug derived from the final customer-facing product title.
 Decorative punctuation and spaces become single hyphens. Non-ASCII-only titles

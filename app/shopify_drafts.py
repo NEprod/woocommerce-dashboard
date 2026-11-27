@@ -1115,6 +1115,8 @@ def update_preview(product, row, plan, config, shop, adapter):
     if actions["alt"] and "write_files" not in shop["scopes"]:
         plan["blockers"].append("Missing write_files for reviewed alt changes; no files will be written.")
     rows = fields.field_rows(plan["managed"], remote) + media_rows
+    # Shopify replaces the nested SEO object; retain an unmanaged sibling too.
+    plan['remote_seo'] = dict(remote.get('seo') or {})
     plan["fields"] = rows
     from app.shopify_attributes import attach
     if plan.get("scope") == "inventory":
@@ -1163,9 +1165,8 @@ def update_inputs(plan):
         if key in changed:
             product[key] = value
         elif key == "seo":
-            seo = {k: v for k, v in value.items() if f"seo.{k}" in changed}
-            if seo:
-                product[key] = seo
+            if any(f"seo.{k}" in changed for k in value):
+                product[key] = {**plan.get('remote_seo', {}), **value}
         elif key == "metafields":
             items = [i for i in value if "dimensions." + i["key"].removeprefix("product_") in changed]
             if items:
@@ -1458,10 +1459,11 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
     data["stage"] = "managed_field_verification"
     save(row, data)
     rows = fields.field_rows(managed, remote)
+    data['verification']['differing_fields'] = [r['field'] for r in rows if r['changed']]
     data["verification"]["fields"] = "verified" if not any(r["changed"] for r in rows) else "differences"
     save(row, data)
     if any(r["changed"] for r in rows):
-        raise ShopifyError("Managed Simple fields differ from the reviewed plan. Reconcile; do not repeat the update blindly.")
+        raise ShopifyError("Managed Simple fields differ from the reviewed plan (" + ', '.join(data['verification']['differing_fields']) + "). Reconcile; do not repeat the update blindly.")
     from app.shopify_taxonomy import verify_memberships
     data["stage"] = "collection_verification"
     save(row, data)
@@ -1558,6 +1560,89 @@ def apply_simple_readback(row, data, remote, adapter=None, *, allow_attribute_re
                 "remote_updated_at": remote.get("updatedAt")}
             from app.shopify_publication import comparison_after_write
             record(product, comparison_after_write(product, result, row, adapter or ShopifyAdapter()), row, post_write=True)
+
+
+def repair_reviewed_seo(row, adapter=None):
+    """Explicit operator repair of an acknowledged SEO-only update failure.
+
+    Never called by the scheduler. No product/media/price/cost/channel replay.
+    A lost repair response must be reconciled, not sent again.
+    """
+    from app.shopify_continuation import effect
+    adapter = adapter or ShopifyAdapter()
+    data = evidence(row)
+    if row.state == 'verified':
+        return row
+    plan = data['plan']
+    product = db.session.get(Product, row.product_id)
+    if (row.state != 'uncertain' or data.get('kind') == 'variable'
+            or not data.get('update_attempted') or not data.get('previous_verified')
+            or not data.get('error', '').startswith('Managed Simple fields differ from the reviewed plan')
+            or 'product_update' not in data.get('completed_steps', [])
+            or plan.get('scope', 'full') != 'full' or not product
+            or local_plan(product)['digest'] != plan['digest']
+            or data.get('seo_recovery_attempt') or data.get('dispatch')):
+        raise ShopifyError('This identity is not eligible for SEO-only repair. Use read-only reconciliation; no update was repeated.')
+    lease = acquire_catalogue_operation('shopify_draft_publish',
+        {'mode':'reviewed_seo_repair','identity_id':row.id,'original_operation':row.operation_id})
+    attempted = False
+    try:
+        config = configuration()
+        if config.fingerprint() != plan['config_digest']:
+            raise ShopifyError('Configuration changed; SEO-only repair is refused.')
+        if adapter.test_connection(config)['shop_id'] != row.store_id:
+            raise ShopifyError('SEO repair store does not match the retained identity.')
+        remote = adapter.read_simple(config, row.shopify_product_id, plan['managed']['namespace'])
+        simple_identity(row, data, remote)
+        from app.shopify_publication import expected_status
+        if remote.get('status') != expected_status(data):
+            raise ShopifyError('Product status changed; SEO-only repair is refused.')
+        differences = [r for r in fields.field_rows(
+            {**plan['managed'], 'product':{**plan['managed']['product'],'handle':plan['handle']}}, remote) if r['changed']]
+        if any(r['field'] not in {'seo.title','seo.description'} for r in differences):
+            raise ShopifyError('Other managed fields differ; SEO-only repair is refused.')
+        if differences:
+            payload = {'id':row.shopify_product_id,
+                'seo':{**remote['seo'], **plan['managed']['product']['seo']}}
+            original = row.operation_id
+            row.operation_id = lease.id
+            data['seo_recovery_attempt'] = {'operation_id':lease.id,'original_operation':original,
+                'fields':[r['field'] for r in differences], 'at':now().isoformat()}
+            data['stage'] = 'reviewed_seo_repair'
+            save(row, data, 'updating')
+            attempted = True
+            effect(row,data,'reviewed_seo_repair',lambda:adapter.update_simple_product(config,payload),
+                lambda result:payload_result(result,'productUpdate'),state='updating')
+            remote = adapter.read_simple(config,row.shopify_product_id,plan['managed']['namespace'])
+        apply_simple_readback(row,data,remote,adapter,allow_attribute_review=True)
+        if row.state == 'verified':
+            from app.models import ShopifyPublishJob
+            from app.automatic_publishing import local_revision
+            from sqlalchemy import update
+            job = db.session.get(ShopifyPublishJob, product.id, populate_existing=True)
+            if (job and job.state == 'recovery_required' and not job.owner
+                    and job.source_identity == product.source_relpath
+                    and job.requested_revision == local_revision(product)):
+                db.session.execute(update(ShopifyPublishJob).where(
+                    ShopifyPublishJob.product_id == product.id,
+                    ShopifyPublishJob.state == 'recovery_required', ShopifyPublishJob.owner.is_(None),
+                    ShopifyPublishJob.generation == job.generation,
+                    ShopifyPublishJob.requested_revision == job.requested_revision).values(
+                        state='verified', verified_revision=job.requested_revision, error=None,
+                        operation_id=lease.id, view_pending=True, updated_at=now()))
+                db.session.commit()
+        finish_catalogue_operation(lease.id,status='succeeded' if row.state=='verified' else 'partial',
+            recovery_state='none' if row.state=='verified' else 'review_required',
+            operation_summary={'identity_id':row.id,'mode':'reviewed_seo_repair','remote_writes':int(attempted),'state':row.state})
+        return row
+    except Exception as exc:
+        if attempted:
+            data['error'] = 'SEO repair needs read-only reconciliation; no automatic repeat.'
+            save(row,data,'uncertain')
+        finish_catalogue_operation(lease.id,status='partial' if attempted else 'failed',
+            error='SEO-only recovery stopped; retained evidence requires review.',
+            recovery_state='review_required' if attempted else 'none')
+        raise
 
 
 def reconcile(row, candidate_id=None, adapter=None, approval=None):
