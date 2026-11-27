@@ -19,6 +19,13 @@ source/configuration, other field differences, wrong identities/status and repea
 repair attempts. Only the retained SEO pair can be sent; full normal readback is
 required before clearing identity/queue recovery. It is never scheduler-invoked.
 
+Reporting derives a resolved link from each successful, fully verified SEO repair
+to its exact original operation and identity. Original failed receipts remain
+unchanged in history, with a link to the successful repair. They no longer count
+as active recovery cases. A partial publisher cycle is excluded from current
+execution incidents only when every failed target has its exact verified repair;
+unrelated successes, incomplete cycles and worker errors remain visible.
+
 New simple/variable parents use the explicitly authored SEO `handle`, or a
 lowercase ASCII slug derived from the final customer-facing product title.
 Decorative punctuation and spaces become single hyphens. Non-ASCII-only titles

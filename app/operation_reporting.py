@@ -121,11 +121,58 @@ def _issue(key, category, entity, cause, severity, detected, action, destination
                 'destination': destination}, **extra)
 
 
+def verified_recovery_links(rows):
+    """Exact successful SEO repair receipts resolve only their original incident."""
+    by_id = {r.id:r for r in rows}
+    links = {}
+    for row in rows:
+        scope = document(row.scope)
+        summary = operation_summary(scope)
+        old = by_id.get(scope.get('original_operation'))
+        if (row.operation_type != 'shopify_draft_publish' or row.status != 'succeeded'
+                or row.recovery_state not in (None, 'none') or row.error
+                or scope.get('mode') != 'reviewed_seo_repair'
+                or summary.get('mode') != 'reviewed_seo_repair' or summary.get('state') != 'verified'
+                or not old or old.operation_type != row.operation_type
+                or old.recovery_state in (None, 'none')
+                or not (old.error or '').startswith('Managed Simple fields differ from the reviewed plan')
+                or not row.finished_at or not old.finished_at or row.started_at <= old.finished_at):
+            continue
+        identity = scope.get('identity_id')
+        if (type(identity) is int and identity > 0 and summary.get('identity_id') == identity
+                and operation_summary(document(old.scope)).get('identity_id') == identity):
+            links[old.id] = row.id
+    return links
+
+
+def publisher_run_resolved(run, rows, links):
+    """A cycle is resolved only when every failed target has its exact repair."""
+    if run.task_key != 'shopify_publisher' or run.state != 'partially_completed' or run.error:
+        return False
+    data = document(run.data_json)
+    outcomes, counts = data.get('outcomes') or {}, data.get('counts') or {}
+    failed = {str(k) for k,v in outcomes.items() if v == 'r'}
+    if (not failed or set(outcomes.values()) - {'r','c','u','m','v'} or data.get('errors')
+            or data.get('queue') or counts.get('deferred')
+            or counts.get('attention') != len(failed) or counts.get('considered') != len(outcomes)
+            or counts.get('checked') != len(outcomes)):
+        return False
+    items = {str(i.get('id')):i for i in data.get('items', []) if isinstance(i,dict)}
+    by_id = {r.id:r for r in rows}
+    for key in failed:
+        item = items.get(key, {})
+        old = by_id.get(item.get('operation_id'))
+        if (item.get('state') != 'recovery_required' or not old or old.id not in links
+                or str(document(old.scope).get('product_id')) != key):
+            return False
+    return True
+
+
 def operation_issues(rows):
     """Conservative incident folding. A read success cannot resolve a write failure."""
     active, recovery, resolved = {}, [], []
     from app.shopify_package_assignments import superseded_operations
-    superseded = superseded_operations(rows)
+    superseded = superseded_operations(rows) | set(verified_recovery_links(rows))
     for row in sorted(rows, key=lambda r: (r.started_at, r.id)):
         if row.id in superseded:
             resolved.append(row.id)
@@ -348,6 +395,8 @@ def issue_projection():
         latest.setdefault(run.task_key, run)
     for run in latest.values():
         if task_interpretation(run)['execution'] not in {'failed', 'partially_completed'}:
+            continue
+        if publisher_run_resolved(run, rows, verified_recovery_links(rows)):
             continue
         data = document(run.data_json)
         cause = run.error or data.get('reason') or 'Required task targets remain incomplete; inspect task history.'

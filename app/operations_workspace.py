@@ -401,6 +401,14 @@ def operation_detail_workspace(row, *, item_page=1, item_status=""):
         if collection:
             related_collections[collection.id] = item_views[-1]["collection"]
     view = operation_view(row, redaction_paths=redaction_paths)
+    from app.operation_reporting import verified_recovery_links
+    repaired_by = verified_recovery_links(CatalogueOperation.query.filter_by(
+        operation_type='shopify_draft_publish').all()).get(row.id) if row.operation_type == 'shopify_draft_publish' else None
+    if repaired_by:
+        view['resolved_by'] = repaired_by
+        view['status_label'] = 'Resolved — original execution retained'
+        view['recoverable'] = False
+        view['resolved_error'], view['error'] = view['error'], None
     live = view["live"] or {}
     timeline = [
         {"label": "Operation started", "state": "complete", "at": row.started_at},
