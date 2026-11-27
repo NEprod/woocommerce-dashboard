@@ -431,6 +431,9 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
         if remote is None:
             from app.shopify_connection import ShopifyProductAbsent
             raise ShopifyProductAbsent("Exact Shopify variable parent read returned absent; reconcile existence before any new Create.")
+        if not resume_creation:
+            from app.shopify_handles import prepare as prepare_handle
+            prepare_handle(plan,config,adapter,remote=remote)
         identity_digest=drafts.digest(data)
         initial_variant=_creation_resume(row,data,plan,remote) if resume_creation else None
         compare(plan,row,data,remote,initial_variant=initial_variant)
@@ -443,15 +446,14 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
             removed = sorted(set(remote["tags"]) - set(plan["managed"]["product"]["tags"]))
             if removed: plan["warnings"].append("Explicit tag replacement removes: " + ", ".join(removed))
     else:
+        from app.shopify_handles import prepare as prepare_handle
+        prepare_handle(plan,config,adapter,retained=drafts.evidence(row)['plan']['handle'] if drafts.upload_pending(row) else None)
         matches = adapter.find_skus(config,[plan["sku"], *[v["sku"] for v in plan["variants"]]])
         if not isinstance(matches,dict) or not isinstance(matches.get("nodes"),list) or matches.get("pageInfo",{}).get("hasNextPage") is not False:
             raise ShopifyError('Parent/variant SKU discovery is incomplete. Resolve discovery before Create.')
         if matches['nodes']:
             from app.shopify_connection import ShopifyReadinessFinding
             raise ShopifyReadinessFinding('Existing parent/variant SKU candidates need reconciliation review; never create duplicates or auto-link ambiguous variants. First-time linking without a retained identity requires a separately supported workflow.', code='reconciliation')
-        found = adapter.find_draft(config,plan["handle"])
-        if found["nodes"] or found["pageInfo"].get("hasNextPage"):
-            raise ShopifyError("Handle already exists or discovery is incomplete; resolve candidates before Create.")
         plan["fields"] = [{"field":key,"before":None,"after":value,"changed":value is not None} for key,value in plan["managed"]["product"].items()]
         plan["fields"] += [{"field":"variants."+v["sku"]+".create","before":None,"after":v["managed"]["price"],"changed":True} for v in plan["variants"]]
         for v in plan["variants"]: v["action"] = "Create"
@@ -519,7 +521,7 @@ def preview(product, adapter=None, *, context=None, seed=None, scope="full", sta
     reserves['storefront_configuration'] = customisation_reserve(plan)
     drafts.encode(reserves)
     reviewed = {"mode":"variable_resume" if resume_creation else "variable", **{key:plan.get(key) for key in
-        ("product_id","digest","store_id","config_digest","nonce","remote_id","remote_digest","identity_digest","taxonomy_review_digest","classification","identity_id","scope")}}
+        ("product_id","digest","store_id","config_digest","nonce","remote_id","remote_digest","identity_digest","taxonomy_review_digest","classification","identity_id","scope","handle")}}
     if resume_creation:reviewed['creation_resume']=plan['creation_resume']
     from app.shopify_variable_readback import attribute_review_only, reconciled_attribute_review
     if reconciled_attribute_review(row, reviewed) and not attribute_review_only(data, plan):
@@ -822,7 +824,7 @@ def confirm(reviewed, adapter=None):
     try:
         resuming=reviewed.get('mode')=='variable_resume'
         plan,_ = preview(product,adapter,seed=reviewed["nonce"],resume_creation=resuming)
-        for key in ("digest","store_id","config_digest","remote_id","remote_digest","identity_digest","taxonomy_review_digest","classification"):
+        for key in ("digest","store_id","config_digest","remote_id","remote_digest","identity_digest","taxonomy_review_digest","classification","handle"):
             if plan.get(key)!=reviewed.get(key):
                 raise ShopifyError("Variable source, identity, remote state, scopes or memberships changed after Review. No write attempted.")
         if plan["blockers"] or plan["classification"]=="no_change":

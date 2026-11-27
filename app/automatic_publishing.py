@@ -137,12 +137,12 @@ def queue_product(product, *, trigger='scan', priority=0):
 
 
 def refresh_production_costs(*, fence, limit=24):
-    """Advance only costs derived from unchanged, completed-scan source JSON."""
+    """Bounded refresh of derived costs and legacy URL policy; no remote writes."""
     from app.inventory import product_bom
     from app.shopify_publication import intent
     stamp = drafts.now()
     table = ShopifyPublishJob.__table__
-    jobs = ShopifyPublishJob.query.filter(ShopifyPublishJob.production_basis_revision.isnot(None),
+    jobs = ShopifyPublishJob.query.filter(
         ShopifyPublishJob.owner.is_(None), ShopifyPublishJob.state.in_({'verified', 'pending', 'matching', 'attention'}),
         ShopifyPublishJob.manual_actor_id.is_(None)).order_by(
             ShopifyPublishJob.production_checked_at, ShopifyPublishJob.product_id).limit(limit).all()
@@ -153,8 +153,20 @@ def refresh_production_costs(*, fence, limit=24):
             if product and product.source_relpath == job.source_identity and product.catalogue_status == 'active':
                 authored = product_document(product)
                 if intent(authored)['status'] == 'ACTIVE':
+                    from app.shopify_handles import legacy
+                    identities=ShopifyProductIdentity.query.filter_by(product_id=product.id,state='verified').all()
+                    if len(identities)==1 and legacy(drafts.evidence(identities[0]).get('plan',{}).get('handle')):
+                        revised=local_revision(product)
+                        if revised != job.requested_revision:
+                            changes.update(requested_revision=revised,generation=job.generation+1,state='pending',
+                                trigger='url_handle',priority=0,attempts=0,next_attempt=stamp,updated_at=stamp,error=None,view_pending=True)
                     layers = product_bom.authored(product)
-                    if local_revision(product, include_costs=False, production_layers=layers) == job.production_basis_revision:
+                    basis=local_revision(product, include_costs=False, production_layers=layers)
+                    # Upgrade the derived-cost checkpoint only when the exact
+                    # pre-URL-policy source still matches its completed scan.
+                    if job.production_basis_revision and (basis == job.production_basis_revision or
+                            local_revision(product,include_costs=False,production_layers=layers,handle_policy=False) == job.production_basis_revision):
+                        changes['production_basis_revision']=basis
                         revised = local_revision(product, production_layers=layers)
                         if revised != job.requested_revision:
                             changes.update(requested_revision=revised, generation=job.generation+1, state='pending',
@@ -491,13 +503,13 @@ def execution_proof(product, plan):
     if product.product_type == 'variable':
         return {'mode': 'variable', **{key: plan.get(key) for key in (
             'product_id', 'digest', 'store_id', 'config_digest', 'nonce', 'remote_id',
-            'remote_digest', 'identity_digest', 'taxonomy_review_digest', 'classification', 'identity_id', 'scope')}}
+            'remote_digest', 'identity_digest', 'taxonomy_review_digest', 'classification', 'identity_id', 'scope', 'handle')}}
     if plan['classification'] == 'update':
         return {'mode': 'update', 'scope': 'full', **{key: plan[key] for key in (
             'product_id', 'digest', 'identity_id', 'remote_id', 'store_id', 'domain',
-            'config_digest', 'remote_digest', 'identity_digest', 'taxonomy_review_digest')}}
+            'config_digest', 'remote_digest', 'identity_digest', 'taxonomy_review_digest', 'handle')}}
     return {key: plan[key] for key in ('product_id', 'digest', 'store_id', 'store_key',
-                                     'domain', 'config_digest', 'nonce', 'taxonomy_review_digest')}
+                                     'domain', 'config_digest', 'nonce', 'handle', 'taxonomy_review_digest')}
 
 
 def _settle_job(job, *, owner, revision, state, operation_id=None, error=None, fence=None):
@@ -994,7 +1006,7 @@ def run_slice(run_id, owner, *, adapter=None):
     try:
         guard()
         recover_jobs(run_id + ':' + owner, guard=guard, fence=fence)
-        if scheduled and policy().enabled and data.get('scope') is None and not data.get('production_checked'):
+        if policy().enabled and data.get('scope') is None and not data.get('production_checked'):
             refresh_production_costs(fence=fence)
             data['production_checked'] = True
         # Upgrade/bootstrap only existing database identities in bounded slices.

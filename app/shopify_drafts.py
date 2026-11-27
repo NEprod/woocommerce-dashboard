@@ -334,7 +334,7 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None,
             mode = SIMPLE_RESUME if row.state == "creation_review_required" else "update"
             token = serializer().dumps({"mode": mode, "scope":scope, **{key: result[key] for key in (
                 "product_id", "digest", "identity_id", "remote_id", "store_id", "domain", "config_digest",
-                "remote_digest", "identity_digest", "taxonomy_review_digest")}})
+                "remote_digest", "identity_digest", "taxonomy_review_digest", "handle")}})
         if result["classification"] == "update" and not can_write:
             result["blockers"].append("Missing write_products; read-only comparison is available, writes are blocked.")
         if row.state=="attribute_review_required" and result["classification"]=="no_change":
@@ -351,9 +351,8 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None,
     plan.update(store_key=store_key, store_id=shop["shop_id"], domain=config.domain,
                 config_digest=config.fingerprint(),
                 nonce=evidence(row)['plan']['nonce'] if upload_pending(row) else uuid.uuid4().hex)
-    plan["handle"] = plan["managed"]["product"].get("handle") or "tlc-draft-" + plan["nonce"]
-    if "handle" in plan["managed"]["product"] and adapter.find_draft(config, plan["handle"])["nodes"]:
-        raise ShopifyError("The authored handle already belongs to a Shopify product. Another create is refused.")
+    from app.shopify_handles import prepare as prepare_handle
+    prepare_handle(plan,config,adapter,retained=evidence(row)['plan']['handle'] if upload_pending(row) else None)
     plan["classification"] = "create"
     if not can_write:
         plan["blockers"].append("Missing write_products; read-only comparison is available, writes are blocked.")
@@ -379,7 +378,7 @@ def _preview(product, adapter=None, *, context=None, scope="full", started=None,
     annotate(product,plan,None,config,shop,adapter)
     from app.shopify_customisations import reserve as customisation_reserve
     encode({"version": 1, "plan": plan, 'storefront_configuration':customisation_reserve(plan), "reserve": "x" * 12000})
-    token = serializer().dumps({k: plan[k] for k in ("product_id", "digest", "store_id", "store_key", "domain", "config_digest", "nonce", "taxonomy_review_digest")})
+    token = serializer().dumps({k: plan[k] for k in ("product_id", "digest", "store_id", "store_key", "domain", "config_digest", "nonce", "handle", "taxonomy_review_digest")})
     from app.shopify_comparison import record
     record(product, plan, row)
     return plan, token if not plan["blockers"] else None
@@ -630,9 +629,13 @@ def execute_reviewed(reviewed, adapter=None, *, expected_product_id=None):
     annotate(product,plan,None,config,shop,adapter)
     if plan["taxonomy_review_digest"] != reviewed.get("taxonomy_review_digest"):
         raise ShopifyError("Collection mapping/membership changed after review. Review again.")
-    plan["handle"] = plan["managed"]["product"].get("handle") or "tlc-draft-" + plan["nonce"]
-    if "handle" in plan["managed"]["product"] and adapter.find_draft(config, plan["handle"])["nodes"]:
-        raise ShopifyError("The reviewed handle is now occupied. Generate a fresh Preview.")
+    from app.shopify_handles import prepare as prepare_handle
+    retained=matching_identity(shop['shop_id'],product)
+    if retained and retained.state not in {'failed_before_create','remote_deleted'} and not upload_pending(retained):
+        raise ShopifyError('A prior Shopify attempt exists. Reconcile its identity; no duplicate creation is allowed.')
+    prepare_handle(plan,config,adapter,retained=evidence(retained)['plan']['handle'] if upload_pending(retained) else None)
+    if plan['handle'] != reviewed.get('handle'):
+        raise ShopifyError('URL handle availability changed after Review. Generate a fresh Preview; no create occurred.')
     lease = acquire_catalogue_operation("shopify_draft_publish", {"product_id": product.id, "sku": product.sku, "store_id": shop["shop_id"]})
     row = None
     try:
@@ -1100,6 +1103,8 @@ def update_preview(product, row, plan, config, shop, adapter):
     if row.state == "creation_review_required" and remote.get("status") != "DRAFT":
         raise ShopifyError("The retained draft is no longer Draft. Reconcile its state before any write.")
     variant = simple_identity(row, data, remote)
+    from app.shopify_handles import prepare as prepare_handle
+    prepare_handle(plan,config,adapter,remote=remote)
     if not data.get("variant_id") and variant.get("sku") != row.sku:
         raise ShopifyError("Legacy Simple variant cannot be adopted with a different SKU; recovery review is required.")
     actions, media_rows = media_review(plan, data, remote)
@@ -1129,7 +1134,7 @@ def update_preview(product, row, plan, config, shop, adapter):
         collision = adapter.find_draft(config, plan["managed"]["product"]["handle"])
         if collision["pageInfo"].get("hasNextPage") or any(n.get("id") != row.shopify_product_id for n in collision["nodes"]):
             raise ShopifyError("The reviewed handle belongs to another Shopify product; no update is allowed.")
-        plan["warnings"].append("Explicit URL-handle change; no redirect is created by this workflow.")
+        plan["warnings"].append("Reviewed URL-handle change; the old product URL will redirect to the new URL.")
     plan.update(classification=classification, fields=rows, media_actions=actions,
         identity_id=row.id, remote_id=row.shopify_product_id, variant_id=variant["id"],
         inventory_item_id=variant["inventoryItem"]["id"], store_id=shop["shop_id"],
@@ -1175,7 +1180,7 @@ def update_inputs(plan):
     if inventory:
         variant["inventoryItem"] = inventory
     if "handle" in product:
-        product["redirectNewHandle"] = False
+        product["redirectNewHandle"] = True
     return product, variant
 
 
@@ -1202,7 +1207,7 @@ def confirm_update(reviewed, adapter=None):
         plan, _ = preview(product, adapter)
         if plan["blockers"]:
             raise ShopifyError("Publication or collection mapping blockers remain. Review again; no write attempted.")
-        for key in ("digest", "identity_id", "remote_id", "store_id", "domain", "config_digest", "remote_digest", "identity_digest", "taxonomy_review_digest"):
+        for key in ("digest", "identity_id", "remote_id", "store_id", "domain", "config_digest", "remote_digest", "identity_digest", "taxonomy_review_digest", "handle"):
             if plan.get(key) != reviewed.get(key):
                 raise ShopifyError("Source/configuration/remote state changed since review. Generate a fresh Preview; no update was attempted.")
         if plan["classification"] != "update" or plan["scope"] != reviewed.get("scope", "full"):

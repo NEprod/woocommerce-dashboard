@@ -11,7 +11,7 @@ from app.taxonomy_assignments import product_document
 from app.shopify_connection import ShopifyError
 
 
-def source_fingerprint(product, images, *, production_costs=None, include_costs=True, production_layers=None):
+def source_fingerprint(product, images, *, production_costs=None, include_costs=True, production_layers=None, handle_policy=True):
     """Cheap metadata/stat comparison, not a substitute for Preview byte hashing."""
     from app.catalogue_images import _source_context
     context = _source_context(product)
@@ -36,7 +36,8 @@ def source_fingerprint(product, images, *, production_costs=None, include_costs=
                       info.st_size, info.st_mtime_ns, info.st_ctime_ns])
     from app.catalogue_fields import shipping_details
     from app import shopify_simple_fields as fields
-    authored = product_document(product)
+    from app.taxonomy_assignments import publishing_document
+    authored = publishing_document(product) if handle_policy else product_document(product)
     from app.shopify_package_assignments import fingerprint as package_fingerprint
     # Reuse the publisher's field semantics without loading variations/taxonomy or
     # reading image bytes. Unsupported metadata cannot invent a publishable update.
@@ -48,7 +49,8 @@ def source_fingerprint(product, images, *, production_costs=None, include_costs=
             "sku": product.sku}
     managed, _ = fields.contract(snapshot, base)
     from app.shopify_dimension_metadata import POLICY_VERSION
-    data = {"dimension_metadata_policy": POLICY_VERSION, "managed": managed, "intent": authored.get("live"), "sku": product.sku,
+    from app.shopify_handles import POLICY_VERSION as HANDLE_POLICY
+    data = {**({'url_handle_policy':HANDLE_POLICY} if handle_policy else {}),"dimension_metadata_policy": POLICY_VERSION, "managed": managed, "intent": authored.get("live"), "sku": product.sku,
             "package_assignment_policy":1,"package_assignments":package_fingerprint(product,authored),
             "source": product.source_relpath, "type": product.product_type,
             "images": [(i.url, i.position, i.alt_text) for i in product.images],
@@ -228,7 +230,10 @@ def product_state(product, rows, comparisons=(), mappings=None, *, url_builder=N
             elif row.state == "verified" and row.verification_state == "verified":
                 plan = data["plan"]
                 baseline = plan.get("workspace_source_fingerprint")
-                if baseline and baseline == source_fingerprint(product, plan["images"]):
+                from app.shopify_handles import legacy
+                if legacy(plan.get('handle')):
+                    state.update(state='local_changes',label='Update Available',message='The retained product has a generated draft-style URL. Review & Sync or enabled automatic publishing can correct it with a redirect; the product identity is preserved.')
+                elif baseline and baseline == source_fingerprint(product, plan["images"]):
                     state.update(state="no_change", label="No Change", message="Last verified managed state; local metadata/image stats match. Remote freshness requires explicit Review or reconciliation.")
                 elif baseline:
                     state.update(state="local_changes", label="Checking Changes", message="Effective local evidence changed; read-only comparison is pending, not a confirmed Shopify update.")

@@ -78,6 +78,9 @@ class FakeDraftAdapter:
         self.remote.setdefault("vendor", "")
         self.remote.setdefault("tags", [])
         self.remote.setdefault("seo", {"title": None, "description": None})
+        self.remote["seo"] = copy.deepcopy(self.remote["seo"])
+        self.remote["seo"].setdefault("title", None)
+        self.remote["seo"].setdefault("description", None)
         for key in ("length", "width", "height"):
             self.remote[key] = next((dict(m, id=f"gid://shopify/Metafield/{400+len(key)}")
                 for m in product["metafields"] if m["key"] == "product_" + key), None)
@@ -151,7 +154,7 @@ def test_preview_is_read_only_and_confirmation_required(world):
     adapter = FakeDraftAdapter()
     before = {p.name: p.read_bytes() for p in folder.iterdir()}
     plan, token = drafts.preview(product, adapter)
-    assert adapter.calls == ["connection_read", "dimension_definitions_read"] and ShopifyProductIdentity.query.count() == 0
+    assert adapter.calls == ["connection_read", "find_read", "dimension_definitions_read"] and ShopifyProductIdentity.query.count() == 0
     assert [i["filename"] for i in plan["images"]] == ["original.png", "second.jpg"]
     assert plan["status"] == "DRAFT" and plan["price"] == "3.50"
     with pytest.raises(ShopifyError, match="acknowledgement"):

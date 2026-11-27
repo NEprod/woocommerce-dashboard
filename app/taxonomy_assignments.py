@@ -72,3 +72,21 @@ def product_document(product, *, catalogue_root=...):
     shared = metadata_source(product, "shared", catalogue_root=root)
     override = metadata_source(product, "override", catalogue_root=root)
     return resolved_metadata(product, shared["data"], override["data"] if override["exists"] else {})
+
+
+def publishing_document(product):
+    """Product-owned SEO titles win; collection copy is not a child SEO title."""
+    from app.metadata_workspace import metadata_source, title_preview
+    shared = metadata_source(product, "shared")
+    override = metadata_source(product, "override")
+    document = product_document(product)
+    scope = title_preview(product, shared["data"], override["data"])
+    own = shared["data"] if scope["single_scope"] else override["data"]
+    title = own.get("meta_title")
+    if not isinstance(title, str) or not title.strip():
+        title = document.get("title") or product.title
+        # Generated SEO copy follows Shopify's existing supported title bound.
+        document["meta_title"] = title[:70].rstrip()
+    else:
+        document["meta_title"] = title
+    return document

@@ -44,7 +44,8 @@ def catalogue_snapshot(product):
     """No remote reads, ORM writes, scanning, SKU allocation or authored writes."""
     from app import db
     with db.session.no_autoflush:
-        authored = product_document(product)
+        from app.taxonomy_assignments import publishing_document
+        authored = publishing_document(product)
         # Royal Mail reference only; excluded from signed platform snapshots.
         authored.pop('customs_description', None)
         from app.catalogue_fields import shipping_details

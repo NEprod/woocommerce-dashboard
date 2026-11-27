@@ -81,6 +81,10 @@ def created(world):
 
 def change(world, **values):
     path = world[2]
+    if 'meta_title' in values:
+        override = world[1] / 'product_info.json'
+        own = json.loads(override.read_text()) if override.exists() else {}
+        override.write_text(json.dumps({**own, 'meta_title': values.pop('meta_title')}))
     path.write_text(json.dumps({**json.loads(path.read_text()), **values}))
 
 
@@ -287,11 +291,13 @@ def test_missing_optional_fields_do_not_clear_remote_values(world):
     inventory.update(countryCodeOfOrigin="CN", requiresShipping=False, tracked=True)
     plan, token = drafts.preview(product, adapter)
     assert plan["classification"] == "update" and token
-    assert [f["field"] for f in plan["fields"] if f["changed"]] == ["tracked"]
+    assert {f["field"] for f in plan["fields"] if f["changed"]} == {"tracked", "seo.title"}
     assert "countryCodeOfOrigin" not in plan["managed"]["variant"]["inventoryItem"]
     drafts.confirm(token, True, adapter)
     assert inventory["countryCodeOfOrigin"]=="CN" and inventory["requiresShipping"] is False
-    assert adapter.remote["vendor"]=="Remote vendor" and adapter.remote["seo"]["title"]=="Remote SEO"
+    assert adapter.remote["vendor"]=="Remote vendor"
+    assert adapter.remote["seo"]["title"]==plan["managed"]["product"]["title"]
+    assert adapter.remote["seo"]["description"]=="Remote description"
 
 
 def test_dimensions_type_conflict_blocks_before_write(world):
@@ -633,7 +639,7 @@ def test_handle_is_reviewed_unique_and_retains_attempt_correlation(world):
     drafts.confirm(token, True, adapter)
     assert row.state == "verified" and adapter.remote["handle"] == "birthday-card"
     assert adapter.remote["metafield"]["value"] == nonce
-    assert adapter.inputs[-1]["redirectNewHandle"] is False
+    assert adapter.inputs[-1]["redirectNewHandle"] is True
 
 
 def test_update_confirmation_auth_csrf_and_no_change_ui(world, monkeypatch, preview_app):
